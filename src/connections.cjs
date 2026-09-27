@@ -35,8 +35,11 @@ function inferredVision(value = {}) {
 }
 function normalizeModelCapabilities(value = {}, { vision } = {}) {
   const explicit = normalizedInputModalities(value.inputModalities);
-  const supportsVision = typeof vision === 'boolean' ? vision : inferredVision(value);
-  const inputModalities = explicit || (typeof supportsVision === 'boolean' ? ['text', ...(supportsVision ? ['image'] : [])] : null);
+  const hasVisionOverride = typeof vision === 'boolean';
+  const supportsVision = hasVisionOverride ? vision : inferredVision(value);
+  const inputModalities = hasVisionOverride
+    ? ['text', ...(supportsVision ? ['image'] : [])]
+    : explicit || (typeof supportsVision === 'boolean' ? ['text', ...(supportsVision ? ['image'] : [])] : null);
   return {
     ...value,
     ...(inputModalities ? { inputModalities } : {}),
