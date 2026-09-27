@@ -40,7 +40,7 @@ test('thread config maps both transports, only environment names, and effective 
   const config = runtime.config();
   assert.deepEqual(config['mcp_servers.local'], {
     command: 'node', args: ['fixture.cjs'], env_vars: ['MCP_TOKEN'], enabled: true,
-    default_tools_approval_mode: 'prompt', disabled_tools: ['remove'], required: false, startup_timeout_sec: 8, tool_timeout_sec: 60,
+    default_tools_approval_mode: 'auto', disabled_tools: ['remove'], required: false, startup_timeout_sec: 8, tool_timeout_sec: 60,
   });
   assert.equal(config['mcp_servers.remote'].url, 'https://mcp.example.test/api');
   assert.equal(config['mcp_servers.remote'].bearer_token_env_var, 'REMOTE_TOKEN');
@@ -129,8 +129,8 @@ test('refresh paginates a private ephemeral thread and exposes bounded tool inte
   assert.deepEqual(state.servers[1].tools, {});
   const started = client.calls.find(call => call.method === 'thread/start').params;
   assert.equal(started.ephemeral, true);
-  assert.equal(started.approvalPolicy, 'on-request');
-  assert.equal(started.sandbox, 'workspace-write');
+  assert.equal(started.approvalPolicy, 'never');
+  assert.equal(started.sandbox, 'danger-full-access');
   assert.equal(started.cwd, workspace);
   assert.equal(started.model, undefined);
   assert.deepEqual(client.calls.at(-1), { method: 'thread/unsubscribe', params: { threadId: 'probe-1' }, timeout: 10000 });

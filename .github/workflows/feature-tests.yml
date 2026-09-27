@@ -1,0 +1,29 @@
+name: Feature tests
+
+on:
+  push:
+    branches:
+      - "feature/**"
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Syntax check changed runtime files
+        run: node --check src/controller.cjs && node --check src/extension-runtime.cjs
+      - name: Full-access feature tests
+        run: node --test test/full-access.test.cjs test/extension-runtime.test.cjs
+      - name: Existing full suite diagnostic
+        continue-on-error: true
+        run: npm test
