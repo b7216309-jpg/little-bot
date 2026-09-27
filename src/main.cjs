@@ -18,6 +18,7 @@ const { AgentBrowser } = require('./agent-browser.cjs');
 const { WebServices } = require('./web-services.cjs');
 const { Attachments } = require('./attachments.cjs');
 const { attachmentDescriptors } = require('./attachment-message.cjs');
+const { ErrorLog } = require('./error-log.cjs');
 const { randomUUID } = require('node:crypto');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'little-bot-attachment', privileges: { standard: true, secure: true, supportFetchAPI: false } }]);
@@ -27,9 +28,17 @@ if (process.env.LITTLE_BOT_DATA_DIR) app.setPath('userData', path.resolve(proces
 const smoke = process.argv.includes('--smoke-test');
 const launchTime = performance.now();
 if (!smoke && !app.requestSingleInstanceLock()) app.quit();
-let window, controller, scheduler, heartbeat, goals, quitting = false;
+let window, controller, scheduler, heartbeat, goals, errorLog, quitting = false;
 const rendererFile = path.join(__dirname, 'renderer', 'index.html');
 const rendererUrl = pathToFileURL(rendererFile).href;
+
+function logDiagnostic(source, error, metadata) {
+  if (errorLog) return errorLog.capture(source, error, metadata);
+  try { console.error(`[${source}]`, cleanError(error)); } catch {}
+  return null;
+}
+
+process.on('uncaughtExceptionMonitor', error => logDiagnostic('main:uncaught-exception', error));
 
 function safeAuthUrl(value) {
   try {
@@ -45,7 +54,10 @@ function register(name, handler) {
   ipcMain.handle(`bot:${name}`, async (event, payload) => {
     if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame ||
       event.senderFrame.url.split('#')[0] !== rendererUrl) throw new Error('Untrusted app window.');
-    try { return await handler(payload); } catch (error) { throw new Error(cleanError(error)); }
+    try { return await handler(payload); } catch (error) {
+      logDiagnostic(`ipc:${name}`, error);
+      throw new Error(cleanError(error));
+    }
   });
 }
 async function runAutomation(automation) {
@@ -61,6 +73,7 @@ async function runAutomation(automation) {
 
 app.whenReady().then(async () => {
   const stateDir = path.join(app.getPath('userData'), 'data');
+  errorLog = new ErrorLog({ root: path.join(stateDir, 'logs'), appVersion: require('../package.json').version });
   const codexHome = path.join(stateDir, 'engine');
   const defaultWorkspace = path.join(app.getPath('userData'), 'Workspace');
   fs.mkdirSync(codexHome, { recursive: true }); fs.mkdirSync(defaultWorkspace, { recursive: true });
@@ -80,7 +93,7 @@ app.whenReady().then(async () => {
   ].join('\n'));
   const store = new Store({ filePath: path.join(stateDir, 'state.json'), defaultWorkspace });
   const client = new CodexClient({ homeDir: codexHome, cwd: defaultWorkspace });
-  controller = new Controller({ store, client });
+  controller = new Controller({ store, client, onError: logDiagnostic });
   controller.browser = new AgentBrowser({ root: path.join(stateDir, 'browser'), headed: !smoke, onChange: () => controller.changed() });
   controller.webServices = new WebServices({ root: path.join(stateDir, 'services'), safeStorage });
   controller.attachments = new Attachments({ root: path.join(stateDir, 'attachments'), nativeImage });
@@ -219,6 +232,20 @@ app.whenReady().then(async () => {
   }
 
   register('getState', () => controller.state());
+  register('reportError', ({ kind, message, stack } = {}) => {
+    if (typeof kind !== 'string' || kind.length > 100 || typeof message !== 'string' || message.length > 12000
+      || (stack !== undefined && (typeof stack !== 'string' || stack.length > 30000))) throw new Error('Invalid renderer diagnostic.');
+    const error = new Error(message || 'Renderer error');
+    if (stack) error.stack = stack;
+    logDiagnostic(`renderer:${kind || 'error'}`, error);
+    return { ok: true };
+  });
+  register('openLogs', async () => {
+    fs.mkdirSync(errorLog.root, { recursive: true });
+    const error = await shell.openPath(errorLog.root);
+    if (error) throw new Error(error);
+    return { ok: true };
+  });
   register('saveProfile', payload => { controller.profileFiles.save(payload); controller.changed(); return controller.state(); });
   register('openProfileFolder', async () => {
     const error = await shell.openPath(controller.profileFiles.getState().root);
@@ -423,6 +450,16 @@ app.whenReady().then(async () => {
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true,
       nodeIntegration: false, sandbox: true, spellcheck: false, webviewTag: false, backgroundThrottling: !smoke },
   });
+  window.webContents.on('render-process-gone', (_event, details) => {
+    logDiagnostic('renderer:process-gone', new Error(`Renderer process exited: ${details.reason || 'unknown'}`), {
+      reason: details.reason, exitCode: details.exitCode,
+    });
+  });
+  window.webContents.on('did-fail-load', (_event, code, description, validatedURL, isMainFrame) => {
+    if (isMainFrame) logDiagnostic('renderer:load-failed', new Error(description || `Load failed with code ${code}`), {
+      code, url: validatedURL,
+    });
+  });
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (safeWebUrl(url)) shell.openExternal(url).catch(() => {});
     return { action: 'deny' };
@@ -460,7 +497,7 @@ app.whenReady().then(async () => {
       app.exit(0);
     } catch (error) { console.error(cleanError(error.stack || error)); scheduler.stop(); heartbeat.stop(); await goals.close(); await controller.browser.close({ shutdown: true }).catch(() => {}); controller.webServices.close(); await controller.close(); app.exit(1); }
   }
-}).catch(error => { console.error(cleanError(error)); app.exit(1); });
+}).catch(error => { logDiagnostic('main:startup', error); console.error(cleanError(error)); app.exit(1); });
 app.on('second-instance', () => { if (window) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); } });
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', event => {
