@@ -22,7 +22,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Syntax check calendar changes
-        run: node --check src/calendar.cjs && node --check src/agent-tools.cjs && node --check src/controller.cjs && node --check src/renderer/app.js
+        run: node --check src/calendar.cjs && node --check src/store.cjs && node --check src/main.cjs && node --check src/agent-tools.cjs && node --check src/controller.cjs && node --check src/preload.cjs && node --check src/renderer/app.js
       - name: Calendar behavior
         run: node --test test/calendar.test.cjs
       - name: Electron calendar interaction
