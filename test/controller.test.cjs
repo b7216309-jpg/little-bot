@@ -75,12 +75,12 @@ test('begin, streamed output, tool completion, and final answer survive an actua
   assert.equal(chat.status, 'running');
   assert.equal(chat.messages[0].text, 'Find the answer');
   const turnCall = client.calls.find(call => call.method === 'turn/start');
-  assert.equal(turnCall.params.approvalPolicy, 'on-request');
+  assert.equal(turnCall.params.approvalPolicy, 'never');
   assert.equal(turnCall.params.approvalsReviewer, 'user');
-  assert.deepEqual(turnCall.params.sandboxPolicy, {
-    type: 'workspaceWrite', writableRoots: [chat.workspace], networkAccess: false,
-    excludeSlashTmp: true, excludeTmpdirEnvVar: true,
-  });
+  assert.deepEqual(turnCall.params.sandboxPolicy, { type: 'dangerFullAccess' });
+  const threadCall = client.calls.find(call => call.method === 'thread/start');
+  assert.equal(threadCall.params.approvalPolicy, 'never');
+  assert.equal(threadCall.params.sandbox, 'danger-full-access');
   client.notice('item/started', { threadId: chat.threadId, item: { id: 'command-1', type: 'commandExecution', command: 'pwd', status: 'inProgress' } });
   client.notice('item/commandExecution/outputDelta', { threadId: chat.threadId, itemId: 'command-1', delta: 'working folder' });
   client.notice('item/completed', { threadId: chat.threadId, item: { id: 'command-1', type: 'commandExecution', command: 'pwd', aggregatedOutput: 'working folder', status: 'completed' } });
@@ -112,39 +112,32 @@ test('a persisted conversation is resumed exactly once before subsequent turns',
   assert.equal(client.calls.filter(call => call.method === 'turn/start').length, 3);
 });
 
-test('opaque UI approval IDs are scoped to the right chat and accept/decline maps to original RPC IDs', async (t) => {
+test('command and file approval RPCs are accepted automatically without pausing chat', async (t) => {
   const { controller, client } = await setup(t);
   const first = await begin(controller, 'First task');
   const second = await begin(controller, 'Second task');
   client.ask(12, 'item/commandExecution/requestApproval', { threadId: first.threadId, turnId: 'turn-1', itemId: 'cmd-1', command: 'pwd', cwd: first.workspace });
   client.ask('other-rpc-id', 'item/fileChange/requestApproval', { threadId: second.threadId, turnId: 'turn-2', itemId: 'file-1', reason: 'Write a report' });
-  const approvals = controller.state().approvals;
-  assert.equal(approvals.length, 2);
-  for (const approval of approvals) for (const key of ['rpcId', 'method', 'params']) assert.equal(Object.hasOwn(approval, key), false);
-  assert.equal(first.status, 'waiting');
-  assert.equal(second.status, 'waiting');
-  await assert.rejects(controller.respondApproval({ requestId: '12', decision: 'accept' }), /no longer waiting/);
-  await controller.respondApproval({ requestId: approvals.find(a => a.chatId === first.id).requestId, decision: 'accept' });
-  assert.deepEqual(client.responses[0], { id: 12, result: { decision: 'accept' } });
-  assert.equal(first.status, 'running');
-  assert.equal(second.status, 'waiting');
-  await controller.respondApproval({ requestId: approvals.find(a => a.chatId === second.id).requestId, decision: 'decline' });
-  assert.deepEqual(client.responses[1], { id: 'other-rpc-id', result: { decision: 'decline' } });
+  assert.deepEqual(client.responses.slice(-2), [
+    { id: 12, result: { decision: 'accept' } },
+    { id: 'other-rpc-id', result: { decision: 'accept' } },
+  ]);
   assert.equal(controller.state().approvals.length, 0);
+  assert.equal(first.status, 'running');
+  assert.equal(second.status, 'running');
 });
 
-test('permission and question responses include only the requested values and use turn-scoped grants', async (t) => {
+test('permission RPCs auto-grant while genuine user questions still wait for input', async (t) => {
   const { controller, client } = await setup(t);
   const chat = await begin(controller);
   const permissions = { network: { enabled: true }, fileSystem: { write: [chat.workspace] } };
   client.ask('permission', 'item/permissions/requestApproval', { threadId: chat.threadId, itemId: 'p1', permissions });
-  await controller.respondApproval({ requestId: controller.state().approvals[0].requestId, decision: 'accept' });
   assert.deepEqual(client.responses.at(-1), { id: 'permission', result: { permissions, scope: 'turn' } });
-  client.ask('denied-permission', 'item/permissions/requestApproval', { threadId: chat.threadId, itemId: 'p2', permissions });
-  await controller.respondApproval({ requestId: controller.state().approvals[0].requestId, decision: 'decline' });
-  assert.deepEqual(client.responses.at(-1).result, { permissions: {}, scope: 'turn' });
+  assert.equal(controller.state().approvals.length, 0);
+  assert.equal(chat.status, 'running');
   client.ask('question', 'item/tool/requestUserInput', { threadId: chat.threadId, itemId: 'q1', questions: [{ id: 'choice', question: 'Which format?' }] });
   const requestId = controller.state().approvals[0].requestId;
+  assert.equal(chat.status, 'waiting');
   await assert.rejects(controller.respondApproval({ requestId, decision: 'accept', answers: {} }), /Answer each question/);
   await controller.respondApproval({ requestId, decision: 'accept', answers: { choice: { answers: ['CSV'] }, unrelated: { answers: ['ignore this'] } } });
   assert.deepEqual(client.responses.at(-1).result, { answers: { choice: { answers: ['CSV'] } } });
@@ -162,14 +155,14 @@ test('foreign and unsupported server requests are rejected without creating a pr
   assert.equal(chat.messages.length, 1);
 });
 
-test('Stop declines pending prompts and interrupts only the selected conversation', async (t) => {
+test('Stop declines a genuine pending question and interrupts only the selected conversation', async (t) => {
   const { controller, client } = await setup(t);
   const first = await begin(controller, 'First');
   const second = await begin(controller, 'Second');
-  client.ask('stop-approval', 'item/commandExecution/requestApproval', { threadId: first.threadId, turnId: 'turn-1', itemId: 'cmd', command: 'pwd' });
+  client.ask('stop-question', 'item/tool/requestUserInput', { threadId: first.threadId, turnId: 'turn-1', itemId: 'question', questions: [{ id: 'choice', question: 'Which format?' }] });
   const outcome = controller.waitForChat(first.id);
   await controller.stop({ chatId: first.id });
-  assert.deepEqual(client.responses.at(-1), { id: 'stop-approval', result: { decision: 'decline' } });
+  assert.deepEqual(client.responses.at(-1), { id: 'stop-question', result: { answers: {} } });
   const interrupt = client.calls.find(call => call.method === 'turn/interrupt');
   assert.deepEqual(interrupt.params, { threadId: first.threadId, turnId: 'turn-1' });
   completed(client, first, 'turn-1', 'interrupted');
@@ -183,6 +176,8 @@ test('engine crash resolves in-flight work and clears approvals without leaking 
   const chat = await begin(controller);
   client.notice('item/agentMessage/delta', { threadId: chat.threadId, itemId: 'answer', delta: 'Partial answer' });
   client.ask('pending', 'item/fileChange/requestApproval', { threadId: chat.threadId, itemId: 'file', reason: 'Save file' });
+  assert.deepEqual(client.responses.at(-1), { id: 'pending', result: { decision: 'accept' } });
+  assert.equal(controller.state().approvals.length, 0);
   const outcome = controller.waitForChat(chat.id);
   client.emit('crash', new Error('Disconnected using sk-private-test-key-12345'));
   assert.match((await outcome).error, /engine stopped/);
@@ -233,24 +228,25 @@ test('a second send on the same conversation cannot race an in-flight turn-start
   assert.equal(client.calls.filter(call => call.method === 'turn/start').length, 2);
 });
 
-test('serverRequest/resolved removes the obsolete prompt and restores running status', async (t) => {
+test('serverRequest/resolved removes an obsolete question prompt and restores running status', async (t) => {
   const { controller, client } = await setup(t);
   const chat = await begin(controller);
-  client.ask('resolved-rpc', 'item/commandExecution/requestApproval', { threadId: chat.threadId, turnId: 'turn-1', itemId: 'cmd', command: 'pwd' });
+  client.ask('resolved-rpc', 'item/tool/requestUserInput', { threadId: chat.threadId, turnId: 'turn-1', itemId: 'question', questions: [{ id: 'choice', question: 'Which format?' }] });
   assert.equal(chat.status, 'waiting');
   client.notice('serverRequest/resolved', { threadId: chat.threadId, requestId: 'resolved-rpc' });
   assert.equal(controller.state().approvals.length, 0);
   assert.equal(chat.status, 'running');
 });
 
-test('an approval transport failure is surfaced to the caller instead of reporting success', async (t) => {
+test('an automatic approval transport failure fails the active chat instead of silently hanging', async (t) => {
   const { controller, client } = await setup(t);
   const chat = await begin(controller);
+  client.respond = async () => { throw new Error('Input pipe is closed'); };
+  const outcome = controller.waitForChat(chat.id);
   client.ask('failed-rpc', 'item/commandExecution/requestApproval', { threadId: chat.threadId, itemId: 'cmd', command: 'pwd' });
-  const failed = Promise.reject(new Error('Input pipe is closed'));
-  failed.catch(() => {}); // Keep the test's synthetic rejection handled even on the buggy implementation.
-  client.respond = () => failed;
-  await assert.rejects(Promise.resolve(controller.respondApproval({ requestId: controller.state().approvals[0].requestId, decision: 'accept' })), /Input pipe is closed/);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match((await outcome).error, /Input pipe is closed/);
+  assert.equal(chat.status, 'idle');
 });
 
 test('engine crash finalizes in-progress tool messages as failed', async (t) => {
