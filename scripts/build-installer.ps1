@@ -47,7 +47,6 @@ try {
 [Version]
 Class=IEXPRESS
 SEDVersion=3
-
 [Options]
 PackagePurpose=InstallApp
 ShowInstallProgramWindow=0
@@ -67,30 +66,27 @@ PostInstallCmd=%PostInstallCmd%
 AdminQuietInstCmd=%AdminQuietInstCmd%
 UserQuietInstCmd=%UserQuietInstCmd%
 SourceFiles=SourceFiles
-
+[Strings]
+InstallPrompt=
+DisplayLicense=
+FinishMessage=
+TargetName=$installer
+FriendlyName=Little Bot $Version Setup
+AppLaunched=cmd.exe /c install.cmd
+PostInstallCmd=<None>
+AdminQuietInstCmd=cmd.exe /c install.cmd
+UserQuietInstCmd=cmd.exe /c install.cmd
+FILE0="payload.zip"
+FILE1="install.cmd"
+FILE2="install.ps1"
+FILE3="uninstall.ps1"
 [SourceFiles]
 SourceFiles0=$sourceWithSlash
-
 [SourceFiles0]
 %FILE0%=
 %FILE1%=
 %FILE2%=
 %FILE3%=
-
-[Strings]
-InstallPrompt=
-DisplayLicense=
-FinishMessage=
-TargetName="$installer"
-FriendlyName="Little Bot $Version Setup"
-AppLaunched="install.cmd"
-PostInstallCmd=<None>
-AdminQuietInstCmd="install.cmd"
-UserQuietInstCmd="install.cmd"
-FILE0="payload.zip"
-FILE1="install.cmd"
-FILE2="install.ps1"
-FILE3="uninstall.ps1"
 "@
   [IO.File]::WriteAllText($sedPath, $sed, [Text.Encoding]::ASCII)
   & $iexpress /N /Q $sedPath
