@@ -2,7 +2,9 @@
 
 const { randomUUID } = require('node:crypto');
 const { connectionBinding, isConnectionSelected, requireSelectedConnection } = require('./connections.cjs');
+
 const MINUTE_MS = 60 * 1000;
+const ALL_DAYS = Object.freeze([0, 1, 2, 3, 4, 5, 6]);
 
 function validInterval(value) {
   if (!Number.isInteger(value) || value < 1 || value > 10080) {
@@ -11,9 +13,67 @@ function validInterval(value) {
   return value;
 }
 
+function validClockTime(value) {
+  if (typeof value !== 'string' || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)) {
+    throw new RangeError('Choose an exact local time in HH:MM format.');
+  }
+  return value;
+}
+
+function validDaysOfWeek(value) {
+  const input = value == null ? ALL_DAYS : value;
+  if (!Array.isArray(input) || !input.length || input.length > 7
+    || input.some(day => !Number.isInteger(day) || day < 0 || day > 6)
+    || new Set(input).size !== input.length) {
+    throw new RangeError('Choose one or more unique weekdays.');
+  }
+  return [...input].sort((left, right) => left - right);
+}
+
 function nextRunAt(nowMs, intervalMinutes) {
   if (!Number.isFinite(nowMs)) throw new TypeError('A valid current timestamp is required.');
   return nowMs + validInterval(intervalMinutes) * MINUTE_MS;
+}
+
+function nextClockRunAt(nowMs, clockTime, daysOfWeek = ALL_DAYS) {
+  if (!Number.isFinite(nowMs)) throw new TypeError('A valid current timestamp is required.');
+  const [hour, minute] = validClockTime(clockTime).split(':').map(Number);
+  const days = validDaysOfWeek(daysOfWeek);
+  const allowed = new Set(days);
+  const now = new Date(nowMs);
+  for (let offset = 0; offset <= 7; offset++) {
+    const candidate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset, hour, minute, 0, 0);
+    if (allowed.has(candidate.getDay()) && candidate.getTime() > nowMs) return candidate.getTime();
+  }
+  throw new Error('Could not calculate the next exact-time run.');
+}
+
+function scheduleTypeOf(value) {
+  return value?.scheduleType === 'clock' ? 'clock' : 'interval';
+}
+
+function scheduleFields(input, existing = null) {
+  const scheduleType = input.scheduleType === undefined ? scheduleTypeOf(existing) : input.scheduleType;
+  if (!['interval', 'clock'].includes(scheduleType)) throw new Error('Choose an interval or exact-time schedule.');
+  if (scheduleType === 'clock') {
+    const clockTime = validClockTime(input.clockTime === undefined ? existing?.clockTime : input.clockTime);
+    const daysOfWeek = validDaysOfWeek(input.daysOfWeek === undefined ? existing?.daysOfWeek : input.daysOfWeek);
+    return { scheduleType, clockTime, daysOfWeek };
+  }
+  const intervalMinutes = validInterval(input.intervalMinutes === undefined ? (existing?.intervalMinutes ?? 60) : input.intervalMinutes);
+  return { scheduleType, intervalMinutes };
+}
+
+function scheduleSignature(value) {
+  return scheduleTypeOf(value) === 'clock'
+    ? JSON.stringify(['clock', value.clockTime, validDaysOfWeek(value.daysOfWeek)])
+    : JSON.stringify(['interval', validInterval(value.intervalMinutes)]);
+}
+
+function nextAutomationRunAt(automation, nowMs) {
+  return scheduleTypeOf(automation) === 'clock'
+    ? nextClockRunAt(nowMs, automation.clockTime, automation.daysOfWeek)
+    : nextRunAt(nowMs, automation.intervalMinutes);
 }
 
 function validateAutomation(input, existing = null, settings = {}, nowMs = Date.now()) {
@@ -25,20 +85,21 @@ function validateAutomation(input, existing = null, settings = {}, nowMs = Date.
   const prompt = typeof input.prompt === 'string' ? input.prompt.trim() : '';
   if (!name || name.length > 80) throw new Error('Give the automation a name of 1 to 80 characters.');
   if (!prompt || prompt.length > 32000) throw new Error('The task must contain 1 to 32000 characters.');
-  const intervalMinutes = validInterval(input.intervalMinutes);
+  const schedule = scheduleFields(input, existing);
   if (input.enabled !== undefined && typeof input.enabled !== 'boolean') {
     throw new TypeError('Enabled must be true or false.');
   }
   const enabled = input.enabled === undefined ? (existing ? existing.enabled : true) : input.enabled;
-  const resetSchedule = !existing || existing.intervalMinutes !== intervalMinutes
+  const candidate = { ...existing, ...schedule };
+  const resetSchedule = !existing || scheduleSignature(existing) !== scheduleSignature(candidate)
     || (enabled && !existing.enabled) || !Number.isFinite(existing.nextRunAt);
   return {
     id: existing ? existing.id : randomUUID(),
     name,
     prompt,
-    intervalMinutes,
+    ...schedule,
     enabled,
-    nextRunAt: resetSchedule ? nextRunAt(nowMs, intervalMinutes) : existing.nextRunAt,
+    nextRunAt: resetSchedule ? nextAutomationRunAt(candidate, nowMs) : existing.nextRunAt,
     lastRunAt: existing && Number.isFinite(existing.lastRunAt) ? existing.lastRunAt : null,
     lastStatus: existing && ['running', 'completed', 'error'].includes(existing.lastStatus) ? existing.lastStatus : 'never',
     ...(existing && typeof existing.lastError === 'string' ? { lastError: existing.lastError } : {}),
@@ -100,11 +161,11 @@ class Scheduler {
       const startedAt = this.now();
       automation.lastRunAt = startedAt;
       automation.lastStatus = 'running';
-      automation.nextRunAt = nextRunAt(startedAt, automation.intervalMinutes);
+      automation.nextRunAt = nextAutomationRunAt(automation, startedAt);
       delete automation.lastError;
       this.store.save();
       this.onChange();
-      // The runner resolves only after its task finishes, including any approval wait.
+      // The runner resolves only after its task finishes, including any user-input wait.
       const result = await this.run({ ...automation });
       if (result === false) throw new Error('The automation could not start.');
       this._finish(id, 'completed');
@@ -125,11 +186,19 @@ class Scheduler {
     else delete automation.lastError;
     const nowMs = this.now();
     if (!Number.isFinite(automation.nextRunAt) || automation.nextRunAt <= nowMs) {
-      automation.nextRunAt = nextRunAt(nowMs, automation.intervalMinutes);
+      automation.nextRunAt = nextAutomationRunAt(automation, nowMs);
     }
     this.store.save();
     this.onChange();
   }
 }
 
-module.exports = { Scheduler, validateAutomation, nextRunAt };
+module.exports = {
+  Scheduler,
+  validateAutomation,
+  nextRunAt,
+  nextClockRunAt,
+  nextAutomationRunAt,
+  validClockTime,
+  validDaysOfWeek,
+};
