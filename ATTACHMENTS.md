@@ -8,7 +8,7 @@ PDF, DOCX, text, Markdown, CSV, JSON, and common source files supply readable te
 
 Limits: eight files per message, 20 MiB per file, 50 MiB per message, and 512 MiB in the attachment store. Document excerpts share a 30,000-character budget per message. PDF extraction reads at most 100 pages. Truncation is disclosed to the agent, which can use the original file when a suitable tool is available.
 
-The selected model must support image input to interpret photos. Attaching an image sends its normalized pixels to the selected connection when the message is sent. Local connections retain them locally; selecting Codex sends them to that connection.
+Image capability is checked per selected model, regardless of connection. Codex models use the app-server catalog’s `inputModalities`; local models use the local catalog plus the selected server’s `/props` vision state. A model explicitly advertised as text-only rejects image attachments before an engine thread starts. If an older provider does not advertise modalities, Little Bot preserves compatibility instead of guessing that images are unsupported. Attaching an accepted image sends its normalized pixels to the selected connection when the message is sent. Local connections retain them locally; selecting Codex sends them to that connection.
 
 ## Implementation
 

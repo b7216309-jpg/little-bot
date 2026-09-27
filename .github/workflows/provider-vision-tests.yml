@@ -1,0 +1,27 @@
+name: Provider vision tests
+
+on:
+  push:
+    branches:
+      - main
+      - "feature/provider-vision"
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Syntax check vision changes
+        run: node --check src/connections.cjs && node --check src/controller.cjs
+      - name: Provider vision behavior
+        run: node --test test/provider-vision.test.cjs

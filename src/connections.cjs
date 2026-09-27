@@ -17,6 +17,41 @@ function localModel(value = DEFAULT_LOCAL_MODEL) {
   if (typeof value !== 'string' || !value.trim() || value.length > 200 || /[\u0000-\u001f\u007f]/.test(value)) throw new Error('Enter a model ID of up to 200 characters.');
   return value.trim();
 }
+const INPUT_MODALITIES = new Set(['text', 'image', 'audio']);
+function normalizedInputModalities(value) {
+  if (!Array.isArray(value)) return null;
+  return [...new Set(value.filter(item => typeof item === 'string').map(item => item.toLowerCase()).filter(item => INPUT_MODALITIES.has(item)))];
+}
+function inferredVision(value = {}) {
+  if (typeof value.vision === 'boolean') return value.vision;
+  const inputModalities = normalizedInputModalities(value.inputModalities);
+  if (inputModalities) return inputModalities.includes('image');
+  if (typeof value.modalities?.vision === 'boolean') return value.modalities.vision;
+  if (Array.isArray(value.capabilities)) {
+    const capabilities = value.capabilities.filter(item => typeof item === 'string').map(item => item.toLowerCase());
+    if (capabilities.some(item => ['image', 'images', 'vision', 'multimodal'].includes(item))) return true;
+  }
+  return null;
+}
+function normalizeModelCapabilities(value = {}, { vision } = {}) {
+  const explicit = normalizedInputModalities(value.inputModalities);
+  const hasVisionOverride = typeof vision === 'boolean';
+  const supportsVision = hasVisionOverride ? vision : inferredVision(value);
+  const inputModalities = hasVisionOverride
+    ? ['text', ...(supportsVision ? ['image'] : [])]
+    : explicit || (typeof supportsVision === 'boolean' ? ['text', ...(supportsVision ? ['image'] : [])] : null);
+  return {
+    ...value,
+    ...(inputModalities ? { inputModalities } : {}),
+    vision: typeof supportsVision === 'boolean' ? supportsVision : null,
+  };
+}
+function modelSupportsVision(value) {
+  if (!value || typeof value !== 'object') return null;
+  if (typeof value.vision === 'boolean') return value.vision;
+  const modalities = normalizedInputModalities(value.inputModalities);
+  return modalities ? modalities.includes('image') : null;
+}
 function normalizeConnectionSettings(value = {}) {
   let baseUrl = DEFAULT_LOCAL_BASE_URL, model = DEFAULT_LOCAL_MODEL;
   try { baseUrl = localBaseUrl(value.localBaseUrl); } catch { /* Recover with the known local endpoint. */ }
@@ -56,15 +91,33 @@ async function probeLocal(settings) {
   const [catalog, properties] = await Promise.allSettled([readJson(`${baseUrl}/models`), readJson(`${new URL(baseUrl).origin}/props`)]);
   if (catalog.status === 'rejected') throw new Error(`Local model is offline. Start your Qwen launcher, then Check connection. ${catalog.reason.message}`);
   const raw = catalog.value;
+  const detailedModels = Array.isArray(raw.models) ? raw.models : [];
   const models = (Array.isArray(raw.data) ? raw.data : []).filter(item => typeof item.id === 'string' && item.id.length <= 200)
-    .map(item => ({ id: item.id, displayName: item.id === DEFAULT_LOCAL_MODEL ? 'Qwen 3.6 · local' : item.id, contextWindow: item.meta?.n_ctx }));
-  const found = models.find(item => item.id === selected);
+    .map(item => {
+      const details = detailedModels.find(detail => detail?.model === item.id || detail?.name === item.id) || {};
+      return normalizeModelCapabilities({
+        ...item,
+        ...details,
+        id: item.id,
+        displayName: item.id === DEFAULT_LOCAL_MODEL ? 'Qwen 3.6 · local' : item.id,
+        contextWindow: item.meta?.n_ctx ?? details.meta?.n_ctx,
+      });
+    });
+  let found = models.find(item => item.id === selected);
   if (!found) throw new Error('The selected model is not loaded. Choose the model ID shown by your local server.');
   const props = properties.status === 'fulfilled' ? properties.value : {};
+  if (typeof props.modalities?.vision === 'boolean') {
+    const index = models.indexOf(found);
+    found = normalizeModelCapabilities(found, { vision: props.modalities.vision });
+    models[index] = found;
+  }
   const window = props.default_generation_settings?.n_ctx || found.contextWindow;
   const contextWindow = Number.isSafeInteger(window) && window >= 4096 && window <= 4000000 ? window : 32768;
-  const vision = props.modalities?.vision === true || (raw.models || []).some(item => (item.model === selected || item.name === selected) && item.capabilities?.includes('multimodal'));
-  return { models, connection: { type: 'local', status: 'connected', label: 'Local Qwen', baseUrl, model: selected, contextWindow, vision, error: null } };
+  const vision = modelSupportsVision(found);
+  return { models, connection: {
+    type: 'local', status: 'connected', label: 'Local Qwen', baseUrl, model: selected, contextWindow,
+    vision, ...(Array.isArray(found.inputModalities) ? { inputModalities: found.inputModalities } : {}), error: null,
+  } };
 }
 function providerConfig(settings, connection, localEndpoint) {
   if (settings.connection === 'codex') return { model_provider: 'openai' };
@@ -81,4 +134,4 @@ function providerConfig(settings, connection, localEndpoint) {
   };
 }
 
-module.exports = { DEFAULT_LOCAL_BASE_URL, DEFAULT_LOCAL_MODEL, LOCAL_PROVIDER, localBaseUrl, localModel, normalizeConnectionSettings, connectionBinding, isConnectionSelected, requireSelectedConnection, probeLocal, providerConfig };
+module.exports = { DEFAULT_LOCAL_BASE_URL, DEFAULT_LOCAL_MODEL, LOCAL_PROVIDER, localBaseUrl, localModel, normalizeConnectionSettings, connectionBinding, isConnectionSelected, requireSelectedConnection, normalizeModelCapabilities, modelSupportsVision, probeLocal, providerConfig };
