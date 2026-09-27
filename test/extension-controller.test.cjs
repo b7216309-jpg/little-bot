@@ -74,7 +74,7 @@ test('normal chat uses native MCP config and injects only explicitly selected en
   const chat = await begin(controller, '$inspect check this request');
   const thread = client.calls.find(call => call.method === 'thread/start').params;
   assert.equal(thread.config['mcp_servers.workspace_tools'].enabled, true);
-  assert.equal(thread.config['mcp_servers.workspace_tools'].default_tools_approval_mode, 'prompt');
+  assert.equal(thread.config['mcp_servers.workspace_tools'].default_tools_approval_mode, 'auto');
   assert.deepEqual(thread.config['mcp_servers.workspace_tools'].disabled_tools, ['delete']);
   assert.deepEqual(thread.config['mcp_servers.workspace_tools'].env_vars, ['WORKSPACE_TOKEN']);
   assert.equal(thread.config['features.apps'], false);
