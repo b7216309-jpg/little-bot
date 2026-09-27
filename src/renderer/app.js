@@ -1274,6 +1274,10 @@ async function executeSlashCommand(parsed) {
       clearComposerDraft();
       showFeature('calendar');
       return true;
+    case 'calendar':
+      clearComposerDraft();
+      showFeature('calendar');
+      return true;
     case 'memory':
       clearComposerDraft();
       showFeature('memory');
