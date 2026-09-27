@@ -1,0 +1,73 @@
+name: Windows distribution tests
+
+on:
+  push:
+    branches:
+      - main
+      - "feature/windows-distribution"
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Distribution script checks
+        run: node --test test/windows-distribution.test.cjs
+      - name: Build Windows package, portable ZIP, and installer
+        run: npm run package
+      - name: Validate portable and installer end to end
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $output = Join-Path $PWD "dist\$version"
+          $folder = Join-Path $output 'Little Bot-win32-x64'
+          $portable = Join-Path $output "Little-Bot-$version-portable.zip"
+          $setup = Join-Path $output "Little-Bot-$version-Setup.exe"
+          foreach ($path in @((Join-Path $folder 'Little Bot.exe'), $portable, $setup)) {
+            if (!(Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing distribution artifact: $path" }
+          }
+          if ((Get-Item -LiteralPath $setup).Length -lt 1024) { throw 'Installer executable is unexpectedly small.' }
+
+          $portableCheck = Join-Path $env:RUNNER_TEMP 'little-bot-portable-check'
+          Remove-Item -LiteralPath $portableCheck -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive -LiteralPath $portable -DestinationPath $portableCheck
+          if (!(Test-Path -LiteralPath (Join-Path $portableCheck 'Little Bot.exe'))) { throw 'Portable ZIP does not contain Little Bot.exe.' }
+
+          $installDir = Join-Path $env:RUNNER_TEMP 'little-bot-installed'
+          $installerState = Join-Path $env:RUNNER_TEMP 'little-bot-installer-state'
+          Remove-Item -LiteralPath $installDir -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath $installerState -Recurse -Force -ErrorAction SilentlyContinue
+          $env:LITTLE_BOT_INSTALL_DIR = $installDir
+          $env:LITTLE_BOT_INSTALLER_STATE_DIR = $installerState
+
+          $process = Start-Process -FilePath $setup -ArgumentList '/Q' -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw "Installer exited with $($process.ExitCode)." }
+          for ($i = 0; $i -lt 100 -and !(Test-Path -LiteralPath (Join-Path $installDir 'Little Bot.exe')); $i++) { Start-Sleep -Milliseconds 100 }
+          if (!(Test-Path -LiteralPath (Join-Path $installDir 'Little Bot.exe'))) { throw 'Installed Little Bot.exe was not found.' }
+
+          $regPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Little Bot'
+          $registration = Get-ItemProperty -LiteralPath $regPath
+          if ($registration.DisplayVersion -ne $version) { throw 'Apps & Features version does not match package.json.' }
+          if ($registration.InstallLocation -ne $installDir) { throw 'Installer registered the wrong install location.' }
+
+          $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'Little Bot.lnk'
+          if (!(Test-Path -LiteralPath $shortcut)) { throw 'Start Menu shortcut was not created.' }
+          $uninstallScript = Join-Path $installerState 'uninstall.ps1'
+          if (!(Test-Path -LiteralPath $uninstallScript)) { throw 'Uninstaller script was not installed.' }
+
+          & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $uninstallScript -InstallDir $installDir -ShortcutPath $shortcut
+          if ($LASTEXITCODE -ne 0) { throw "Uninstaller exited with $LASTEXITCODE." }
+          if (Test-Path -LiteralPath $installDir) { throw 'Install directory still exists after uninstall.' }
+          if (Test-Path -LiteralPath $shortcut) { throw 'Start Menu shortcut still exists after uninstall.' }
+          if (Test-Path -LiteralPath $regPath) { throw 'Apps & Features registration still exists after uninstall.' }
