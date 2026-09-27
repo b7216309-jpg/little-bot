@@ -2,6 +2,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { readFileSync } = require('node:fs');
+const path = require('node:path');
 const scroll = require('../src/renderer/chat-scroll.js');
 
 function scroller({ scrollTop = 0, scrollHeight = 1000, clientHeight = 400, top = 0 } = {}) {
@@ -81,4 +83,14 @@ test('an intentionally detached anchor leaves the current scroll position alone'
   view.scrollTop = 275;
   scroll.restore(view, snapshot);
   assert.equal(view.scrollTop, 275);
+});
+
+
+test('renderer loads scroll helper before app code', () => {
+  const html = readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'index.html'), 'utf8');
+  const helper = html.indexOf('./chat-scroll.js');
+  const app = html.indexOf('./app.js');
+  assert.ok(helper >= 0, 'chat-scroll.js is missing');
+  assert.ok(app >= 0, 'app.js is missing');
+  assert.ok(helper < app, 'chat-scroll.js must load before app.js');
 });
