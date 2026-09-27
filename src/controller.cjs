@@ -968,7 +968,7 @@ class Controller extends EventEmitter {
     }
     const chat = this.byThread(params.threadId);
     if (!chat) { await this.client.reject(id, 'This request does not belong to a Little Bot conversation.'); return; }
-    const heartbeatRead = chat.internal && method === 'item/tool/call' && ['skill_list', 'skill_read', 'memory_search', 'session_read'].includes(params.tool);
+    const heartbeatRead = chat.internal && method === 'item/tool/call' && ['skill_list', 'skill_read', 'memory_search', 'session_read', 'calendar_list'].includes(params.tool);
     if (chat.mode === 'plan') {
       if (method === 'item/permissions/requestApproval') {
         await this.client.respond(id, { permissions: {}, scope: 'turn' });
