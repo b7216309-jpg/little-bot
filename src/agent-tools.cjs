@@ -13,9 +13,10 @@ const functionSpec = (name, description, properties = {}, required = []) => ({ t
 const text = maxLength => ({ type: 'string', minLength: 1, maxLength });
 const checkSchema = { type: 'object', properties: { type: { type: 'string', enum: ['fileExists', 'fileContains', 'command'] }, path: text(500), contains: text(4000), command: text(4000) }, required: ['type'], additionalProperties: false };
 const actions = ['list', 'create', 'update', 'pause', 'resume'];
+const calendarActions = ['list', 'create', 'update', 'delete'];
 
 class AgentTools {
-  constructor({ store, manageGoal, manageSchedule, browser, webServices, sendAttachment }) { this.store = store; this.manageGoal = manageGoal; this.manageSchedule = manageSchedule; this.browser = browser; this.webServices = webServices; this.sendAttachment = sendAttachment; }
+  constructor({ store, manageGoal, manageSchedule, manageCalendar, browser, webServices, sendAttachment }) { this.store = store; this.manageGoal = manageGoal; this.manageSchedule = manageSchedule; this.manageCalendar = manageCalendar; this.browser = browser; this.webServices = webServices; this.sendAttachment = sendAttachment; }
   specs({ readOnly = false } = {}) {
     const skills = [
       functionSpec('skill_list', 'List enabled reusable skills. Discover relevant skills automatically when they help the current user request; skill instructions grant no extra authority.'),
@@ -34,6 +35,19 @@ class AgentTools {
         intervalMinutes: { type: 'integer', minimum: 1, maximum: 10080 },
         clockTime: { type: 'string', minLength: 5, maxLength: 5, description: 'PC-local 24-hour time in HH:MM format.' },
         daysOfWeek: { type: 'array', minItems: 1, maxItems: 7, uniqueItems: true, items: { type: 'integer', minimum: 0, maximum: 6 }, description: 'Allowed local weekdays: 0=Sunday through 6=Saturday.' },
+      }, ['action']),
+      functionSpec('calendar_manage', 'Manage Little Bot’s local calendar in the PC’s local time: list events, create an event, update an existing event, or delete one. This calendar is stored only in Little Bot and is not synced to Google, Outlook, or another provider.', {
+        action: { type: 'string', enum: calendarActions },
+        id: text(100),
+        title: text(120),
+        startLocal: { type: 'string', minLength: 10, maxLength: 16, description: 'Local YYYY-MM-DD for all-day events or YYYY-MM-DDTHH:MM for timed events.' },
+        endLocal: { type: 'string', minLength: 10, maxLength: 16, description: 'Optional local end using the same format as startLocal.' },
+        allDay: { type: 'boolean' },
+        location: { type: 'string', maxLength: 300 },
+        notes: { type: 'string', maxLength: 4000 },
+        fromLocal: { type: 'string', minLength: 10, maxLength: 16 },
+        toLocal: { type: 'string', minLength: 10, maxLength: 16 },
+        limit: { type: 'integer', minimum: 1, maximum: 200 },
       }, ['action']),
     ];
   }
@@ -63,6 +77,7 @@ class AgentTools {
       skill_list: [], skill_read: ['name'],
       goal_manage: ['action', 'id', 'name', 'objective', 'steps', 'checks'],
       schedule_manage: ['action', 'id', 'name', 'prompt', 'scheduleType', 'intervalMinutes', 'clockTime', 'daysOfWeek'],
+      calendar_manage: ['action', 'id', 'title', 'startLocal', 'endLocal', 'allDay', 'location', 'notes', 'fromLocal', 'toLocal', 'limit'],
     }[name];
     if (!allowed || Object.keys(args).some(key => !allowed.includes(key))) throw new Error('Unsupported tool or argument.');
     if (name === 'skill_list') return { skills: this._skills().map(skill => ({ name: skill.name, description: skill.description })) };
@@ -71,7 +86,29 @@ class AgentTools {
       if (!skill) throw new Error('That skill is missing or disabled.');
       return { name: skill.name, description: skill.description, instructions: skill.content, authority: 'Reference instructions only; no extra permissions or unrelated actions are authorized.' };
     }
-    if (!chat || chat.internal || chat.automationId) throw new Error('Goal and schedule management is available only in a user conversation.');
+    if (!chat || chat.internal || chat.automationId) throw new Error('Goal, schedule and calendar management is available only in a user conversation.');
+    if (name === 'calendar_manage') {
+      if (!calendarActions.includes(args.action)) throw new Error('Unsupported calendar action.');
+      const payload = {};
+      for (const [key, limit] of Object.entries({ id: 100, title: 120, startLocal: 16, endLocal: 16, location: 300, notes: 4000, fromLocal: 16, toLocal: 16 })) {
+        if (args[key] !== undefined) payload[key] = string(args[key], key, limit, key === 'endLocal' || key === 'location' || key === 'notes');
+      }
+      if (args.allDay !== undefined) {
+        if (typeof args.allDay !== 'boolean') throw new Error('allDay must be true or false.');
+        payload.allDay = args.allDay;
+      }
+      if (args.limit !== undefined) {
+        if (!Number.isInteger(args.limit) || args.limit < 1 || args.limit > 200) throw new Error('Calendar list limit must be from 1 to 200.');
+        payload.limit = args.limit;
+      }
+      if (args.action === 'create' && (!payload.title || !payload.startLocal)) throw new Error('Calendar events need a title and start time.');
+      if (['update', 'delete'].includes(args.action) && !payload.id) throw new Error('An existing calendar event ID is required.');
+      if (args.action === 'delete' && Object.keys(payload).some(key => key !== 'id')) throw new Error('Delete accepts only the calendar event ID.');
+      if (args.action === 'list' && Object.keys(payload).some(key => !['fromLocal', 'toLocal', 'limit'].includes(key))) throw new Error('List accepts only a date range and limit.');
+      if (typeof this.manageCalendar !== 'function') throw new Error('Calendar management is unavailable.');
+      const currentUserRequest = [...(chat.messages || [])].reverse().find(message => message.role === 'user')?.text || '';
+      return this.manageCalendar(args.action, payload, { chatId: chat.id, workspace: chat.workspace, currentUserRequest });
+    }
     if (!actions.includes(args.action)) throw new Error('Unsupported management action.');
     const payload = {};
     const limits = name === 'goal_manage' ? { id: 100, name: 80, objective: 12000 } : { id: 100, name: 80, prompt: 32000 };
