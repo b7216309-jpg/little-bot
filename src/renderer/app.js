@@ -1270,6 +1270,10 @@ async function executeSlashCommand(parsed) {
       }
       $('automation-prompt').focus();
       return true;
+    case 'calendar':
+      clearComposerDraft();
+      showFeature('calendar');
+      return true;
     case 'memory':
       clearComposerDraft();
       showFeature('memory');
