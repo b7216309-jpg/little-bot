@@ -93,7 +93,7 @@ class AgentTools {
       return { name: skill.name, description: skill.description, instructions: skill.content, authority: 'Reference instructions only; no extra permissions or unrelated actions are authorized.' };
     }
     if (name === 'calendar_list') {
-      if (!chat || chat.internal) throw new Error('Calendar reading requires a user or scheduled conversation.');
+      if (!chat) throw new Error('Calendar reading requires an active Little Bot task.');
       const payload = {};
       for (const [key, limit] of Object.entries({ fromLocal: 16, toLocal: 16 })) {
         if (args[key] !== undefined) payload[key] = string(args[key], key, limit);
