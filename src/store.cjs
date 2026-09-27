@@ -212,10 +212,13 @@ class Store {
     this.protector = validProtector(protector);
     this.warning = null;
     this.recoveryPath = null;
+    this.locked = false;
     this._needsRecoveryCopy = false;
     this.data = persistedData({}, this.defaultWorkspace);
+    let encryptedSource = false;
     try {
       const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf8').replace(/^\uFEFF/, ''));
+      encryptedSource = parsed?.protected !== undefined;
       if (!isObject(parsed)) throw new Error('The state root must be a JSON object.');
       const source = unprotectState(parsed, this.protector);
       this.data = persistedData(source, this.defaultWorkspace, true);
@@ -232,13 +235,15 @@ class Store {
       }
     } catch (error) {
       if (error.code !== 'ENOENT') {
-        this._needsRecoveryCopy = true;
+        this.locked = encryptedSource;
+        this._needsRecoveryCopy = !encryptedSource;
         this.warning = `Could not read saved app state: ${error.message} The original file is preserved.`;
       }
     }
   }
 
   save() {
+    if (this.locked) throw new Error('Encrypted app state is locked. Little Bot will not overwrite it.');
     const normalized = persistedData(this.data, this.defaultWorkspace);
     const serialized = `${JSON.stringify(protectedEnvelope(normalized, this.protector), null, 2)}\n`;
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
