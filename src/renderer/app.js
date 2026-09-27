@@ -4,6 +4,7 @@ const $ = (id) => document.getElementById(id);
 const icons = {
   plus: ['M12 5v14', 'M5 12h14'],
   clock: ['M12 8v4l3 2', 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0'],
+  calendar: ['M6 2v4', 'M18 2v4', 'M3 8h18', 'M5 4h14a2 2 0 0 1 2 2v15H3V6a2 2 0 0 1 2-2Z', 'M7 12h3', 'M14 12h3', 'M7 16h3', 'M14 16h3'],
   folder: ['M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z'],
   terminal: ['m5 7 5 5-5 5', 'M13 17h6'],
   sparkles: ['m12 3 2.3 6.7L21 12l-6.7 2.3L12 21l-2.3-6.7L3 12l6.7-2.3Z', 'M20 2v4', 'M18 4h4'],
@@ -94,6 +95,7 @@ let thinkingSaving = false;
 let loginPending = false;
 let loginMetadata = null;
 let editingAutomationId = null;
+let editingCalendarId = null;
 let activeApprovalId = null;
 let toastTimer = null;
 let confirmResolver = null;
@@ -305,6 +307,7 @@ function render() {
   renderSettings();
   if (currentView === 'chat') renderConversation();
   if (currentView === 'automations') renderAutomations();
+  if (currentView === 'calendar') renderCalendar();
   if (currentView === 'memory') renderMemory();
   if (currentView === 'heartbeat') renderHeartbeat();
   if (currentView === 'extensions') renderExtensions();
@@ -317,7 +320,7 @@ function render() {
 
 function renderHeader() {
   const chat = currentChat();
-  $('page-label').textContent = { goals: 'Goals', automations: 'Automations', memory: 'Memory', profile: 'Profile', heartbeat: 'Heartbeat', extensions: 'Extensions' }[currentView] || chat?.title || 'New conversation';
+  $('page-label').textContent = { goals: 'Goals', automations: 'Automations', calendar: 'Calendar', memory: 'Memory', profile: 'Profile', heartbeat: 'Heartbeat', extensions: 'Extensions' }[currentView] || chat?.title || 'New conversation';
   const status = state.runtime || {};
   const label = status.status === 'ready' ? 'Ready' : status.status === 'error' ? 'Needs attention' : 'Starting';
   const dot = element('span', `status-dot ${status.status === 'ready' ? '' : status.status === 'error' ? 'error' : 'starting'}`);
@@ -352,6 +355,12 @@ function renderHeader() {
   const automationCount = (state.automations || []).length;
   $('automation-count').textContent = String(automationCount);
   $('automation-count').classList.toggle('hidden', automationCount === 0);
+  const now = Date.now();
+  const today = new Date();
+  const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1).getTime();
+  const calendarCount = (state.calendar?.events || []).filter(event => event.endAt > now && event.startAt < tomorrow).length;
+  $('calendar-count').textContent = String(calendarCount);
+  $('calendar-count').classList.toggle('hidden', calendarCount === 0);
   const unreadCount = (state.heartbeat?.history || []).filter((entry) => entry.unread).length;
   $('heartbeat-unread').textContent = String(unreadCount);
   $('heartbeat-unread').classList.toggle('hidden', unreadCount === 0);
@@ -392,6 +401,7 @@ function renderSidebar() {
   }
   $('chat-list').replaceChildren(fragment);
   $('nav-automations').classList.toggle('active', currentView === 'automations');
+  $('nav-calendar').classList.toggle('active', currentView === 'calendar');
   $('nav-memory').classList.toggle('active', currentView === 'memory');
   $('nav-heartbeat').classList.toggle('active', currentView === 'heartbeat');
   $('nav-extensions').classList.toggle('active', currentView === 'extensions');
@@ -414,6 +424,7 @@ function selectChat(id) {
   $('message-input').value = chatDrafts.get(id || '__new__') || '';
   $('chat-view').classList.remove('hidden');
   $('automations-view').classList.add('hidden');
+  $('calendar-view').classList.add('hidden');
   $('memory-view').classList.add('hidden');
   $('heartbeat-view').classList.add('hidden');
   $('extensions-view').classList.add('hidden');
@@ -434,7 +445,7 @@ function showFeature(view) {
   if (currentView === 'chat') saveCurrentDraft();
   currentView = view;
   $('chat-view').classList.add('hidden');
-  for (const feature of ['goals', 'automations', 'memory', 'profile', 'heartbeat', 'extensions']) $(feature + '-view').classList.toggle('hidden', feature !== view);
+  for (const feature of ['goals', 'automations', 'calendar', 'memory', 'profile', 'heartbeat', 'extensions']) $(feature + '-view').classList.toggle('hidden', feature !== view);
   render();
 }
 
@@ -1259,6 +1270,14 @@ async function executeSlashCommand(parsed) {
       }
       $('automation-prompt').focus();
       return true;
+    case 'calendar':
+      clearComposerDraft();
+      showFeature('calendar');
+      return true;
+    case 'calendar':
+      clearComposerDraft();
+      showFeature('calendar');
+      return true;
     case 'memory':
       clearComposerDraft();
       showFeature('memory');
@@ -1681,6 +1700,131 @@ function formatDate(value) {
 function humanStatus(value) {
   const status = String(value || '');
   return status.replace(/[_-]/g, ' ').replace(/^\w/, (char) => char.toUpperCase());
+}
+
+function calendarLocalParts(timestamp) {
+  const date = new Date(timestamp);
+  return {
+    date: `${String(date.getFullYear()).padStart(4, '0')}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
+    time: `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`,
+  };
+}
+
+function calendarTimestamp(dateValue, timeValue = '00:00') {
+  const date = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateValue || '');
+  const time = /^(\d{2}):(\d{2})$/.exec(timeValue || '');
+  if (!date || !time) return NaN;
+  const value = new Date(Number(date[1]), Number(date[2]) - 1, Number(date[3]), Number(time[1]), Number(time[2]), 0, 0);
+  return value.getTime();
+}
+
+function calendarDayLabel(timestamp) {
+  return new Date(timestamp).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+function calendarTimeLabel(event) {
+  if (event.allDay) return 'All day';
+  const start = new Date(event.startAt);
+  const end = new Date(event.endAt);
+  const startTime = start.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const endTime = end.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  if (start.toDateString() === end.toDateString()) return `${startTime} – ${endTime}`;
+  return `${startTime} – ${end.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`;
+}
+
+function renderCalendar() {
+  const host = $('calendar-list');
+  const events = [...(state.calendar?.events || [])].sort((left, right) => left.startAt - right.startAt || left.title.localeCompare(right.title));
+  if (!events.length) {
+    const empty = element('div', 'calendar-empty');
+    empty.append(icon('calendar'), element('h2', '', 'Nothing scheduled'), element('p', '', 'Add an event here or ask Little Bot to manage your local calendar.'), action('New event', () => editCalendarEvent(), 'button secondary', 'plus'));
+    host.replaceChildren(empty);
+    return;
+  }
+  const fragment = document.createDocumentFragment();
+  let previousDay = '';
+  for (const event of events.slice(0, 300)) {
+    const day = new Date(event.startAt).toDateString();
+    if (day !== previousDay) {
+      fragment.append(element('h2', 'calendar-day-heading', calendarDayLabel(event.startAt)));
+      previousDay = day;
+    }
+    const card = element('article', 'calendar-event-card');
+    const time = element('div', 'calendar-event-time', calendarTimeLabel(event));
+    const copy = element('div', 'calendar-event-copy');
+    copy.append(element('h3', '', event.title));
+    const meta = [event.location, event.notes].filter(Boolean);
+    if (meta.length) copy.append(element('p', '', meta.join(' · ')));
+    const actions = element('div', 'calendar-event-actions');
+    actions.append(action('Edit', () => editCalendarEvent(event), 'button text-button'));
+    const remove = action('', async () => {
+      if (!await confirmAction('Delete this event?', `“${event.title}” will be removed from Little Bot’s local calendar.`)) return;
+      await attempt(() => window.bot.deleteCalendarEvent({ id: event.id }), 'Calendar event deleted.');
+    }, 'icon-button', 'trash');
+    remove.setAttribute('aria-label', `Delete ${event.title}`);
+    actions.append(remove);
+    card.append(time, copy, actions);
+    fragment.append(card);
+  }
+  host.replaceChildren(fragment);
+}
+
+function renderCalendarAllDay() {
+  const allDay = $('calendar-all-day').checked;
+  $('calendar-start-time-field').classList.toggle('hidden', allDay);
+  $('calendar-end-fields').classList.toggle('hidden', allDay);
+  $('calendar-start-time').required = !allDay;
+  $('calendar-end-date').required = !allDay;
+  $('calendar-end-time').required = !allDay;
+}
+
+function editCalendarEvent(event) {
+  editingCalendarId = event?.id || null;
+  $('calendar-dialog-title').textContent = event ? 'Edit event' : 'New event';
+  $('calendar-event-title').value = event?.title || '';
+  $('calendar-all-day').checked = Boolean(event?.allDay);
+  const start = event ? calendarLocalParts(event.startAt) : calendarLocalParts(Date.now() + 60 * 60 * 1000);
+  const end = event ? calendarLocalParts(event.endAt) : calendarLocalParts(Date.now() + 2 * 60 * 60 * 1000);
+  $('calendar-start-date').value = start.date;
+  $('calendar-start-time').value = event?.allDay ? '09:00' : start.time;
+  $('calendar-end-date').value = end.date;
+  $('calendar-end-time').value = event?.allDay ? '10:00' : end.time;
+  $('calendar-location').value = event?.location || '';
+  $('calendar-notes').value = event?.notes || '';
+  $('calendar-form-error').textContent = '';
+  $('calendar-form-error').classList.add('hidden');
+  $('save-calendar-event').textContent = event ? 'Save changes' : 'Create event';
+  renderCalendarAllDay();
+  showDialog('calendar-dialog');
+}
+
+async function saveCalendarEvent(event) {
+  event.preventDefault();
+  if (!$('calendar-form').reportValidity()) return;
+  const allDay = $('calendar-all-day').checked;
+  const startAt = calendarTimestamp($('calendar-start-date').value, allDay ? '00:00' : $('calendar-start-time').value);
+  const endAt = allDay ? undefined : calendarTimestamp($('calendar-end-date').value, $('calendar-end-time').value);
+  const payload = {
+    ...(editingCalendarId ? { id: editingCalendarId } : {}),
+    title: $('calendar-event-title').value.trim(),
+    allDay,
+    startAt,
+    ...(endAt !== undefined ? { endAt } : {}),
+    location: $('calendar-location').value,
+    notes: $('calendar-notes').value,
+  };
+  $('save-calendar-event').disabled = true;
+  try {
+    const next = await window.bot.saveCalendarEvent(payload);
+    if (next?.settings) applyState(next);
+    closeDialog('calendar-dialog');
+    notify(editingCalendarId ? 'Calendar event updated.' : 'Calendar event created.');
+  } catch (error) {
+    $('calendar-form-error').textContent = error?.message || String(error);
+    $('calendar-form-error').classList.remove('hidden');
+  } finally {
+    $('save-calendar-event').disabled = false;
+  }
 }
 
 function intervalLabel(minutes) {
@@ -3250,6 +3394,7 @@ $('new-chat').addEventListener('click', () => {
   selectChat(null);
 });
 $('nav-automations').addEventListener('click', showAutomations);
+$('nav-calendar').addEventListener('click', () => showFeature('calendar'));
 $('nav-memory').addEventListener('click', () => showFeature('memory'));
 $('nav-heartbeat').addEventListener('click', () => showFeature('heartbeat'));
 $('nav-extensions').addEventListener('click', () => showFeature('extensions'));
@@ -3395,6 +3540,9 @@ $('api-key-form').addEventListener('submit', (event) => {
   const key = $('api-key').value.trim();
   if (key) login('apiKey', key);
 });
+$('create-calendar-event').addEventListener('click', () => editCalendarEvent());
+$('calendar-form').addEventListener('submit', saveCalendarEvent);
+$('calendar-all-day').addEventListener('change', renderCalendarAllDay);
 $('create-automation').addEventListener('click', () => editAutomation());
 $('suggest-automation').addEventListener('click', () => { showAutomations(); editAutomation(); });
 $('automation-form').addEventListener('submit', saveAutomation);

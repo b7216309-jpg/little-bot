@@ -17,7 +17,7 @@ contextBridge.exposeInMainWorld('bot', {
   openAgentBrowser: invoke('openAgentBrowser'), closeAgentBrowser: invoke('closeAgentBrowser'), installAgentBrowser: invoke('installAgentBrowser'),
   stop: invoke('stop'), compact: invoke('compact'), deleteChat: invoke('deleteChat'), respondApproval: invoke('respondApproval'),
   saveAutomation: invoke('saveAutomation'), deleteAutomation: invoke('deleteAutomation'),
-  runAutomation: invoke('runAutomation'), openWorkspace: invoke('openWorkspace'),
+  runAutomation: invoke('runAutomation'), saveCalendarEvent: invoke('saveCalendarEvent'), deleteCalendarEvent: invoke('deleteCalendarEvent'), openWorkspace: invoke('openWorkspace'),
   saveGoal: invoke('saveGoal'), runGoal: invoke('runGoal'), pauseGoal: invoke('pauseGoal'), resumeGoal: invoke('resumeGoal'),
   answerGoal: invoke('answerGoal'),
   deleteGoal: invoke('deleteGoal'), pauseAutonomy: invoke('pauseAutonomy'), resumeAutonomy: invoke('resumeAutonomy'),

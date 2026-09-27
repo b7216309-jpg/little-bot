@@ -11,6 +11,8 @@
     { name: 'private', usage: '/private', description: 'Toggle Private mode before a new chat starts.' },
     { name: 'goal', usage: '/goal [objective]', description: 'Open a new goal draft.' },
     { name: 'schedule', usage: '/schedule [task]', description: 'Open a new automation draft.' },
+    { name: 'calendar', usage: '/calendar', description: 'Open the local calendar.' },
+    { name: 'calendar', usage: '/calendar', description: 'Open the local calendar.' },
     { name: 'memory', usage: '/memory', description: 'Open saved memory.' },
     { name: 'activity', usage: '/activity', description: 'Open the agent activity panel.' },
     { name: 'settings', usage: '/settings', description: 'Open Settings.' },
@@ -21,9 +23,11 @@
     goals: 'goal',
     automation: 'schedule',
     automations: 'schedule',
+    cal: 'calendar',
     exec: 'execute',
     incognito: 'private',
     inspector: 'activity',
+    cal: 'calendar',
   });
 
   function parse(value) {

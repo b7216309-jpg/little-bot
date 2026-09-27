@@ -8,6 +8,7 @@ const { normalizeHeartbeat } = require('./heartbeat.cjs');
 const { normalizeExtensions } = require('./extensions.cjs');
 const { normalizeAutonomy } = require('./goals.cjs');
 const { normalizeAutoCompactPercent } = require('./compaction.cjs');
+const { normalizeCalendar } = require('./calendar.cjs');
 const { attachmentDescriptors } = require('./attachment-message.cjs');
 const { normalizeConnectionSettings, connectionBinding } = require('./connections.cjs');
 
@@ -33,6 +34,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
     autonomy: normalizeAutonomy(data.autonomy, { ...settings, workspace: string(settings.workspace, defaultWorkspace) }, recovering),
     extensions: normalizeExtensions(data.extensions),
     memory: normalizeMemory(data.memory),
+    calendar: normalizeCalendar(data.calendar),
     heartbeat: normalizeHeartbeat(data.heartbeat, { ...settings, workspace: string(settings.workspace, defaultWorkspace) }, Date.now(), recovering),
     settings: {
       ...normalizeConnectionSettings(settings),

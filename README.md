@@ -40,6 +40,8 @@ Optional **Firecrawl** and **Brave Search** keys go in **Settings → Web servic
 - **Memory:** current conversation, recent work, and explicit saved facts—three layers. Say **Remember that ...** or use the Memory panel. The agent can also search and page through saved conversations, including older or compacted chats, using `memory_search` and `session_read`.
 - **Goals:** define an objective, completion checks, permissions, and budget. Review the draft, then Run. Checkpoints persist; results are verified. Review undo restores eligible captured files.
 - **Automations:** repeating prompts with a saved folder, model, and connection, using either elapsed intervals or exact PC-local times on selected weekdays.
+- **Calendar:** a local PC-time calendar stored inside Little Bot. You can create, edit, delete, and list events from the UI or through the agent. It does not sync with Google Calendar or Outlook.
+- **Calendar:** a local Little Bot calendar with all-day or timed events. The agent can list, create, edit, and delete events; times use the PC's local clock. External calendar sync is not included yet.
 - **Heartbeat:** a bounded checklist, active hours, and run limits. Useful, Later, and Don't suggest this control attention. Goals and heartbeat share the notification budget.
 - **Extensions:** skills, plugins, and MCP connections. Four included skills cover app operations, web work, research briefs, and meeting preparation. Scheduling questions automatically include the enabled `little-bot` guide with heartbeat setup, routine examples, and troubleshooting. You can also invoke it with `$little-bot`.
 

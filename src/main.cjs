@@ -19,6 +19,7 @@ const { WebServices } = require('./web-services.cjs');
 const { Attachments } = require('./attachments.cjs');
 const { attachmentDescriptors } = require('./attachment-message.cjs');
 const { ErrorLog } = require('./error-log.cjs');
+const { MAX_EVENTS, validateCalendarEvent, listCalendarEvents, calendarEventView } = require('./calendar.cjs');
 const { randomUUID } = require('node:crypto');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'little-bot-attachment', privileges: { standard: true, secure: true, supportFetchAPI: false } }]);
@@ -148,6 +149,30 @@ app.whenReady().then(async () => {
         workspace: goal?.workspace || store.data.settings.workspace });
     },
   });
+  function saveCalendarRecord(payload) {
+    const records = store.data.calendar.events;
+    const existing = payload?.id ? records.find(event => event.id === payload.id) : null;
+    if (payload?.id && !existing) throw new Error('This calendar event no longer exists.');
+    if (!existing && records.length >= MAX_EVENTS) throw new Error('The local calendar has reached its 5,000-event limit.');
+    const event = validateCalendarEvent(payload, existing);
+    if (existing) Object.assign(existing, event);
+    else records.push(event);
+    records.sort((left, right) => left.startAt - right.startAt || left.title.localeCompare(right.title));
+    store.save();
+    controller.changed();
+    return event;
+  }
+  function deleteCalendarRecord(id) {
+    if (typeof id !== 'string' || !id) throw new Error('Choose a calendar event.');
+    const records = store.data.calendar.events;
+    const index = records.findIndex(event => event.id === id);
+    if (index < 0) throw new Error('This calendar event no longer exists.');
+    const [removed] = records.splice(index, 1);
+    store.save();
+    controller.changed();
+    return removed;
+  }
+
   controller.agentTools = new AgentTools({ store, browser: controller.browser, webServices: controller.webServices,
     sendAttachment: async (input, chat) => {
       if (!chat || chat.internal || chat.automationId || chat.status !== 'running') throw new Error('Files can be delivered only in an active user conversation.');
@@ -208,6 +233,26 @@ app.whenReady().then(async () => {
         existing.enabled = true; existing.nextRunAt = nextAutomationRunAt(existing, Date.now());
       } else throw new Error('Unsupported routine action.');
       store.save(); controller.changed(); return existing;
+    },
+    manageCalendar: async (action, payload) => {
+      if (action === 'list') return {
+        events: listCalendarEvents(store.data.calendar, payload),
+        localTime: new Date().toString(),
+      };
+      if (action === 'create') {
+        if (payload.id) throw new Error('A new calendar event cannot reuse an existing ID.');
+        const event = saveCalendarRecord(payload);
+        return { event: calendarEventView(event), message: 'Calendar event created.' };
+      }
+      if (action === 'update') {
+        const event = saveCalendarRecord(payload);
+        return { event: calendarEventView(event), message: 'Calendar event updated.' };
+      }
+      if (action === 'delete') {
+        const event = deleteCalendarRecord(payload.id);
+        return { event: calendarEventView(event), message: 'Calendar event deleted.' };
+      }
+      throw new Error('Unsupported calendar action.');
     },
   });
   controller.on('event', event => { if (window && !window.isDestroyed()) window.webContents.send('bot:event', event); });
@@ -340,6 +385,14 @@ app.whenReady().then(async () => {
     return controller.state();
   });
   register('resumeAutonomy', async () => { await goals.resumeAll(); return controller.state(); });
+  register('saveCalendarEvent', payload => {
+    saveCalendarRecord(payload);
+    return controller.state();
+  });
+  register('deleteCalendarEvent', ({ id } = {}) => {
+    deleteCalendarRecord(id);
+    return controller.state();
+  });
   register('saveAutomation', payload => {
     const existing = payload?.id ? store.data.automations.find(item => item.id === payload.id) : null;
     const automation = validateAutomation(payload, existing, store.data.settings);
