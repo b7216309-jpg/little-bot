@@ -57,7 +57,7 @@ Bundled skill updates preserve user edits, disabled state, IDs, and deletions. [
 
 ## Local data
 
-Data lives in `%APPDATA%/Little Bot/data`: chats, memory, profile, attachments, browser state, encrypted service keys, and isolated engine state. The app does not change your existing Codex or OpenClaw configuration. Streaming replies checkpoint about every two seconds and save immediately on completion or interruption; an abrupt power loss can lose the most recent unsaved text.
+Data lives in `%APPDATA%/Little Bot/data`: encrypted chat/memory state, profile, attachments, browser state, encrypted service keys, and isolated engine state. Saved conversations and Memory data are encrypted at rest with Windows DPAPI through Electron safeStorage; existing plaintext state migrates automatically on the next save. Attachments, profile Markdown files, calendar/automation metadata, and other local configuration remain ordinary local files. The app does not change your existing Codex or OpenClaw configuration. Streaming replies checkpoint about every two seconds and save immediately on completion or interruption; an abrupt power loss can lose the most recent unsaved text.
 
 Prompts and attachments go to the selected model connection: local Qwen stays on this computer; Codex sends them to its provider. Web services and MCP tools have their own destinations. The renderer has no Node access or remote scripts. This is an unsigned personal build.
 
