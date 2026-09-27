@@ -70,6 +70,21 @@ function persistedData(data, defaultWorkspace, recovering = false) {
       if (typeof chat.error === 'string') result.error = chat.error;
       if (typeof chat.automationId === 'string') result.automationId = chat.automationId;
       if (typeof chat.effort === 'string') result.effort = effort(chat.effort);
+      if (isObject(chat.lastTask)) {
+        const status = ['completed', 'failed', 'interrupted'].includes(chat.lastTask.status) ? chat.lastTask.status : 'completed';
+        result.lastTask = {
+          startedAt: timestamp(chat.lastTask.startedAt, null),
+          finishedAt: timestamp(chat.lastTask.finishedAt, null),
+          durationMs: count(chat.lastTask.durationMs),
+          actions: count(chat.lastTask.actions),
+          commands: count(chat.lastTask.commands),
+          files: count(chat.lastTask.files),
+          searches: count(chat.lastTask.searches),
+          mcp: count(chat.lastTask.mcp),
+          agentTools: count(chat.lastTask.agentTools),
+          status,
+        };
+      }
       if (isObject(chat.context)) {
         result.context = {
           usedTokens: count(chat.context.usedTokens),
