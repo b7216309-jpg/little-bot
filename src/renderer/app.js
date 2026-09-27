@@ -1105,6 +1105,110 @@ function sizeComposer() {
   input.style.height = `${Math.min(Math.max(input.scrollHeight, 67), 180)}px`;
 }
 
+function clearComposerDraft({ attachments = false } = {}) {
+  const key = draftKey();
+  $('message-input').value = '';
+  chatDrafts.delete(key);
+  if (attachments) attachmentDrafts.delete(key);
+  sizeComposer();
+  updateComposer();
+}
+
+function commandDraftName(value, fallback) {
+  const first = String(value || '').split(/[\r\n.!?]/, 1)[0].trim();
+  return (first || fallback).slice(0, 80);
+}
+
+async function executeSlashCommand(parsed) {
+  const chat = currentChat();
+  const running = chat?.status === 'running' || chat?.status === 'waiting' || chat?.compaction?.status === 'running' || compactionPending.has(chat?.id);
+  if (!parsed.known) {
+    clearComposerDraft();
+    notify(`Unknown command /${parsed.name || '?'}. Use /help to see available commands.`, true);
+    return true;
+  }
+
+  const args = parsed.args;
+  switch (parsed.name) {
+    case 'help':
+      clearComposerDraft();
+      notify(`Commands: ${LittleBotSlashCommands.helpText()}`);
+      return true;
+    case 'new':
+      clearComposerDraft({ attachments: true });
+      planModeDrafts.delete('__new__');
+      privateSessionDrafts.delete('__new__');
+      attachmentDrafts.delete('__new__');
+      selectChat(null);
+      $('message-input').value = '';
+      chatDrafts.delete('__new__');
+      sizeComposer();
+      updateComposer();
+      notify('New conversation ready.');
+      return true;
+    case 'plan':
+    case 'execute':
+      if (running) {
+        clearComposerDraft();
+        notify('Wait for the current turn to finish before changing mode.', true);
+        return true;
+      }
+      clearComposerDraft();
+      planModeDrafts.set(draftKey(), parsed.name === 'plan');
+      updateComposer();
+      notify(parsed.name === 'plan' ? 'Plan mode enabled for the next turn.' : 'Execute mode enabled for the next turn.');
+      return true;
+    case 'private':
+      clearComposerDraft();
+      if (chat) {
+        notify('Private mode is fixed when a conversation starts. Use /new first.', true);
+        return true;
+      }
+      privateSessionDrafts.set('__new__', !currentPrivateSession());
+      updateComposer();
+      notify(currentPrivateSession() ? 'Private session enabled.' : 'Private session disabled.');
+      return true;
+    case 'goal':
+      clearComposerDraft();
+      showFeature('goals');
+      editGoal();
+      if (args) {
+        $('goal-name').value = commandDraftName(args, 'New goal');
+        $('goal-objective').value = args.slice(0, 12000);
+      }
+      $('goal-objective').focus();
+      return true;
+    case 'schedule':
+      clearComposerDraft();
+      showAutomations();
+      editAutomation();
+      if (args) {
+        $('automation-name').value = commandDraftName(args, 'Scheduled task');
+        $('automation-prompt').value = args.slice(0, 32000);
+      }
+      $('automation-prompt').focus();
+      return true;
+    case 'memory':
+      clearComposerDraft();
+      showFeature('memory');
+      return true;
+    case 'activity':
+      clearComposerDraft();
+      setAgentInspectorOpen(true);
+      return true;
+    case 'settings':
+      clearComposerDraft();
+      showDialog('settings-dialog');
+      return true;
+    case 'clear':
+      clearComposerDraft({ attachments: true });
+      notify('Unsent draft cleared.');
+      return true;
+    default:
+      return false;
+  }
+}
+
 async function sendMessage(event) {
   event?.preventDefault();
   const submittedDraft = $('message-input').value;
@@ -1113,6 +1217,11 @@ async function sendMessage(event) {
   const mode = currentPlanMode() ? 'plan' : 'execute';
   const privateSession = Boolean(currentPrivateSession());
   const attachmentIds = queuedAttachments().map((attachment) => attachment.id);
+  const slashCommand = text ? LittleBotSlashCommands.parse(text) : null;
+  if (slashCommand) {
+    await executeSlashCommand(slashCommand);
+    return;
+  }
   if ((!text && !attachmentIds.length) || sending || thinkingSaving || attachmentImportPending || !isConnected() || !isReady() || chat?.status === 'running' || chat?.status === 'waiting' || chat?.compaction?.status === 'running' || compactionPending.has(chat?.id)) return;
   const originChatId = selectedChatId;
   const originDraftKey = originChatId || '__new__';
