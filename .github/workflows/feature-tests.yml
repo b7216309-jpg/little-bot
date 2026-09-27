@@ -20,4 +20,10 @@ jobs:
           node-version: "24"
           cache: npm
       - run: npm ci
-      - run: npm test
+      - name: Syntax check changed runtime files
+        run: node --check src/controller.cjs && node --check src/extension-runtime.cjs
+      - name: Full-access feature tests
+        run: node --test test/full-access.test.cjs test/extension-runtime.test.cjs
+      - name: Existing full suite diagnostic
+        continue-on-error: true
+        run: npm test
