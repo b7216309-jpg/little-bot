@@ -35,7 +35,7 @@ function parseLocalDateTime(value, { allDay = false, label = 'time' } = {}) {
     ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
     : /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
   if (!match) throw new Error(allDay ? `Use YYYY-MM-DD for the local ${label}.` : `Use YYYY-MM-DDTHH:MM for the local ${label}.`);
-  const [year, month, day, hour = '0', minute = '0'] = match.slice(1).map(Number);
+  const [year, month, day, hour = 0, minute = 0] = match.slice(1).map(Number);
   if (year < 1970 || year > 2200 || month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59) {
     throw new Error(`Choose a valid local ${label}.`);
   }
