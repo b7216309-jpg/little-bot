@@ -40,6 +40,7 @@ async function fixture(t, options = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'little-bot-compaction-'));
   const filePath = path.join(root, 'state.json');
   const store = new Store({ filePath, defaultWorkspace: root });
+  Object.assign(store.data.settings, { connection: 'codex', model: 'test-model', codexModel: 'test-model', workspace: root, effort: 'low' });
   const client = new FakeClient();
   const controller = new Controller({ store, client, ...options });
   await controller.start();
