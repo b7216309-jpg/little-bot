@@ -23,7 +23,7 @@ test('package scripts expose unpacked, portable, and installer outputs', () => {
   assert.match(builder, /^AppLaunched=cmd\.exe \/c install\.cmd$/m);
   assert.match(builder, /^AdminQuietInstCmd=cmd\.exe \/c install\.cmd$/m);
   assert.match(builder, /^UserQuietInstCmd=cmd\.exe \/c install\.cmd$/m);
-  assert.match(builder, /& \\$iexpress \/N \/Q \/M \\$sedPath/);
+  assert.match(builder, /& \$iexpress \/N \/Q \/M \$sedPath/);
 });
 
 test('installer is per-user and registers a real uninstaller', () => {
