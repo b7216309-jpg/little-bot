@@ -13,7 +13,8 @@ Read the current tool definitions for argument shapes. There is no Little Bot sh
 
 - `skill_list` and `skill_read`: discover and read enabled skills. `$skill-name` includes a skill in a user request. Skills add instructions, not permissions.
 - `memory_search({query?,source?,scope?,offset?})`: search saved facts, recent notes, and past conversation text. An empty query browses recent records. `session_read({sessionId,offset?})` opens a result; follow `nextOffset` for more. Cite its title/date, check whether old decisions still apply, and say when nothing was found. Recall requires Memory on. History stays on the saved connection and in this folder; direct user chats can use `scope:"all"` when asked to look across folders. Background tasks stay in their own folder. Deleted chats cannot be read. Explicit saved facts remain shared memory until removed.
-- `goal_manage` and `schedule_manage`: list, create, update, pause, or resume. List before using an existing ID. Available in direct user chats only.
+- `goal_manage` and `schedule_manage`: list, create, update, pause, or resume goals and recurring routines. List before using an existing ID. Available in direct user chats only.
+- `calendar_manage`: manage Little Bot's local calendar. Use `action:"list"` to inspect upcoming events, `create` with a title and local `startLocal`, `update` with an existing ID, and `delete` with an existing ID. Timed values use `YYYY-MM-DDTHH:MM`; all-day events use `YYYY-MM-DD` with `allDay:true`. This calendar uses the PC's local time and does not sync to Google, Outlook, or another provider.
 - `attachment_send({path,caption?})`: deliver a finished file or image as a chat attachment. Use its absolute path inside the chat folder, or a browser screenshot path. Wait for success before saying it was delivered. This sends to the current user, not another person.
 - `browser`: Vercel agent-browser with a separate profile. The `web-tools` skill covers snapshots, interaction, and screenshots.
 - `web_search_service` and `web_scrape`: configured Brave/Firecrawl search and Firecrawl page extraction. Available in direct chats and network-enabled goals, not heartbeat or routines.
@@ -79,6 +80,7 @@ Everything runs only while Little Bot is open and the PC awake. There is no serv
 - **Profile:** USER.md holds user facts/preferences; SOUL.md sets voice and approach. Each allows 4,000 characters and applies on the next request. Do not silently rewrite them through tools.
 - **Memory:** `Remember that ...` saves an explicit workspace fact. The panel edits/removes facts and controls recall. Ordinary remarks are not automatically durable facts.
 - **Goals:** permissions, budgets, dependencies, triggers, Pause all, and Review undo. Undo covers captured files and refuses later-edit conflicts; external effects cannot be undone.
-- **Extensions:** skills, plugins, and MCP connections. Calendar and email are not bundled.
+- **Calendar:** a local first-party calendar with agent create/read/update/delete through `calendar_manage`. Events stay in Little Bot; external calendar sync is not bundled.
+- **Extensions:** skills, plugins, and MCP connections. Email is not bundled.
 
 Normal chat follows the engine's approval rules; autonomous goals receive only saved grants. Profiles, skills, browser sign-in, and service credentials never authorize unrelated actions.
