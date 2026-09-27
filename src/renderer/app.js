@@ -2894,7 +2894,9 @@ async function deleteChat(chat) {
     notify('Stop this conversation before deleting it.');
     return;
   }
-  const message = `“${chat.title || 'This conversation'}” will be removed from your local chat history.`;
+  const message = chat.private
+    ? `“${chat.title || 'This private session'}” is not saved. Closing it removes it from this app session.`
+    : `“${chat.title || 'This conversation'}” will be removed from your local chat history.`;
   if (await confirmAction('Delete this chat?', message)) {
     const deletingCurrent = selectedChatId === chat.id;
     const originNavigation = navigationVersion;
