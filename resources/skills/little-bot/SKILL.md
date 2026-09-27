@@ -26,7 +26,7 @@ Use image input to inspect photos; use `attachment_send` to return existing imag
 
 ## Heartbeat and scheduling
 
-Choose **Heartbeat** for a continuing checklist that should stay quiet without meaningful changes; **Automations** for a prompt repeated at an interval; **Goals** for work with completion checks that stops when done. Do not create a real routine merely to explain setup.
+Choose **Heartbeat** for a continuing checklist that should stay quiet without meaningful changes; **Automations** for a prompt repeated by elapsed interval or at an exact local clock time; **Goals** for work with completion checks that stops when done. Do not create a real routine merely to explain setup.
 
 ### Heartbeat setup
 
@@ -44,17 +44,25 @@ Heartbeat can take small steps in its saved folder. It has no network/browser ac
 
 Use `schedule_manage` in direct chats. List first to find or reuse a matching routine rather than duplicating it. New routines inherit this chat's folder and the selected connection/model. The tool returns saved status; report that status accurately.
 
+Automations support two schedule forms:
+
+- **Interval:** `scheduleType:"interval"` with `intervalMinutes` from 1 to 10,080.
+- **Exact local time:** `scheduleType:"clock"` with `clockTime:"HH:MM"` and `daysOfWeek`. Times use the PC's local clock. Weekdays are integers `0=Sunday` through `6=Saturday`. Omit `daysOfWeek` to use every day.
+
 ```json
 {"action":"list"}
-{"action":"create","name":"Review project notes","prompt":"Read notes.md and report the next unfinished action.","intervalMinutes":60}
-{"action":"update","id":"<returned-id>","intervalMinutes":120}
+{"action":"create","name":"Review project notes","prompt":"Read notes.md and report the next unfinished action.","scheduleType":"interval","intervalMinutes":60}
+{"action":"create","name":"Morning review","prompt":"Review the workspace and list today’s priorities.","scheduleType":"clock","clockTime":"08:30","daysOfWeek":[1,2,3,4,5]}
+{"action":"update","id":"<returned-id>","scheduleType":"clock","clockTime":"09:00","daysOfWeek":[1,2,3,4,5]}
 {"action":"pause","id":"<returned-id>"}
 {"action":"resume","id":"<returned-id>"}
 ```
 
-Each object is a separate call. Names allow 1–80 characters, prompts 1–32,000, and intervals whole minutes from 1 to 10,080. Create saves a **disabled draft**; the user enables it in **Automations**. Stop or finish a running routine first; pause an enabled routine before updating. Every tool update requires enabling it again. Resume works only for a previously authorized routine and cannot bypass **Pause all**. Recreate a routine to change its saved folder/model/connection. Run/delete controls are in the app, not these tools. The first automatic run is after the interval, not immediately. Manual **Run now** can run and authorize a disabled routine.
+Each object is a separate call. Names allow 1–80 characters and prompts 1–32,000. Create saves a **disabled draft**; the user enables it in **Automations**. Stop or finish a running routine first; pause an enabled routine before updating. Every tool update requires enabling it again. Resume works only for a previously authorized routine and cannot bypass **Pause all**. Recreate a routine to change its saved folder/model/connection. Run/delete controls are in the app, not these tools.
 
-There is **no cron-expression parser, weekday schedule, exact clock-time schedule, or one-time timer**. `intervalMinutes:1440` means an elapsed 24-hour interval, not "09:00 every morning." Automations have no active-hour window: heartbeat's From/Until settings do not apply to them, so an enabled hourly routine can also run overnight. Do not supply clock-time examples or a numeric interval as a solution to an exact-time/weekday request. Explain the unsupported requirement and ask whether flexible timing is acceptable; only propose a replacement interval once that tradeoff is accepted. Never claim a cron expression was installed.
+Interval schedules count elapsed time from the previous start. Exact-time schedules use the PC's local time and selected weekdays. If Little Bot is closed, busy, or the PC is asleep when a schedule becomes due, it makes one attempt when work can resume and then advances to the next future occurrence; it does not create a catch-up burst. Manual **Run now** does not convert or drift the saved exact-time schedule.
+
+There is **no cron-expression parser or one-time timer**. Do not claim a cron expression was installed. Exact local times and weekday schedules should use the clock schedule fields above.
 
 Little Bot has no CLI or external API for submitting a prompt or running a saved routine. Windows Task Scheduler cannot send it a prompt through a supported interface; merely launching the app does not execute a named task on demand. Do not present that as a working workaround.
 
