@@ -34,6 +34,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
       model: string(settings.model),
       effort: effort(settings.effort),
       autoCompactPercent: normalizeAutoCompactPercent(settings.autoCompactPercent),
+      ...(typeof settings.systemPrompt === 'string' ? { systemPrompt: settings.systemPrompt.slice(0, 100000) } : {}),
     },
     chats: chats.filter(isObject).map(chat => {
       const result = {
