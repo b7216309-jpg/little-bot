@@ -146,7 +146,7 @@ class Controller extends EventEmitter {
       models: this.models.map(({ id, displayName, inputModalities, vision }) => ({
         id, displayName,
         ...(Array.isArray(inputModalities) ? { inputModalities: [...inputModalities] } : {}),
-        vision: typeof vision === 'boolean' ? vision : null,
+        ...(typeof vision === 'boolean' ? { vision } : {}),
       })),
       approvals: [...this.approvals.values()].map(({ rpcId, method, params, callKey, ...publicFields }) => publicFields),
       storageWarning: this.store.warning || null,
