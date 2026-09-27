@@ -7,6 +7,7 @@ const { Transform } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const { localBaseUrl } = require('./connections.cjs');
 const { applyQwenGeneration } = require('./local-generation.cjs');
+const { prepareNamespaceTools, restoreNamespaceCalls } = require('./responses-namespace-compat.cjs');
 
 // A 50 MiB attachment turn can exceed 64 MiB after base64 encoding.
 const MAX_BODY_BYTES = 96 * 1024 * 1024;
@@ -52,18 +53,23 @@ function replyError(response, status, message) {
   response.end(JSON.stringify({ error: { message, type: 'local_model_error', code: status } }));
 }
 
-function reasoningEvents() {
+function responseEvents(namespaceTools) {
   const limit = 1024 * 1024;
   let parts = [], size = 0, passthrough = false;
   const line = buffer => {
     if (buffer.subarray(0, 5).toString('ascii') !== 'data:') return buffer;
     try {
       const event = JSON.parse(buffer.subarray(5).toString('utf8'));
+      let changed = false;
       // llama.cpp b10068 omits the single reasoning part's index. Codex
       // 0.157.1 requires it to forward response.reasoning_text.delta live.
-      if (event?.type !== 'response.reasoning_text.delta' || typeof event.delta !== 'string'
-        || Object.hasOwn(event, 'content_index')) return buffer;
-      event.content_index = 0;
+      if (event?.type === 'response.reasoning_text.delta' && typeof event.delta === 'string'
+        && !Object.hasOwn(event, 'content_index')) {
+        event.content_index = 0;
+        changed = true;
+      }
+      changed = restoreNamespaceCalls(event, namespaceTools.byAlias) || changed;
+      if (!changed) return buffer;
       const ending = buffer.at(-1) === 10 ? (buffer.at(-2) === 13 ? '\r\n' : '\n') : '';
       return Buffer.from(`data: ${JSON.stringify(event)}${ending}`);
     } catch { return buffer; }
@@ -194,6 +200,7 @@ class LocalModelRelay {
     }
     if (!object(body) || (body.chat_template_kwargs !== undefined && !object(body.chat_template_kwargs))) throw new RequestError(400, 'The local model request has invalid template settings.');
     body.chat_template_kwargs = { ...body.chat_template_kwargs, enable_thinking: thinking };
+    const namespaceTools = prepareNamespaceTools(body);
     if (match[3] === 'responses') applyQwenGeneration(body, thinking);
     const data = Buffer.from(JSON.stringify(body));
     const headers = headersWithoutHopByHop(request.headers);
@@ -224,11 +231,11 @@ class LocalModelRelay {
       if ((result.statusCode || 0) >= 500) this.onError('upstream-status', new Error(`Local model server returned HTTP ${result.statusCode}.`), { status: result.statusCode });
       const resultHeaders = headersWithoutHopByHop(result.headers);
       for (const name of Object.keys(resultHeaders)) if (name.startsWith('access-control-') || name === 'set-cookie') delete resultHeaders[name];
-      const repairReasoning = /^text\/event-stream(?:\s*;|$)/i.test(result.headers['content-type'] || '')
+      const repairEvents = /^text\/event-stream(?:\s*;|$)/i.test(result.headers['content-type'] || '')
         && (!result.headers['content-encoding'] || result.headers['content-encoding'] === 'identity');
-      if (repairReasoning) delete resultHeaders['content-length'];
+      if (repairEvents) delete resultHeaders['content-length'];
       response.writeHead(result.statusCode || 502, resultHeaders);
-      if (repairReasoning) await pipeline(result, reasoningEvents(), response);
+      if (repairEvents) await pipeline(result, responseEvents(namespaceTools), response);
       else await pipeline(result, response);
     } finally {
       response.off('close', cancelled);
