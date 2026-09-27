@@ -71,7 +71,7 @@ function finish(fixture, chat, text = '{"status":"quiet","summary":""}', status 
   fixture.client.notice('turn/completed', { threadId: chat.threadId, turn: { id: fixture.controller.turns.get(chat.id), status, ...(error ? { error: { message: error } } : {}) } });
 }
 
-test('explicit remember is injected into the same turn and facts plus final work excerpts persist', async (t) => {
+test('explicit remember is saved, available to later turns, and final work excerpts persist', async (t) => {
   const f = await setup(t);
   const text = 'Remember that reports should use metric units.';
   const { chatId } = await f.controller.send({ text });
@@ -81,15 +81,18 @@ test('explicit remember is injected into the same turn and facts plus final work
   assert.equal(facts[0].text, 'reports should use metric units.');
   assert.equal(facts[0].sourceChatId, chatId);
   const sent = f.client.calls.find(call => call.method === 'turn/start').params.input[0].text;
-  assert.match(sent, /Durable facts:/);
-  assert.match(sent, /reports should use metric units/);
   assert.ok(sent.endsWith(`Current user request:\n${text}`));
+  assert.doesNotMatch(sent, /Durable facts:/);
   assert.equal(chat.messages[0].text, text);
   item(f, chat, { id: 'progress', type: 'agentMessage', phase: 'commentary', text: 'Private intermediate detail.' });
   finish(f, chat, 'Future reports will use metric units.');
   assert.equal(f.store.data.memory.episodes.length, 1);
   assert.match(f.store.data.memory.episodes[0].summary, /Outcome: Future reports will use metric units/);
   assert.doesNotMatch(f.store.data.memory.episodes[0].summary, /Private intermediate/);
+  await f.controller.send({ chatId, text: 'What units should reports use?' });
+  const later = f.client.calls.filter(call => call.method === 'turn/start').at(-1).params.input[0].text;
+  assert.match(later, /Durable facts:/);
+  assert.match(later, /reports should use metric units/);
   f.store.flush();
   const restored = new Store({ filePath: f.filePath, defaultWorkspace: f.root });
   assert.deepEqual(restored.data.memory, JSON.parse(JSON.stringify(f.store.data.memory)));
@@ -108,7 +111,9 @@ test('disabled memory suppresses fact creation, recall, and episode capture for 
   f.store.data.memory.enabled = false;
   const text = 'Remember that responses should be longer.';
   const { chatId } = await f.controller.send({ text });
-  assert.equal(f.client.calls.find(call => call.method === 'turn/start').params.input[0].text, text);
+  const disabledMemoryInput = f.client.calls.find(call => call.method === 'turn/start').params.input[0].text;
+  assert.ok(disabledMemoryInput.endsWith(`Current user request:\n${text}`));
+  assert.doesNotMatch(disabledMemoryInput, /Durable facts:|Recent work in this folder|special notebook/);
   finish(f, f.controller.chat(chatId), 'Done.');
   assert.equal(f.store.data.memory.facts.length, 1);
   assert.equal(f.store.data.memory.episodes.length, 0);
