@@ -62,8 +62,11 @@ async function fixture(t) {
 
   const client = new FakeClient();
   const controller = new Controller({ store, client });
-  controller.profileFiles = { buildContext: () => 'PROFILE CONTEXT SENTINEL 9321' };
   await controller.start();
+  controller.profileFiles = {
+    buildContext: () => 'PROFILE CONTEXT SENTINEL 9321',
+    getState: () => ({ user: '', soul: '', root: '', files: {}, errors: {}, limits: { perFile: 4000, total: 8000 }, updatedAt: null }),
+  };
   t.after(async () => {
     await controller.close();
     await rm(root, { recursive: true, force: true });
