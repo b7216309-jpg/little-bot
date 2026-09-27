@@ -53,6 +53,7 @@ async function setup(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'little-bot-controller-'));
   const filePath = path.join(root, 'state.json');
   const store = new Store({ filePath, defaultWorkspace: root });
+  Object.assign(store.data.settings, { connection: 'codex', model: 'gpt-6-sol', codexModel: 'gpt-6-sol', workspace: root, effort: 'low' });
   const client = new FakeCodexClient();
   const controller = new Controller({ store, client });
   await controller.start();
