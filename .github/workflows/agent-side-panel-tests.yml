@@ -1,0 +1,28 @@
+name: Agent side panel tests
+
+on:
+  push:
+    branches:
+      - "feature/agent-side-panel"
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Syntax check renderer
+        run: node --check src/renderer/app.js
+      - name: Side panel integration
+        run: node --test test/agent-side-panel.test.cjs
+      - name: Electron side panel interaction
+        run: npx electron test/agent-side-panel-electron.cjs

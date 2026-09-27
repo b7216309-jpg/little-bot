@@ -155,6 +155,8 @@ let connectionPending = false;
 let connectionError = '';
 let chatFollowTail = true;
 let chatScrollProgrammatic = false;
+let agentInspectorOpen = false;
+try { agentInspectorOpen = localStorage.getItem('little-bot.agent-inspector-open') === 'true'; } catch { /* Optional UI preference only. */ }
 
 const currentChat = () => state?.chats?.find((chat) => chat.id === selectedChatId) || null;
 const isConnected = () => state?.account?.status === 'connected';
@@ -306,6 +308,7 @@ function render() {
   if (currentView === 'extensions') renderExtensions();
   if (currentView === 'goals') renderGoals();
   if (currentView === 'profile') renderProfile();
+  renderAgentInspector();
   renderApprovals();
   updateComposer();
 }
@@ -791,6 +794,7 @@ function updateTaskClock() {
   if (!chat || chat.status !== 'running' || !chat.taskRun?.startedAt || chat.compaction?.status === 'running') return;
   const label = conversationActivity?.querySelector('.thinking-label');
   if (label) label.textContent = `Working… · ${formatTaskDuration(Date.now() - chat.taskRun.startedAt)}`;
+  if (agentInspectorOpen && currentView === 'chat') $('inspector-elapsed').textContent = inspectorElapsedText(chat);
 }
 taskClockTimer = setInterval(updateTaskClock, 1000);
 taskClockTimer.unref?.();
@@ -811,6 +815,7 @@ function renderStreamedMessages(chat, messages, indexes) {
   if (activity && activity.parentNode !== $('messages')) $('messages').append(activity);
   else if (!activity) conversationActivity?.remove();
   restoreChatScroll(scrollSnapshot);
+  if (agentInspectorOpen) renderAgentInspector();
 }
 
 function renderConversation() {
@@ -932,6 +937,108 @@ function compactDisabledReason(chat) {
   if (state.extensionsBusy || state.extensionRuntime?.status === 'syncing' || extensionsRefreshing) return 'Wait for the extension operation to finish before compacting.';
   if (state.heartbeat?.lastStatus === 'running' || heartbeatManualPending) return 'Wait for the Heartbeat check to finish, or stop it first.';
   return '';
+}
+
+function inspectorModeLabel(chat) {
+  const mode = chat?.mode === 'plan' ? 'Plan' : 'Execute';
+  return chat?.private ? `Private · ${mode}` : mode;
+}
+
+function inspectorElapsedText(chat) {
+  if (chat?.taskRun?.startedAt) return formatTaskDuration(Date.now() - chat.taskRun.startedAt);
+  if (chat?.lastTask?.durationMs != null) return formatTaskDuration(chat.lastTask.durationMs);
+  return '—';
+}
+
+function inspectorActionLabel(message) {
+  if (!message) return 'No active action.';
+  const firstLine = String(message.text || '').split(/\r?\n/, 1)[0].replace(/^\$\s*/, '').trim();
+  if (message.kind === 'command') return firstLine ? `Terminal · ${firstLine.slice(0, 120)}` : 'Terminal command';
+  if (message.kind === 'file') return 'Updating files';
+  if (message.kind === 'search') return firstLine ? `Search · ${firstLine.slice(0, 120)}` : 'Web search';
+  if (message.kind === 'mcp') return firstLine ? `MCP · ${firstLine.slice(0, 120)}` : 'External MCP tool';
+  if (message.kind === 'agent') return firstLine || 'App tool';
+  if (message.kind === 'reasoning') return 'Thinking';
+  if (message.kind === 'plan') return 'Writing plan';
+  return firstLine || 'Working';
+}
+
+function inspectorFilePaths(chat) {
+  const paths = [];
+  const seen = new Set();
+  for (const message of [...(chat?.messages || [])].reverse()) {
+    if (message.role !== 'tool' || message.kind !== 'file') continue;
+    for (const block of String(message.text || '').split(/\n\n+/)) {
+      const path = block.split(/\r?\n/, 1)[0].trim();
+      if (!path || seen.has(path)) continue;
+      seen.add(path);
+      paths.push(path);
+      if (paths.length >= 8) return paths;
+    }
+  }
+  return paths;
+}
+
+function setAgentInspectorOpen(open) {
+  agentInspectorOpen = Boolean(open);
+  try { localStorage.setItem('little-bot.agent-inspector-open', String(agentInspectorOpen)); } catch {}
+  renderAgentInspector();
+}
+
+function renderAgentInspector() {
+  const visible = currentView === 'chat' && agentInspectorOpen;
+  $('agent-inspector-toggle').classList.toggle('hidden', currentView !== 'chat');
+  $('agent-inspector-toggle').setAttribute('aria-pressed', String(visible));
+  $('agent-inspector').classList.toggle('hidden', !visible);
+  $('chat-view').classList.toggle('inspector-open', visible);
+  if (!visible) return;
+
+  const chat = currentChat();
+  const status = !chat ? 'No conversation' : chat.status === 'waiting' ? 'Waiting for input' : chat.status === 'running' ? 'Working' : chat.error ? 'Failed' : 'Idle';
+  $('inspector-status').textContent = status;
+  $('inspector-status-dot').className = `status-dot ${chat?.error ? 'error' : chat?.status === 'running' || chat?.status === 'waiting' ? 'starting' : ''}`.trim();
+  $('inspector-mode').textContent = inspectorModeLabel(chat);
+  $('inspector-elapsed').textContent = inspectorElapsedText(chat);
+
+  const model = chat?.model || state?.settings?.model || '—';
+  const connection = chat?.connection || state?.connection?.type || state?.settings?.connection;
+  $('inspector-model').textContent = [connection === 'local' ? 'Local' : connection === 'codex' ? 'Codex' : '', model].filter(Boolean).join(' · ') || '—';
+
+  const context = chat?.context || {};
+  const used = Number.isFinite(context.usedTokens) ? context.usedTokens : null;
+  const total = Number.isFinite(context.windowTokens) && context.windowTokens > 0 ? context.windowTokens : null;
+  $('inspector-context').textContent = context.stale ? 'Refreshing…'
+    : used !== null && total !== null ? `${Math.round(used / total * 100)}% · ${Math.round(used).toLocaleString()} / ${Math.round(total).toLocaleString()}`
+      : used !== null ? `${Math.round(used).toLocaleString()} tokens` : 'Not reported';
+
+  const active = [...(chat?.messages || [])].reverse().find(message =>
+    ['running', 'inProgress', 'pending', 'waiting'].includes(message.status)
+    && (message.role === 'tool' || ['reasoning', 'plan'].includes(message.kind)));
+  $('inspector-current').textContent = chat?.status === 'waiting' ? 'Waiting for your input.' : active ? inspectorActionLabel(active) : chat?.status === 'running' ? 'Preparing the next action…' : 'No active action.';
+
+  const latestPlan = [...(chat?.messages || [])].reverse().find(message => message.role === 'assistant' && message.kind === 'plan' && String(message.text || '').trim());
+  $('inspector-plan-section').classList.toggle('hidden', !latestPlan);
+  $('inspector-plan').textContent = latestPlan ? String(latestPlan.text).trim().slice(0, 900) : '';
+
+  const tools = (chat?.messages || []).filter(message => message.role === 'tool').slice(-8).reverse();
+  const actionItems = tools.map(message => {
+    const item = element('div', 'inspector-list-item');
+    const copy = element('div');
+    copy.append(element('strong', '', inspectorActionLabel(message)), element('span', '', humanStatus(message.status || 'completed')));
+    item.append(icon(message.kind === 'command' ? 'terminal' : message.kind === 'file' ? 'folder' : message.kind === 'mcp' ? 'extensions' : 'sparkles'), copy);
+    return item;
+  });
+  $('inspector-actions').replaceChildren(...(actionItems.length ? actionItems : [element('p', 'inspector-empty', 'No actions yet.')]));
+
+  const files = inspectorFilePaths(chat);
+  $('inspector-files').replaceChildren(...(files.length
+    ? files.map(path => {
+        const item = element('div', 'inspector-file');
+        item.title = path;
+        item.append(icon('file'), element('span', '', path));
+        return item;
+      })
+    : [element('p', 'inspector-empty', 'No file changes yet.')]));
 }
 
 function renderChatContext() {
@@ -2999,6 +3106,8 @@ $('settings-auto-compact').addEventListener('input', () => {
   $('compaction-settings-saved').textContent = '';
   renderCompactionSettings();
 });
+$('agent-inspector-toggle').addEventListener('click', () => setAgentInspectorOpen(!agentInspectorOpen));
+$('agent-inspector-close').addEventListener('click', () => setAgentInspectorOpen(false));
 $('open-agent-browser').addEventListener('click', () => browserAction('open'));
 $('settings-open-browser').addEventListener('click', () => browserAction('open'));
 $('settings-close-browser').addEventListener('click', () => browserAction('close'));
