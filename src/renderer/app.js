@@ -156,6 +156,8 @@ let connectionError = '';
 let chatFollowTail = true;
 let chatScrollProgrammatic = false;
 let agentInspectorOpen = false;
+const contextUsedCache = new Map();
+const contextUsedPending = new Map();
 try { agentInspectorOpen = localStorage.getItem('little-bot.agent-inspector-open') === 'true'; } catch { /* Optional UI preference only. */ }
 
 const currentChat = () => state?.chats?.find((chat) => chat.id === selectedChatId) || null;
@@ -979,6 +981,74 @@ function inspectorFilePaths(chat) {
   return paths;
 }
 
+function renderContextUsedSnapshot(snapshot, chat) {
+  const host = $('inspector-context-used');
+  if (!chat) {
+    $('inspector-memory-status').textContent = 'Start or select a conversation to inspect its context.';
+    host.replaceChildren(element('p', 'inspector-empty', 'No turn context captured yet.'));
+    return;
+  }
+  if (!chat.contextUsedAt) {
+    $('inspector-memory-status').textContent = chat.private ? 'Private session · saved memory is not recalled.' : 'No turn context captured yet.';
+    host.replaceChildren(element('p', 'inspector-empty', 'A snapshot appears after the next turn starts.'));
+    return;
+  }
+  if (!snapshot) {
+    $('inspector-memory-status').textContent = 'Loading latest turn context…';
+    host.replaceChildren(element('p', 'inspector-empty', 'Loading context snapshot…'));
+    return;
+  }
+
+  $('inspector-memory-status').textContent = `${snapshot.memoryStatus || 'Memory status unavailable'} · Captured ${formatDate(snapshot.at)} · This snapshot is kept only for the current app session.`;
+  const entries = [
+    { label: snapshot.developerInstructionsLabel || 'System prompt', text: snapshot.developerInstructions, kind: 'system' },
+    ...(Array.isArray(snapshot.inputBlocks) ? snapshot.inputBlocks : []),
+  ].filter(entry => typeof entry.text === 'string' && entry.text.length);
+
+  const nodes = entries.map(entry => {
+    const details = element('details', 'inspector-context-block');
+    const summary = element('summary');
+    summary.append(
+      element('strong', '', entry.label || entry.kind || 'Context'),
+      element('span', '', `${entry.text.length.toLocaleString()} chars`),
+    );
+    const pre = element('pre', '', entry.text);
+    details.append(summary, pre);
+    return details;
+  });
+  if (snapshot.nonTextInputs) {
+    const note = element('p', 'inspector-context-note', `${snapshot.nonTextInputs} non-text attachment input${snapshot.nonTextInputs === 1 ? '' : 's'} accompanied this turn.`);
+    nodes.push(note);
+  }
+  host.replaceChildren(...(nodes.length ? nodes : [element('p', 'inspector-empty', 'No injected context blocks were recorded.')]));
+}
+
+function loadContextUsed(chat, force = false) {
+  if (!chat?.contextUsedAt || typeof window.bot?.getContextUsed !== 'function') {
+    renderContextUsedSnapshot(null, chat);
+    return;
+  }
+  const cached = contextUsedCache.get(chat.id);
+  if (!force && cached?.at === chat.contextUsedAt) {
+    renderContextUsedSnapshot(cached, chat);
+    return;
+  }
+  if (contextUsedPending.get(chat.id) === chat.contextUsedAt) return;
+  contextUsedPending.set(chat.id, chat.contextUsedAt);
+  renderContextUsedSnapshot(null, chat);
+  window.bot.getContextUsed({ chatId: chat.id }).then(snapshot => {
+    if (snapshot?.at) contextUsedCache.set(chat.id, snapshot);
+    if (selectedChatId === chat.id && agentInspectorOpen && currentView === 'chat') renderContextUsedSnapshot(snapshot, currentChat());
+  }).catch(error => {
+    if (selectedChatId === chat.id && agentInspectorOpen) {
+      $('inspector-memory-status').textContent = error?.message || 'Could not load the context snapshot.';
+      $('inspector-context-used').replaceChildren(element('p', 'inspector-empty', 'Context snapshot unavailable.'));
+    }
+  }).finally(() => {
+    if (contextUsedPending.get(chat.id) === chat.contextUsedAt) contextUsedPending.delete(chat.id);
+  });
+}
+
 function setAgentInspectorOpen(open) {
   agentInspectorOpen = Boolean(open);
   try { localStorage.setItem('little-bot.agent-inspector-open', String(agentInspectorOpen)); } catch {}
@@ -1039,6 +1109,7 @@ function renderAgentInspector() {
         return item;
       })
     : [element('p', 'inspector-empty', 'No file changes yet.')]));
+  loadContextUsed(chat);
 }
 
 function renderChatContext() {
@@ -3217,6 +3288,12 @@ $('settings-auto-compact').addEventListener('input', () => {
 });
 $('agent-inspector-toggle').addEventListener('click', () => setAgentInspectorOpen(!agentInspectorOpen));
 $('agent-inspector-close').addEventListener('click', () => setAgentInspectorOpen(false));
+$('inspector-context-refresh').addEventListener('click', () => {
+  const chat = currentChat();
+  if (!chat) return;
+  contextUsedCache.delete(chat.id);
+  loadContextUsed(chat, true);
+});
 $('open-agent-browser').addEventListener('click', () => browserAction('open'));
 $('settings-open-browser').addEventListener('click', () => browserAction('open'));
 $('settings-close-browser').addEventListener('click', () => browserAction('close'));

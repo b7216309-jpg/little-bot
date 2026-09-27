@@ -83,6 +83,7 @@ class Controller extends EventEmitter {
     this.resumed = new Set();
     this.threadCompactionSettings = new Map();
     this.threadInstructionSettings = new Map();
+    this.contextUsed = new Map();
     this.turns = new Map();
     this.outcomes = new Map();
     this.compactions = new CompactionTracker();
@@ -374,6 +375,11 @@ class Controller extends EventEmitter {
   stopGoal(reason) { return this.goalExecutor.stop(reason); }
   verifyGoalCommand(goal, check) { return this.goalExecutor.verifyCommand(goal, check); }
   profileContext() { return this.profileFiles?.buildContext() || ''; }
+  contextUsedFor(chatId) {
+    if (typeof chatId !== 'string' || !this.chat(chatId)) return null;
+    const snapshot = this.contextUsed.get(chatId);
+    return snapshot ? structuredClone(snapshot) : null;
+  }
   systemPrompt() {
     return typeof this.store.data.settings.systemPrompt === 'string' ? this.store.data.settings.systemPrompt : instructions;
   }
@@ -480,15 +486,37 @@ class Controller extends EventEmitter {
       } else await this.resumeThread(chat, common);
       if (override?.automationId && this.store.data.autonomy?.paused) throw new Error('Autonomous work is paused.');
       const profile = this.profileContext();
+      const requestBlock = `Current user request:\n${text || 'Examine the attached files.'}`;
+      const inputBlocks = [
+        profile ? { kind: 'profile', label: 'Profile · USER.md + SOUL.md', text: profile } : null,
+        selectedSkills ? { kind: 'skills', label: 'Selected skills', text: selectedSkills } : null,
+        memoryContext ? { kind: 'memory', label: 'Memory recall', text: memoryContext } : null,
+        prepared.text ? { kind: 'attachments', label: 'Attachment excerpts', text: prepared.text } : null,
+        { kind: 'shell', label: 'Shell conduct', text: SHELL_CONDUCT },
+        { kind: 'request', label: 'Current user request', text: requestBlock },
+      ].filter(Boolean);
       const result = await this.client.request('turn/start', {
-        threadId: chat.threadId, input: [{ type: 'text', text: [profile, selectedSkills, memoryContext, prepared.text,
-          SHELL_CONDUCT,
-          `Current user request:\n${text || 'Examine the attached files.'}`].filter(Boolean).join('\n\n') }, ...prepared.input],
+        threadId: chat.threadId, input: [{ type: 'text', text: inputBlocks.map(block => block.text).join('\n\n') }, ...prepared.input],
         cwd: folder, model: chat.model || undefined,
         effort: this.effectiveEffort(chat.model, chat.effort),
         approvalPolicy: 'never', approvalsReviewer: 'user',
         sandboxPolicy: turnMode === 'plan' ? { type: 'readOnly' } : { type: 'dangerFullAccess' },
       }, 60000);
+      const capturedAt = Date.now();
+      this.contextUsed.set(chat.id, {
+        chatId: chat.id,
+        at: capturedAt,
+        mode: turnMode,
+        private: chat.private === true,
+        developerInstructions: common.developerInstructions,
+        developerInstructionsLabel: turnMode === 'plan' ? 'System prompt + Plan mode' : 'System prompt',
+        inputBlocks,
+        nonTextInputs: prepared.input.length,
+        memoryStatus: chat.private ? 'Skipped in Private session.'
+          : this.store.data.memory.enabled === false ? 'Memory is disabled.'
+            : memoryContext ? 'Relevant memory was injected.' : 'No relevant saved memory matched this turn.',
+      });
+      chat.contextUsedAt = capturedAt;
       if (chat.status !== 'idle') {
         this.turns.set(chat.id, result.turn.id);
         this.latestTurns.set(chat.id, result.turn.id);
@@ -741,6 +769,7 @@ class Controller extends EventEmitter {
     this.outcomes.delete(chatId);
     this.completedTurns.delete(chatId);
     this.latestTurns.delete(chatId);
+    this.contextUsed.delete(chatId);
     this.threadCompactionSettings.delete(chat.threadId);
     this.threadInstructionSettings.delete(chat.threadId);
     // Normal chats hide only this app's copy; private chats also use ephemeral engine threads.

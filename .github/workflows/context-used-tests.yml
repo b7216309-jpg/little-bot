@@ -1,0 +1,27 @@
+name: Context used inspector tests
+
+on:
+  push:
+    branches:
+      - main
+      - "feature/context-used-inspector"
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Syntax check context inspector
+        run: node --check src/controller.cjs && node --check src/main.cjs && node --check src/preload.cjs && node --check src/renderer/app.js
+      - name: Context transparency behavior
+        run: node --test test/context-used.test.cjs
