@@ -89,7 +89,7 @@ SourceFiles0=$sourceWithSlash
 %FILE3%=
 "@
   [IO.File]::WriteAllText($sedPath, $sed, [Text.Encoding]::ASCII)
-  & $iexpress /N /Q $sedPath
+  & $iexpress /N /Q /M $sedPath
   if (!(Test-Path -LiteralPath $installer -PathType Leaf) -or (Get-Item -LiteralPath $installer).Length -lt 1024) {
     throw 'Installer executable was not created.'
   }
