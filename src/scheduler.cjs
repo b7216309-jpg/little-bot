@@ -1,0 +1,135 @@
+'use strict';
+
+const { randomUUID } = require('node:crypto');
+const { connectionBinding, isConnectionSelected, requireSelectedConnection } = require('./connections.cjs');
+const MINUTE_MS = 60 * 1000;
+
+function validInterval(value) {
+  if (!Number.isInteger(value) || value < 1 || value > 10080) {
+    throw new RangeError('The interval must be a whole number from 1 to 10080 minutes.');
+  }
+  return value;
+}
+
+function nextRunAt(nowMs, intervalMinutes) {
+  if (!Number.isFinite(nowMs)) throw new TypeError('A valid current timestamp is required.');
+  return nowMs + validInterval(intervalMinutes) * MINUTE_MS;
+}
+
+function validateAutomation(input, existing = null, settings = {}, nowMs = Date.now()) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new TypeError('An automation is required.');
+  if (!Number.isFinite(nowMs)) throw new TypeError('A valid current timestamp is required.');
+  if (input.id != null && !existing) throw new Error('This automation no longer exists.');
+  if (existing && input.id != null && input.id !== existing.id) throw new Error('Automation IDs must match.');
+  const name = typeof input.name === 'string' ? input.name.trim() : '';
+  const prompt = typeof input.prompt === 'string' ? input.prompt.trim() : '';
+  if (!name || name.length > 80) throw new Error('Give the automation a name of 1 to 80 characters.');
+  if (!prompt || prompt.length > 32000) throw new Error('The task must contain 1 to 32000 characters.');
+  const intervalMinutes = validInterval(input.intervalMinutes);
+  if (input.enabled !== undefined && typeof input.enabled !== 'boolean') {
+    throw new TypeError('Enabled must be true or false.');
+  }
+  const enabled = input.enabled === undefined ? (existing ? existing.enabled : true) : input.enabled;
+  const resetSchedule = !existing || existing.intervalMinutes !== intervalMinutes
+    || (enabled && !existing.enabled) || !Number.isFinite(existing.nextRunAt);
+  return {
+    id: existing ? existing.id : randomUUID(),
+    name,
+    prompt,
+    intervalMinutes,
+    enabled,
+    nextRunAt: resetSchedule ? nextRunAt(nowMs, intervalMinutes) : existing.nextRunAt,
+    lastRunAt: existing && Number.isFinite(existing.lastRunAt) ? existing.lastRunAt : null,
+    lastStatus: existing && ['running', 'completed', 'error'].includes(existing.lastStatus) ? existing.lastStatus : 'never',
+    ...(existing && typeof existing.lastError === 'string' ? { lastError: existing.lastError } : {}),
+    workspace: existing ? existing.workspace : settings.workspace,
+    model: existing ? existing.model : (settings.model || ''),
+    ...connectionBinding(existing || settings),
+    effort: existing ? (existing.effort || 'low') : (settings.effort || 'low'),
+  };
+}
+
+class Scheduler {
+  constructor({ store, run, canRun = () => true, onChange = () => {}, now = Date.now }) {
+    if (!store || typeof store.save !== 'function') throw new TypeError('A store is required.');
+    if (typeof run !== 'function') throw new TypeError('A task runner is required.');
+    this.store = store;
+    this.canRun = canRun;
+    this.run = run;
+    this.onChange = onChange;
+    this.now = now;
+    this.timer = null;
+    this.runningId = null;
+  }
+
+  start() {
+    if (this.timer) return;
+    this.timer = setInterval(() => { void this.tick(); }, 15000);
+    this.timer.unref?.();
+  }
+
+  stop() {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+  }
+
+  async tick() {
+    if (this.runningId || !this.canRun()) return null;
+    const nowMs = this.now();
+    const due = this.store.data.automations
+      .filter(automation => automation.enabled && Number.isFinite(automation.nextRunAt) && automation.nextRunAt <= nowMs)
+      .filter(automation => isConnectionSelected(automation, this.store.data.settings))
+      .sort((left, right) => left.nextRunAt - right.nextRunAt)[0];
+    if (!due) return null;
+    try {
+      return await this.runNow(due.id);
+    } catch {
+      // The failure is saved on the record; periodic calls must never reject.
+      return null;
+    }
+  }
+
+  async runNow(id) {
+    if (this.runningId) throw new Error('Another automation is already running.');
+    if (!this.canRun()) throw new Error('Wait for the heartbeat check to finish, or stop it first.');
+    const automation = this.store.data.automations.find(item => item.id === id);
+    if (!automation) throw new Error('This automation no longer exists.');
+    requireSelectedConnection(automation, this.store.data.settings);
+    this.runningId = id;
+    try {
+      const startedAt = this.now();
+      automation.lastRunAt = startedAt;
+      automation.lastStatus = 'running';
+      automation.nextRunAt = nextRunAt(startedAt, automation.intervalMinutes);
+      delete automation.lastError;
+      this.store.save();
+      this.onChange();
+      // The runner resolves only after its task finishes, including any approval wait.
+      const result = await this.run({ ...automation });
+      if (result === false) throw new Error('The automation could not start.');
+      this._finish(id, 'completed');
+      return result;
+    } catch (error) {
+      this._finish(id, 'error', error instanceof Error ? error.message : String(error));
+      throw error;
+    } finally {
+      this.runningId = null;
+    }
+  }
+
+  _finish(id, status, error) {
+    const automation = this.store.data.automations.find(item => item.id === id);
+    if (!automation) return;
+    automation.lastStatus = status;
+    if (error) automation.lastError = error;
+    else delete automation.lastError;
+    const nowMs = this.now();
+    if (!Number.isFinite(automation.nextRunAt) || automation.nextRunAt <= nowMs) {
+      automation.nextRunAt = nextRunAt(nowMs, automation.intervalMinutes);
+    }
+    this.store.save();
+    this.onChange();
+  }
+}
+
+module.exports = { Scheduler, validateAutomation, nextRunAt };

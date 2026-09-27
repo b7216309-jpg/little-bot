@@ -1,0 +1,6 @@
+{
+  "name": "writing-tools",
+  "version": "1.0.0",
+  "description": "A small example: a writing-review skill and a local text-statistics tool. No file or network access.",
+  "skills": "./skills"
+}

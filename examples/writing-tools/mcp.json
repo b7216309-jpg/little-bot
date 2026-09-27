@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "writing-tools": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/server.cjs"]
+    }
+  }
+}

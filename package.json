@@ -1,0 +1,24 @@
+{
+  "name": "little-bot",
+  "productName": "Little Bot",
+  "version": "0.8.8",
+  "private": true,
+  "description": "A focused local Windows assistant for chat, files, commands, and scheduled tasks.",
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.cjs",
+    "package": "node scripts/package.cjs",
+    "smoke": "electron . --smoke-test"
+  },
+  "dependencies": {
+    "@openai/codex": "0.157.1",
+    "agent-browser": "0.38.1",
+    "mammoth": "1.12.3",
+    "unpdf": "1.8.1"
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "electron": "44.4.5"
+  }
+}

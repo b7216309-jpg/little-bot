@@ -1,0 +1,471 @@
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, session, Notification, safeStorage, nativeImage, protocol } = require('electron');
+const fs = require('node:fs');
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
+const { Store } = require('./store.cjs');
+const { Scheduler, validateAutomation } = require('./scheduler.cjs');
+const { CodexClient } = require('./codex.cjs');
+const { Controller, cleanError } = require('./controller.cjs');
+const { saveFact, deleteFact, clearEpisodes } = require('./memory.cjs');
+const { Heartbeat, validateHeartbeat } = require('./heartbeat.cjs');
+const { ExtensionFiles, validateServer, LIMITS } = require('./extensions.cjs');
+const { ExtensionRuntime } = require('./extension-runtime.cjs');
+const { GoalRunner } = require('./goals.cjs');
+const { AgentTools } = require('./agent-tools.cjs');
+const { ProfileFiles } = require('./profile.cjs');
+const { installBundledSkills } = require('./bundled-skills.cjs');
+const { AgentBrowser } = require('./agent-browser.cjs');
+const { WebServices } = require('./web-services.cjs');
+const { Attachments } = require('./attachments.cjs');
+const { attachmentDescriptors } = require('./attachment-message.cjs');
+const { randomUUID } = require('node:crypto');
+
+protocol.registerSchemesAsPrivileged([{ scheme: 'little-bot-attachment', privileges: { standard: true, secure: true, supportFetchAPI: false } }]);
+
+app.setName('Little Bot');
+if (process.env.LITTLE_BOT_DATA_DIR) app.setPath('userData', path.resolve(process.env.LITTLE_BOT_DATA_DIR));
+const smoke = process.argv.includes('--smoke-test');
+const launchTime = performance.now();
+if (!smoke && !app.requestSingleInstanceLock()) app.quit();
+let window, controller, scheduler, heartbeat, goals, quitting = false;
+const rendererFile = path.join(__dirname, 'renderer', 'index.html');
+const rendererUrl = pathToFileURL(rendererFile).href;
+
+function safeAuthUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && ['auth.openai.com', 'auth0.openai.com', 'chatgpt.com', 'www.chatgpt.com'].includes(url.hostname);
+  } catch { return false; }
+}
+function safeWebUrl(value) {
+  try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol); }
+  catch { return false; }
+}
+function register(name, handler) {
+  ipcMain.handle(`bot:${name}`, async (event, payload) => {
+    if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame ||
+      event.senderFrame.url.split('#')[0] !== rendererUrl) throw new Error('Untrusted app window.');
+    try { return await handler(payload); } catch (error) { throw new Error(cleanError(error)); }
+  });
+}
+async function runAutomation(automation) {
+  controller.ensureReady();
+  const result = await controller.send({ text: automation.prompt }, { ...automation, automationId: automation.id });
+  const chat = controller.chat(result.chatId);
+  chat.title = `Scheduled: ${automation.name}`; chat.automationId = automation.id; controller.changed(true);
+  if (controller.store.data.autonomy.paused) await controller.stop({ chatId: chat.id });
+  const outcome = await controller.waitForChat(result.chatId);
+  if (outcome.error) throw new Error(outcome.error);
+  return result;
+}
+
+app.whenReady().then(async () => {
+  const stateDir = path.join(app.getPath('userData'), 'data');
+  const codexHome = path.join(stateDir, 'engine');
+  const defaultWorkspace = path.join(app.getPath('userData'), 'Workspace');
+  fs.mkdirSync(codexHome, { recursive: true }); fs.mkdirSync(defaultWorkspace, { recursive: true });
+  const configPath = path.join(codexHome, 'config.toml');
+  if (!fs.existsSync(configPath)) fs.writeFileSync(configPath, [
+    'model_reasoning_effort = "low"',
+    'approval_policy = "on-request"',
+    'sandbox_mode = "workspace-write"',
+    'web_search = "disabled"',
+    '[sandbox_workspace_write]',
+    'network_access = false',
+    '[windows]',
+    'sandbox = "unelevated"',
+    '[analytics]',
+    'enabled = false',
+    '',
+  ].join('\n'));
+  const store = new Store({ filePath: path.join(stateDir, 'state.json'), defaultWorkspace });
+  const client = new CodexClient({ homeDir: codexHome, cwd: defaultWorkspace });
+  controller = new Controller({ store, client });
+  controller.browser = new AgentBrowser({ root: path.join(stateDir, 'browser'), headed: !smoke, onChange: () => controller.changed() });
+  controller.webServices = new WebServices({ root: path.join(stateDir, 'services'), safeStorage });
+  controller.attachments = new Attachments({ root: path.join(stateDir, 'attachments'), nativeImage });
+  protocol.handle('little-bot-attachment', async request => {
+    try {
+      const url = new URL(request.url);
+      const id = url.pathname.slice(1);
+      if (request.method !== 'GET' || url.hostname !== 'file' || url.search || url.hash || !/^[a-zA-Z0-9_-]{1,128}$/.test(id)) return new Response(null, { status: 400 });
+      if ((await controller.attachments.get(id)).kind !== 'image') return new Response(null, { status: 415 });
+      const { buffer, mime } = await controller.attachments.read(id);
+      if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(mime)) return new Response(null, { status: 415 });
+      return new Response(buffer, { headers: { 'Content-Type': mime, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, max-age=3600', 'Content-Security-Policy': "default-src 'none'" } });
+    } catch { return new Response(null, { status: 404 }); }
+  });
+  controller.profileFiles = new ProfileFiles({ root: path.join(stateDir, 'profile') });
+  try { await installBundledSkills(store); } catch (error) { controller.runtime.skillSetupError = cleanError(error); }
+  const extensionFiles = new ExtensionFiles({ root: path.join(stateDir, 'extensions'), store });
+  const extensionRuntime = new ExtensionRuntime({ store, client, onChange: () => controller.changed() });
+  controller.extensionRuntime = extensionRuntime;
+  scheduler = new Scheduler({ store, run: runAutomation, canRun: () => !store.data.autonomy.paused && !goals?.activeId && !controller.goalChat && !heartbeat?.running && !controller.extensionsBusy && !store.data.chats.some(chat => chat.status !== 'idle'), onChange: () => controller.changed() });
+  heartbeat = new Heartbeat({ store, run: config => controller.runHeartbeat(config),
+    canNotify: () => !store.data.autonomy.paused && !window?.isFocused() && Notification.isSupported()
+      && !store.data.chats.some(chat => chat.status !== 'idle'),
+    canRun: () => controller.runtime.status === 'ready' && controller.account.status === 'connected'
+      && !store.data.autonomy.paused && !goals?.activeId && !controller.goalChat && !controller.extensionsBusy && !scheduler.runningId && !controller.heartbeatChat && !store.data.chats.some(chat => chat.status !== 'idle'),
+    onChange: () => controller.changed(),
+    onAlert: item => {
+      if (smoke || !Notification.isSupported() || window?.isFocused()) return;
+      const notice = new Notification({ title: item.status === 'error' ? 'Little Bot needs attention' : item.source === 'goal' ? 'Little Bot goals' : 'Little Bot heartbeat',
+        body: item.summary.slice(0, 240), silent: true });
+      notice.on('click', () => {
+        if (!window || window.isDestroyed()) return;
+        if (window.isMinimized()) window.restore();
+        window.show(); window.focus(); window.webContents.send('bot:event', item.source === 'goal' && item.goalId
+          ? { type: 'goalQuestion', goalId: item.goalId } : { type: 'heartbeat' });
+      });
+      notice.show();
+    },
+  });
+  goals = new GoalRunner({ store, backupRoot: path.join(stateDir, 'goal-backups'),
+    run: (goal, options) => controller.runGoal(goal, options), stopRun: reason => controller.stopGoal(reason),
+    verifyCommand: (goal, check) => controller.verifyGoalCommand(goal, check),
+    canRun: () => controller.runtime.status === 'ready' && controller.account.status === 'connected'
+      && !controller.extensionsBusy && !controller.goalChat && !controller.heartbeatChat && !heartbeat.running && !scheduler.runningId
+      && !store.data.chats.some(chat => chat.status !== 'idle'),
+    onChange: () => controller.changed(),
+    onAlert: item => {
+      const goal = store.data.autonomy.goals.find(goal => goal.id === item.goalId);
+      heartbeat.recordActivity({ status: goal?.status === 'blocked' ? 'error' : 'alert',
+        summary: `${item.title || 'Goal'}: ${item.summary || item.message || 'A goal needs your attention.'}`,
+        topic: item.title || 'Goal runner', source: 'goal', goalId: item.goalId,
+        workspace: goal?.workspace || store.data.settings.workspace });
+    },
+  });
+  controller.agentTools = new AgentTools({ store, browser: controller.browser, webServices: controller.webServices,
+    sendAttachment: async (input, chat) => {
+      if (!chat || chat.internal || chat.automationId || chat.status !== 'running') throw new Error('Files can be delivered only in an active user conversation.');
+      const descriptor = await controller.attachments.output(input.path, chat.workspace, { extraRoots: [path.join(stateDir, 'browser', 'screenshots')] });
+      if (chat.status !== 'running') throw new Error('The conversation stopped before the file could be delivered.');
+      chat.messages.push({ id: randomUUID(), role: 'assistant', text: input.caption || '', attachments: attachmentDescriptors([descriptor]), status: 'completed' });
+      controller.changed(true);
+      return { delivered: true, name: descriptor.name, attachmentId: descriptor.id };
+    },
+    manageGoal: async (action, payload, context) => {
+      const owned = () => {
+        const goal = store.data.autonomy.goals.find(item => item.id === payload.id);
+        if (!goal || path.resolve(goal.workspace).toLowerCase() !== path.resolve(context.workspace).toLowerCase()) throw new Error('Choose a goal belonging to this chat’s working folder.');
+        return goal;
+      };
+      if (action === 'list') return store.data.autonomy.goals.filter(goal => path.resolve(goal.workspace).toLowerCase() === path.resolve(context.workspace).toLowerCase())
+        .map(({ id, name, objective, status, nextStep, checkpoint, authorized }) => ({ id, name, objective, status, nextStep, checkpoint, authorized }));
+      if (action === 'create') {
+        if (payload.id) throw new Error('A new goal cannot reuse an existing goal ID.');
+        const goal = await goals.save({ ...payload, workspace: context.workspace });
+        return { goal, message: 'Saved as a draft. Use Goals → Run to authorize its access and start work.' };
+      }
+      const goal = owned();
+      if (action === 'update') {
+        if (goal.status !== 'draft') throw new Error('Only draft goals can be edited by the agent. Change an active goal in Goals.');
+        return goals.save({ ...goal, ...payload, id: goal.id });
+      }
+      if (action === 'pause') { await goals.pause(goal.id); return { id: goal.id, status: goal.status }; }
+      if (action === 'resume') {
+        if (!goal.authorized) throw new Error('Start this draft once from Goals to authorize its saved scope.');
+        if (store.data.autonomy.paused) throw new Error('Autonomous work is globally paused. Resume it in Goals.');
+        await goals.resume(goal.id); return { id: goal.id, status: goal.status };
+      }
+      throw new Error('Unsupported goal action.');
+    },
+    manageSchedule: async (action, payload, context) => {
+      const records = store.data.automations;
+      if (action === 'list') return records.filter(item => path.resolve(item.workspace).toLowerCase() === path.resolve(context.workspace).toLowerCase())
+        .map(({ id, name, prompt, enabled, intervalMinutes, nextRunAt, lastStatus, authorized }) => ({ id, name, prompt, enabled, intervalMinutes, nextRunAt, lastStatus, authorized }));
+      const existing = payload.id ? records.find(item => item.id === payload.id) : null;
+      if (action === 'create' && payload.id) throw new Error('A new routine cannot reuse an existing routine ID.');
+      if (action !== 'create' && (!existing || path.resolve(existing.workspace).toLowerCase() !== path.resolve(context.workspace).toLowerCase())) throw new Error('Choose a routine in this chat’s working folder.');
+      if (existing?.lastStatus === 'running') throw new Error('Stop this routine before changing it.');
+      if (action === 'create' || action === 'update') {
+        if (action === 'update' && existing.enabled) throw new Error('Pause the routine before editing it.');
+        const record = validateAutomation({ ...existing, ...payload, enabled: false }, existing, { ...store.data.settings, workspace: context.workspace });
+        // An edited prompt needs the user to enable the new work once.
+        record.authorized = false;
+        if (existing) Object.assign(existing, record); else records.push(record);
+        store.save(); controller.changed(); return { ...record, message: 'Saved disabled. Enable it in Automations to authorize this routine.' };
+      }
+      if (action === 'pause') { existing.authorized = existing.authorized === true || existing.enabled || Number.isFinite(existing.lastRunAt); existing.enabled = false; }
+      else if (action === 'resume') {
+        if (!existing.authorized) throw new Error('Enable this routine once in Automations before resuming it through chat.');
+        if (store.data.autonomy.paused) throw new Error('Autonomous work is globally paused. Resume it in Goals.');
+        existing.enabled = true; existing.nextRunAt = Date.now() + existing.intervalMinutes * 60000;
+      } else throw new Error('Unsupported routine action.');
+      store.save(); controller.changed(); return existing;
+    },
+  });
+  controller.on('event', event => { if (window && !window.isDestroyed()) window.webContents.send('bot:event', event); });
+
+  function ensureExtensionsIdle() {
+    if (controller.extensionsBusy || goals.activeId || controller.goalChat || heartbeat.running || scheduler.runningId || controller.heartbeatChat || store.data.chats.some(chat => chat.status !== 'idle')) {
+      throw new Error('Finish or stop active tasks before changing extensions.');
+    }
+  }
+  async function updateExtensions(action) {
+    ensureExtensionsIdle();
+    const previous = structuredClone(store.data.extensions);
+    controller.extensionsBusy = true;
+    try {
+      await action();
+      // Release every idle engine context so removed tools cannot linger in an old chat.
+      for (const threadId of [...controller.resumed]) {
+        await client.request('thread/unsubscribe', { threadId }, 10000);
+        controller.resumed.delete(threadId);
+      }
+      store.save(); extensionRuntime.invalidate(); controller.changed(); return controller.state();
+    } catch (error) { store.data.extensions = previous; throw error; }
+    finally { controller.extensionsBusy = false; controller.changed(); }
+  }
+
+  register('getState', () => controller.state());
+  register('saveProfile', payload => { controller.profileFiles.save(payload); controller.changed(); return controller.state(); });
+  register('openProfileFolder', async () => {
+    const error = await shell.openPath(controller.profileFiles.getState().root);
+    if (error) throw new Error(error);
+    return { ok: true };
+  });
+  register('saveSettings', payload => controller.saveSettings(payload));
+  register('saveConnection', payload => { ensureExtensionsIdle(); return controller.saveConnection(payload); });
+  register('refreshConnection', () => controller.refreshConnection());
+  register('chooseAttachments', async () => {
+    const selected = await dialog.showOpenDialog(window, { title: 'Attach files', properties: ['openFile', 'multiSelections'] });
+    return selected.canceled ? [] : controller.attachments.importPaths(selected.filePaths);
+  });
+  register('attachFiles', paths => controller.attachments.importPaths(paths));
+  register('importAttachment', payload => controller.attachments.importBytes(payload));
+  register('openAttachment', async ({ id } = {}) => {
+    const item = await controller.attachments.get(id);
+    await controller.attachments.read(id);
+    if (/\.(?:png|jpe?g|webp|gif|txt|md|csv|json|pdf|docx|xlsx|pptx)$/i.test(item.name)) {
+      const error = await shell.openPath(item.path); if (error) throw new Error(error);
+    } else shell.showItemInFolder(item.path);
+    return { ok: true };
+  });
+  register('saveAttachment', async ({ id } = {}) => {
+    const item = await controller.attachments.get(id);
+    const selected = await dialog.showSaveDialog(window, { title: 'Save file', defaultPath: path.join(app.getPath('downloads'), item.name) });
+    if (selected.canceled || !selected.filePath) return { canceled: true };
+    const { buffer } = await controller.attachments.read(id);
+    await fs.promises.writeFile(selected.filePath, buffer);
+    return { saved: true };
+  });
+  register('saveServiceKey', payload => { controller.webServices.save(payload); controller.changed(); return controller.state(); });
+  register('openServicePage', async ({ service } = {}) => {
+    const pages = { firecrawl: 'https://www.firecrawl.dev/app/api-keys', brave: 'https://api-dashboard.search.brave.com/app/keys' };
+    if (!Object.hasOwn(pages, service)) throw new Error('Choose Firecrawl or Brave Search.');
+    await shell.openExternal(pages[service]); return { ok: true };
+  });
+  register('openAgentBrowser', async () => { await controller.browser.open(); return controller.state(); });
+  register('closeAgentBrowser', async () => { await controller.browser.close(); return controller.state(); });
+  register('installAgentBrowser', async () => { await controller.browser.install(); return controller.state(); });
+  register('chooseWorkspace', async () => {
+    const selected = await dialog.showOpenDialog(window, { title: 'Choose Little Bot’s working folder',
+      defaultPath: store.data.settings.workspace, properties: ['openDirectory', 'createDirectory'] });
+    return selected.canceled ? null : controller.setWorkspace(selected.filePaths[0]);
+  });
+  register('openWorkspace', async () => {
+    const error = await shell.openPath(store.data.settings.workspace);
+    if (error) throw new Error(error);
+  });
+  register('login', async payload => {
+    const result = await controller.login(payload);
+    if (result.authUrl && safeAuthUrl(result.authUrl)) await shell.openExternal(result.authUrl);
+    return result;
+  });
+  register('send', async payload => {
+    if (goals.activeId) await goals.pause(goals.activeId);
+    if (controller.goalChat) await controller.goalChat.settled;
+    const active = controller.heartbeatChat;
+    if (active) { await controller.stopHeartbeat(); await active.settled; }
+    return controller.send(payload);
+  });
+  register('stop', async payload => {
+    const result = await controller.stop(payload);
+    if (controller.browser.busy && controller.browser.owner === payload?.chatId) await controller.browser.close();
+    return result;
+  });
+  register('compact', payload => controller.compact(payload));
+  register('deleteChat', payload => controller.deleteChat(payload));
+  register('respondApproval', payload => controller.respondApproval(payload));
+  register('saveGoal', async payload => { await goals.save(payload); return controller.state(); });
+  register('runGoal', async ({ id } = {}) => { controller.ensureReady(); await goals.runNow(id); return controller.state(); });
+  register('pauseGoal', async ({ id } = {}) => { await goals.pause(id); return controller.state(); });
+  register('resumeGoal', async ({ id } = {}) => { await goals.resume(id); return controller.state(); });
+  register('answerGoal', payload => { goals.answer(payload); return controller.state(); });
+  register('deleteGoal', async ({ id } = {}) => { await goals.remove(id); return controller.state(); });
+  register('previewGoalRestore', ({ id, runId } = {}) => goals.previewRestore(id, runId));
+  register('discardGoalSnapshot', async ({ id, runId } = {}) => { ensureExtensionsIdle(); await goals.discardSnapshot(id, runId); return controller.state(); });
+  register('restoreGoal', async ({ id, runId } = {}) => {
+    ensureExtensionsIdle();
+    await goals.restore(id, runId); return controller.state();
+  });
+  register('pauseAutonomy', async () => {
+    await goals.pauseAll();
+    if (controller.heartbeatChat) { const active = controller.heartbeatChat; await controller.stopHeartbeat(); await active.settled; }
+    if (scheduler.runningId) {
+      const active = store.data.chats.find(chat => chat.automationId === scheduler.runningId && chat.status !== 'idle');
+      if (active && controller.turns.has(active.id)) await controller.stop({ chatId: active.id });
+    }
+    return controller.state();
+  });
+  register('resumeAutonomy', async () => { await goals.resumeAll(); return controller.state(); });
+  register('saveAutomation', payload => {
+    const existing = payload?.id ? store.data.automations.find(item => item.id === payload.id) : null;
+    const automation = validateAutomation(payload, existing, store.data.settings);
+    automation.authorized = automation.enabled || existing?.authorized === true || existing?.enabled === true;
+    if (existing) Object.assign(existing, automation); else store.data.automations.push(automation);
+    store.save(); controller.changed(); return controller.state();
+  });
+  register('deleteAutomation', ({ id } = {}) => {
+    const existing = store.data.automations.find(item => item.id === id);
+    if (existing?.lastStatus === 'running') throw new Error('Wait for this task to finish before deleting it.');
+    store.data.automations = store.data.automations.filter(item => item.id !== id);
+    store.save(); controller.changed(); return controller.state();
+  });
+  register('runAutomation', ({ id } = {}) => {
+    const automation = store.data.automations.find(item => item.id === id);
+    if (automation) { automation.authorized = true; store.save(); }
+    return scheduler.runNow(id);
+  });
+  register('saveMemory', ({ enabled } = {}) => {
+    if (typeof enabled !== 'boolean') throw new Error('Memory enabled must be true or false.');
+    store.data.memory.enabled = enabled;
+    store.save(); controller.changed(); return controller.state();
+  });
+  register('saveFact', payload => {
+    const existing = payload?.id ? store.data.memory.facts.find(fact => fact.id === payload.id) : null;
+    const settings = existing?.scope === 'workspace' && payload.scope === 'workspace'
+      ? { ...store.data.settings, workspace: existing.workspace } : store.data.settings;
+    saveFact(store.data.memory, payload, settings);
+    store.save(); controller.changed(); return controller.state();
+  });
+  register('deleteFact', ({ id } = {}) => {
+    deleteFact(store.data.memory, id);
+    store.save(); controller.changed(); return controller.state();
+  });
+  register('clearEpisodes', () => {
+    clearEpisodes(store.data.memory);
+    store.save(); controller.changed(); return controller.state();
+  });
+  register('saveHeartbeat', payload => {
+    if (heartbeat.running) throw new Error('Stop the heartbeat before changing its settings.');
+    const updated = validateHeartbeat(payload, store.data.heartbeat, store.data.settings);
+    Object.assign(store.data.heartbeat, updated);
+    store.save(); controller.changed(); return controller.state();
+  });
+  register('runHeartbeat', async () => {
+    controller.ensureReady();
+    await heartbeat.runNow(); return controller.state();
+  });
+  register('stopHeartbeat', () => controller.stopHeartbeat());
+  register('readHeartbeat', ({ id } = {}) => {
+    heartbeat.markRead(id); return controller.state();
+  });
+  register('heartbeatFeedback', payload => { heartbeat.feedback(payload); return controller.state(); });
+  register('saveMcpServer', payload => updateExtensions(() => {
+    const existing = payload?.id ? store.data.extensions.servers.find(server => server.id === payload.id) : null;
+    if (payload?.id && !existing) throw new Error('This MCP server no longer exists.');
+    if (existing?.pluginId || payload?.pluginId) throw new Error('Manage this connection through its plugin.');
+    if (!existing && store.data.extensions.servers.length >= LIMITS.servers) throw new Error('The MCP server limit has been reached.');
+    const server = validateServer(payload, existing);
+    extensionFiles.unique('servers', server, existing?.id);
+    if (existing) Object.assign(existing, server); else store.data.extensions.servers.push(server);
+  }));
+  register('deleteMcpServer', ({ id } = {}) => updateExtensions(() => {
+    const existing = store.data.extensions.servers.find(server => server.id === id);
+    if (!existing) throw new Error('This MCP server no longer exists.');
+    if (existing.pluginId) throw new Error('Remove its plugin to remove this connection.');
+    store.data.extensions.servers = store.data.extensions.servers.filter(server => server.id !== id);
+  }));
+  register('toggleMcpTool', ({ id, tool, enabled } = {}) => updateExtensions(() => {
+    const server = store.data.extensions.servers.find(item => item.id === id);
+    if (!server || typeof enabled !== 'boolean' || typeof tool !== 'string' || !tool || tool.length > 200) throw new Error('Choose a valid MCP tool.');
+    const discovered = extensionRuntime.state.servers.find(item => item.name === server.name)?.tools;
+    if ((!discovered || !Object.hasOwn(discovered, tool)) && !server.disabledTools.includes(tool)) throw new Error('Refresh the tool list before changing this tool.');
+    const disabled = new Set(server.disabledTools);
+    if (enabled) disabled.delete(tool); else disabled.add(tool);
+    server.disabledTools = [...disabled];
+  }));
+  register('refreshExtensions', async () => {
+    ensureExtensionsIdle(); controller.extensionsBusy = true;
+    try { await extensionRuntime.refresh(store.data.settings.workspace); return controller.state(); }
+    finally { controller.extensionsBusy = false; controller.changed(); }
+  });
+  register('loginMcpServer', async ({ id } = {}) => {
+    ensureExtensionsIdle();
+    const result = await extensionRuntime.login(id, store.data.settings.workspace);
+    const url = new URL(result.authorizationUrl);
+    if (!['https:', 'http:'].includes(url.protocol) || (url.protocol === 'http:' && !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) || url.username || url.password) throw new Error('The MCP server returned an unsupported sign-in URL.');
+    await shell.openExternal(url.href);
+    return { started: true };
+  });
+  register('saveSkill', payload => updateExtensions(() => extensionFiles.saveSkill(payload)));
+  register('deleteSkill', ({ id } = {}) => updateExtensions(() => extensionFiles.removeSkill(id)));
+  register('importSkill', async () => {
+    ensureExtensionsIdle();
+    const selected = await dialog.showOpenDialog(window, { title: 'Import a SKILL.md instruction file', properties: ['openFile'], filters: [{ name: 'Skill instructions', extensions: ['md'] }] });
+    return selected.canceled ? null : updateExtensions(() => extensionFiles.importSkill(selected.filePaths[0]));
+  });
+  register('importPlugin', async () => {
+    ensureExtensionsIdle();
+    const selected = await dialog.showOpenDialog(window, { title: 'Import a local plugin folder', properties: ['openDirectory'] });
+    return selected.canceled ? null : updateExtensions(() => extensionFiles.importPlugin(selected.filePaths[0]));
+  });
+  register('togglePlugin', payload => updateExtensions(() => extensionFiles.setPluginEnabled(payload)));
+  register('deletePlugin', ({ id } = {}) => updateExtensions(() => extensionFiles.removePlugin(id)));
+
+  Menu.setApplicationMenu(null);
+  session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+  session.defaultSession.setPermissionCheckHandler(() => false);
+  window = new BrowserWindow({ width: 1240, height: 860, minWidth: 900, minHeight: 620,
+    title: 'Little Bot', backgroundColor: '#f7f5f0', show: false,
+    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true,
+      nodeIntegration: false, sandbox: true, spellcheck: false, webviewTag: false, backgroundThrottling: !smoke },
+  });
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (safeWebUrl(url)) shell.openExternal(url).catch(() => {});
+    return { action: 'deny' };
+  });
+  window.webContents.on('will-navigate', (event, url) => { if (url !== rendererUrl) event.preventDefault(); });
+  window.on('close', event => {
+    if (quitting || smoke || (!goals.activeId && !heartbeat.running && !store.data.chats.some(chat => chat.status !== 'idle'))) return;
+    const choice = dialog.showMessageBoxSync(window, { type: 'question', buttons: ['Keep working', 'Quit'],
+      defaultId: 0, cancelId: 0, title: 'A task is still running',
+      message: 'Quit Little Bot and stop its active tasks?' });
+    if (choice === 0) event.preventDefault();
+  });
+  await window.loadFile(rendererFile);
+  if (!smoke) window.show();
+  const startup = controller.start();
+  startup.then(() => {
+    controller.runtime.startupMs = Math.round(performance.now() - launchTime);
+    controller.changed(); scheduler.start(); heartbeat.start(); goals.start();
+  }).catch(() => {});
+  if (smoke) {
+    try {
+      await startup;
+      const smokeOnly = process.env.LITTLE_BOT_SMOKE_ONLY;
+      if (!['attachments', 'recall'].includes(smokeOnly)) {
+        await require('./smoke.cjs').run({ window, controller, store, stateDir, extensionFiles, extensionRuntime, goals, heartbeat });
+        await require('./web-smoke.cjs').run({ window, controller, store, stateDir });
+      }
+      if (smokeOnly !== 'recall') {
+        console.log(JSON.stringify({ attachments: await require('./attachment-smoke.cjs').run({ window, controller, store, stateDir }) }));
+        if (process.env.LITTLE_BOT_LIVE_LOCAL_QA === '1') console.log(JSON.stringify({ liveAttachments: await require('./attachment-smoke.cjs').runLive({ window, controller, store, stateDir }) }));
+      }
+      if (smokeOnly !== 'attachments') console.log(JSON.stringify({ recall: await require('./recall-smoke.cjs').run({ window, controller, store, stateDir }) }));
+      await controller.browser.close({ shutdown: true }); controller.webServices.close();
+      scheduler.stop(); heartbeat.stop(); await goals.close(); await controller.close();
+      app.exit(0);
+    } catch (error) { console.error(cleanError(error.stack || error)); scheduler.stop(); heartbeat.stop(); await goals.close(); await controller.browser.close({ shutdown: true }).catch(() => {}); controller.webServices.close(); await controller.close(); app.exit(1); }
+  }
+}).catch(error => { console.error(cleanError(error)); app.exit(1); });
+app.on('second-instance', () => { if (window) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); } });
+app.on('window-all-closed', () => app.quit());
+app.on('before-quit', event => {
+  if (quitting) return;
+  event.preventDefault(); quitting = true; scheduler?.stop(); heartbeat?.stop();
+  controller?.webServices?.close();
+  Promise.allSettled([goals?.close(), controller?.browser?.close({ shutdown: true })]).then(() => controller?.close()).catch(error => console.error(cleanError(error))).finally(() => app.quit());
+});
