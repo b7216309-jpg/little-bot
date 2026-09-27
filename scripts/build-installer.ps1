@@ -94,7 +94,6 @@ FILE3="uninstall.ps1"
 "@
   [IO.File]::WriteAllText($sedPath, $sed, [Text.Encoding]::ASCII)
   & $iexpress /N /Q $sedPath
-  if ($LASTEXITCODE -ne 0) { throw "IExpress failed with exit code $LASTEXITCODE." }
   if (!(Test-Path -LiteralPath $installer -PathType Leaf) -or (Get-Item -LiteralPath $installer).Length -lt 1024) {
     throw 'Installer executable was not created.'
   }
