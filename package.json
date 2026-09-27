@@ -9,7 +9,8 @@
     "start": "electron .",
     "test": "node --test test/*.test.cjs",
     "package": "node scripts/package.cjs",
-    "smoke": "electron . --smoke-test"
+    "smoke": "electron . --smoke-test",
+    "package:portable": "node scripts/package.cjs --portable-only"
   },
   "dependencies": {
     "@openai/codex": "0.157.1",
