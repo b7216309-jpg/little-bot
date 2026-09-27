@@ -36,7 +36,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
       autoCompactPercent: normalizeAutoCompactPercent(settings.autoCompactPercent),
       ...(typeof settings.systemPrompt === 'string' ? { systemPrompt: settings.systemPrompt.slice(0, 100000) } : {}),
     },
-    chats: chats.filter(isObject).map(chat => {
+    chats: chats.filter(isObject).filter(chat => chat.private !== true).map(chat => {
       const result = {
         id: string(chat.id) || randomUUID(),
         title: string(chat.title, 'New chat'),
