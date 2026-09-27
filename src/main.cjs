@@ -234,6 +234,7 @@ app.whenReady().then(async () => {
   }
 
   register('getState', () => controller.state());
+  register('getContextUsed', ({ chatId } = {}) => controller.contextUsedFor(chatId));
   register('reportError', ({ kind, message, stack } = {}) => {
     if (typeof kind !== 'string' || kind.length > 100 || typeof message !== 'string' || message.length > 12000
       || (stack !== undefined && (typeof stack !== 'string' || stack.length > 30000))) throw new Error('Invalid renderer diagnostic.');
