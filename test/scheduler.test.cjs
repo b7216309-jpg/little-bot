@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { Scheduler, validateAutomation, nextRunAt } = require('../src/scheduler.cjs');
+const { Scheduler, validateAutomation, nextRunAt, nextClockRunAt, nextAutomationRunAt } = require('../src/scheduler.cjs');
 
 const settings = { workspace: 'C:\\work', model: 'test-model', effort: 'low' };
 const input = overrides => ({ name: 'Daily task', prompt: 'List files', intervalMinutes: 1, enabled: true, ...overrides });
@@ -122,4 +122,108 @@ test('start is idempotent and stop clears the unreferenced timer', () => {
   f.scheduler.stop();
   assert.equal(f.scheduler.timer, null);
   f.scheduler.stop();
+});
+
+
+test('exact clock validation and next-run calculation use the PC local calendar', () => {
+  const mondayMorning = new Date(2026, 8, 28, 8, 0, 0, 0).getTime();
+  const mondayNineThirty = new Date(2026, 8, 28, 9, 30, 0, 0).getTime();
+  assert.equal(new Date(mondayMorning).getDay(), 1);
+  assert.equal(nextClockRunAt(mondayMorning, '09:30', [1, 2, 3, 4, 5]), mondayNineThirty);
+
+  const afterMondayRun = new Date(2026, 8, 28, 10, 0, 0, 0).getTime();
+  const tuesdayRun = new Date(2026, 8, 29, 9, 30, 0, 0).getTime();
+  assert.equal(nextClockRunAt(afterMondayRun, '09:30', [1, 2, 3, 4, 5]), tuesdayRun);
+
+  for (const clockTime of ['', '9:30', '24:00', '12:60', null]) {
+    assert.throws(() => validateAutomation({ name: 'Clock', prompt: 'Work', scheduleType: 'clock', clockTime, daysOfWeek: [1] }, null, settings, mondayMorning), /local time/);
+  }
+  for (const daysOfWeek of [[], [1, 1], [-1], [7], ['1']]) {
+    assert.throws(() => validateAutomation({ name: 'Clock', prompt: 'Work', scheduleType: 'clock', clockTime: '09:30', daysOfWeek }, null, settings, mondayMorning), /weekdays/);
+  }
+});
+
+test('weekday clock schedules skip unselected weekend days', () => {
+  const fridayAfter = new Date(2026, 9, 2, 18, 0, 0, 0).getTime();
+  assert.equal(new Date(fridayAfter).getDay(), 5);
+  const mondayMorning = new Date(2026, 9, 5, 8, 15, 0, 0).getTime();
+  assert.equal(new Date(mondayMorning).getDay(), 1);
+  assert.equal(nextClockRunAt(fridayAfter, '08:15', [1, 2, 3, 4, 5]), mondayMorning);
+});
+
+test('clock schedule changes reset nextRunAt while ordinary edits preserve it', () => {
+  const now = new Date(2026, 8, 28, 8, 0, 0, 0).getTime();
+  const original = validateAutomation({
+    name: 'Morning',
+    prompt: 'Review',
+    scheduleType: 'clock',
+    clockTime: '09:00',
+    daysOfWeek: [1, 2, 3, 4, 5],
+    enabled: true,
+  }, null, settings, now);
+  const expected = new Date(2026, 8, 28, 9, 0, 0, 0).getTime();
+  assert.equal(original.nextRunAt, expected);
+
+  const renamed = validateAutomation({ ...original, name: 'Morning review' }, original, settings, now + 1000);
+  assert.equal(renamed.nextRunAt, expected);
+
+  const changed = validateAutomation({ ...renamed, clockTime: '10:30' }, renamed, settings, now + 2000);
+  assert.equal(changed.nextRunAt, new Date(2026, 8, 28, 10, 30, 0, 0).getTime());
+
+  const interval = validateAutomation({ ...changed, scheduleType: 'interval', intervalMinutes: 30 }, changed, settings, now + 3000);
+  assert.equal(interval.scheduleType, 'interval');
+  assert.equal(interval.nextRunAt, now + 3000 + 30 * 60000);
+});
+
+test('manual Run now preserves the next exact clock occurrence instead of drifting by elapsed time', async () => {
+  let nowMs = new Date(2026, 8, 28, 7, 0, 0, 0).getTime();
+  const automation = validateAutomation({
+    name: 'Morning',
+    prompt: 'Review',
+    scheduleType: 'clock',
+    clockTime: '09:00',
+    daysOfWeek: [1, 2, 3, 4, 5],
+    enabled: true,
+  }, null, settings, nowMs);
+  const store = { data: { automations: [automation] }, save() {} };
+  const scheduler = new Scheduler({ store, run: async () => ({ chatId: 'manual' }), now: () => nowMs });
+
+  nowMs = new Date(2026, 8, 28, 8, 0, 0, 0).getTime();
+  await scheduler.runNow(automation.id);
+  assert.equal(automation.nextRunAt, new Date(2026, 8, 28, 9, 0, 0, 0).getTime());
+
+  nowMs = new Date(2026, 8, 28, 9, 30, 0, 0).getTime();
+  await scheduler.runNow(automation.id);
+  assert.equal(automation.nextRunAt, new Date(2026, 8, 29, 9, 0, 0, 0).getTime());
+});
+
+test('a missed exact-time schedule runs once and advances to the next future occurrence', async () => {
+  let calls = 0;
+  let nowMs = new Date(2026, 8, 28, 8, 0, 0, 0).getTime();
+  const automation = validateAutomation({
+    name: 'Morning',
+    prompt: 'Review',
+    scheduleType: 'clock',
+    clockTime: '09:00',
+    daysOfWeek: [1, 2, 3, 4, 5],
+    enabled: true,
+  }, null, settings, nowMs);
+  const store = { data: { automations: [automation] }, save() {} };
+  const scheduler = new Scheduler({ store, run: async () => { calls++; return { chatId: 'catch-up' }; }, now: () => nowMs });
+
+  nowMs = new Date(2026, 8, 28, 12, 0, 0, 0).getTime();
+  await scheduler.tick();
+  assert.equal(calls, 1);
+  assert.equal(automation.nextRunAt, new Date(2026, 8, 29, 9, 0, 0, 0).getTime());
+  await scheduler.tick();
+  assert.equal(calls, 1);
+});
+
+test('nextAutomationRunAt keeps legacy interval behavior and supports clocks', () => {
+  assert.equal(nextAutomationRunAt({ scheduleType: 'interval', intervalMinutes: 5 }, 1000), 301000);
+  const now = new Date(2026, 8, 28, 8, 0, 0, 0).getTime();
+  assert.equal(
+    nextAutomationRunAt({ scheduleType: 'clock', clockTime: '09:00', daysOfWeek: [1] }, now),
+    new Date(2026, 8, 28, 9, 0, 0, 0).getTime(),
+  );
 });
