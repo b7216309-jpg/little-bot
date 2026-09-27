@@ -130,6 +130,10 @@ let compactionSettingsInitialized = false;
 let compactionSettingsBaseline = 80;
 let compactionSettingsSaving = false;
 let compactionSettingsError = '';
+let systemPromptInitialized = false;
+let systemPromptBaseline = '';
+let systemPromptSaving = false;
+let systemPromptError = '';
 let browserActionPending = '';
 let browserActionError = '';
 const serviceKeyPending = new Map();
@@ -1040,6 +1044,7 @@ function renderSettings() {
   $('settings-engine-detail').textContent = connectionType() === 'local' ? 'Your local model. No OpenAI account needed.' : 'Codex connection';
   $('settings-data-detail').textContent = connectionType() === 'local' ? 'Chats stay on this computer. Web services connect only when used.' : 'Chats stay on this computer. Requests go to OpenAI.';
   renderConnectionSettings();
+  renderSystemPromptSettings();
   renderCompactionSettings();
   renderBrowserSettings();
   renderServiceKeys();
@@ -1116,6 +1121,62 @@ async function checkConnection() {
   try { applyState(await window.bot.refreshConnection()); }
   catch (error) { connectionError = error?.message || String(error); }
   finally { connectionPending = false; renderConnectionSettings(); }
+}
+
+function renderSystemPromptSettings() {
+  const input = $('settings-system-prompt');
+  const stored = typeof state.settings.systemPrompt === 'string' ? state.settings.systemPrompt : '';
+  const hadDraft = systemPromptInitialized && input.value !== systemPromptBaseline;
+  systemPromptBaseline = stored;
+  if (!systemPromptInitialized || (!hadDraft && !systemPromptSaving)) input.value = stored;
+  systemPromptInitialized = true;
+  input.disabled = systemPromptSaving;
+  const dirty = input.value !== systemPromptBaseline;
+  $('save-system-prompt').disabled = systemPromptSaving || !dirty;
+  $('reset-system-prompt').disabled = systemPromptSaving || state.settings.systemPromptCustomized !== true;
+  $('save-system-prompt').textContent = systemPromptSaving ? 'Saving…' : 'Save prompt';
+  $('system-prompt-settings-error').textContent = systemPromptError;
+  $('system-prompt-settings-error').classList.toggle('hidden', !systemPromptError);
+}
+
+async function saveSystemPromptSettings(event) {
+  event?.preventDefault();
+  if (systemPromptSaving) return;
+  const value = $('settings-system-prompt').value;
+  systemPromptSaving = true;
+  systemPromptError = '';
+  $('system-prompt-settings-saved').textContent = '';
+  renderSystemPromptSettings();
+  try {
+    const result = await window.bot.saveSettings({ systemPrompt: value });
+    if (result?.settings) applyState(result);
+    systemPromptBaseline = value;
+    $('system-prompt-settings-saved').textContent = 'Saved';
+  } catch (error) {
+    systemPromptError = error?.message || 'Could not save the system prompt.';
+  } finally {
+    systemPromptSaving = false;
+    renderSystemPromptSettings();
+  }
+}
+
+async function resetSystemPromptSettings() {
+  if (systemPromptSaving || state.settings.systemPromptCustomized !== true) return;
+  systemPromptSaving = true;
+  systemPromptError = '';
+  $('system-prompt-settings-saved').textContent = '';
+  renderSystemPromptSettings();
+  try {
+    const result = await window.bot.saveSettings({ systemPrompt: null });
+    if (result?.settings) applyState(result);
+    systemPromptBaseline = state.settings.systemPrompt || '';
+    $('system-prompt-settings-saved').textContent = 'Default restored';
+  } catch (error) {
+    systemPromptError = error?.message || 'Could not restore the default system prompt.';
+  } finally {
+    systemPromptSaving = false;
+    renderSystemPromptSettings();
+  }
 }
 
 function renderCompactionSettings() {
@@ -2808,6 +2869,13 @@ for (const id of ['settings-connection', 'settings-local-url', 'settings-local-m
 $('settings-connection-check').addEventListener('click', checkConnection);
 $('local-connection-settings').addEventListener('click', () => showDialog('settings-dialog'));
 $('local-connection-check').addEventListener('click', checkConnection);
+$('system-prompt-settings-form').addEventListener('submit', saveSystemPromptSettings);
+$('settings-system-prompt').addEventListener('input', () => {
+  systemPromptError = '';
+  $('system-prompt-settings-saved').textContent = '';
+  renderSystemPromptSettings();
+});
+$('reset-system-prompt').addEventListener('click', resetSystemPromptSettings);
 $('compaction-settings-form').addEventListener('submit', saveCompactionSettings);
 $('settings-auto-compact').addEventListener('input', () => {
   compactionSettingsError = '';
