@@ -21,9 +21,13 @@ function write(f, text) {
 test('new state is minimal and save preserves live references without persisting credentials', t => {
   const f = fixture(t);
   const store = new Store(f);
-  assert.deepEqual({ settings: store.data.settings, chats: store.data.chats, automations: store.data.automations }, {
-    settings: { workspace: f.directory, model: '', effort: 'low' }, chats: [], automations: [],
-  });
+  assert.equal(store.data.settings.connection, 'local');
+  assert.equal(store.data.settings.workspace, f.directory);
+  assert.equal(store.data.settings.model, store.data.settings.localModel);
+  assert.equal(store.data.settings.effort, 'low');
+  assert.equal(store.data.settings.autoCompactPercent, 80);
+  assert.deepEqual(store.data.chats, []);
+  assert.deepEqual(store.data.automations, []);
   assert.deepEqual(store.data.memory, { enabled: true, facts: [], episodes: [] });
   assert.equal(store.data.heartbeat.enabled, false);
   assert.equal(store.data.heartbeat.mode, 'act');
@@ -44,14 +48,16 @@ test('update and flush persist every chat without an arbitrary history limit', t
   const f = fixture(t);
   const store = new Store(f);
   store.update(data => {
-    data.settings.model = 'test-model';
+    Object.assign(data.settings, { connection: 'codex', model: 'test-model', codexModel: 'test-model' });
     data.chats = Array.from({ length: 105 }, (_, index) => ({
       id: `chat-${index}`, title: `Chat ${index}`, status: 'idle', messages: [], createdAt: index, updatedAt: index,
     }));
   });
   store.flush();
   const reloaded = new Store(f);
+  assert.equal(reloaded.data.settings.connection, 'codex');
   assert.equal(reloaded.data.settings.model, 'test-model');
+  assert.equal(reloaded.data.settings.codexModel, 'test-model');
   assert.equal(reloaded.data.chats.length, 105);
   assert.equal(reloaded.data.chats[0].createdAt, 0);
 });
@@ -89,9 +95,11 @@ test('corrupt state remains untouched until saved and is then retained in a reco
   const store = new Store(f);
   assert.match(store.warning, /original file is preserved/);
   assert.equal(fs.readFileSync(f.filePath, 'utf8'), broken);
-  store.update(data => { data.settings.model = 'new-model'; });
+  store.update(data => { Object.assign(data.settings, { connection: 'codex', model: 'new-model', codexModel: 'new-model' }); });
   assert.equal(fs.readFileSync(store.recoveryPath, 'utf8'), broken);
-  assert.equal(new Store(f).data.settings.model, 'new-model');
+  const recovered = new Store(f);
+  assert.equal(recovered.data.settings.connection, 'codex');
+  assert.equal(recovered.data.settings.model, 'new-model');
   const recoveryPath = store.recoveryPath;
   store.save();
   assert.equal(store.recoveryPath, recoveryPath);
@@ -130,7 +138,7 @@ test('invalid record shapes are reported and the original is retained while vali
   assert.equal(fs.readFileSync(store.recoveryPath, 'utf8'), original);
 });
 
-test('v0.1 state migrates without changing saved settings, conversations, or automations', t => {
+test('v0.1 state migrates onto the current schema without losing saved content', t => {
   const f = fixture(t);
   const legacy = {
     settings: { workspace: f.directory, model: 'existing-model', effort: 'medium' },
@@ -146,23 +154,48 @@ test('v0.1 state migrates without changing saved settings, conversations, or aut
   write(f, JSON.stringify(legacy));
   const store = new Store(f);
   assert.equal(store.warning, null);
-  assert.deepEqual(store.data.settings, legacy.settings);
-  assert.deepEqual(store.data.chats, legacy.chats);
-  assert.deepEqual(store.data.automations, legacy.automations);
+
+  assert.equal(store.data.settings.workspace, f.directory);
+  assert.equal(store.data.settings.effort, 'medium');
+  assert.equal(store.data.settings.codexModel, 'existing-model');
+
+  const chat = store.data.chats[0];
+  assert.equal(chat.id, 'legacy-chat');
+  assert.equal(chat.connection, 'codex');
+  assert.equal(chat.model, 'existing-model');
+  assert.deepEqual(chat.messages.map(message => message.text), ['Keep my original request.', 'Keep my original answer.']);
+
+  const automation = store.data.automations[0];
+  assert.equal(automation.id, 'legacy-task');
+  assert.equal(automation.connection, 'codex');
+  assert.equal(automation.model, 'existing-model');
+  assert.equal(automation.scheduleType, 'interval');
+  assert.equal(automation.intervalMinutes, 1440);
+  assert.equal(automation.prompt, 'Check the existing project.');
+
   assert.deepEqual(store.data.memory, { enabled: true, facts: [], episodes: [] });
   assert.equal(store.data.heartbeat.enabled, false);
   assert.equal(store.data.heartbeat.checklist, '');
   assert.equal(store.data.heartbeat.workspace, f.directory);
-  assert.equal(store.data.heartbeat.model, 'existing-model');
   assert.equal(store.data.heartbeat.runsToday, 0);
   assert.deepEqual(store.data.heartbeat.history, []);
+
+  const normalized = structuredClone({
+    settings: store.data.settings,
+    chats: store.data.chats,
+    automations: store.data.automations,
+    memory: store.data.memory,
+    heartbeat: store.data.heartbeat,
+  });
   store.save();
   const reloaded = new Store(f);
-  assert.deepEqual(reloaded.data.settings, legacy.settings);
-  assert.deepEqual(reloaded.data.chats, legacy.chats);
-  assert.deepEqual(reloaded.data.automations, legacy.automations);
-  assert.deepEqual(reloaded.data.memory, store.data.memory);
-  assert.equal(reloaded.data.heartbeat.enabled, false);
+  assert.deepEqual({
+    settings: reloaded.data.settings,
+    chats: reloaded.data.chats,
+    automations: reloaded.data.automations,
+    memory: reloaded.data.memory,
+    heartbeat: reloaded.data.heartbeat,
+  }, normalized);
 });
 
 test('memory scopes and heartbeat counters round-trip with bounded, redacted action history', t => {

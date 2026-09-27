@@ -71,6 +71,7 @@ test('ticks skip disabled, empty, not due, busy, and outside-hours states withou
   let calls = 0;
   const f = fixture(async () => { calls++; return { status: 'quiet', summary: '' }; });
   await f.service.tick();
+  const baselineSaves = f.store.saves;
   f.setNow(localTime(26, 10, 5));
   f.config.enabled = false;
   await f.service.tick();
@@ -86,7 +87,7 @@ test('ticks skip disabled, empty, not due, busy, and outside-hours states withou
   f.setNow(localTime(26, 22));
   await f.service.tick();
   assert.equal(calls, 0);
-  assert.equal(f.store.saves, 0);
+  assert.equal(f.store.saves, baselineSaves);
   f.setNow(localTime(27, 8));
   assert.deepEqual(await f.service.tick(), { status: 'quiet', summary: '', actions: [] });
   assert.equal(calls, 1);
