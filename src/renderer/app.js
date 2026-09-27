@@ -84,6 +84,7 @@ const deferredChatUpdates = [];
 const chatMessageLookups = new Map();
 let renderedChatId = null;
 const renderedMessages = new Map();
+const renderedActionGroups = new Map();
 let conversationActivity = null;
 let selectedChatId = null;
 let currentView = 'chat';
@@ -135,6 +136,7 @@ const serviceKeyPending = new Map();
 const serviceKeyErrors = new Map();
 const heartbeatFeedbackPending = new Set();
 const expandedTools = new Set();
+const expandedActionGroups = new Set();
 const expandedReasoning = new Set();
 const seenApprovals = new Set();
 const chatDrafts = new Map();
@@ -694,6 +696,48 @@ function conversationMessage(chat, message, index) {
   return node;
 }
 
+function updateActionGroupSummary(node, messages) {
+  const summary = LittleBotActionGroups.summarize(messages);
+  node.querySelector('.action-group-count').textContent = summary.label;
+  node.querySelector('.action-group-status').textContent = summary.status;
+  node.classList.toggle('running', summary.running > 0);
+  node.classList.toggle('failed', summary.failed > 0);
+}
+
+function actionGroupNode(chat, group) {
+  const key = `${chat.id}:actions:${group.key}`;
+  let node = renderedActionGroups.get(key);
+  if (!node) {
+    node = element('div', 'action-group');
+    const details = element('details', 'action-group-details');
+    details.open = expandedActionGroups.has(key);
+    details.addEventListener('toggle', () => {
+      if (details.open) expandedActionGroups.add(key);
+      else expandedActionGroups.delete(key);
+    });
+    const summary = element('summary');
+    summary.append(icon('sparkles'), element('strong', '', 'Actions'), element('span', 'action-group-count'), element('span', 'action-group-status'));
+    details.append(summary, element('div', 'action-group-body'));
+    node.append(details);
+    renderedActionGroups.set(key, node);
+  }
+  const messages = group.tools.map(({ message }) => message);
+  updateActionGroupSummary(node, messages);
+  node.dataset.actionMessageIds = JSON.stringify(messages.map(message => message.id));
+  const children = group.tools.map(({ message, index }) => conversationMessage(chat, message, index));
+  replaceConversationItems(node.querySelector('.action-group-body'), children);
+  return node;
+}
+
+function refreshActionGroupForMessage(chat, node) {
+  const group = node.closest('.action-group');
+  if (!group) return;
+  let ids = [];
+  try { ids = JSON.parse(group.dataset.actionMessageIds || '[]'); } catch {}
+  const messages = ids.map(id => chat.messages.find(message => message.id === id)).filter(Boolean);
+  if (messages.length) updateActionGroupSummary(group, messages);
+}
+
 function conversationActivityNode(chat) {
   const active = chat.status === 'running' && !chat.messages.some(message => message.kind === 'reasoning' && message.status === 'running');
   if (!active) return null;
@@ -715,6 +759,7 @@ function renderStreamedMessages(chat, messages, indexes) {
     const previous = renderedMessages.get(`${chat.id}:${message.id}`).node;
     const node = conversationMessage(chat, message, indexes.get(message.id));
     if (node !== previous) previous.replaceWith(node);
+    if (message.role === 'tool') refreshActionGroupForMessage(chat, node);
   }
   const activity = conversationActivityNode(chat);
   if (activity && activity.parentNode !== $('messages')) $('messages').append(activity);
@@ -727,6 +772,7 @@ function renderConversation() {
   if (renderedChatId !== (chat?.id || null)) {
     renderedChatId = chat?.id || null;
     renderedMessages.clear();
+    renderedActionGroups.clear();
     conversationActivity = null;
   }
   const hasMessages = Boolean(chat?.messages?.length);
@@ -736,16 +782,27 @@ function renderConversation() {
   if (hasMessages) {
     const items = [];
     const keys = new Set();
-    for (const [index, message] of chat.messages.entries()) {
-      keys.add(`${chat.id}:${message.id || index}`);
-      items.push(conversationMessage(chat, message, index));
+    const actionKeys = new Set();
+    for (const unit of LittleBotActionGroups.groupConversation(chat.messages)) {
+      if (unit.type === 'message') {
+        const { message, index } = unit;
+        keys.add(`${chat.id}:${message.id || index}`);
+        items.push(conversationMessage(chat, message, index));
+        continue;
+      }
+      const actionKey = `${chat.id}:actions:${unit.key}`;
+      actionKeys.add(actionKey);
+      for (const { message, index } of unit.tools) keys.add(`${chat.id}:${message.id || index}`);
+      items.push(actionGroupNode(chat, unit));
     }
     for (const key of renderedMessages.keys()) if (!keys.has(key)) renderedMessages.delete(key);
+    for (const key of renderedActionGroups.keys()) if (!actionKeys.has(key)) renderedActionGroups.delete(key);
     const activity = conversationActivityNode(chat);
     if (activity) items.push(activity);
     replaceConversationItems($('messages'), items);
   } else {
     renderedMessages.clear();
+    renderedActionGroups.clear();
     conversationActivity = null;
     $('messages').replaceChildren();
   }
