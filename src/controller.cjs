@@ -425,6 +425,7 @@ class Controller extends EventEmitter {
     }
     // Mark busy before awaiting RPC so two clicks cannot start overlapping turns.
     chat.status = 'running'; chat.error = null; chat.updatedAt = Date.now();
+    chat.taskRun = { startedAt: Date.now(), messageStart: chat.messages.length };
     if (override?.automationId) chat.automationId = override.automationId;
     if (chat.connection !== 'local') chat.model = settings.model || chat.model;
     chat.effort = settings.effort || 'low';
@@ -662,7 +663,26 @@ class Controller extends EventEmitter {
       if (completed.size > 256) completed.delete(completed.values().next().value);
       this.completedTurns.set(chat.id, completed);
     }
-    chat.status = 'idle'; chat.error = error; chat.updatedAt = Date.now();
+    const finishedAt = Date.now();
+    if (!chat.internal && !manual && chat.taskRun?.startedAt) {
+      const recent = chat.messages.slice(Number.isInteger(chat.taskRun.messageStart) ? chat.taskRun.messageStart : 0);
+      const tools = recent.filter(message => message.role === 'tool');
+      const byKind = kind => tools.filter(message => message.kind === kind).length;
+      chat.lastTask = {
+        startedAt: chat.taskRun.startedAt,
+        finishedAt,
+        durationMs: Math.max(0, finishedAt - chat.taskRun.startedAt),
+        actions: tools.length,
+        commands: byKind('command'),
+        files: byKind('file'),
+        searches: byKind('search'),
+        mcp: byKind('mcp'),
+        agentTools: byKind('agent'),
+        status: error ? (/stopp|interrupt/i.test(error) ? 'interrupted' : 'failed') : 'completed',
+      };
+    }
+    delete chat.taskRun;
+    chat.status = 'idle'; chat.error = error; chat.updatedAt = finishedAt;
     for (const message of chat.messages) {
       if (['running', 'inProgress', 'waiting'].includes(message.status)) message.status = error ? (message.kind === 'reasoning' ? 'interrupted' : 'failed') : 'completed';
       if (message.kind === 'reasoning') this.reasoningParts.delete(message);
