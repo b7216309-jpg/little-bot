@@ -18,7 +18,7 @@ The relay also supplies the missing `content_index: 0` on llama.cpp's single-par
 
 Each chat, goal, routine, and heartbeat keeps its connection. Earlier records remain bound to Codex. Select their saved connection before continuing them; create a new chat to use another connection. Changing the local server also requires a new chat or returning to the saved address. This avoids silently sending an existing conversation to a different provider.
 
-The local model catalog and `/props` determine image support and the context window. The installed Qwen server reports image support and a 147,456-token window. Little Bot disables provider-hosted web search for local inference; the app's browser, Firecrawl, and Brave tools remain available according to their normal permissions.
+Image-input support is normalized per model across connections. Codex model discovery uses the pinned app-server `inputModalities` field; local discovery uses catalog capability hints and the selected server’s `/props` vision state, with `/props` taking precedence for the active model. The installed Qwen server reports image support and a 147,456-token window. Little Bot disables provider-hosted web search for local inference; the app's browser, Firecrawl, and Brave tools remain available according to their normal permissions.
 
 The installed server accepts images in incoming messages but rejects image-valued tool results. Little Bot disables the native `view_image` tool for the local connection using `features.view_image = false`. Attach photos to inspect them; returning image files and browser screenshots still works. MCP tools that return image content have the same server limitation. Codex keeps its normal image-viewing tool.
 
