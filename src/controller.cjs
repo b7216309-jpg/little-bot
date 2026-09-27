@@ -8,7 +8,7 @@ const { mcpQuestions, mcpContent } = require('./mcp-forms.cjs');
 const { CompactionTracker, COMPACTION_TIMEOUT_MS, COMPACTION_STOP_TIMEOUT_MS, validAutoCompactPercent, compactionConfig } = require('./compaction.cjs');
 const { GoalExecutor } = require('./goal-executor.cjs');
 const { attachmentDescriptors } = require('./attachment-message.cjs');
-const { localBaseUrl, localModel, connectionBinding, probeLocal, providerConfig } = require('./connections.cjs');
+const { localBaseUrl, localModel, connectionBinding, normalizeModelCapabilities, modelSupportsVision, probeLocal, providerConfig } = require('./connections.cjs');
 const { LocalModelRelay } = require('./local-model-relay.cjs');
 const { questionInput, questionText } = require('./user-questions.cjs');
 const { SHELL_CONDUCT, commandTranscript, appendCommandDelta } = require('./shell-conduct.cjs');
@@ -143,7 +143,11 @@ class Controller extends EventEmitter {
       browser: this.browser?.getState() || null,
       webServices: this.webServices?.getState() || null,
       extensionRuntime: this.extensionRuntime?.state || { status: 'ready', servers: [] },
-      models: this.models.map(({ id, displayName }) => ({ id, displayName })),
+      models: this.models.map(({ id, displayName, inputModalities, vision }) => ({
+        id, displayName,
+        ...(Array.isArray(inputModalities) ? { inputModalities: [...inputModalities] } : {}),
+        vision: typeof vision === 'boolean' ? vision : null,
+      })),
       approvals: [...this.approvals.values()].map(({ rpcId, method, params, callKey, ...publicFields }) => publicFields),
       storageWarning: this.store.warning || null,
     };
@@ -225,9 +229,8 @@ class Controller extends EventEmitter {
     this.connection = { type: 'codex', status: this.account.status, label: 'Codex', error: null };
     try {
       const catalog = await this.client.request('model/list', { limit: 100, includeHidden: false });
-      this.models = (catalog.data || []).filter(model => !model.hidden).map(model => ({
-        ...model, id: model.model || model.id,
-      }));
+      this.models = (catalog.data || []).filter(model => !model.hidden).map(model =>
+        normalizeModelCapabilities({ ...model, id: model.model || model.id }));
       if (!this.store.data.settings.model && this.models.length) {
         const preferred = this.models.find(model => model.id === 'gpt-6-sol') ||
           this.models.find(model => model.isDefault) || this.models[0];
@@ -235,6 +238,13 @@ class Controller extends EventEmitter {
         this.store.data.settings.codexModel = preferred.id;
         this.changed(true);
       }
+      const selected = this.models.find(model => model.id === this.store.data.settings.model);
+      this.connection = {
+        ...this.connection,
+        model: selected?.id || this.store.data.settings.model || undefined,
+        vision: modelSupportsVision(selected),
+        ...(Array.isArray(selected?.inputModalities) ? { inputModalities: [...selected.inputModalities] } : {}),
+      };
     } catch (error) {
       // The sign-in screen still works if the provider catalog is temporarily unavailable.
       this.runtime.catalogError = cleanError(error);
@@ -349,6 +359,13 @@ class Controller extends EventEmitter {
     const found = this.models.find(entry => entry.id === model);
     const supported = found?.supportedReasoningEfforts?.map(entry => entry.reasoningEffort);
     return !supported?.length || supported.includes(preferred) ? preferred : found.defaultReasoningEffort;
+  }
+  visionSupport(model = this.store.data.settings.model) {
+    const found = this.models.find(entry => entry.id === model);
+    const advertised = modelSupportsVision(found);
+    if (typeof advertised === 'boolean') return advertised;
+    if (this.connection?.model === model && typeof this.connection.vision === 'boolean') return this.connection.vision;
+    return null;
   }
   chat(id) { return this.store.data.chats.find(chat => chat.id === id); }
   byThread(threadId) {
@@ -466,7 +483,11 @@ class Controller extends EventEmitter {
     this.changed(true);
     try {
       const prepared = attachmentIds.length ? await this.attachments.prepare(attachmentIds) : { descriptors: [], input: [], text: '' };
-      if (prepared.input.length && this.connection?.type === 'local' && this.connection.vision === false) throw new Error('The local server has vision disabled. Start it with the vision projector to send images.');
+      const hasImageInput = prepared.input.some(item => item?.type === 'localImage');
+      const vision = hasImageInput ? this.visionSupport(chat.model) : null;
+      if (hasImageInput && vision === false) {
+        throw new Error('The selected model does not support image input. Choose a vision-capable model or remove the image.');
+      }
       if (this.closing) throw new Error('Little Bot is closing.');
       if (prepared.descriptors.length) userMessage.attachments = attachmentDescriptors(prepared.descriptors);
       chat.messages.push(userMessage); inputAccepted = true;
