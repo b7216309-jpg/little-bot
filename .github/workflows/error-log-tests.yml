@@ -1,0 +1,26 @@
+name: Diagnostic logging tests
+
+on:
+  push:
+    branches:
+      - "feature/persistent-error-logging"
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Syntax check diagnostic integration
+        run: node --check src/error-log.cjs && node --check src/controller.cjs && node --check src/local-model-relay.cjs && node --check src/main.cjs && node --check src/preload.cjs && node --check src/renderer/app.js
+      - name: Diagnostic logging tests
+        run: node --test test/error-log.test.cjs
