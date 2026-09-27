@@ -981,7 +981,7 @@ class Controller extends EventEmitter {
         await this.client.respond(id, { action: 'decline', content: null });
         return;
       }
-      if (method === 'item/tool/call' && !['skill_list', 'skill_read', 'memory_search', 'session_read'].includes(params.tool)) {
+      if (method === 'item/tool/call' && !['skill_list', 'skill_read', 'memory_search', 'session_read', 'calendar_list'].includes(params.tool)) {
         await this.client.respond(id, { success: false, contentItems: [{ type: 'inputText', text: 'This app tool is unavailable in Plan mode.' }] });
         return;
       }
