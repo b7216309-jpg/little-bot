@@ -46,6 +46,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
         ...connectionBinding(chat),
         createdAt: timestamp(chat.createdAt, Date.now()),
         updatedAt: timestamp(chat.updatedAt, timestamp(chat.createdAt, Date.now())),
+        mode: chat.mode === 'plan' ? 'plan' : 'execute',
         status: ['running', 'waiting'].includes(chat.status) ? chat.status : 'idle',
         messages: (Array.isArray(chat.messages) ? chat.messages : []).filter(isObject).map(message => {
           const entry = {
