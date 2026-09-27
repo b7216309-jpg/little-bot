@@ -17,7 +17,7 @@ test('package scripts expose unpacked, portable, and installer outputs', () => {
   assert.match(packager, /Little-Bot-\$\{version\}-Setup\.exe/);
   assert.match(packager, /build-installer\.ps1/);
   assert.match(builder, /Compress-Archive/);
-  assert.match(builder, /Microsoft\\.NET\\\\Framework64\\\\v4\\.0\\.30319\\\\csc\\.exe/);
+  assert.match(builder, /Microsoft\.NET\\Framework64\\v4\.0\.30319\\csc\.exe/);
   assert.match(builder, /target:winexe/);
   assert.match(builder, /LITTLEBOTSETUP1/);
   assert.match(builder, /CopyExactly/);
