@@ -146,6 +146,7 @@ const expandedReasoning = new Set();
 const seenApprovals = new Set();
 const chatDrafts = new Map();
 const planModeDrafts = new Map();
+const privateSessionDrafts = new Map();
 const attachmentDrafts = new Map();
 let attachmentImportPending = false;
 let connectionInitialized = false;
@@ -162,6 +163,7 @@ const connectionType = () => state?.connection?.type || state?.settings?.connect
 const draftKey = () => selectedChatId || '__new__';
 const queuedAttachments = () => attachmentDrafts.get(draftKey()) || [];
 const currentPlanMode = () => planModeDrafts.has(draftKey()) ? planModeDrafts.get(draftKey()) : currentChat()?.mode === 'plan';
+const currentPrivateSession = () => privateSessionDrafts.has(draftKey()) ? privateSessionDrafts.get(draftKey()) : currentChat()?.private === true;
 const basename = (path) => String(path || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path || 'Choose workspace';
 
 function programmaticChatScroll(action) {
@@ -366,7 +368,8 @@ function renderSidebar() {
     button.type = 'button';
     button.title = chat.title || 'Untitled conversation';
     button.setAttribute('aria-current', selectedChatId === chat.id && currentView === 'chat' ? 'page' : 'false');
-    button.append(icon('chat'), element('span', 'chat-title', chat.title || 'Untitled conversation'));
+    button.append(icon(chat.private ? 'shield' : 'chat'), element('span', 'chat-title', chat.title || 'Untitled conversation'));
+    if (chat.private) button.append(element('span', 'private-chat-badge', 'Private'));
     if (chat.status === 'running' || chat.status === 'waiting') {
       const activity = element('span', 'chat-activity');
       activity.title = chat.status === 'waiting' ? 'Waiting for you' : 'Working';
@@ -870,7 +873,15 @@ function updateComposer() {
   $('plan-mode-toggle').disabled = Boolean(running || sending || !isReady());
   $('plan-mode-toggle').setAttribute('aria-pressed', String(Boolean(currentPlanMode())));
   $('plan-mode-toggle').classList.toggle('active', Boolean(currentPlanMode()));
-  $('message-input').placeholder = currentPlanMode() ? 'Ask Little Bot to plan…' : 'Message Little Bot…';
+  const privateSession = Boolean(currentPrivateSession());
+  $('private-session-toggle').disabled = Boolean(running || sending || !isReady() || chat);
+  $('private-session-toggle').setAttribute('aria-pressed', String(privateSession));
+  $('private-session-toggle').classList.toggle('active', privateSession);
+  $('private-session-toggle').title = chat?.private
+    ? 'Private session: not saved to chat history or memory.'
+    : chat ? 'Private mode can only be chosen before the first message.'
+      : 'Private session: no saved chat history or memory.';
+  $('message-input').placeholder = currentPlanMode() ? 'Ask Little Bot to plan…' : privateSession ? 'Private message…' : 'Message Little Bot…';
   renderThinkingControl();
   renderAttachmentQueue();
   renderChatContext();
@@ -993,6 +1004,7 @@ async function sendMessage(event) {
   const text = submittedDraft.trim();
   const chat = currentChat();
   const mode = currentPlanMode() ? 'plan' : 'execute';
+  const privateSession = Boolean(currentPrivateSession());
   const attachmentIds = queuedAttachments().map((attachment) => attachment.id);
   if ((!text && !attachmentIds.length) || sending || thinkingSaving || attachmentImportPending || !isConnected() || !isReady() || chat?.status === 'running' || chat?.status === 'waiting' || chat?.compaction?.status === 'running' || compactionPending.has(chat?.id)) return;
   const originChatId = selectedChatId;
@@ -1001,7 +1013,7 @@ async function sendMessage(event) {
   sending = true;
   updateComposer();
   try {
-    const result = await window.bot.send({ chatId: originChatId || undefined, text, attachmentIds, mode });
+    const result = await window.bot.send({ chatId: originChatId || undefined, text, attachmentIds, mode, privateSession });
     if (chatDrafts.get(originDraftKey) === submittedDraft) chatDrafts.delete(originDraftKey);
     const remainingAttachments = (attachmentDrafts.get(originDraftKey) || []).filter((attachment) => !attachmentIds.includes(attachment.id));
     if (remainingAttachments.length) attachmentDrafts.set(originDraftKey, remainingAttachments);
@@ -1013,7 +1025,11 @@ async function sendMessage(event) {
       if (result?.chatId) {
         selectedChatId = result.chatId;
         planModeDrafts.set(result.chatId, mode === 'plan');
-        if (originDraftKey === '__new__') planModeDrafts.delete('__new__');
+        privateSessionDrafts.set(result.chatId, privateSession);
+        if (originDraftKey === '__new__') {
+          planModeDrafts.delete('__new__');
+          privateSessionDrafts.delete('__new__');
+        }
       }
     }
     render();
@@ -2878,13 +2894,17 @@ async function deleteChat(chat) {
     notify('Stop this conversation before deleting it.');
     return;
   }
-  const message = `“${chat.title || 'This conversation'}” will be removed from your local chat history.`;
+  const message = chat.private
+    ? `“${chat.title || 'This private session'}” is not saved. Closing it removes it from this app session.`
+    : `“${chat.title || 'This conversation'}” will be removed from your local chat history.`;
   if (await confirmAction('Delete this chat?', message)) {
     const deletingCurrent = selectedChatId === chat.id;
     const originNavigation = navigationVersion;
     const result = await attempt(() => window.bot.deleteChat({ chatId: chat.id }));
     if (result !== null) {
       chatDrafts.delete(chat.id);
+      planModeDrafts.delete(chat.id);
+      privateSessionDrafts.delete(chat.id);
       attachmentDrafts.delete(chat.id);
       if (deletingCurrent && navigationVersion === originNavigation) {
         $('message-input').value = chatDrafts.get('__new__') || '';
@@ -2894,7 +2914,11 @@ async function deleteChat(chat) {
   }
 }
 
-$('new-chat').addEventListener('click', () => selectChat(null));
+$('new-chat').addEventListener('click', () => {
+  planModeDrafts.delete('__new__');
+  privateSessionDrafts.delete('__new__');
+  selectChat(null);
+});
 $('nav-automations').addEventListener('click', showAutomations);
 $('nav-memory').addEventListener('click', () => showFeature('memory'));
 $('nav-heartbeat').addEventListener('click', () => showFeature('heartbeat'));
@@ -3006,6 +3030,12 @@ $('thinking-toggle').addEventListener('click', toggleThinking);
 $('plan-mode-toggle').addEventListener('click', () => {
   if ($('plan-mode-toggle').disabled) return;
   planModeDrafts.set(draftKey(), !currentPlanMode());
+  updateComposer();
+  $('message-input').focus();
+});
+$('private-session-toggle').addEventListener('click', () => {
+  if ($('private-session-toggle').disabled || currentChat()) return;
+  privateSessionDrafts.set('__new__', !currentPrivateSession());
   updateComposer();
   $('message-input').focus();
 });

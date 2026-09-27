@@ -410,7 +410,7 @@ class Controller extends EventEmitter {
       this.threadInstructionSettings.set(chat.threadId, signature);
     }
   }
-  async send({ chatId, text = '', attachmentIds = [], mode } = {}, override = null) {
+  async send({ chatId, text = '', attachmentIds = [], mode, privateSession } = {}, override = null) {
     this.ensureReady();
     if (this.extensionsBusy) throw new Error('Extensions are being updated. Try again in a moment.');
     if (this.goalChat) throw new Error('The goal is still stopping. Try your message again in a moment.');
@@ -419,6 +419,8 @@ class Controller extends EventEmitter {
     if (override && attachmentIds.length) throw new Error('Attachments are available in direct conversations.');
     if (mode !== undefined && !['execute', 'plan'].includes(mode)) throw new Error('Choose Execute or Plan mode.');
     if (override && mode === 'plan') throw new Error('Plan mode is available only in direct conversations.');
+    if (privateSession !== undefined && typeof privateSession !== 'boolean') throw new Error('Private session must be on or off.');
+    if (override && privateSession) throw new Error('Private sessions are available only in direct conversations.');
     if (typeof text !== 'string' || (!text.trim() && !attachmentIds.length) || text.length > 32000) throw new Error('Write a message or attach a file.');
     text = text.trim();
     const selectedSkills = skillContext(this.store.data.extensions, text);
@@ -427,6 +429,8 @@ class Controller extends EventEmitter {
     if (chat && chat.status !== 'idle') throw new Error('Wait for this reply, or stop it first.');
     const settings = override || this.store.data.settings;
     const turnMode = override ? 'execute' : (mode || chat?.mode || 'execute');
+    const turnPrivate = override ? false : (chat ? chat.private === true : privateSession === true);
+    if (chat && privateSession !== undefined && privateSession !== (chat.private === true)) throw new Error('Private mode is fixed when a conversation starts.');
     if (chat) this.ensureReady(chat);
     else if (override) this.ensureReady(override);
     const folder = workspacePath(chat?.workspace || settings.workspace);
@@ -436,7 +440,7 @@ class Controller extends EventEmitter {
       chat = { id: randomUUID(), title: text.slice(0, 60) || 'Attached files', threadId: null, workspace: folder,
         model: settings.model, effort: settings.effort || 'low', createdAt: now, updatedAt: now,
         ...connectionBinding(settings, this.store.data.settings.connection),
-        mode: turnMode, status: 'idle', messages: [] };
+        mode: turnMode, ...(turnPrivate ? { private: true } : {}), status: 'idle', messages: [] };
       this.store.data.chats.unshift(chat);
     }
     // Mark busy before awaiting RPC so two clicks cannot start overlapping turns.
@@ -447,7 +451,7 @@ class Controller extends EventEmitter {
     if (chat.connection !== 'local') chat.model = settings.model || chat.model;
     chat.effort = settings.effort || 'low';
     const userMessage = { id: randomUUID(), role: 'user', text };
-    const memoryContext = buildMemoryContext(this.store.data.memory, { workspace: folder, query: text, chatId: chat.id, sessions: this.store.data.chats, settings: this.store.data.settings });
+    const memoryContext = chat.private ? '' : buildMemoryContext(this.store.data.memory, { workspace: folder, query: text, chatId: chat.id, sessions: this.store.data.chats, settings: this.store.data.settings });
     let inputAccepted = false;
     let finish;
     const completion = new Promise(resolve => { finish = resolve; });
@@ -460,7 +464,7 @@ class Controller extends EventEmitter {
       if (prepared.descriptors.length) userMessage.attachments = attachmentDescriptors(prepared.descriptors);
       chat.messages.push(userMessage); inputAccepted = true;
       // Only accepted direct user messages may create durable facts.
-      if (!override) {
+      if (!override && !chat.private) {
         try {
           const fact = automaticRemember(this.store.data.memory, text, { ...settings, workspace: folder }, chat.id);
           if (fact) this.emit('event', { type: 'memory', message: 'Saved to workspace memory.' });
@@ -469,7 +473,7 @@ class Controller extends EventEmitter {
       this.persistNow(); this.changed();
       const common = this.threadOptions(chat, folder);
       if (!chat.threadId) {
-        const result = await this.client.request('thread/start', { ...common, ...(this.agentTools ? { dynamicTools: this.agentTools.specs({ readOnly: turnMode === 'plan' || Boolean(override?.automationId) }) } : {}) }, 60000);
+        const result = await this.client.request('thread/start', { ...common, ...(chat.private ? { ephemeral: true } : {}), ...(this.agentTools ? { dynamicTools: this.agentTools.specs({ readOnly: turnMode === 'plan' || Boolean(override?.automationId) }) } : {}) }, 60000);
         chat.threadId = result.thread.id; this.resumed.add(chat.threadId);
         this.threadCompactionSettings.set(chat.threadId, common.config.model_post_turn_compact_threshold_percent);
         this.threadInstructionSettings.set(chat.threadId, this.threadSignature(common));
@@ -712,7 +716,7 @@ class Controller extends EventEmitter {
       this.approvals.delete(key);
     }
     this.outcomes.get(chat.id)?.finish({ error });
-    if (!chat.internal && !manual && !error) captureEpisode(this.store.data.memory, chat);
+    if (!chat.internal && !manual && !error && !chat.private) captureEpisode(this.store.data.memory, chat);
     if (!chat.internal) this.persistNow();
     this.changed();
   }
@@ -739,7 +743,7 @@ class Controller extends EventEmitter {
     this.latestTurns.delete(chatId);
     this.threadCompactionSettings.delete(chat.threadId);
     this.threadInstructionSettings.delete(chat.threadId);
-    // Hide only this app's copy. Codex keeps its own conversation records for recovery.
+    // Normal chats hide only this app's copy; private chats also use ephemeral engine threads.
     this.persistNow(); this.changed(); return this.state();
   }
   message(chat, id, role, kind) {
