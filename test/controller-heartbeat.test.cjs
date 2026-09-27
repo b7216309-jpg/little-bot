@@ -42,6 +42,7 @@ async function setup(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'little-bot-heartbeat-controller-'));
   const filePath = path.join(root, 'state.json');
   const store = new Store({ filePath, defaultWorkspace: root });
+  Object.assign(store.data.settings, { connection: 'codex', model: 'gpt-6-sol', codexModel: 'gpt-6-sol', workspace: root, effort: 'low' });
   const client = new Client();
   const controller = new Controller({ store, client });
   await controller.start();
