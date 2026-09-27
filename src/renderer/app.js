@@ -1410,7 +1410,9 @@ function renderSettings() {
   $('settings-engine').textContent = isReady() ? 'Running locally' : state.runtime?.status === 'error' ? 'Needs attention' : 'Starting up';
   $('settings-version').textContent = `v${state.appVersion || '0.1.0'}`;
   $('settings-engine-detail').textContent = connectionType() === 'local' ? 'Your local model. No OpenAI account needed.' : 'Codex connection';
-  $('settings-data-detail').textContent = connectionType() === 'local' ? 'Chats stay on this computer. Web services connect only when used.' : 'Chats stay on this computer. Requests go to OpenAI.';
+  $('settings-data-detail').textContent = connectionType() === 'local'
+    ? 'Chats and memory are encrypted on this PC. Web services connect only when used.'
+    : 'Chats and memory are encrypted on this PC. Model requests go to OpenAI.';
   renderConnectionSettings();
   renderSystemPromptSettings();
   renderCompactionSettings();

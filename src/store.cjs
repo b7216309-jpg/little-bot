@@ -25,6 +25,54 @@ const scheduleDays = value => {
   return days.length ? days : [0, 1, 2, 3, 4, 5, 6];
 };
 
+const PROTECTED_STATE_VERSION = 1;
+
+function validProtector(value) {
+  if (value == null) return null;
+  if (typeof value !== 'object' || typeof value.encryptString !== 'function' || typeof value.decryptString !== 'function') {
+    throw new TypeError('Store protector must provide encryptString and decryptString.');
+  }
+  return value;
+}
+
+function protectedEnvelope(data, protector) {
+  const normalized = data;
+  if (!protector) return normalized;
+  const payload = JSON.stringify({ chats: normalized.chats, memory: normalized.memory });
+  const encrypted = protector.encryptString(payload);
+  if (!Buffer.isBuffer(encrypted) || !encrypted.length) throw new Error('Could not encrypt saved conversations.');
+  const disk = { ...normalized };
+  delete disk.chats;
+  delete disk.memory;
+  disk.protected = {
+    version: PROTECTED_STATE_VERSION,
+    format: 'safeStorage',
+    data: encrypted.toString('base64'),
+  };
+  return disk;
+}
+
+function unprotectState(parsed, protector) {
+  if (parsed.protected === undefined) return parsed;
+  const envelope = parsed.protected;
+  if (!protector) throw new Error('Saved conversations are encrypted and secure storage is unavailable.');
+  if (!isObject(envelope) || envelope.version !== PROTECTED_STATE_VERSION || envelope.format !== 'safeStorage'
+    || typeof envelope.data !== 'string' || !envelope.data || envelope.data.length > 50 * 1024 * 1024
+    || !/^[A-Za-z0-9+/]+={0,2}$/.test(envelope.data)) throw new Error('Encrypted app state has an invalid format.');
+  let sensitive;
+  try {
+    sensitive = JSON.parse(protector.decryptString(Buffer.from(envelope.data, 'base64')));
+  } catch {
+    throw new Error('Saved conversations could not be decrypted with this Windows account.');
+  }
+  if (!isObject(sensitive) || !Array.isArray(sensitive.chats) || !isObject(sensitive.memory)) {
+    throw new Error('Decrypted app state has an invalid format.');
+  }
+  const result = { ...parsed, chats: sensitive.chats, memory: sensitive.memory };
+  delete result.protected;
+  return result;
+}
+
 function persistedData(data, defaultWorkspace, recovering = false) {
   const rawSettings = isObject(data.settings) ? data.settings : {};
   const settings = { ...rawSettings, ...normalizeConnectionSettings(rawSettings) };
@@ -157,24 +205,29 @@ function persistedData(data, defaultWorkspace, recovering = false) {
 }
 
 class Store {
-  constructor({ filePath, defaultWorkspace }) {
+  constructor({ filePath, defaultWorkspace, protector = null }) {
     if (typeof filePath !== 'string' || !filePath) throw new TypeError('A state file path is required.');
     this.filePath = path.resolve(filePath);
     this.defaultWorkspace = string(defaultWorkspace, process.cwd());
+    this.protector = validProtector(protector);
     this.warning = null;
     this.recoveryPath = null;
+    this.locked = false;
     this._needsRecoveryCopy = false;
     this.data = persistedData({}, this.defaultWorkspace);
+    let encryptedSource = false;
     try {
       const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf8').replace(/^\uFEFF/, ''));
+      encryptedSource = parsed?.protected !== undefined;
       if (!isObject(parsed)) throw new Error('The state root must be a JSON object.');
-      this.data = persistedData(parsed, this.defaultWorkspace, true);
-      const invalidShape = (parsed.settings !== undefined && !isObject(parsed.settings))
-        || (parsed.autonomy !== undefined && (!isObject(parsed.autonomy)
-          || !Array.isArray(parsed.autonomy.goals) || parsed.autonomy.goals.length !== this.data.autonomy.goals.length))
-        || ['chats', 'automations'].some(key => parsed[key] !== undefined
-          && (!Array.isArray(parsed[key]) || parsed[key].some(item => !isObject(item))))
-        || (Array.isArray(parsed.chats) && parsed.chats.some(chat => isObject(chat)
+      const source = unprotectState(parsed, this.protector);
+      this.data = persistedData(source, this.defaultWorkspace, true);
+      const invalidShape = (source.settings !== undefined && !isObject(source.settings))
+        || (source.autonomy !== undefined && (!isObject(source.autonomy)
+          || !Array.isArray(source.autonomy.goals) || source.autonomy.goals.length !== this.data.autonomy.goals.length))
+        || ['chats', 'automations'].some(key => source[key] !== undefined
+          && (!Array.isArray(source[key]) || source[key].some(item => !isObject(item))))
+        || (Array.isArray(source.chats) && source.chats.some(chat => isObject(chat)
           && chat.messages !== undefined && (!Array.isArray(chat.messages) || chat.messages.some(item => !isObject(item)))));
       if (invalidShape) {
         this._needsRecoveryCopy = true;
@@ -182,14 +235,17 @@ class Store {
       }
     } catch (error) {
       if (error.code !== 'ENOENT') {
-        this._needsRecoveryCopy = true;
+        this.locked = encryptedSource;
+        this._needsRecoveryCopy = !encryptedSource;
         this.warning = `Could not read saved app state: ${error.message} The original file is preserved.`;
       }
     }
   }
 
   save() {
-    const serialized = `${JSON.stringify(persistedData(this.data, this.defaultWorkspace), null, 2)}\n`;
+    if (this.locked) throw new Error('Encrypted app state is locked. Little Bot will not overwrite it.');
+    const normalized = persistedData(this.data, this.defaultWorkspace);
+    const serialized = `${JSON.stringify(protectedEnvelope(normalized, this.protector), null, 2)}\n`;
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
     const temporaryPath = `${this.filePath}.${process.pid}.${randomUUID()}.tmp`;
     try {
@@ -228,4 +284,4 @@ class Store {
   }
 }
 
-module.exports = { Store };
+module.exports = { Store, PROTECTED_STATE_VERSION };

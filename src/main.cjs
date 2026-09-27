@@ -51,6 +51,19 @@ function safeWebUrl(value) {
   try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol); }
   catch { return false; }
 }
+
+function stateProtector() {
+  let available = false;
+  try {
+    available = safeStorage.isEncryptionAvailable() === true
+      && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend?.() !== 'basic_text');
+  } catch { available = false; }
+  if (!available) throw new Error('Windows secure storage is unavailable. Little Bot will not save chats or memory without encryption.');
+  return {
+    encryptString: value => safeStorage.encryptString(value),
+    decryptString: value => safeStorage.decryptString(value),
+  };
+}
 function register(name, handler) {
   ipcMain.handle(`bot:${name}`, async (event, payload) => {
     if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame ||
@@ -92,7 +105,8 @@ app.whenReady().then(async () => {
     'enabled = false',
     '',
   ].join('\n'));
-  const store = new Store({ filePath: path.join(stateDir, 'state.json'), defaultWorkspace });
+  const store = new Store({ filePath: path.join(stateDir, 'state.json'), defaultWorkspace, protector: stateProtector() });
+  if (store.locked) throw new Error(store.warning || 'Encrypted app state could not be opened.');
   const client = new CodexClient({ homeDir: codexHome, cwd: defaultWorkspace });
   controller = new Controller({ store, client, onError: logDiagnostic });
   controller.browser = new AgentBrowser({ root: path.join(stateDir, 'browser'), headed: !smoke, onChange: () => controller.changed() });
