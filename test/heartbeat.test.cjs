@@ -89,7 +89,7 @@ test('ticks skip disabled, empty, not due, busy, and outside-hours states withou
   assert.equal(calls, 0);
   assert.equal(f.store.saves, baselineSaves);
   f.setNow(localTime(27, 8));
-  assert.deepEqual(await f.service.tick(), { status: 'quiet', summary: '', actions: [] });
+  assert.deepEqual(await f.service.tick(), { status: 'quiet', summary: '', actions: [], topic: '' });
   assert.equal(calls, 1);
   assert.equal(f.config.lastStatus, 'quiet');
   assert.equal(f.config.history.length, 0);

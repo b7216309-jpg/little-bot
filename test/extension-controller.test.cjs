@@ -39,6 +39,7 @@ async function setup(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'little-bot-extensions-controller-'));
   const filePath = path.join(root, 'state.json');
   const store = new Store({ filePath, defaultWorkspace: root });
+  Object.assign(store.data.settings, { connection: 'codex', model: 'gpt-6-sol', codexModel: 'gpt-6-sol', workspace: root, effort: 'low' });
   const client = new FakeClient();
   const controller = new Controller({ store, client });
   controller.extensionRuntime = new ExtensionRuntime({ store, client });
@@ -122,7 +123,7 @@ test('heartbeat applies effective MCP disablement and verifies the same thread b
   assert.equal(client.calls.find(call => call.method === 'mcpServerStatus/list').params.threadId, turn.threadId);
   assert.ok(!turn.input[0].text.includes('FOREGROUND_ONLY_SKILL'));
   complete(client, turn.threadId, '{"status":"quiet","summary":""}');
-  assert.deepEqual(await run, { status: 'quiet', summary: '', actions: [] });
+  assert.deepEqual(await run, { status: 'quiet', summary: '', topic: '', actions: [] });
   assert.equal(client.calls.at(-1).method, 'thread/unsubscribe');
   assert.equal(store.data.chats.length, 0);
 });

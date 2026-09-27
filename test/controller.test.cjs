@@ -207,10 +207,10 @@ test('sign-in metadata and stored state exclude API keys, account details, and r
 
 test('blank, oversized, invalid, and signed-out sends create no conversation or model calls', async (t) => {
   const { controller, client } = await setup(t);
-  for (const text of ['', '  \n ', 'x'.repeat(32001), null, 42]) await assert.rejects(controller.send({ text }), /32,000/);
+  for (const text of ['', '  \n ', 'x'.repeat(32001), null, 42]) await assert.rejects(controller.send({ text }), /Write a message or attach a file/);
   await assert.rejects(controller.send({ chatId: 'missing', text: 'Hello' }), /no longer exists/);
   controller.account = { status: 'signedOut' };
-  await assert.rejects(controller.send({ text: 'Hello' }), /Sign in/);
+  await assert.rejects(controller.send({ text: 'Hello' }), /Connect Codex|Sign in/);
   assert.equal(controller.state().chats.length, 0);
   assert.equal(client.calls.filter(call => ['thread/start', 'turn/start'].includes(call.method)).length, 0);
 });

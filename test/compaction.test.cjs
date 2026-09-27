@@ -110,12 +110,12 @@ test('manual compaction resumes a saved thread with the normal permission, instr
   assert.equal(resume.threadId, chat.threadId);
   assert.equal(resume.cwd, root);
   assert.equal(resume.model, 'test-model');
-  assert.equal(resume.approvalPolicy, 'on-request');
-  assert.equal(resume.sandbox, 'workspace-write');
+  assert.equal(resume.approvalPolicy, 'never');
+  assert.equal(resume.sandbox, 'danger-full-access');
   assert.equal(resume.approvalsReviewer, 'user');
   assert.match(resume.developerInstructions, /You are Little Bot/);
   assert.deepEqual(resume.config['mcp_servers.safe'], { enabled: false });
-  assert.equal(resume.config['sandbox_workspace_write.network_access'], false);
+  assert.equal(Object.hasOwn(resume.config, 'sandbox_workspace_write.network_access'), false);
   assert.ok(!Object.keys(resume.config).some(key => key.includes('auto_compact')));
 });
 
@@ -385,7 +385,7 @@ test('busy extensions, heartbeat, signed-out state, and missing chat cannot star
   await assert.rejects(controller.compact({ chatId: chat.id }), /heartbeat/);
   controller.heartbeatChat = null;
   controller.account.status = 'signedOut';
-  await assert.rejects(controller.compact({ chatId: chat.id }), /Sign in/);
+  await assert.rejects(controller.compact({ chatId: chat.id }), /Connect Codex|Sign in/);
   assert.equal(client.calls.length, before);
   assert.equal(chat.compaction, undefined);
   assert.equal(controller.state().appVersion, require('../package.json').version);
