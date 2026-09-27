@@ -1402,6 +1402,31 @@ function intervalLabel(minutes) {
   return `Every ${minutes === 1 ? 'minute' : `${minutes} minutes`}`;
 }
 
+const weekdayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function scheduleLabel(routine) {
+  if (routine?.scheduleType !== 'clock') return intervalLabel(routine?.intervalMinutes || 60);
+  const days = Array.isArray(routine.daysOfWeek) ? routine.daysOfWeek : [0, 1, 2, 3, 4, 5, 6];
+  const normalized = [...new Set(days)].sort((a, b) => a - b);
+  let dayLabel;
+  if (normalized.length === 7) dayLabel = 'Daily';
+  else if (JSON.stringify(normalized) === JSON.stringify([1, 2, 3, 4, 5])) dayLabel = 'Weekdays';
+  else if (JSON.stringify(normalized) === JSON.stringify([0, 6])) dayLabel = 'Weekends';
+  else dayLabel = normalized.map(day => weekdayNames[day]).filter(Boolean).join(', ');
+  return `${dayLabel || 'Selected days'} at ${routine.clockTime || '09:00'}`;
+}
+
+function renderAutomationScheduleEditor() {
+  const clock = $('automation-schedule-type').value === 'clock';
+  $('automation-interval-fields').classList.toggle('hidden', clock);
+  $('automation-clock-fields').classList.toggle('hidden', !clock);
+  $('automation-interval').required = !clock;
+  $('automation-clock-time').required = clock;
+  $('automation-schedule-hint').textContent = clock
+    ? 'Uses this PC’s local time. If Little Bot is closed or the PC is asleep, it runs once when available, then advances to the next selected time.'
+    : 'First automatic run is after this interval.';
+}
+
 function renderAutomations() {
   $('automations-view').querySelector('.automation-notice span:last-child').textContent = state.autonomy?.paused ? 'Autonomous work is paused. Resume it from Goals to allow scheduled automations to continue.' : 'Automations run while Little Bot is open. Any action needing approval will wait for you.';
   const fragment = document.createDocumentFragment();
@@ -1433,7 +1458,7 @@ function renderAutomations() {
     top.append(badge, copy, toggle);
     const meta = element('div', 'routine-meta');
     const interval = element('span');
-    interval.append(icon('clock'), document.createTextNode(intervalLabel(routine.intervalMinutes)));
+    interval.append(icon('clock'), document.createTextNode(scheduleLabel(routine)));
     const folder = element('span');
     folder.title = routine.workspace || '';
     folder.append(icon('folder'), document.createTextNode(basename(routine.workspace)));
@@ -1468,8 +1493,14 @@ function editAutomation(routine) {
   $('automation-title').textContent = routine ? 'Edit automation' : 'New automation';
   $('automation-name').value = routine?.name || '';
   $('automation-prompt').value = routine?.prompt || '';
+  const scheduleType = routine?.scheduleType === 'clock' ? 'clock' : 'interval';
+  $('automation-schedule-type').value = scheduleType;
   $('automation-interval').value = routine?.intervalMinutes || 60;
+  $('automation-clock-time').value = routine?.clockTime || '09:00';
+  const selectedDays = new Set(Array.isArray(routine?.daysOfWeek) ? routine.daysOfWeek : [0, 1, 2, 3, 4, 5, 6]);
+  for (const input of document.querySelectorAll('[data-automation-day]')) input.checked = selectedDays.has(Number(input.value));
   $('automation-enabled').checked = routine ? Boolean(routine.enabled) : true;
+  renderAutomationScheduleEditor();
   $('automation-context').textContent = `Folder: ${routine?.workspace || state?.settings?.workspace || 'Choose a workspace before saving'}\nModel: ${routine?.model || state?.settings?.model || 'Default'}`;
   $('save-automation').textContent = routine ? 'Save changes' : 'Create automation';
   showDialog('automation-dialog');
@@ -1481,13 +1512,25 @@ async function saveAutomation(event) {
   const name = $('automation-name').value.trim();
   const prompt = $('automation-prompt').value.trim();
   if (!name || !prompt) return;
+  const scheduleType = $('automation-schedule-type').value;
+  const schedule = scheduleType === 'clock'
+    ? {
+        scheduleType: 'clock',
+        clockTime: $('automation-clock-time').value,
+        daysOfWeek: Array.from(document.querySelectorAll('[data-automation-day]:checked'), input => Number(input.value)),
+      }
+    : { scheduleType: 'interval', intervalMinutes: Number($('automation-interval').value) };
+  if (scheduleType === 'clock' && (!schedule.clockTime || !schedule.daysOfWeek.length)) {
+    notify('Choose a time and at least one day.', true);
+    return;
+  }
   $('save-automation').disabled = true;
   try {
     const next = await window.bot.saveAutomation({
       ...(editingAutomationId ? { id: editingAutomationId } : {}),
       name,
       prompt,
-      intervalMinutes: Number($('automation-interval').value),
+      ...schedule,
       enabled: $('automation-enabled').checked,
     });
     if (next?.settings) applyState(next);
@@ -3060,6 +3103,7 @@ $('api-key-form').addEventListener('submit', (event) => {
 $('create-automation').addEventListener('click', () => editAutomation());
 $('suggest-automation').addEventListener('click', () => { showAutomations(); editAutomation(); });
 $('automation-form').addEventListener('submit', saveAutomation);
+$('automation-schedule-type').addEventListener('change', renderAutomationScheduleEditor);
 $('memory-enabled').addEventListener('change', async () => {
   const enabled = $('memory-enabled').checked;
   $('memory-enabled').disabled = true;

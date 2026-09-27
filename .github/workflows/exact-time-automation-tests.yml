@@ -1,0 +1,28 @@
+name: Exact-time automation tests
+
+on:
+  push:
+    branches:
+      - "feature/exact-time-automations"
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Syntax check scheduling changes
+        run: node --check src/scheduler.cjs && node --check src/store.cjs && node --check src/main.cjs && node --check src/agent-tools.cjs && node --check src/renderer/app.js
+      - name: Scheduler behavior
+        run: node --test test/scheduler.test.cjs
+      - name: Exact-time integration
+        run: node --test test/exact-time-automation.test.cjs

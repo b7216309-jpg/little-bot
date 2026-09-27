@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { Store } = require('./store.cjs');
-const { Scheduler, validateAutomation } = require('./scheduler.cjs');
+const { Scheduler, validateAutomation, nextAutomationRunAt } = require('./scheduler.cjs');
 const { CodexClient } = require('./codex.cjs');
 const { Controller, cleanError } = require('./controller.cjs');
 const { saveFact, deleteFact, clearEpisodes } = require('./memory.cjs');
@@ -186,7 +186,9 @@ app.whenReady().then(async () => {
     manageSchedule: async (action, payload, context) => {
       const records = store.data.automations;
       if (action === 'list') return records.filter(item => path.resolve(item.workspace).toLowerCase() === path.resolve(context.workspace).toLowerCase())
-        .map(({ id, name, prompt, enabled, intervalMinutes, nextRunAt, lastStatus, authorized }) => ({ id, name, prompt, enabled, intervalMinutes, nextRunAt, lastStatus, authorized }));
+        .map(({ id, name, prompt, enabled, scheduleType, intervalMinutes, clockTime, daysOfWeek, nextRunAt, lastStatus, authorized }) => ({
+          id, name, prompt, enabled, scheduleType, intervalMinutes, clockTime, daysOfWeek, nextRunAt, lastStatus, authorized,
+        }));
       const existing = payload.id ? records.find(item => item.id === payload.id) : null;
       if (action === 'create' && payload.id) throw new Error('A new routine cannot reuse an existing routine ID.');
       if (action !== 'create' && (!existing || path.resolve(existing.workspace).toLowerCase() !== path.resolve(context.workspace).toLowerCase())) throw new Error('Choose a routine in this chat’s working folder.');
@@ -203,7 +205,7 @@ app.whenReady().then(async () => {
       else if (action === 'resume') {
         if (!existing.authorized) throw new Error('Enable this routine once in Automations before resuming it through chat.');
         if (store.data.autonomy.paused) throw new Error('Autonomous work is globally paused. Resume it in Goals.');
-        existing.enabled = true; existing.nextRunAt = Date.now() + existing.intervalMinutes * 60000;
+        existing.enabled = true; existing.nextRunAt = nextAutomationRunAt(existing, Date.now());
       } else throw new Error('Unsupported routine action.');
       store.save(); controller.changed(); return existing;
     },

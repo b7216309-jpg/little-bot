@@ -39,13 +39,13 @@ Optional **Firecrawl** and **Brave Search** keys go in **Settings → Web servic
 - **Profile:** edit USER.md for your facts/preferences and SOUL.md for the assistant's voice. Changes apply on the next request.
 - **Memory:** current conversation, recent work, and explicit saved facts—three layers. Say **Remember that ...** or use the Memory panel. The agent can also search and page through saved conversations, including older or compacted chats, using `memory_search` and `session_read`.
 - **Goals:** define an objective, completion checks, permissions, and budget. Review the draft, then Run. Checkpoints persist; results are verified. Review undo restores eligible captured files.
-- **Automations:** repeating prompts with a saved folder, model, and connection.
+- **Automations:** repeating prompts with a saved folder, model, and connection, using either elapsed intervals or exact PC-local times on selected weekdays.
 - **Heartbeat:** a bounded checklist, active hours, and run limits. Useful, Later, and Don't suggest this control attention. Goals and heartbeat share the notification budget.
 - **Extensions:** skills, plugins, and MCP connections. Four included skills cover app operations, web work, research briefs, and meeting preparation. Scheduling questions automatically include the enabled `little-bot` guide with heartbeat setup, routine examples, and troubleshooting. You can also invoke it with `$little-bot`.
 
 Autonomous work runs while the app is open and the PC is awake. **Pause all** pauses it across restarts. There is no tray worker, startup service, or wake-from-sleep mechanism. See [GOALS.md](GOALS.md), [EXTENSIONS.md](EXTENSIONS.md), and [NEXT.md](NEXT.md).
 
-Automations use repeating intervals, not cron expressions, weekday schedules, or exact clock times. The agent can draft routines through tools; heartbeat configuration currently uses the Heartbeat panel. Its [built-in operating guide](resources/skills/little-bot/SKILL.md) explains the available controls.
+Automations support repeating intervals and exact PC-local clock times on selected weekdays. They do not parse cron expressions or provide one-time timers. If Little Bot is closed or the PC is asleep when a routine becomes due, it runs once when available and advances to the next future occurrence. The agent can draft either schedule form through tools; heartbeat configuration currently uses the Heartbeat panel. Its [built-in operating guide](resources/skills/little-bot/SKILL.md) explains the available controls.
 
 Settings also controls automatic compaction: **20–95%**, default **80%**; **0** retains only native limits. **Compact now** summarizes older context while keeping the visible transcript. See [COMPACTION.md](COMPACTION.md).
 
