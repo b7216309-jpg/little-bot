@@ -17,6 +17,12 @@ const string = (value, fallback = '') => typeof value === 'string' ? value : fal
 const timestamp = (value, fallback) => Number.isFinite(value) ? value : fallback;
 const effort = value => ['low', 'medium', 'high'].includes(value) ? value : 'low';
 const count = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
+const clockTime = value => typeof value === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : '09:00';
+const scheduleDays = value => {
+  if (!Array.isArray(value)) return [0, 1, 2, 3, 4, 5, 6];
+  const days = [...new Set(value.filter(day => Number.isInteger(day) && day >= 0 && day <= 6))].sort((a, b) => a - b);
+  return days.length ? days : [0, 1, 2, 3, 4, 5, 6];
+};
 
 function persistedData(data, defaultWorkspace, recovering = false) {
   const rawSettings = isObject(data.settings) ? data.settings : {};
@@ -115,13 +121,18 @@ function persistedData(data, defaultWorkspace, recovering = false) {
       return result;
     }),
     automations: automations.filter(isObject).map(automation => {
+      const scheduleType = automation.scheduleType === 'clock' ? 'clock' : 'interval';
+      const intervalMinutes = Number.isInteger(automation.intervalMinutes)
+        && automation.intervalMinutes >= 1 && automation.intervalMinutes <= 10080
+        ? automation.intervalMinutes : 60;
       const result = {
         id: string(automation.id) || randomUUID(),
         name: string(automation.name, 'Automation'),
         prompt: string(automation.prompt),
-        intervalMinutes: Number.isInteger(automation.intervalMinutes)
-          && automation.intervalMinutes >= 1 && automation.intervalMinutes <= 10080
-          ? automation.intervalMinutes : 60,
+        scheduleType,
+        ...(scheduleType === 'clock'
+          ? { clockTime: clockTime(automation.clockTime), daysOfWeek: scheduleDays(automation.daysOfWeek) }
+          : { intervalMinutes }),
         enabled: automation.enabled === true,
         nextRunAt: timestamp(automation.nextRunAt, Date.now() + 60 * 60 * 1000),
         lastRunAt: timestamp(automation.lastRunAt, null),
