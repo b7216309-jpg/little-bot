@@ -34,6 +34,7 @@ test('installer is per-user and registers a real uninstaller', () => {
   assert.match(install, /QuietUninstallString/);
   assert.match(install, /NoModify/);
   assert.match(install, /NoRepair/);
-  assert.match(uninstall, /Remove-Item.*InstallDir/s);
+  assert.match(uninstall, /\$resolvedInstall = \[IO\.Path\]::GetFullPath\(\$InstallDir\)/);
+  assert.match(uninstall, /Remove-Item[^\n]*\$resolvedInstall/);
   assert.match(uninstall, /CurrentVersion\\Uninstall\\Little Bot/);
 });
