@@ -177,6 +177,15 @@ function restoreChatScroll(snapshot) {
   programmaticChatScroll(() => LittleBotChatScroll.restore($('chat-scroll'), snapshot));
 }
 
+function reportRendererError(kind, value) {
+  if (typeof window.bot?.reportError !== 'function') return;
+  const error = value instanceof Error ? value : new Error(typeof value === 'string' ? value : String(value ?? 'Renderer error'));
+  window.bot.reportError({ kind, message: String(error.message || error).slice(0, 12000), stack: String(error.stack || '').slice(0, 30000) }).catch(() => {});
+}
+
+window.addEventListener('error', event => reportRendererError('window-error', event.error || event.message));
+window.addEventListener('unhandledrejection', event => reportRendererError('unhandled-rejection', event.reason));
+
 function notify(message, error = false) {
   clearTimeout(toastTimer);
   $('toast').textContent = String(message || 'Something went wrong.');
@@ -2766,6 +2775,7 @@ $('settings-dialog').addEventListener('close', () => {
 $('choose-workspace').addEventListener('click', chooseWorkspace);
 $('settings-choose-workspace').addEventListener('click', chooseWorkspace);
 $('settings-open-workspace').addEventListener('click', () => attempt(() => window.bot.openWorkspace()));
+$('settings-open-logs').addEventListener('click', () => attempt(() => window.bot.openLogs(), 'Opened diagnostic logs.'));
 $('settings-login').addEventListener('click', () => {
   closeDialog('settings-dialog');
   if (isConnected()) login('chatgpt');

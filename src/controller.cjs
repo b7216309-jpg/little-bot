@@ -56,11 +56,16 @@ const heartbeatSchema = { type: 'object', properties: {
 }, required: ['status', 'summary', 'topic'], additionalProperties: false };
 
 class Controller extends EventEmitter {
-  constructor({ store, client, compactionTimeoutMs = COMPACTION_TIMEOUT_MS, compactionStopTimeoutMs = COMPACTION_STOP_TIMEOUT_MS }) {
+  constructor({ store, client, onError = () => {}, compactionTimeoutMs = COMPACTION_TIMEOUT_MS, compactionStopTimeoutMs = COMPACTION_STOP_TIMEOUT_MS }) {
     super();
+    if (typeof onError !== 'function') throw new TypeError('onError must be a function.');
     this.store = store;
     this.client = client;
-    this.localModelRelay = new LocalModelRelay({ thinking: () => this.store.data.settings.localThinking !== false });
+    this.onError = onError;
+    this.localModelRelay = new LocalModelRelay({
+      thinking: () => this.store.data.settings.localThinking !== false,
+      onError: (source, error, metadata) => this.onError(`local-model-relay:${source}`, error, metadata),
+    });
     this.runtime = { status: 'starting' };
     this.account = { status: 'signedOut' };
     this.connection = { type: store.data.settings.connection || 'local', status: 'checking', label: 'Local Qwen', error: null };
@@ -102,6 +107,7 @@ class Controller extends EventEmitter {
     client.on('notification', (method, params) => this.notification(method, params));
     client.on('request', request => {
       this.serverRequest(request).catch(error => {
+        this.onError('engine-server-request', error, { method: request.method });
         const chat = this.byThread(request.params?.threadId);
         if (chat) this.finish(chat, cleanError(error));
       });
@@ -136,6 +142,7 @@ class Controller extends EventEmitter {
     this.lastSaveAt = Date.now();
     try { this.store.save(); }
     catch (error) {
+      this.onError('state-save', error);
       this.runtime.error = `Could not save: ${cleanError(error)}`;
       this.changed();
     }
@@ -1004,6 +1011,7 @@ class Controller extends EventEmitter {
   }
   crashed(error) {
     if (this.closing) return;
+    this.onError('engine-crash', error);
     this.runtime = { status: 'error', error: cleanError(error) };
     this.goalExecutor.abort('The assistant engine stopped. Reopen Little Bot to reconnect.');
     for (const chat of this.store.data.chats) if (chat.status !== 'idle') this.finish(chat, 'The assistant engine stopped. Reopen Little Bot to reconnect.');

@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 const invoke = name => data => ipcRenderer.invoke(`bot:${name}`, data);
 contextBridge.exposeInMainWorld('bot', {
-  getState: invoke('getState'), chooseWorkspace: invoke('chooseWorkspace'),
+  getState: invoke('getState'), reportError: invoke('reportError'), openLogs: invoke('openLogs'), chooseWorkspace: invoke('chooseWorkspace'),
   saveProfile: invoke('saveProfile'), openProfileFolder: invoke('openProfileFolder'),
   saveSettings: invoke('saveSettings'), login: invoke('login'), send: invoke('send'),
   saveConnection: invoke('saveConnection'), refreshConnection: invoke('refreshConnection'),
