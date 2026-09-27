@@ -145,6 +145,7 @@ const expandedActionGroups = new Set();
 const expandedReasoning = new Set();
 const seenApprovals = new Set();
 const chatDrafts = new Map();
+const planModeDrafts = new Map();
 const attachmentDrafts = new Map();
 let attachmentImportPending = false;
 let connectionInitialized = false;
@@ -160,6 +161,7 @@ const isReady = () => state?.runtime?.status === 'ready';
 const connectionType = () => state?.connection?.type || state?.settings?.connection || 'codex';
 const draftKey = () => selectedChatId || '__new__';
 const queuedAttachments = () => attachmentDrafts.get(draftKey()) || [];
+const currentPlanMode = () => planModeDrafts.has(draftKey()) ? planModeDrafts.get(draftKey()) : currentChat()?.mode === 'plan';
 const basename = (path) => String(path || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path || 'Choose workspace';
 
 function programmaticChatScroll(action) {
@@ -636,6 +638,7 @@ function conversationMessage(chat, message, index) {
   const previous = renderedMessages.get(key);
   if (previous && fingerprint.every((value, position) => value === previous.fingerprint[position])) return previous.node;
   const variant = message.kind === 'compaction' ? 'compaction' : message.role === 'assistant' && message.kind === 'reasoning' ? 'reasoning'
+    : message.role === 'assistant' && message.kind === 'plan' ? 'plan'
     : message.role === 'tool' ? `tool:${message.kind || ''}` : message.role === 'user' ? 'user' : 'assistant';
   const retained = previous?.variant === variant ? previous.node : null;
   let node = retained;
@@ -678,9 +681,9 @@ function conversationMessage(chat, message, index) {
   } else {
     if (!node) {
       node = element('article', `message ${variant}`);
-      if (variant === 'assistant') {
+      if (variant === 'assistant' || variant === 'plan') {
         const label = element('div', 'message-label');
-        label.append(element('span', 'mini-mark', '✳'), document.createTextNode('Little Bot'));
+        label.append(element('span', 'mini-mark', variant === 'plan' ? 'P' : '✳'), document.createTextNode(variant === 'plan' ? 'Plan' : 'Little Bot'));
         node.append(label);
       }
       node.append(element('div', 'message-content'));
@@ -864,6 +867,10 @@ function updateComposer() {
   $('message-input').disabled = sending;
   $('model-select').disabled = Boolean(running || sending || thinkingSaving || !isReady());
   $('effort-select').disabled = Boolean(running || sending || thinkingSaving || !isReady());
+  $('plan-mode-toggle').disabled = Boolean(running || sending || !isReady());
+  $('plan-mode-toggle').setAttribute('aria-pressed', String(Boolean(currentPlanMode())));
+  $('plan-mode-toggle').classList.toggle('active', Boolean(currentPlanMode()));
+  $('message-input').placeholder = currentPlanMode() ? 'Ask Little Bot to plan…' : 'Message Little Bot…';
   renderThinkingControl();
   renderAttachmentQueue();
   renderChatContext();
@@ -985,6 +992,7 @@ async function sendMessage(event) {
   const submittedDraft = $('message-input').value;
   const text = submittedDraft.trim();
   const chat = currentChat();
+  const mode = currentPlanMode() ? 'plan' : 'execute';
   const attachmentIds = queuedAttachments().map((attachment) => attachment.id);
   if ((!text && !attachmentIds.length) || sending || thinkingSaving || attachmentImportPending || !isConnected() || !isReady() || chat?.status === 'running' || chat?.status === 'waiting' || chat?.compaction?.status === 'running' || compactionPending.has(chat?.id)) return;
   const originChatId = selectedChatId;
@@ -993,7 +1001,7 @@ async function sendMessage(event) {
   sending = true;
   updateComposer();
   try {
-    const result = await window.bot.send({ chatId: originChatId || undefined, text, attachmentIds });
+    const result = await window.bot.send({ chatId: originChatId || undefined, text, attachmentIds, mode });
     if (chatDrafts.get(originDraftKey) === submittedDraft) chatDrafts.delete(originDraftKey);
     const remainingAttachments = (attachmentDrafts.get(originDraftKey) || []).filter((attachment) => !attachmentIds.includes(attachment.id));
     if (remainingAttachments.length) attachmentDrafts.set(originDraftKey, remainingAttachments);
@@ -1002,7 +1010,11 @@ async function sendMessage(event) {
     // Clear only this submitted draft, including when they return before the RPC ends.
     if (selectedChatId === originChatId && $('message-input').value === submittedDraft) $('message-input').value = '';
     if (originNavigation === navigationVersion && currentView === 'chat') {
-      if (result?.chatId) selectedChatId = result.chatId;
+      if (result?.chatId) {
+        selectedChatId = result.chatId;
+        planModeDrafts.set(result.chatId, mode === 'plan');
+        if (originDraftKey === '__new__') planModeDrafts.delete('__new__');
+      }
     }
     render();
     sizeComposer();
@@ -2991,6 +3003,12 @@ for (const id of ['model-select', 'effort-select']) {
   $(id).addEventListener('change', () => attempt(() => window.bot.saveSettings({ model: $('model-select').value, effort: $('effort-select').value })));
 }
 $('thinking-toggle').addEventListener('click', toggleThinking);
+$('plan-mode-toggle').addEventListener('click', () => {
+  if ($('plan-mode-toggle').disabled) return;
+  planModeDrafts.set(draftKey(), !currentPlanMode());
+  updateComposer();
+  $('message-input').focus();
+});
 document.querySelectorAll('[data-prompt]').forEach((button) => {
   button.addEventListener('click', () => {
     $('message-input').value = button.dataset.prompt;
