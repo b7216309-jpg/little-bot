@@ -99,9 +99,11 @@ function reasoningEvents() {
 // Codex's custom-provider client cannot add chat_template_kwargs. This narrow
 // local transport adds Qwen's real switch without altering history or SSE data.
 class LocalModelRelay {
-  constructor({ thinking = () => true } = {}) {
+  constructor({ thinking = () => true, onError = () => {} } = {}) {
     if (typeof thinking !== 'function') throw new TypeError('thinking must be a function.');
+    if (typeof onError !== 'function') throw new TypeError('onError must be a function.');
     this.thinking = thinking;
+    this.onError = onError;
     this.server = null;
     this.starting = null;
     this.closing = null;
@@ -126,9 +128,12 @@ class LocalModelRelay {
 
   async _listen() {
     const server = http.createServer((request, response) => {
-      this._handle(request, response).catch(error => replyError(response,
-        error instanceof RequestError ? error.status : 502,
-        error instanceof RequestError ? error.message : 'Could not reach the local model server.'));
+      this._handle(request, response).catch(error => {
+        const status = error instanceof RequestError ? error.status : 502;
+        if (!(error instanceof RequestError) || status >= 500) this.onError('request', error, { method: request.method, status });
+        replyError(response, status,
+          error instanceof RequestError ? error.message : 'Could not reach the local model server.');
+      });
     });
     this.server = server;
     server.headersTimeout = 15000;
@@ -149,6 +154,7 @@ class LocalModelRelay {
     } catch (error) {
       if (this.server === server) this.server = null;
       server.close();
+      this.onError('listen', error);
       throw error;
     }
   }
@@ -215,6 +221,7 @@ class LocalModelRelay {
         result.destroy();
         throw new RequestError(502, 'The local model server returned an unexpected redirect.');
       }
+      if ((result.statusCode || 0) >= 500) this.onError('upstream-status', new Error(`Local model server returned HTTP ${result.statusCode}.`), { status: result.statusCode });
       const resultHeaders = headersWithoutHopByHop(result.headers);
       for (const name of Object.keys(resultHeaders)) if (name.startsWith('access-control-') || name === 'set-cookie') delete resultHeaders[name];
       const repairReasoning = /^text\/event-stream(?:\s*;|$)/i.test(result.headers['content-type'] || '')
