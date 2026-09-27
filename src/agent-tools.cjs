@@ -90,8 +90,13 @@ class AgentTools {
     if (name === 'calendar_manage') {
       if (!calendarActions.includes(args.action)) throw new Error('Unsupported calendar action.');
       const payload = {};
-      for (const [key, limit] of Object.entries({ id: 100, title: 120, startLocal: 16, endLocal: 16, location: 300, notes: 4000, fromLocal: 16, toLocal: 16 })) {
-        if (args[key] !== undefined) payload[key] = string(args[key], key, limit, key === 'endLocal' || key === 'location' || key === 'notes');
+      for (const [key, limit] of Object.entries({ id: 100, title: 120, startLocal: 16, fromLocal: 16, toLocal: 16 })) {
+        if (args[key] !== undefined) payload[key] = string(args[key], key, limit);
+      }
+      for (const [key, limit] of Object.entries({ endLocal: 16, location: 300, notes: 4000 })) {
+        if (args[key] === undefined) continue;
+        if (typeof args[key] !== 'string' || args[key].length > limit || args[key].includes('\0')) throw new Error(`Invalid ${key}.`);
+        payload[key] = args[key].trim();
       }
       if (args.allDay !== undefined) {
         if (typeof args.allDay !== 'boolean') throw new Error('allDay must be true or false.');
