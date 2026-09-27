@@ -106,6 +106,7 @@ app.whenReady().then(async () => {
     '',
   ].join('\n'));
   const store = new Store({ filePath: path.join(stateDir, 'state.json'), defaultWorkspace, protector: stateProtector() });
+  if (store.locked) throw new Error(store.warning || 'Encrypted app state could not be opened.');
   const client = new CodexClient({ homeDir: codexHome, cwd: defaultWorkspace });
   controller = new Controller({ store, client, onError: logDiagnostic });
   controller.browser = new AgentBrowser({ root: path.join(stateDir, 'browser'), headed: !smoke, onChange: () => controller.changed() });
