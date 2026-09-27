@@ -86,6 +86,7 @@ let renderedChatId = null;
 const renderedMessages = new Map();
 const renderedActionGroups = new Map();
 let conversationActivity = null;
+let taskClockTimer = null;
 let selectedChatId = null;
 let currentView = 'chat';
 let sending = false;
@@ -742,16 +743,51 @@ function refreshActionGroupForMessage(chat, node) {
   if (messages.length) updateActionGroupSummary(group, messages);
 }
 
+function formatTaskDuration(ms) {
+  const seconds = Math.max(0, Math.floor(Number(ms) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
+function taskSummaryNode(chat) {
+  const task = chat?.lastTask;
+  if (!task || chat.status !== 'idle') return null;
+  const parts = [`${task.status === 'completed' ? 'Finished' : task.status === 'interrupted' ? 'Stopped' : 'Failed'} in ${formatTaskDuration(task.durationMs)}`];
+  if (task.actions) parts.push(`${task.actions} ${task.actions === 1 ? 'action' : 'actions'}`);
+  if (task.commands) parts.push(`${task.commands} ${task.commands === 1 ? 'command' : 'commands'}`);
+  if (task.files) parts.push(`${task.files} file ${task.files === 1 ? 'change' : 'changes'}`);
+  if (task.searches) parts.push(`${task.searches} ${task.searches === 1 ? 'search' : 'searches'}`);
+  if (task.mcp) parts.push(`${task.mcp} MCP`);
+  if (task.agentTools) parts.push(`${task.agentTools} app ${task.agentTools === 1 ? 'tool' : 'tools'}`);
+  return element('div', `task-summary ${task.status || ''}`, parts.join(' · '));
+}
+
 function conversationActivityNode(chat) {
   const active = chat.status === 'running' && !chat.messages.some(message => message.kind === 'reasoning' && message.status === 'running');
   if (!active) return null;
-  const label = chat.compaction?.status === 'running' ? 'Summarizing older context…' : 'Working…';
+  const elapsed = chat.taskRun?.startedAt ? ` · ${formatTaskDuration(Date.now() - chat.taskRun.startedAt)}` : '';
+  const label = chat.compaction?.status === 'running' ? 'Summarizing older context…' : `Working…${elapsed}`;
   if (!conversationActivity) {
     conversationActivity = element('div', 'thinking');
-    conversationActivity.append(element('span', 'status-dot'), document.createTextNode(label));
-  } else if (conversationActivity.lastChild.textContent !== label) conversationActivity.lastChild.textContent = label;
+    conversationActivity.append(element('span', 'status-dot'), element('span', 'thinking-label', label));
+  } else if (conversationActivity.querySelector('.thinking-label')?.textContent !== label) {
+    conversationActivity.querySelector('.thinking-label').textContent = label;
+  }
   return conversationActivity;
 }
+
+function updateTaskClock() {
+  if (currentView !== 'chat') return;
+  const chat = currentChat();
+  if (!chat || chat.status !== 'running' || !chat.taskRun?.startedAt || chat.compaction?.status === 'running') return;
+  const label = conversationActivity?.querySelector('.thinking-label');
+  if (label) label.textContent = `Working… · ${formatTaskDuration(Date.now() - chat.taskRun.startedAt)}`;
+}
+taskClockTimer = setInterval(updateTaskClock, 1000);
+taskClockTimer.unref?.();
 
 function renderStreamedMessages(chat, messages, indexes) {
   if (renderedChatId !== chat.id || messages.some(message => !renderedMessages.has(`${chat.id}:${message.id}`))) {
@@ -801,6 +837,8 @@ function renderConversation() {
     }
     for (const key of renderedMessages.keys()) if (!keys.has(key)) renderedMessages.delete(key);
     for (const key of renderedActionGroups.keys()) if (!actionKeys.has(key)) renderedActionGroups.delete(key);
+    const summary = taskSummaryNode(chat);
+    if (summary) items.push(summary);
     const activity = conversationActivityNode(chat);
     if (activity) items.push(activity);
     replaceConversationItems($('messages'), items);
