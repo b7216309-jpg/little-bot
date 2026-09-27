@@ -144,6 +144,8 @@ let connectionInitialized = false;
 let connectionBaseline = '';
 let connectionPending = false;
 let connectionError = '';
+let chatFollowTail = true;
+let chatScrollProgrammatic = false;
 
 const currentChat = () => state?.chats?.find((chat) => chat.id === selectedChatId) || null;
 const isConnected = () => state?.account?.status === 'connected';
@@ -152,6 +154,28 @@ const connectionType = () => state?.connection?.type || state?.settings?.connect
 const draftKey = () => selectedChatId || '__new__';
 const queuedAttachments = () => attachmentDrafts.get(draftKey()) || [];
 const basename = (path) => String(path || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path || 'Choose workspace';
+
+function programmaticChatScroll(action) {
+  chatScrollProgrammatic = true;
+  try { action(); }
+  finally {
+    requestAnimationFrame(() => { chatScrollProgrammatic = false; });
+  }
+}
+
+function scrollChatToBottom() {
+  const scroller = $('chat-scroll');
+  chatFollowTail = true;
+  programmaticChatScroll(() => { scroller.scrollTop = scroller.scrollHeight; });
+}
+
+function captureChatScroll() {
+  return LittleBotChatScroll.capture($('chat-scroll'), $('messages'), chatFollowTail);
+}
+
+function restoreChatScroll(snapshot) {
+  programmaticChatScroll(() => LittleBotChatScroll.restore($('chat-scroll'), snapshot));
+}
 
 function notify(message, error = false) {
   clearTimeout(toastTimer);
@@ -360,6 +384,7 @@ function selectChat(id) {
   saveCurrentDraft();
   selectedChatId = id;
   currentView = 'chat';
+  chatFollowTail = true;
   $('message-input').value = chatDrafts.get(id || '__new__') || '';
   $('chat-view').classList.remove('hidden');
   $('automations-view').classList.add('hidden');
@@ -370,7 +395,7 @@ function selectChat(id) {
   $('profile-view').classList.add('hidden');
   render();
   sizeComposer();
-  $('chat-scroll').scrollTop = $('chat-scroll').scrollHeight;
+  scrollChatToBottom();
   $('message-input').focus();
 }
 
@@ -453,8 +478,7 @@ function renderAttachments(parent, attachments, { draft = false, key = draftKey(
       preview.alt = attachment.name || 'Attached image';
       preview.loading = 'lazy';
       preview.addEventListener('load', () => {
-        const scroller = $('chat-scroll');
-        if (scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 300) scroller.scrollTop = scroller.scrollHeight;
+        if (chatFollowTail) scrollChatToBottom();
       }, { once: true });
       const open = action('', () => attempt(() => window.bot.openAttachment({ id: attachment.id })), 'attachment-preview-button');
       open.title = `Open ${attachment.name || 'image'}`;
@@ -677,9 +701,7 @@ function renderStreamedMessages(chat, messages, indexes) {
     renderConversation();
     return;
   }
-  const scroller = $('chat-scroll');
-  const previousTop = scroller.scrollTop;
-  const wasNearBottom = scroller.scrollHeight - previousTop - scroller.clientHeight < 100;
+  const scrollSnapshot = captureChatScroll();
   for (const message of messages) {
     const previous = renderedMessages.get(`${chat.id}:${message.id}`).node;
     const node = conversationMessage(chat, message, indexes.get(message.id));
@@ -688,7 +710,7 @@ function renderStreamedMessages(chat, messages, indexes) {
   const activity = conversationActivityNode(chat);
   if (activity && activity.parentNode !== $('messages')) $('messages').append(activity);
   else if (!activity) conversationActivity?.remove();
-  scroller.scrollTop = wasNearBottom ? scroller.scrollHeight : previousTop;
+  restoreChatScroll(scrollSnapshot);
 }
 
 function renderConversation() {
@@ -701,9 +723,7 @@ function renderConversation() {
   const hasMessages = Boolean(chat?.messages?.length);
   $('welcome').classList.toggle('hidden', hasMessages);
   $('messages').classList.toggle('hidden', !hasMessages);
-  const scroller = $('chat-scroll');
-  const wasNearBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 100;
-  const previousTop = scroller.scrollTop;
+  const scrollSnapshot = captureChatScroll();
   if (hasMessages) {
     const items = [];
     const keys = new Set();
@@ -723,8 +743,7 @@ function renderConversation() {
   const error = [chat?.error || (state.runtime?.status === 'error' ? state.runtime.error || 'The local engine could not start.' : ''), state.storageWarning].filter(Boolean).join('\n');
   $('chat-error').textContent = error;
   $('chat-error').classList.toggle('hidden', !error);
-  if (wasNearBottom && hasMessages) scroller.scrollTop = scroller.scrollHeight;
-  else scroller.scrollTop = previousTop;
+  if (hasMessages) restoreChatScroll(scrollSnapshot);
 }
 
 function updateComposer() {
@@ -879,7 +898,7 @@ async function sendMessage(event) {
     }
     render();
     sizeComposer();
-    if (originNavigation === navigationVersion && currentView === 'chat') $('chat-scroll').scrollTop = $('chat-scroll').scrollHeight;
+    if (originNavigation === navigationVersion && currentView === 'chat') scrollChatToBottom();
   } catch (error) {
     notify(error?.message || String(error), true);
   } finally {
@@ -2750,7 +2769,10 @@ $('settings-open-workspace').addEventListener('click', () => attempt(() => windo
 $('settings-login').addEventListener('click', () => {
   closeDialog('settings-dialog');
   if (isConnected()) login('chatgpt');
-  else { selectChat(null); $('chat-scroll').scrollTop = 0; $('connect-chatgpt').focus(); }
+  else { selectChat(null); programmaticChatScroll(() => { $('chat-scroll').scrollTop = 0; }); $('connect-chatgpt').focus(); }
+});
+$('chat-scroll').addEventListener('scroll', () => {
+  if (!chatScrollProgrammatic) chatFollowTail = LittleBotChatScroll.nearBottom($('chat-scroll'));
 });
 $('composer').addEventListener('submit', sendMessage);
 $('attach-button').addEventListener('click', () => addAttachments());
