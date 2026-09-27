@@ -11,6 +11,7 @@ const { attachmentDescriptors } = require('./attachment-message.cjs');
 const { localBaseUrl, localModel, connectionBinding, probeLocal, providerConfig } = require('./connections.cjs');
 const { LocalModelRelay } = require('./local-model-relay.cjs');
 const { questionInput, questionText } = require('./user-questions.cjs');
+const { SHELL_CONDUCT, commandTranscript, appendCommandDelta } = require('./shell-conduct.cjs');
 
 function cleanError(error) {
   return String(error?.message || error || 'Something went wrong')
@@ -459,6 +460,7 @@ class Controller extends EventEmitter {
       const profile = this.profileContext();
       const result = await this.client.request('turn/start', {
         threadId: chat.threadId, input: [{ type: 'text', text: [profile, selectedSkills, memoryContext, prepared.text,
+          SHELL_CONDUCT,
           `Current user request:\n${text || 'Examine the attached files.'}`].filter(Boolean).join('\n\n') }, ...prepared.input],
         cwd: folder, model: chat.model || undefined,
         effort: this.effectiveEffort(chat.model, chat.effort),
@@ -821,7 +823,7 @@ class Controller extends EventEmitter {
       createdByDelta = !chat.messages.some(message => message.id === params.itemId);
       const message = this.message(chat, params.itemId, 'tool', 'command');
       if (!['running', 'inProgress'].includes(message.status)) return;
-      message.text = bounded(message.text + (params.delta || ''));
+      message.text = appendCommandDelta(message.text, params.delta || '');
       streamedMessage = message;
     } else if (method === 'item/started' || method === 'item/completed') {
       const item = params.item;
@@ -858,7 +860,7 @@ class Controller extends EventEmitter {
         message.status = method === 'item/completed' ? 'completed' : 'running';
       } else if (item.type === 'commandExecution') {
         const message = this.message(chat, item.id, 'tool', 'command');
-        message.text = bounded(`$ ${item.command}\n${item.aggregatedOutput || ''}`);
+        message.text = commandTranscript(item.command, item.aggregatedOutput || '');
         message.status = item.status;
         if (chat.internal && method === 'item/completed') chat.actions.set(item.id, cleanError(`Command (${item.status}): ${item.command}`).slice(0, 500));
       } else if (item.type === 'fileChange') {
