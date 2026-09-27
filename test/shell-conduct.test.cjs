@@ -52,7 +52,7 @@ test('controller and goals apply the shared shell conduct helper', () => {
   const goals = readFileSync(path.join(root, 'goal-executor.cjs'), 'utf8');
   assert.match(controller, /SHELL_CONDUCT/);
   assert.match(controller, /developerInstructions: planning \? planInstructions\(this\.systemPrompt\(\)\) : this\.systemPrompt\(\)/);
-  assert.match(controller, /prepared\.text,\s*SHELL_CONDUCT/);
+  assert.match(controller, /\{ kind: 'shell', label: 'Shell conduct', text: SHELL_CONDUCT \}/);
   assert.match(controller, /appendCommandDelta/);
   assert.match(controller, /commandTranscript/);
   assert.match(goals, /SHELL_CONDUCT/);
