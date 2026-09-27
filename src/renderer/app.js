@@ -368,7 +368,7 @@ function renderSidebar() {
     button.type = 'button';
     button.title = chat.title || 'Untitled conversation';
     button.setAttribute('aria-current', selectedChatId === chat.id && currentView === 'chat' ? 'page' : 'false');
-    button.append(icon(chat.private ? 'lock' : 'chat'), element('span', 'chat-title', chat.title || 'Untitled conversation'));
+    button.append(icon(chat.private ? 'shield' : 'chat'), element('span', 'chat-title', chat.title || 'Untitled conversation'));
     if (chat.private) button.append(element('span', 'private-chat-badge', 'Private'));
     if (chat.status === 'running' || chat.status === 'waiting') {
       const activity = element('span', 'chat-activity');
