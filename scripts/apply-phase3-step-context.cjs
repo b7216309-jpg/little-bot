@@ -6,11 +6,15 @@ function read(file) {
   return fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
 }
 
-function replaceOnce(file, before, after, label) {
+function replaceCount(file, before, after, expected, label) {
   const source = read(file);
   const count = source.split(before).length - 1;
-  if (count !== 1) throw new Error(`${label}: expected one anchor, found ${count}.`);
-  fs.writeFileSync(file, source.replace(before, after), 'utf8');
+  if (count !== expected) throw new Error(`${label}: expected ${expected} anchor${expected === 1 ? '' : 's'}, found ${count}.`);
+  fs.writeFileSync(file, source.split(before).join(after), 'utf8');
+}
+
+function replaceOnce(file, before, after, label) {
+  replaceCount(file, before, after, 1, label);
 }
 
 replaceOnce('src/goal-ledger.cjs',
@@ -187,15 +191,17 @@ replaceOnce('src/goals.cjs',
       }); this.changed();`,
 'preflight step context');
 
-replaceOnce('src/goals.cjs',
+replaceCount('src/goals.cjs',
 `        completeGoalLedger(goal, summary, { runId, now: Date.now() });`,
 `        completeGoalLedger(goal, summary, { runId, now: Date.now(), ...ledgerRunContext });`,
-'preflight completion step context');
+2,
+'run completion step context');
 
-replaceOnce('src/goals.cjs',
+replaceCount('src/goals.cjs',
 `        recordSnapshotEvidence(goal, snapshot, { runId, now: Date.now() });`,
 `        recordSnapshotEvidence(goal, snapshot, { runId, now: Date.now(), ...ledgerRunContext });`,
-'normal snapshot step context');
+2,
+'run snapshot step context');
 
 replaceOnce('src/goals.cjs',
 `        if (await this.completeStoppedFiles(goal, runId, this.stopReason)) return;`,
@@ -208,18 +214,6 @@ replaceOnce('src/goals.cjs',
         runId, phase: 'completion', now: Date.now(), ...ledgerRunContext,
       });`,
 'final verification step context');
-
-replaceOnce('src/goals.cjs',
-`        completeGoalLedger(goal, summary, { runId, now: Date.now() });`,
-`        completeGoalLedger(goal, summary, { runId, now: Date.now(), ...ledgerRunContext });`,
-'final completion step context');
-
-replaceOnce('src/goals.cjs',
-`        recordSnapshotEvidence(goal, snapshot, { runId, now: Date.now() });
-        this.record(goal, 'snapshot', 'Saved file evidence after an interrupted or failed step.', { runId, snapshot });`,
-`        recordSnapshotEvidence(goal, snapshot, { runId, now: Date.now(), ...ledgerRunContext });
-        this.record(goal, 'snapshot', 'Saved file evidence after an interrupted or failed step.', { runId, snapshot });`,
-'failed snapshot step context');
 
 replaceOnce('src/goals.cjs',
 `      if (await this.completeStoppedFiles(goal, runId, this.stopReason || clean(error))) return;`,
