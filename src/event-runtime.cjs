@@ -206,7 +206,9 @@ class EventRuntime {
     try { intent = this.intents.get(id); }
     catch { return; }
     if (!intent.enabled) { this.intents.record(id, { status: 'skipped', event, error: 'The standing intent is disabled.' }); return; }
-    const action = event.payload?.action || intent.action;
+    // Resolve the current saved action at execution time. A debounced event may
+    // outlive an edit; stale queued payload must not launch the old target.
+    const action = intent.action;
     try {
       if (action.type === 'goal.run') {
         const goal = this.goals.goal(action.goalId);

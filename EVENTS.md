@@ -151,7 +151,7 @@ matched
 → completed | error | skipped
 ```
 
-When the single execution lane is temporarily busy, an intent action can retry every 15 seconds, at most 20 times, while the same foreground app session remains open. Closing Little Bot discards those retries.
+When the single execution lane is temporarily busy, an intent action can retry every 15 seconds, at most 20 times, while the same foreground app session remains open. Closing Little Bot discards those retries. A debounced or waiting action resolves the intent's current saved target when it executes, so editing or disabling the intent does not launch a stale target.
 
 An intent's ID travels through the goal or automation it launches. Events caused by that work retain the ancestry, so the same intent cannot react to its own downstream completion and form an indirect loop.
 

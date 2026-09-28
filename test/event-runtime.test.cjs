@@ -152,3 +152,23 @@ test('causal intent tracing prevents an intent from retriggering itself through 
   assert.equal(saved.lastStatus, 'completed');
   assert.equal(bus.state.queued, 0);
 });
+
+test('a debounced action resolves the current target after the intent is edited', async () => {
+  const { runtime, bus, store, calls, advance } = fixture();
+  store.data.automations.push({ id: 'automation-2', authorized: true, lastStatus: 'never' });
+  const intent = runtime.saveIntent({
+    name: 'Editable target', enabled: true, debounceMs: 1000,
+    when: { type: 'file.changed', filters: [] },
+    action: { type: 'goal.run', goalId: 'goal-1' },
+  });
+  runtime.start();
+  runtime.publish({ type: 'file.changed', source: 'goal.runner', payload: { path: 'reports/latest.csv' } });
+  await bus.drain();
+  assert.equal(bus.state.queued, 1);
+
+  runtime.saveIntent({ ...intent, action: { type: 'automation.run', automationId: 'automation-2' } });
+  advance(1000);
+  await drain(bus);
+
+  assert.deepEqual(calls, [['automation', 'automation-2']]);
+});
