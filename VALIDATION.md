@@ -1,4 +1,16 @@
-# Version 0.8.8 verification
+# Version 0.8.9 verification
+
+Checked on 28 September 2026 with Node 24 on the Windows runner. This phase used deterministic executor fixtures rather than a live model-provider call.
+
+- A new persisted goal ledger enforces one active step for every non-completed goal. Focused tests covered initial migration, malformed state with multiple active steps, bounded plan history, a full exhausted plan, user objective and step edits, evidence-driven revisions, and rerunning a completed goal as a fresh plan version.
+- The real GoalRunner path was exercised with a deterministic fake model that wrote a file, returned structured assumptions, observations, and decisions, and then passed the app-owned completion check. Preflight and final verification, file snapshots, blockers, answers, restart recovery, global pause, budget-stop completion, and Review undo all produced bounded inspectable records.
+- The executor receives the current version, exactly one active step, current assumption states, recent observations, and recent decisions. Its structured response is limited to concise public ledger records and an optional complete replacement plan. No private reasoning or chain-of-thought transcript is requested or stored.
+- Goal-card rendering passed pure-model checks and a sandboxed Electron fixture covering the active step, completed and pending steps, earlier versions, confirmed assumptions, failed verification evidence, decisions, restored-path evidence, and the public-record notice. Legacy goals retain a safe renderer fallback while persisted state migrates through the host.
+- Recursive JavaScript syntax checks, the complete Node suite, and every retained Electron integration test passed after each runtime, UI, and lifecycle increment. The pull-request workflow also validates the portable ZIP, Setup EXE, silent installation, Apps & Features registration, Start Menu shortcut, and real uninstall path.
+
+The ledger improves continuity and auditability; model observations remain claims until supported by host evidence. Completion still requires every saved check to pass. Closing Little Bot still stops execution, and the ledger adds no gateway, daemon, service, subagent, parallel worker, vector store, or extra physical memory layer.
+
+## Earlier 0.8.8 verification
 
 Checked on 27 September 2026 with isolated profiles, focused state/UI fixtures, and the packaged app using the existing local Qwen server. No dependencies or model-server settings changed.
 

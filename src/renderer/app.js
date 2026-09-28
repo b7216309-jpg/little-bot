@@ -2677,7 +2677,7 @@ function renderGoals() {
     details.dataset.goalDetail = goal.id;
     details.open = expanded.has(goal.id);
     details.append(element('summary', '', 'Plan, evidence, and history'));
-    if (goal.steps?.length) {
+    if (!window.LittleBotGoalLedgerPanel?.append(details, goal) && goal.steps?.length) {
       const section = element('section', 'goal-detail-section');
       const list = element('ol');
       goal.steps.forEach((step) => list.append(element('li', '', goalText(step))));

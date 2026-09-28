@@ -1,0 +1,50 @@
+.goal-ledger-current{display:grid;gap:12px;padding:13px;border:1px solid #dfe3d7;border-radius:10px;background:#fafbf6}
+.goal-ledger-plan-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.goal-ledger-plan-title{display:flex;align-items:center;gap:8px;min-width:0}
+.goal-ledger-plan-title h4{margin:0;font-size:11px;font-weight:650;color:#596550}
+.goal-ledger-version{flex-shrink:0;padding:3px 6px;border:1px solid #d9dfd1;border-radius:5px;background:#fff;color:#75806e;font-size:8px;font-weight:700;letter-spacing:.4px;text-transform:uppercase}
+.goal-ledger-plan-meta{font-size:9px;line-height:1.55;color:#90978c;text-align:right}
+.goal-ledger-plan-reason{font-size:10px;line-height:1.65;color:#788173}
+.goal-ledger-steps{display:grid;gap:7px;list-style:none;padding:0;margin:0}
+.goal-ledger-step{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:8px;align-items:start;padding:9px 10px;border:1px solid #e4e7dd;border-radius:8px;background:#fff;min-width:0}
+.goal-ledger-step-marker{display:flex;align-items:center;justify-content:center;width:17px;height:17px;border:1px solid #d8ddd2;border-radius:50%;color:#8a9483;font-size:8px;font-weight:700;margin-top:1px}
+.goal-ledger-step-copy{min-width:0}
+.goal-ledger-step-copy strong{display:block;font-size:10px;font-weight:600;line-height:1.5;color:#596452;overflow-wrap:anywhere}
+.goal-ledger-step-copy p{margin-top:4px;font-size:9px;line-height:1.55;color:#8a9285;overflow-wrap:anywhere}
+.goal-ledger-step-status{padding:3px 6px;border-radius:5px;background:#f1f2ed;color:#858e7f;font-size:8px;font-weight:650;white-space:nowrap;text-transform:uppercase;letter-spacing:.35px}
+.goal-ledger-step.active{border-color:#c9d5bf;background:#f4f7ef;box-shadow:0 0 0 1px #e7ede0 inset}
+.goal-ledger-step.active .goal-ledger-step-marker{border-color:#8fa383;background:#819675;color:#fff}
+.goal-ledger-step.active .goal-ledger-step-status{background:#e3ebdc;color:#617557}
+.goal-ledger-step.completed .goal-ledger-step-marker{border-color:#aac0a3;background:#eef4ea;color:#66805d}
+.goal-ledger-step.completed .goal-ledger-step-copy strong{text-decoration:line-through;text-decoration-color:#c7d2c2;color:#788273}
+.goal-ledger-step.completed .goal-ledger-step-status{background:#edf3e9;color:#698060}
+.goal-ledger-step.skipped,.goal-ledger-step.superseded{opacity:.7;background:#f7f7f3}
+.goal-ledger-step.skipped .goal-ledger-step-status,.goal-ledger-step.superseded .goal-ledger-step-status{background:#eeeeea;color:#90958d}
+.goal-ledger-columns{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.goal-ledger-record-section{min-width:0;border:1px solid #e5e7df;border-radius:9px;background:#fff;overflow:hidden}
+.goal-ledger-record-section>h4{margin:0;padding:9px 10px;border-bottom:1px solid #eceee7;background:#fafaf6;color:#77816f;font-size:9px;font-weight:700;letter-spacing:.7px;text-transform:uppercase}
+.goal-ledger-record-list{display:grid;gap:0}
+.goal-ledger-record{padding:9px 10px;border-bottom:1px solid #eff0eb;min-width:0}
+.goal-ledger-record:last-child{border-bottom:0}
+.goal-ledger-record-head{display:flex;align-items:center;gap:6px;margin-bottom:5px;min-width:0}
+.goal-ledger-record-source{font-size:8px;font-weight:650;color:#7e8976}
+.goal-ledger-record-context{display:inline-flex;min-width:0;padding:2px 5px;border:1px solid #e1e4dc;border-radius:4px;background:#f7f8f3;color:#7a8473;font-size:7px;font-weight:650;letter-spacing:.25px;white-space:nowrap}
+.goal-ledger-record-time{margin-left:auto;font-size:8px;color:#a0a59c;white-space:nowrap}
+.goal-ledger-record p{font-size:9px;line-height:1.6;color:#626d5c;overflow-wrap:anywhere}
+.goal-ledger-record-rationale{margin-top:5px!important;color:#8b9287!important}
+.goal-ledger-record-badge{display:inline-flex;align-items:center;padding:2px 5px;border-radius:4px;background:#efefe9;color:#858b80;font-size:7px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;white-space:nowrap}
+.goal-ledger-record-badge.open{background:#f4eddf;color:#8a744f}
+.goal-ledger-record-badge.confirmed{background:#eaf2e6;color:#637d5b}
+.goal-ledger-record-badge.rejected{background:#f5e9e6;color:#9a5f50}
+.goal-ledger-evidence{display:inline-flex;align-items:center;gap:4px;margin-top:6px;padding:3px 6px;border-radius:5px;background:#edf2e9;color:#667b5f;font-size:8px;font-weight:600;max-width:100%;overflow-wrap:anywhere}
+.goal-ledger-evidence.failed{background:#f6eae7;color:#9b594b}
+.goal-ledger-evidence.snapshot{background:#ecefea;color:#697466}
+.goal-ledger-empty{padding:11px 10px;font-size:9px;line-height:1.6;color:#a0a59b}
+.goal-ledger-archive{border:1px solid #e4e6df;border-radius:8px;background:#fafaf6;overflow:hidden}
+.goal-ledger-archive>summary{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 10px;cursor:pointer;list-style:none;color:#7c8575;font-size:9px;font-weight:600}
+.goal-ledger-archive>summary::-webkit-details-marker{display:none}
+.goal-ledger-archive-body{display:grid;gap:10px;padding:10px;border-top:1px solid #e9ebe4}
+.goal-ledger-archived-plan{display:grid;gap:8px;padding:10px;border:1px solid #e5e7e0;border-radius:8px;background:#fff}
+.goal-ledger-archived-plan .goal-ledger-step{padding:7px 8px}
+.goal-ledger-note{font-size:9px;line-height:1.6;color:#9aa094}
+@media(max-width:950px){.goal-ledger-columns{grid-template-columns:1fr}.goal-ledger-plan-header{flex-direction:column}.goal-ledger-plan-meta{text-align:left}}
