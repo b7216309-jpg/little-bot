@@ -13,7 +13,7 @@ window.addEventListener('DOMContentLoaded', () => {
   const local = {
     kind: 'local', status: 'ready', model: 'Qwen local', updatedAt: now, sampleCount: 2,
     latest: {
-      tokensPerSecond: 48.5, firstOutputMs: 650, durationMs: 3200, generatedTokens: 140,
+      tokensPerSecond: 48.5, firstOutputMs: 650, durationMs: 3200, generatedTokens: 110,
       outputTokens: 110, reasoningTokens: 30, inputTokens: 800, cachedInputTokens: 500, includesTools: true,
     },
     average: { tokensPerSecond: 44.2, sampleCount: 1 },
