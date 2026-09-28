@@ -6,12 +6,15 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: little-bot-attachment:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Little Bot</title>
   <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./provider-usage.css">
   <link rel="stylesheet" href="./goal-ledger.css">
   <link rel="stylesheet" href="./standing-intents.css">
   <script src="./chat-scroll.js" defer></script>
   <script src="./action-groups.js" defer></script>
   <script src="./slash-commands.js" defer></script>
   <script src="./independent-check.js" defer></script>
+  <script src="./provider-usage-ui.js" defer></script>
+  <script src="./provider-usage-panel.js" defer></script>
   <script src="./standing-intents-ui.js" defer></script>
   <script src="./goal-ledger-ui.js" defer></script>
   <script src="./goal-ledger-panel.js" defer></script>
@@ -177,6 +180,12 @@
         <div class="settings-actions"><button id="settings-connection-save" class="button primary" type="submit" disabled>Save connection</button><button id="settings-connection-check" class="button secondary" type="button">Check connection</button></div><p id="settings-connection-error" class="inline-error hidden" role="alert"></p>
       </form>
       <div id="settings-codex-account" class="settings-row"><div><strong id="settings-account">Codex account</strong><p id="settings-account-detail">ChatGPT or an OpenAI API key.</p></div><button id="settings-login" class="button secondary">Connect</button></div>
+    </section>
+    <section class="settings-section provider-usage-section" aria-labelledby="provider-usage-title">
+      <div class="provider-usage-heading"><div class="provider-usage-heading-copy"><h3 id="provider-usage-title">Provider usage</h3><p id="provider-usage-subtitle" class="field-hint"></p></div><div class="provider-usage-heading-actions"><span id="provider-usage-status" class="service-status provider-usage-status" role="status">Loading</span><button id="provider-usage-refresh" class="button text-button" type="button">Refresh</button></div></div>
+      <span id="provider-usage-updated" class="provider-usage-updated hidden"></span>
+      <div id="provider-usage-content" class="provider-usage-content"></div>
+      <p id="provider-usage-note" class="provider-usage-note"></p>
     </section>
     <div class="settings-section"><h3>Workspace</h3><p class="field-hint">New chats and automations start in this folder.</p><div class="workspace-setting"><span class="icon" data-icon="folder"></span><span id="settings-workspace">No folder selected</span></div><div class="settings-actions"><button id="settings-choose-workspace" class="button secondary">Choose folder</button><button id="settings-open-workspace" class="button text-button">Open in Explorer<span class="icon small" data-icon="arrow-up-right"></span></button></div></div>
     <section class="settings-section" aria-labelledby="browser-settings-title"><h3 id="browser-settings-title">Agent browser</h3><div class="settings-row"><div><strong>Vercel agent-browser</strong><p>A separate browser for your agent.</p></div><span id="settings-browser-status" class="service-status" role="status">Checking</span></div><p id="settings-browser-location" class="field-hint hidden"></p><div class="settings-actions"><button id="settings-open-browser" class="button secondary" type="button"><span class="icon" data-icon="browser"></span>Open browser</button><button id="settings-close-browser" class="button text-button" type="button" disabled>Close browser</button><button id="settings-install-browser" class="button secondary hidden" type="button">Install browser</button></div><p id="settings-browser-error" class="inline-error hidden" role="alert"></p></section>

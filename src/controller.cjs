@@ -307,7 +307,10 @@ class Controller extends EventEmitter {
     this.changed();
     return this.refreshConnection();
   }
-  async refreshProviderUsage() { return this.providerUsage.refresh(); }
+  async refreshProviderUsage() {
+    await this.providerUsage.refresh();
+    return this.state();
+  }
   async login({ type, apiKey } = {}) {
     if (this.runtime.status !== 'ready') throw new Error('The assistant engine is still starting.');
     if (this.store.data.settings.connection !== 'codex') throw new Error('Select Codex in Settings to sign in.');

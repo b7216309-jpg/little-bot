@@ -1,7 +1,8 @@
 'use strict';
 
 (function expose(root, factory) {
-  const api = factory(root.LittleBotProviderUsage);
+  const model = typeof module === 'object' && module.exports ? require('./provider-usage-ui.js') : root.LittleBotProviderUsage;
+  const api = factory(model);
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.LittleBotProviderUsagePanel = api;
 })(typeof globalThis === 'object' ? globalThis : window, model => {
