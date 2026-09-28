@@ -1,0 +1,13 @@
+.standing-intents-section{margin-top:28px;padding-top:24px;border-top:1px solid var(--border)}
+.standing-intents-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:12px}
+.standing-intents-heading h2{margin:0 0 4px;font-size:20px}.standing-intents-heading p{margin:0;color:var(--muted)}
+.standing-intents-notice{padding:11px 13px;border:1px solid var(--border);border-radius:12px;background:var(--surface-soft);color:var(--muted);font-size:13px}
+.standing-intents-runtime{margin:10px 2px;color:var(--muted);font-size:12px}
+.standing-intents-list{display:grid;gap:12px}.standing-intents-empty{padding:24px;border:1px dashed var(--border);border-radius:14px;text-align:center}.standing-intents-empty h3{margin:0 0 6px}.standing-intents-empty p{margin:0;color:var(--muted)}
+.standing-intent-card{padding:16px;border:1px solid var(--border);border-radius:14px;background:var(--surface)}
+.standing-intent-card-top{display:flex;justify-content:space-between;gap:16px}.standing-intent-card-copy{min-width:0}.standing-intent-card h3{margin:0 0 5px;font-size:15px}.standing-intent-card-copy p,.standing-intent-action{margin:0;color:var(--muted);font-size:13px;overflow-wrap:anywhere}
+.standing-intent-action{margin-top:10px;color:var(--text)}.standing-intent-meta{display:flex;flex-wrap:wrap;gap:7px 14px;margin-top:10px;color:var(--muted);font-size:12px}.standing-intent-error-text{color:var(--danger)}
+.standing-intent-card-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}.danger-text{color:var(--danger)!important}
+.standing-intent-dialog{width:min(680px,calc(100vw - 40px))}.standing-intent-dialog form{display:grid;gap:13px}.standing-intent-field{display:grid;gap:6px}.standing-intent-field input,.standing-intent-field select{width:100%}
+.standing-intent-filter-grid{display:grid;grid-template-columns:1.2fr .9fr 1.2fr;gap:10px}.standing-intent-action-grid,.standing-intent-options-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.standing-intent-subheading{margin:5px 0 -5px}.standing-intent-enabled{margin-top:3px}.standing-intent-close{font-size:20px;line-height:1}.standing-intent-dialog .dialog-footer{margin-top:4px}
+@media(max-width:720px){.standing-intents-heading{align-items:stretch;flex-direction:column}.standing-intent-filter-grid,.standing-intent-action-grid,.standing-intent-options-grid{grid-template-columns:1fr}}
