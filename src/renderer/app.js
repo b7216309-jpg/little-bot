@@ -1041,8 +1041,10 @@ async function changeReasoningEffort() {
   await attempt(() => window.bot.saveSettings({ model: $('model-select').value, effort: value }));
 }
 
-function taskReasoningLabel(connection, effort) {
-  if (connection === 'local' && state?.connection?.adapter === 'strata') {
+function taskReasoningLabel(connection, effort, model) {
+  const sameStrataModel = connection === 'local' && state?.connection?.adapter === 'strata'
+    && (!model || model === state.connection.model);
+  if (sameStrataModel) {
     return state.settings.localThinking === false ? 'Reasoning none' : `Reasoning ${effort || 'low'}`;
   }
   return connection === 'local' ? `Thinking ${state.settings.localThinking === false ? 'off' : 'on'}` : `${effort || 'low'} effort`;
@@ -2336,7 +2338,7 @@ function renderHeartbeatControls() {
   const effort = heartbeatUseCurrentWorkspace ? state.settings.effort : saved.effort || state.settings.effort;
   const connection = heartbeatUseCurrentWorkspace ? connectionType() : saved.connection || 'codex';
   $('heartbeat-workspace').textContent = folder || 'No working folder selected';
-  $('heartbeat-model').textContent = `${model || 'Default model'} · ${taskReasoningLabel(connection, effort)}${heartbeatUseCurrentWorkspace ? ' · Update pending' : ''}`;
+  $('heartbeat-model').textContent = `${model || 'Default model'} · ${taskReasoningLabel(connection, effort, model)}${heartbeatUseCurrentWorkspace ? ' · Update pending' : ''}`;
   $('heartbeat-use-workspace').title = `Use ${state.settings.workspace || 'the selected folder'} and the current model settings`;
 }
 
@@ -2855,7 +2857,7 @@ function editGoal(goal) {
   $('goal-name').value = goal?.name || '';
   $('goal-objective').value = goal?.objective || '';
   $('goal-steps').value = (goal?.steps || []).join('\n');
-  $('goal-workspace').textContent = `Folder: ${goalDraftContext.workspace}\nModel: ${goalDraftContext.model} · ${taskReasoningLabel(goalDraftContext.connection, goalDraftContext.effort)}`;
+  $('goal-workspace').textContent = `Folder: ${goalDraftContext.workspace}\nModel: ${goalDraftContext.model} · ${taskReasoningLabel(goalDraftContext.connection, goalDraftContext.effort, goalDraftContext.model)}`;
   $('goal-checks').replaceChildren();
   goalCheckSequence = 0;
   (goal?.checks?.length ? goal.checks : [{ type: 'fileExists' }]).forEach(addGoalCheck);
