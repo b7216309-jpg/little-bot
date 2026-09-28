@@ -70,14 +70,12 @@ test('provider errors are scrubbed before entering renderer state', async () => 
   assert.match(result.error, /\[redacted\]/);
 });
 
-test('Codex account refresh starts quota telemetry without blocking connection readiness', () => {
+test('provider telemetry is exposed as transient state rather than an execution budget', () => {
   const controller = read('src/controller.cjs');
-  const start = controller.indexOf('async refreshAccount()');
-  const end = controller.indexOf('async refreshConnection()', start);
-  const refreshAccount = controller.slice(start, end);
-  assert.ok(refreshAccount.includes('this.providerUsage.connectionChanged(this.connection)'));
-  assert.ok(refreshAccount.includes('void this.providerUsage.refresh()'));
-  assert.equal(refreshAccount.includes('await this.providerUsage.refresh()'), false);
+  assert.ok(controller.includes('providerUsage: this.providerUsage.publicState()'));
+  assert.ok(controller.includes("async refreshProviderUsage()"));
+  assert.equal(read('src/store.cjs').includes('providerUsage'), false);
+  assert.equal(read('src/goals.cjs').includes('providerUsage'), false);
 });
 
 test('local output accounting treats reasoning tokens as a reported output subset', () => {
