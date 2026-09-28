@@ -143,10 +143,11 @@ function fingerprint(status, summary, performedActions = [], workspace = '') {
 }
 
 class Heartbeat {
-  constructor({ store, run, canRun = () => true, canNotify = () => true, onChange = () => {}, onAlert = () => {}, now = Date.now }) {
+  constructor({ store, run, canRun = () => true, canNotify = () => true, onChange = () => {}, onAlert = () => {}, now = Date.now, publish = null }) {
     if (!store || !object(store.data) || typeof store.save !== 'function') throw new TypeError('A store is required.');
     if (typeof run !== 'function') throw new TypeError('A heartbeat runner is required.');
     if (typeof canRun !== 'function' || typeof canNotify !== 'function' || typeof now !== 'function') throw new TypeError('Heartbeat availability and clock must be functions.');
+    if (publish !== null && typeof publish !== 'function') throw new TypeError('Heartbeat publish must be a function.');
     this.store = store;
     this.run = run;
     this.canRun = canRun;
@@ -154,6 +155,7 @@ class Heartbeat {
     this.onChange = onChange;
     this.onAlert = onAlert;
     this.now = now;
+    this.publish = publish;
     this.running = false;
     this.timer = null;
     if (!object(store.data.heartbeat)) store.data.heartbeat = defaultHeartbeat(store.data.settings, now());
@@ -211,6 +213,12 @@ class Heartbeat {
       if (this.running || !config.enabled || !config.checklist.trim() || !Number.isFinite(config.nextRunAt)
         || config.nextRunAt > nowMs || !inActiveHours(config, nowMs) || !this.canRun()) return null;
       if (config.dayKey === localDay(nowMs) && config.runsToday >= config.maxRunsPerDay) return null;
+      if (this.publish) return this.publish({
+        type: 'heartbeat.due', source: 'heartbeat', priority: 3,
+        dedupeKey: `heartbeat:due:${config.nextRunAt}`,
+        expiresAt: nowMs + Math.max(MINUTE, config.intervalMinutes * MINUTE),
+        payload: { dueAt: config.nextRunAt, workspace: config.workspace },
+      });
       return await this.runNow();
     } catch {
       // Manual calls receive errors. Timer calls retain the visible status and keep scheduling.
@@ -240,6 +248,8 @@ class Heartbeat {
           delete current.lastError;
         });
       } catch (error) { throw this._storageFailure(error); }
+      this.publish?.({ type: 'heartbeat.started', source: 'heartbeat',
+        payload: { startedAt, workspace: config.workspace } });
 
       let result;
       try {
@@ -291,6 +301,8 @@ class Heartbeat {
       return attention.prepareDelivery(config, item, nowMs, this._notificationsAvailable(config, nowMs)) ? item : null;
     });
     if (alert) this._notify(alert);
+    this.publish?.({ type: `heartbeat.${status}`, source: 'heartbeat',
+      payload: { status, summary, topic, actions: performedActions, workspace: this.store.data.heartbeat.workspace, finishedAt: nowMs } });
   }
 
   _notificationsAvailable(config, nowMs) { return inActiveHours(config, nowMs) && this.canNotify() === true; }

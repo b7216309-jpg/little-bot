@@ -125,8 +125,9 @@ function normalizeAutonomy(value, settings = {}, recovering = false) {
 }
 
 class GoalRunner {
-  constructor({ store, run, stopRun, verifyCommand, backupRoot, canRun = () => true, onChange = () => {}, onAlert = () => {} }) {
-    Object.assign(this, { store, run, stopRun, verifyCommand, backupRoot, canRun, onChange, onAlert });
+  constructor({ store, run, stopRun, verifyCommand, backupRoot, canRun = () => true, onChange = () => {}, onAlert = () => {}, publish = null }) {
+    if (publish !== null && typeof publish !== 'function') throw new TypeError('Goal publish must be a function.');
+    Object.assign(this, { store, run, stopRun, verifyCommand, backupRoot, canRun, onChange, onAlert, publish });
     store.data.autonomy ||= normalizeAutonomy(null, store.data.settings);
     this.activeId = null; this.execution = null; this.timer = null; this.closing = false; this.ticking = false;
     this.forceRuns = new Set(); this.filePending = new Map(); this.stopReason = null;
@@ -135,6 +136,11 @@ class GoalRunner {
   goal(id) { const goal = this.data.goals.find(item => item.id === id); if (!goal) throw new Error('Goal not found.'); return goal; }
   changed() { this.store.save(); this.onChange(); }
   record(goal, kind, summary, extra = {}) { goal.updatedAt = Date.now(); goal.history = historyOf([...goal.history, { id: randomUUID(), at: Date.now(), kind, summary, ...extra }]); }
+  emit(type, goal, payload = {}, options = {}) {
+    if (!this.publish) return null;
+    try { return this.publish({ type, source: 'goal.runner', ...options, payload: { goalId: goal.id, name: goal.name, workspace: goal.workspace, ...payload } }); }
+    catch { return null; }
+  }
   save(input, { authorize = false } = {}) {
     const existing = input?.id ? this.goal(input.id) : null;
     if (existing?.id === this.activeId) throw new Error('Pause the active goal and wait for it to stop before editing.');
@@ -158,7 +164,9 @@ class GoalRunner {
     requireSelectedConnection(goal, this.store.data.settings);
     if (id === this.activeId) throw new Error('This goal is already running.');
     goal.authorized = true; goal.status = 'queued'; goal.nextRunAt = Date.now(); delete goal.pauseReason; delete goal.needsEffectReview;
-    this.forceRuns.add(id); this.record(goal, 'queued', 'Queued by you.'); this.changed(); this.wake(); return goal;
+    this.forceRuns.add(id); this.record(goal, 'queued', 'Queued by you.'); this.changed();
+    this.emit('goal.queued', goal, { queuedAt: Date.now() }, { dedupeKey: `goal:queued:${goal.id}:${goal.updatedAt}` });
+    this.wake(); return goal;
   }
   async pause(id) {
     const goal = this.goal(id); goal.status = 'paused'; delete goal.pauseReason;
@@ -186,7 +194,9 @@ class GoalRunner {
     // Do not dispatch work unless the answer and its remaining budget are durable.
     try { this.store.save(); }
     catch (error) { for (const key of Object.keys(goal)) delete goal[key]; Object.assign(goal, previous); throw error; }
-    this.onChange(); this.wake(); return goal;
+    this.onChange();
+    this.emit('goal.question_answered', goal, { questionId, answeredAt: Date.now() });
+    this.wake(); return goal;
   }
   async pauseAll() {
     this.data.paused = true;
@@ -241,8 +251,11 @@ class GoalRunner {
             if (!goal.triggerFingerprint) { goal.triggerFingerprint = fingerprint; this.changed(); }
             else if (fingerprint !== goal.triggerFingerprint) {
               const previous = this.filePending.get(goal.id);
-              if (previous?.fingerprint === fingerprint && Date.now() - previous.at >= 1000) ready = true;
-              else this.filePending.set(goal.id, { fingerprint, at: Date.now() });
+              if (previous?.fingerprint === fingerprint && Date.now() - previous.at >= 1000) {
+                ready = true;
+                this.emit('file.changed', goal, { paths: goal.trigger.paths, fingerprint, previousFingerprint: goal.triggerFingerprint },
+                  { dedupeKey: `file:${goal.id}:${fingerprint}`, debounceKey: `file:${goal.id}`, debounceMs: 1000 });
+              } else this.filePending.set(goal.id, { fingerprint, at: Date.now() });
             } else this.filePending.delete(goal.id);
           } catch (error) { this.block(goal, `File trigger could not be checked: ${clean(error)}`); }
         } else if (!ready) ready = goal.nextRunAt != null && goal.nextRunAt <= Date.now();
@@ -253,7 +266,11 @@ class GoalRunner {
       }
     } finally { this.ticking = false; }
   }
-  block(goal, reason, extra = {}) { goal.status = 'blocked'; goal.nextStep = reason; this.record(goal, 'blocked', reason, { status: 'blocked', ...extra }); this.changed(); this.onAlert({ title: goal.name, message: reason, goalId: goal.id }); }
+  block(goal, reason, extra = {}) {
+    goal.status = 'blocked'; goal.nextStep = reason; this.record(goal, 'blocked', reason, { status: 'blocked', ...extra }); this.changed();
+    this.emit('goal.blocked', goal, { reason, blockedAt: Date.now() });
+    this.onAlert({ title: goal.name, message: reason, goalId: goal.id });
+  }
   saveQuestion(goal, value, checkpoint, nextStep) {
     const question = questionInput(value);
     if (!goal.pendingQuestion) goal.pendingQuestion = { id: randomUUID(), ...question, createdAt: Date.now() };
@@ -301,7 +318,9 @@ class GoalRunner {
     if (!verification.every(check => check.passed)) return false;
     goal.status = 'completed'; goal.nextStep = ''; delete goal.pendingQuestion;
     this.record(goal, 'completed', 'Goal completed and verified after the final allowed action.', { runId, status: 'completed' });
-    this.changed(); this.onAlert({ title: goal.name, message: 'Goal completed and verified.', goalId: goal.id });
+    this.changed();
+    this.emit('goal.completed', goal, { runId, summary: 'Goal completed and verified after the final allowed action.', completedAt: Date.now() });
+    this.onAlert({ title: goal.name, message: 'Goal completed and verified.', goalId: goal.id });
     return true;
   }
   async execute(goal) {
@@ -314,7 +333,11 @@ class GoalRunner {
       let checked = await this.verify(goal, action => { if (action) verificationActions++; updateUsage(); }); updateUsage();
       if (this.stopReason || goal.status === 'paused' || this.closing) return;
       if (checked.passed) {
-        goal.status = 'completed'; goal.nextStep = ''; this.record(goal, 'completed', 'Verified: the completion conditions already pass. No model call was needed.', { runId, status: 'completed', verification: checked.results }); this.changed(); this.onAlert({ title: goal.name, message: 'Goal completed and verified.', goalId: goal.id }); return;
+        goal.status = 'completed'; goal.nextStep = '';
+        const summary = 'Verified: the completion conditions already pass. No model call was needed.';
+        this.record(goal, 'completed', summary, { runId, status: 'completed', verification: checked.results }); this.changed();
+        this.emit('goal.completed', goal, { runId, summary, completedAt: Date.now() });
+        this.onAlert({ title: goal.name, message: 'Goal completed and verified.', goalId: goal.id }); return;
       }
       const exhausted = this.budgetReason(goal); if (exhausted) { this.block(goal, exhausted, { runId, verification: checked.results }); return; }
       if (!goal.checks.length) { this.block(goal, 'Add at least one verification check before running this goal.', { runId }); return; }
@@ -349,7 +372,12 @@ class GoalRunner {
       checked = await this.verify(goal, action => { if (action) verificationActions++; updateUsage(); }); updateUsage();
       this.record(goal, 'verification', checked.passed ? 'All completion conditions passed.' : 'Completion conditions have not all passed.', { runId, verification: checked.results });
       if (this.stopReason || goal.status === 'paused' || this.closing) return;
-      if (checked.passed) { goal.status = 'completed'; goal.nextStep = ''; this.record(goal, 'completed', 'Goal completed and verified.', { runId, status: 'completed' }); this.onAlert({ title: goal.name, message: 'Goal completed and verified.', goalId: goal.id }); }
+      if (checked.passed) {
+        goal.status = 'completed'; goal.nextStep = ''; const summary = 'Goal completed and verified.';
+        this.record(goal, 'completed', summary, { runId, status: 'completed' });
+        this.emit('goal.completed', goal, { runId, summary, completedAt: Date.now() });
+        this.onAlert({ title: goal.name, message: summary, goalId: goal.id });
+      }
       else if (result?.status === 'blocked') this.block(goal, clean(result.summary) || 'The goal needs your input.', { runId });
       else {
         const previousRuns = goal.history.filter(entry => entry.kind === 'run').slice(-3);
