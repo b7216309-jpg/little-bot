@@ -7,6 +7,7 @@ const { connectionBinding, isConnectionSelected, requireSelectedConnection } = r
 const { questionInput, questionText, pendingQuestion, clarifications } = require('./user-questions.cjs');
 const {
   normalizeGoalLedger, reconcileGoalLedger, restartGoalLedger, applyGoalLedgerUpdate,
+  currentPlan, activeStep,
   recordVerificationEvidence, recordSnapshotEvidence, recordGoalBlock,
   recordGoalPause, recordGoalRestore, recordUserAnswer, completeGoalLedger, recoverGoalLedger,
 } = require('./goal-ledger.cjs');
@@ -334,7 +335,7 @@ class GoalRunner {
     }
     return { passed: goal.checks.length > 0 && results.length === goal.checks.length && results.every(item => item.passed), results };
   }
-  async completeStoppedFiles(goal, runId, reason) {
+  async completeStoppedFiles(goal, runId, reason, ledgerContext = {}) {
     // The last allowed native write can succeed just before the executor stops
     // at its budget. File-only checks establish completion without another
     // model request, command, or possible duplicate external effect.
@@ -346,11 +347,15 @@ class GoalRunner {
       verification.push({ type: check.type, path: check.path, passed: result.passed === true, detail: clean(result.detail) });
     }
     if (this.closing || goal.status === 'paused') return false;
-    recordVerificationEvidence(goal, verification, { runId, phase: 'completion', now: Date.now() });
+    recordVerificationEvidence(goal, verification, {
+      runId, phase: 'completion', now: Date.now(), ...ledgerContext,
+    });
     this.record(goal, 'verification', 'Checked local completion conditions after the execution budget stopped work.', { runId, verification });
     if (!verification.every(check => check.passed)) return false;
     goal.status = 'completed'; goal.nextStep = ''; delete goal.pendingQuestion;
-    completeGoalLedger(goal, 'Goal completed and verified after the final allowed action.', { runId, now: Date.now() });
+    completeGoalLedger(goal, 'Goal completed and verified after the final allowed action.', {
+      runId, now: Date.now(), ...ledgerContext,
+    });
     this.record(goal, 'completed', 'Goal completed and verified after the final allowed action.', { runId, status: 'completed' });
     this.changed();
     this.emit('goal.completed', goal, { runId, summary: 'Goal completed and verified after the final allowed action.', completedAt: Date.now() });
@@ -361,17 +366,25 @@ class GoalRunner {
     this.activeId = goal.id; this.stopReason = null;
     const runId = randomUUID(), startedAt = Date.now(), before = usageOf(goal.usage), checkpointBefore = `${goal.checkpoint}\n${goal.nextStep}`;
     goal.ledger = normalizeGoalLedger(goal.ledger, goal, startedAt);
+    const ledgerPlanAtStart = currentPlan(goal.ledger);
+    const ledgerStepAtStart = activeStep(goal.ledger);
+    const ledgerRunContext = {
+      stepId: ledgerStepAtStart?.id || '',
+      planVersion: ledgerPlanAtStart?.version || null,
+    };
     let snapshot = null, verificationActions = 0, modelUsage = { tokens: 0, actions: 0, elapsedMs: 0 }, result = null, timer;
     const updateUsage = () => { goal.usage.tokens = before.tokens + Math.floor(number(modelUsage.tokens)); goal.usage.actions = before.actions + verificationActions + Math.floor(number(modelUsage.actions)); goal.usage.elapsedMs = before.elapsedMs + Math.max(Date.now() - startedAt, Math.floor(number(modelUsage.elapsedMs))); };
     goal.status = 'running'; delete goal.needsRecoveryCheck; delete goal.continueAfterAnswer; this.record(goal, 'checking', 'Checking saved completion conditions before doing work.', { runId }); this.changed();
     try {
       let checked = await this.verify(goal, action => { if (action) verificationActions++; updateUsage(); }); updateUsage();
-      recordVerificationEvidence(goal, checked.results, { runId, phase: 'preflight', now: Date.now() }); this.changed();
+      recordVerificationEvidence(goal, checked.results, {
+        runId, phase: 'preflight', now: Date.now(), ...ledgerRunContext,
+      }); this.changed();
       if (this.stopReason || goal.status === 'paused' || this.closing) return;
       if (checked.passed) {
         goal.status = 'completed'; goal.nextStep = '';
         const summary = 'Verified: the completion conditions already pass. No model call was needed.';
-        completeGoalLedger(goal, summary, { runId, now: Date.now() });
+        completeGoalLedger(goal, summary, { runId, now: Date.now(), ...ledgerRunContext });
         this.record(goal, 'completed', summary, { runId, status: 'completed', verification: checked.results }); this.changed();
         this.emit('goal.completed', goal, { runId, summary, completedAt: Date.now() });
         this.onAlert({ title: goal.name, message: 'Goal completed and verified.', goalId: goal.id }); return;
@@ -401,23 +414,25 @@ class GoalRunner {
       const actions = Array.isArray(result?.actions) ? result.actions.slice(0, 30).map(clean) : [];
       if (snapshot) {
         snapshot = await files.finishSnapshot(goal, this.backupRoot, runId);
-        recordSnapshotEvidence(goal, snapshot, { runId, now: Date.now() });
+        recordSnapshotEvidence(goal, snapshot, { runId, now: Date.now(), ...ledgerRunContext });
       }
       this.record(goal, 'run', clean(result?.summary) || 'Goal step ended.', { runId, usage: { ...modelUsage, actions: modelUsage.actions + verificationActions }, actions, snapshot }); this.changed();
       if (this.stopReason || goal.status === 'paused' || this.closing) {
-        if (await this.completeStoppedFiles(goal, runId, this.stopReason)) return;
+        if (await this.completeStoppedFiles(goal, runId, this.stopReason, ledgerRunContext)) return;
         if (goal.status !== 'paused') this.block(goal, this.stopReason || 'Goal stopped.', { runId }); return;
       }
       if (goal.pendingQuestion) {
         this.block(goal, goal.pendingQuestion.question, { runId }); return;
       }
       checked = await this.verify(goal, action => { if (action) verificationActions++; updateUsage(); }); updateUsage();
-      recordVerificationEvidence(goal, checked.results, { runId, phase: 'completion', now: Date.now() });
+      recordVerificationEvidence(goal, checked.results, {
+        runId, phase: 'completion', now: Date.now(), ...ledgerRunContext,
+      });
       this.record(goal, 'verification', checked.passed ? 'All completion conditions passed.' : 'Completion conditions have not all passed.', { runId, verification: checked.results });
       if (this.stopReason || goal.status === 'paused' || this.closing) return;
       if (checked.passed) {
         goal.status = 'completed'; goal.nextStep = ''; const summary = 'Goal completed and verified.';
-        completeGoalLedger(goal, summary, { runId, now: Date.now() });
+        completeGoalLedger(goal, summary, { runId, now: Date.now(), ...ledgerRunContext });
         this.record(goal, 'completed', summary, { runId, status: 'completed' });
         this.emit('goal.completed', goal, { runId, summary, completedAt: Date.now() });
         this.onAlert({ title: goal.name, message: summary, goalId: goal.id });
@@ -439,10 +454,10 @@ class GoalRunner {
       if (Array.isArray(error.actions) && error.actions.length) this.record(goal, 'run-error', clean(error), { runId, actions: error.actions.slice(0, 30).map(clean), usage: modelUsage });
       if (snapshot) try {
         snapshot = await files.finishSnapshot(goal, this.backupRoot, runId);
-        recordSnapshotEvidence(goal, snapshot, { runId, now: Date.now() });
+        recordSnapshotEvidence(goal, snapshot, { runId, now: Date.now(), ...ledgerRunContext });
         this.record(goal, 'snapshot', 'Saved file evidence after an interrupted or failed step.', { runId, snapshot });
       } catch (snapshotError) { this.record(goal, 'snapshot-error', `Undo is unavailable: ${clean(snapshotError)}`, { runId }); }
-      if (await this.completeStoppedFiles(goal, runId, this.stopReason || clean(error))) return;
+      if (await this.completeStoppedFiles(goal, runId, this.stopReason || clean(error), ledgerRunContext)) return;
       if (goal.status !== 'paused') this.block(goal, this.stopReason || clean(error), { runId });
       else this.record(goal, 'stopped', this.stopReason || clean(error), { runId });
     } finally {

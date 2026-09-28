@@ -252,12 +252,16 @@ function normalizeGoalLedger(value, goal = {}, now = Date.now()) {
 
 function recordContext(ledger, input = {}) {
   const plan = currentPlan(ledger), step = activeStep(ledger);
+  const explicitStepId = clean(input.stepId, 100);
+  const explicitPlanVersion = Number.isInteger(input.planVersion) && input.planVersion > 0 ? input.planVersion : null;
+  const stepId = explicitStepId || step?.id || '';
+  const planVersion = explicitPlanVersion || plan?.version || null;
   return {
     at: finite(input.at) ?? Date.now(),
     source: source(input.source),
     ...(clean(input.runId, 100) ? { runId: clean(input.runId, 100) } : {}),
-    ...(step?.id ? { stepId: step.id } : {}),
-    ...(plan?.version ? { planVersion: plan.version } : {}),
+    ...(stepId ? { stepId } : {}),
+    ...(planVersion ? { planVersion } : {}),
   };
 }
 
@@ -378,7 +382,11 @@ function applyGoalLedgerUpdate(goal, value, { runId = '', now = Date.now(), stat
       stepBefore.status = 'completed'; stepBefore.completedAt = now;
     }
   }
-  const context = { at: now, source: 'agent', runId };
+  const context = {
+    at: now, source: 'agent', runId,
+    stepId: stepBefore?.id || '',
+    planVersion: planBefore?.version || null,
+  };
   for (const item of update.assumptions) addAssumption(ledger, { ...context, ...item });
   for (const item of update.observations) addObservation(ledger, { ...context, ...item });
   for (const item of update.decisions) addDecision(ledger, { ...context, ...item });
@@ -398,14 +406,16 @@ function applyGoalLedgerUpdate(goal, value, { runId = '', now = Date.now(), stat
   return update;
 }
 
-function recordVerificationEvidence(goal, results, { runId = '', phase = 'verification', now = Date.now() } = {}) {
+function recordVerificationEvidence(goal, results, {
+  runId = '', phase = 'verification', now = Date.now(), stepId = '', planVersion = null,
+} = {}) {
   const ledger = normalizeGoalLedger(goal.ledger, goal, now);
   for (const result of (Array.isArray(results) ? results : []).slice(0, MAX_PLAN_STEPS)) {
     const passed = result?.passed === true;
     const label = clean(result?.path, 500) || clean(result?.type, 60) || 'completion check';
     const detail = clean(result?.detail, 2000);
     addObservation(ledger, {
-      at: now, source: 'verification', runId,
+      at: now, source: 'verification', runId, stepId, planVersion,
       text: `${phase === 'preflight' ? 'Preflight' : 'Completion'} check ${passed ? 'passed' : 'failed'}: ${label}${detail ? ` — ${detail}` : ''}`,
       evidence: { type: phase, checkType: result?.type, path: result?.path, passed, detail },
     });
@@ -413,11 +423,13 @@ function recordVerificationEvidence(goal, results, { runId = '', phase = 'verifi
   ledger.updatedAt = now; goal.ledger = ledger; return ledger;
 }
 
-function recordSnapshotEvidence(goal, snapshot, { runId = '', now = Date.now() } = {}) {
+function recordSnapshotEvidence(goal, snapshot, {
+  runId = '', now = Date.now(), stepId = '', planVersion = null,
+} = {}) {
   if (!object(snapshot)) return goal.ledger;
   const ledger = normalizeGoalLedger(goal.ledger, goal, now);
   addObservation(ledger, {
-    at: now, source: 'system', runId,
+    at: now, source: 'system', runId, stepId, planVersion,
     text: `Captured file evidence for this step: ${Number(snapshot.changes || 0)} changed path${Number(snapshot.changes || 0) === 1 ? '' : 's'}.`,
     evidence: { type: 'snapshot', changes: snapshot.changes, fileCount: snapshot.fileCount, bytes: snapshot.bytes },
   });
@@ -457,18 +469,45 @@ function recordUserAnswer(goal, question, answer, { now = Date.now() } = {}) {
   ledger.updatedAt = now; goal.ledger = ledger; return ledger;
 }
 
-function completeGoalLedger(goal, summary, { runId = '', now = Date.now() } = {}) {
+function completeGoalLedger(goal, summary, {
+  runId = '', now = Date.now(), stepId = '', planVersion = null,
+} = {}) {
   const rawPlan = currentPlan(goal.ledger);
   const unfinished = rawPlan?.steps?.some(step => ['active', 'pending'].includes(step.status)) === true;
   const ledger = normalizeGoalLedger(goal.ledger, { ...goal, status: unfinished ? 'running' : 'completed' }, now);
-  const plan = currentPlan(ledger);
-  for (const step of plan?.steps || []) {
-    if (step.status === 'active') {
-      step.status = 'completed'; step.completedAt = now; step.updatedAt = now;
-      step.summary = clean(summary, 2000) || step.summary || 'Goal completion was verified.';
-    } else if (step.status === 'pending') step.status = 'skipped';
+  const explicitStepId = clean(stepId, 100);
+  const explicitPlanVersion = Number.isInteger(planVersion) && planVersion > 0 ? planVersion : null;
+  let targetPlan = explicitPlanVersion ? ledger.plans.find(plan => plan.version === explicitPlanVersion) : null;
+  let targetStep = explicitStepId ? targetPlan?.steps.find(step => step.id === explicitStepId) : null;
+  if (!targetStep && explicitStepId) {
+    for (const candidate of ledger.plans) {
+      const found = candidate.steps.find(step => step.id === explicitStepId);
+      if (found) { targetPlan = candidate; targetStep = found; break; }
+    }
   }
-  addDecision(ledger, { at: now, source: 'verification', runId, text: 'Marked the goal complete.', rationale: clean(summary, 3000) || 'All saved completion checks passed.' });
+  if (!targetStep) {
+    targetPlan = currentPlan(ledger);
+    targetStep = activeStep(ledger);
+  }
+  const current = currentPlan(ledger);
+  for (const plan of ledger.plans) {
+    for (const step of plan.steps) {
+      if (targetStep && step.id === targetStep.id) {
+        step.status = 'completed'; step.completedAt ||= now; step.updatedAt = now;
+        step.summary = clean(summary, 2000) || step.summary || 'Goal completion was verified.';
+      } else if (['active', 'pending'].includes(step.status)) {
+        step.status = plan === current ? 'skipped' : 'superseded';
+        step.updatedAt = now;
+      }
+    }
+  }
+  addDecision(ledger, {
+    at: now, source: 'verification', runId,
+    stepId: targetStep?.id || explicitStepId,
+    planVersion: targetPlan?.version || explicitPlanVersion,
+    text: 'Marked the goal complete.',
+    rationale: clean(summary, 3000) || 'All saved completion checks passed.',
+  });
   ledger.updatedAt = now; goal.ledger = ledger; return ledger;
 }
 
@@ -481,7 +520,7 @@ function recoverGoalLedger(goal, summary, { now = Date.now() } = {}) {
 function latestAssumptions(ledger) {
   const latest = new Map();
   for (const item of ledger.assumptions || []) latest.set(item.text.toLocaleLowerCase().replace(/\s+/g, ' '), item);
-  return [...latest.values()];
+  return [...latest.values()].sort((left, right) => left.at - right.at || left.id.localeCompare(right.id));
 }
 
 function goalLedgerContext(value, goal = {}) {
