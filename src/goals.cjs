@@ -5,6 +5,11 @@ const { randomUUID } = require('node:crypto');
 const files = require('./goal-files.cjs');
 const { connectionBinding, isConnectionSelected, requireSelectedConnection } = require('./connections.cjs');
 const { questionInput, questionText, pendingQuestion, clarifications } = require('./user-questions.cjs');
+const {
+  normalizeGoalLedger, reconcileGoalLedger, applyGoalLedgerUpdate,
+  recordVerificationEvidence, recordSnapshotEvidence, recordGoalBlock,
+  recordGoalPause, recordUserAnswer, completeGoalLedger, recoverGoalLedger,
+} = require('./goal-ledger.cjs');
 
 const STATUSES = ['draft', 'queued', 'running', 'paused', 'blocked', 'completed'];
 const DEFAULT_LIMITS = { maxTokens: 50000, maxMinutes: 30, maxActions: 50, maxRuns: 10, maxRetries: 2 };
@@ -78,6 +83,7 @@ function validateGoal(input, existing = null, settings = {}) {
     authorized: existing?.authorized === true, history: historyOf(existing?.history),
     createdAt: existing?.createdAt || now, updatedAt: now, nextRunAt: existing?.nextRunAt ?? null,
   };
+  result.ledger = reconcileGoalLedger(input.ledger ?? existing?.ledger, existing, result, now);
   if (result.dependsOn.includes(id)) throw new Error('A goal cannot depend on itself.');
   if (existing?.triggerFingerprint) result.triggerFingerprint = existing.triggerFingerprint;
   if (existing && result.objective === existing.objective && result.workspace === existing.workspace) {
@@ -110,12 +116,14 @@ function normalizeAutonomy(value, settings = {}, recovering = false) {
       if (question && !['draft', 'completed'].includes(goal.status)) goal.pendingQuestion = question;
       if (input.continueAfterAnswer === true) goal.continueAfterAnswer = true;
       if (input.needsEffectReview === true) goal.needsEffectReview = true;
+      goal.ledger = normalizeGoalLedger(input.ledger ?? goal.ledger, goal, Date.now());
       if (recovering && goal.status === 'running') {
         const external = goal.permissions.network || goal.permissions.mcpTools.length > 0;
         goal.status = external ? 'blocked' : 'queued'; goal.needsRecoveryCheck = !external; goal.nextRunAt = Date.now();
         if (external && question) goal.needsEffectReview = true;
         goal.nextStep = external ? 'Review possible external effects before resuming this interrupted goal.' : 'Verify existing results before continuing the interrupted goal.';
         goal.history = historyOf([...goal.history, { at: Date.now(), kind: 'recovery', summary: goal.nextStep, status: goal.status }]);
+        recoverGoalLedger(goal, goal.nextStep, { now: Date.now() });
       }
       if (goal.pendingQuestion && goal.status !== 'paused' && (recovering || goal.status !== 'running')) { goal.status = 'blocked'; goal.nextStep = question.question; }
       result.goals.push(goal);
@@ -164,6 +172,7 @@ class GoalRunner {
     if (goal.pendingQuestion) throw new Error('Answer this goal’s question before continuing.');
     requireSelectedConnection(goal, this.store.data.settings);
     if (id === this.activeId) throw new Error('This goal is already running.');
+    goal.ledger = normalizeGoalLedger(goal.ledger, goal);
     goal.authorized = true; goal.status = 'queued'; goal.nextRunAt = Date.now(); delete goal.pauseReason; delete goal.needsEffectReview;
     this.forceRuns.add(id); this.record(goal, 'queued', 'Queued by you.'); this.changed();
     this.emit('goal.queued', goal, { queuedAt: Date.now() }, { dedupeKey: `goal:queued:${goal.id}:${goal.updatedAt}` });
@@ -171,6 +180,7 @@ class GoalRunner {
   }
   async pause(id) {
     const goal = this.goal(id); goal.status = 'paused'; delete goal.pauseReason;
+    recordGoalPause(goal, 'Paused by you.');
     this.record(goal, 'paused', 'Paused by you.'); this.changed();
     this.emit('goal.paused', goal, { reason: 'Paused by you.', pausedAt: Date.now() });
     if (id === this.activeId) { this.stopReason = 'Paused by you.'; await this.stopRun?.(this.stopReason); await this.execution; }
@@ -184,6 +194,7 @@ class GoalRunner {
     if (!goal.authorized || !['blocked', 'paused'].includes(goal.status)) throw new Error('This goal cannot accept an answer right now.');
     const reply = questionText(answer, 'Answer');
     const previous = structuredClone(goal);
+    recordUserAnswer(goal, question.question, reply);
     goal.clarifications = clarifications([...(goal.clarifications || []), { id: question.id, question: question.question, answer: reply, answeredAt: Date.now() }]);
     delete goal.pendingQuestion;
     this.record(goal, 'answer', `Answered: ${question.question}`);
@@ -279,7 +290,9 @@ class GoalRunner {
     } finally { this.ticking = false; }
   }
   block(goal, reason, extra = {}) {
-    goal.status = 'blocked'; goal.nextStep = reason; this.record(goal, 'blocked', reason, { status: 'blocked', ...extra }); this.changed();
+    goal.status = 'blocked'; goal.nextStep = reason;
+    recordGoalBlock(goal, reason, { runId: extra.runId || '', source: 'system' });
+    this.record(goal, 'blocked', reason, { status: 'blocked', ...extra }); this.changed();
     this.emit('goal.blocked', goal, { reason, blockedAt: Date.now() });
     this.onAlert({ title: goal.name, message: reason, goalId: goal.id });
   }
@@ -329,6 +342,7 @@ class GoalRunner {
     this.record(goal, 'verification', 'Checked local completion conditions after the execution budget stopped work.', { runId, verification });
     if (!verification.every(check => check.passed)) return false;
     goal.status = 'completed'; goal.nextStep = ''; delete goal.pendingQuestion;
+    completeGoalLedger(goal, 'Goal completed and verified after the final allowed action.', { runId, now: Date.now() });
     this.record(goal, 'completed', 'Goal completed and verified after the final allowed action.', { runId, status: 'completed' });
     this.changed();
     this.emit('goal.completed', goal, { runId, summary: 'Goal completed and verified after the final allowed action.', completedAt: Date.now() });
@@ -338,15 +352,18 @@ class GoalRunner {
   async execute(goal) {
     this.activeId = goal.id; this.stopReason = null;
     const runId = randomUUID(), startedAt = Date.now(), before = usageOf(goal.usage), checkpointBefore = `${goal.checkpoint}\n${goal.nextStep}`;
+    goal.ledger = normalizeGoalLedger(goal.ledger, goal, startedAt);
     let snapshot = null, verificationActions = 0, modelUsage = { tokens: 0, actions: 0, elapsedMs: 0 }, result = null, timer;
     const updateUsage = () => { goal.usage.tokens = before.tokens + Math.floor(number(modelUsage.tokens)); goal.usage.actions = before.actions + verificationActions + Math.floor(number(modelUsage.actions)); goal.usage.elapsedMs = before.elapsedMs + Math.max(Date.now() - startedAt, Math.floor(number(modelUsage.elapsedMs))); };
     goal.status = 'running'; delete goal.needsRecoveryCheck; delete goal.continueAfterAnswer; this.record(goal, 'checking', 'Checking saved completion conditions before doing work.', { runId }); this.changed();
     try {
       let checked = await this.verify(goal, action => { if (action) verificationActions++; updateUsage(); }); updateUsage();
+      recordVerificationEvidence(goal, checked.results, { runId, phase: 'preflight', now: Date.now() }); this.changed();
       if (this.stopReason || goal.status === 'paused' || this.closing) return;
       if (checked.passed) {
         goal.status = 'completed'; goal.nextStep = '';
         const summary = 'Verified: the completion conditions already pass. No model call was needed.';
+        completeGoalLedger(goal, summary, { runId, now: Date.now() });
         this.record(goal, 'completed', summary, { runId, status: 'completed', verification: checked.results }); this.changed();
         this.emit('goal.completed', goal, { runId, summary, completedAt: Date.now() });
         this.onAlert({ title: goal.name, message: 'Goal completed and verified.', goalId: goal.id }); return;
@@ -371,8 +388,13 @@ class GoalRunner {
       if (result?.checkpoint) goal.checkpoint = text(result.checkpoint, 'Checkpoint', 4000);
       if (result?.nextStep != null) goal.nextStep = text(result.nextStep, 'Next step', 2000);
       if (result?.clarification) this.saveQuestion(goal, result.clarification, result.checkpoint, result.nextStep);
+      applyGoalLedgerUpdate(goal, result?.ledger, { runId, now: Date.now(), status: result?.status,
+        summary: result?.summary, nextStep: goal.nextStep });
       const actions = Array.isArray(result?.actions) ? result.actions.slice(0, 30).map(clean) : [];
-      if (snapshot) snapshot = await files.finishSnapshot(goal, this.backupRoot, runId);
+      if (snapshot) {
+        snapshot = await files.finishSnapshot(goal, this.backupRoot, runId);
+        recordSnapshotEvidence(goal, snapshot, { runId, now: Date.now() });
+      }
       this.record(goal, 'run', clean(result?.summary) || 'Goal step ended.', { runId, usage: { ...modelUsage, actions: modelUsage.actions + verificationActions }, actions, snapshot }); this.changed();
       if (this.stopReason || goal.status === 'paused' || this.closing) {
         if (await this.completeStoppedFiles(goal, runId, this.stopReason)) return;
@@ -382,10 +404,12 @@ class GoalRunner {
         this.block(goal, goal.pendingQuestion.question, { runId }); return;
       }
       checked = await this.verify(goal, action => { if (action) verificationActions++; updateUsage(); }); updateUsage();
+      recordVerificationEvidence(goal, checked.results, { runId, phase: 'completion', now: Date.now() });
       this.record(goal, 'verification', checked.passed ? 'All completion conditions passed.' : 'Completion conditions have not all passed.', { runId, verification: checked.results });
       if (this.stopReason || goal.status === 'paused' || this.closing) return;
       if (checked.passed) {
         goal.status = 'completed'; goal.nextStep = ''; const summary = 'Goal completed and verified.';
+        completeGoalLedger(goal, summary, { runId, now: Date.now() });
         this.record(goal, 'completed', summary, { runId, status: 'completed' });
         this.emit('goal.completed', goal, { runId, summary, completedAt: Date.now() });
         this.onAlert({ title: goal.name, message: summary, goalId: goal.id });
@@ -405,7 +429,11 @@ class GoalRunner {
       for (const key of ['tokens', 'actions', 'elapsedMs']) modelUsage[key] = Math.max(modelUsage[key], number(error?.usage?.[key]));
       updateUsage();
       if (Array.isArray(error.actions) && error.actions.length) this.record(goal, 'run-error', clean(error), { runId, actions: error.actions.slice(0, 30).map(clean), usage: modelUsage });
-      if (snapshot) try { snapshot = await files.finishSnapshot(goal, this.backupRoot, runId); this.record(goal, 'snapshot', 'Saved file evidence after an interrupted or failed step.', { runId, snapshot }); } catch (snapshotError) { this.record(goal, 'snapshot-error', `Undo is unavailable: ${clean(snapshotError)}`, { runId }); }
+      if (snapshot) try {
+        snapshot = await files.finishSnapshot(goal, this.backupRoot, runId);
+        recordSnapshotEvidence(goal, snapshot, { runId, now: Date.now() });
+        this.record(goal, 'snapshot', 'Saved file evidence after an interrupted or failed step.', { runId, snapshot });
+      } catch (snapshotError) { this.record(goal, 'snapshot-error', `Undo is unavailable: ${clean(snapshotError)}`, { runId }); }
       if (await this.completeStoppedFiles(goal, runId, this.stopReason || clean(error))) return;
       if (goal.status !== 'paused') this.block(goal, this.stopReason || clean(error), { runId });
       else this.record(goal, 'stopped', this.stopReason || clean(error), { runId });
@@ -417,8 +445,13 @@ class GoalRunner {
         const external = goal.permissions.network || goal.permissions.mcpTools.length > 0;
         goal.status = external ? 'blocked' : 'queued'; goal.needsRecoveryCheck = !external; goal.nextRunAt = Date.now();
         goal.nextStep = external ? 'Review possible external effects before resuming.' : 'Verify existing results before continuing after restart.';
+        recoverGoalLedger(goal, goal.nextStep, { now: Date.now() });
       }
-      if (goal.status === 'running') { goal.status = 'paused'; this.record(goal, 'stopped', this.stopReason || 'Goal execution ended before completion.', { runId }); }
+      if (goal.status === 'running') {
+        goal.status = 'paused';
+        recordGoalPause(goal, this.stopReason || 'Goal execution ended before completion.', { source: 'system' });
+        this.record(goal, 'stopped', this.stopReason || 'Goal execution ended before completion.', { runId });
+      }
       goal.updatedAt = Date.now(); this.activeId = null; this.stopReason = null; this.changed();
     }
   }

@@ -321,8 +321,8 @@ function reconcileGoalLedger(value, previousGoal, nextGoal, now = Date.now()) {
 
 function normalizeExecutorLedgerUpdate(value, { status = 'continue', summary = '' } = {}) {
   const input = object(value) ? value : {};
-  const stepStatus = ['continue', 'completed', 'blocked'].includes(input.stepStatus) ? input.stepStatus
-    : status === 'blocked' ? 'blocked' : status === 'verify' ? 'completed' : 'continue';
+  const stepStatus = status === 'blocked' ? 'blocked' : status === 'verify' ? 'completed'
+    : ['continue', 'completed', 'blocked'].includes(input.stepStatus) ? input.stepStatus : 'continue';
   const assumptions = (Array.isArray(input.assumptions) ? input.assumptions : []).filter(object).slice(0, MAX_RUN_ITEMS).map(item => ({
     text: clean(item.text, 2000),
     status: ['open', 'confirmed', 'rejected'].includes(item.status) ? item.status : 'open',
