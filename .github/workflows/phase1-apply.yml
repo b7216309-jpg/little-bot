@@ -1,0 +1,46 @@
+name: Apply Phase 1 integration
+
+on:
+  push:
+    branches:
+      - feature/independent-check
+    paths:
+      - .github/workflows/phase1-apply.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/independent-check
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - name: Decode and apply the integration patch
+        shell: pwsh
+        run: |
+          node -e "const fs=require('node:fs');const z=require('node:zlib');const encoded=fs.readFileSync('scripts/apply-independent-check.cjs.gz.b64','utf8').trim();fs.writeFileSync('scripts/apply-independent-check.cjs',z.gunzipSync(Buffer.from(encoded,'base64')));"
+          node scripts/apply-independent-check.cjs
+          Remove-Item -LiteralPath scripts/apply-independent-check.cjs.gz.b64 -Force
+      - name: Check JavaScript syntax
+        run: npm run check:syntax
+      - name: Run Node test suite
+        run: npm test
+      - name: Run Electron integration tests
+        run: npm run test:electron
+      - name: Commit tested integration
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if (git diff --cached --quiet) { throw 'The integration patch produced no changes.' }
+          git commit -m "Wire Independent Check through the app"
+          git push origin HEAD:feature/independent-check
