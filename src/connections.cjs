@@ -88,7 +88,8 @@ async function readJson(url) {
 }
 async function probeLocal(settings) {
   const baseUrl = localBaseUrl(settings.localBaseUrl), selected = localModel(settings.localModel);
-  const [catalog, properties] = await Promise.allSettled([readJson(`${baseUrl}/models`), readJson(`${new URL(baseUrl).origin}/props`)]);
+  const origin = new URL(baseUrl).origin;
+  const [catalog, properties] = await Promise.allSettled([readJson(`${baseUrl}/models`), readJson(`${origin}/props`)]);
   if (catalog.status === 'rejected') throw new Error(`Local model is offline. Start your Qwen launcher, then Check connection. ${catalog.reason.message}`);
   const raw = catalog.value;
   const detailedModels = Array.isArray(raw.models) ? raw.models : [];
@@ -106,17 +107,31 @@ async function probeLocal(settings) {
   let found = models.find(item => item.id === selected);
   if (!found) throw new Error('The selected model is not loaded. Choose the model ID shown by your local server.');
   const props = properties.status === 'fulfilled' ? properties.value : {};
-  if (typeof props.modalities?.vision === 'boolean') {
+  let adapter = null, health = null;
+  if (properties.status === 'rejected') {
+    try {
+      const candidate = await readJson(`${origin}/health`);
+      if (candidate?.status === 'ok' && candidate.model === selected
+        && Number.isSafeInteger(candidate.max_context) && candidate.max_context >= 4096 && candidate.max_context <= 4000000
+        && typeof candidate.images === 'boolean' && typeof candidate.api_key === 'boolean') {
+        adapter = 'strata';
+        health = candidate;
+      }
+    } catch { /* Other local servers keep the existing /props fallback behavior. */ }
+  }
+  const visionOverride = adapter === 'strata' ? health.images : props.modalities?.vision;
+  if (typeof visionOverride === 'boolean') {
     const index = models.indexOf(found);
-    found = normalizeModelCapabilities(found, { vision: props.modalities.vision });
+    found = normalizeModelCapabilities(found, { vision: visionOverride });
     models[index] = found;
   }
-  const window = props.default_generation_settings?.n_ctx || found.contextWindow;
+  const window = adapter === 'strata' ? health.max_context : (props.default_generation_settings?.n_ctx || found.contextWindow);
   const contextWindow = Number.isSafeInteger(window) && window >= 4096 && window <= 4000000 ? window : 32768;
   const vision = modelSupportsVision(found);
   return { models, connection: {
     type: 'local', status: 'connected', label: 'Local Qwen', baseUrl, model: selected, contextWindow,
-    vision, ...(Array.isArray(found.inputModalities) ? { inputModalities: found.inputModalities } : {}), error: null,
+    vision, ...(adapter ? { adapter } : {}),
+    ...(Array.isArray(found.inputModalities) ? { inputModalities: found.inputModalities } : {}), error: null,
   } };
 }
 function providerConfig(settings, connection, localEndpoint) {

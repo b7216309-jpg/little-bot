@@ -170,6 +170,7 @@ const currentChat = () => state?.chats?.find((chat) => chat.id === selectedChatI
 const isConnected = () => state?.account?.status === 'connected';
 const isReady = () => state?.runtime?.status === 'ready';
 const connectionType = () => state?.connection?.type || state?.settings?.connection || 'codex';
+const isStrataLocal = () => connectionType() === 'local' && state?.connection?.adapter === 'strata';
 const draftKey = () => selectedChatId || '__new__';
 const queuedAttachments = () => attachmentDrafts.get(draftKey()) || [];
 const currentPlanMode = () => planModeDrafts.has(draftKey()) ? planModeDrafts.get(draftKey()) : currentChat()?.mode === 'plan';
@@ -991,9 +992,16 @@ function thinkingChangeBlocked() {
 
 function renderThinkingControl() {
   const local = connectionType() === 'local';
+  const strata = isStrataLocal();
   const enabled = state?.settings?.localThinking !== false;
-  $('effort-select').classList.toggle('hidden', local);
-  $('thinking-toggle').classList.toggle('hidden', !local);
+  const none = $('effort-none');
+  none.hidden = !strata;
+  $('effort-select').classList.toggle('hidden', local && !strata);
+  $('effort-select').title = strata ? 'Strata reasoning level' : 'Reasoning effort';
+  $('effort-select').setAttribute('aria-label', strata ? 'Strata reasoning level' : 'Reasoning effort');
+  if (strata) $('effort-select').value = enabled ? (state.settings.effort || 'low') : 'none';
+  else if ($('effort-select').value === 'none') $('effort-select').value = state.settings.effort || 'medium';
+  $('thinking-toggle').classList.toggle('hidden', !local || strata);
   $('thinking-toggle').setAttribute('aria-checked', String(enabled));
   $('thinking-toggle').setAttribute('aria-busy', String(thinkingSaving));
   $('thinking-toggle').disabled = thinkingChangeBlocked();
@@ -1001,7 +1009,7 @@ function renderThinkingControl() {
 }
 
 async function toggleThinking() {
-  if (connectionType() !== 'local' || thinkingChangeBlocked()) return;
+  if (connectionType() !== 'local' || isStrataLocal() || thinkingChangeBlocked()) return;
   const localThinking = state.settings.localThinking === false;
   thinkingSaving = true;
   updateComposer();
@@ -1012,7 +1020,34 @@ async function toggleThinking() {
   }
 }
 
-function taskReasoningLabel(connection, effort) {
+async function changeReasoningEffort() {
+  const value = $('effort-select').value;
+  if (isStrataLocal()) {
+    if (!['none', 'low', 'medium', 'high'].includes(value) || thinkingChangeBlocked()) return;
+    thinkingSaving = true;
+    updateComposer();
+    try {
+      const localThinking = value !== 'none';
+      await attempt(() => window.bot.saveSettings({
+        model: $('model-select').value,
+        localThinking,
+        ...(localThinking ? { effort: value } : {}),
+      }));
+    } finally {
+      thinkingSaving = false;
+      updateComposer();
+    }
+    return;
+  }
+  await attempt(() => window.bot.saveSettings({ model: $('model-select').value, effort: value }));
+}
+
+function taskReasoningLabel(connection, effort, model) {
+  const sameStrataModel = connection === 'local' && state?.connection?.adapter === 'strata'
+    && (!model || model === state.connection.model);
+  if (sameStrataModel) {
+    return state.settings.localThinking === false ? 'Reasoning none' : `Reasoning ${effort || 'low'}`;
+  }
   return connection === 'local' ? `Thinking ${state.settings.localThinking === false ? 'off' : 'on'}` : `${effort || 'low'} effort`;
 }
 
@@ -2304,7 +2339,7 @@ function renderHeartbeatControls() {
   const effort = heartbeatUseCurrentWorkspace ? state.settings.effort : saved.effort || state.settings.effort;
   const connection = heartbeatUseCurrentWorkspace ? connectionType() : saved.connection || 'codex';
   $('heartbeat-workspace').textContent = folder || 'No working folder selected';
-  $('heartbeat-model').textContent = `${model || 'Default model'} · ${taskReasoningLabel(connection, effort)}${heartbeatUseCurrentWorkspace ? ' · Update pending' : ''}`;
+  $('heartbeat-model').textContent = `${model || 'Default model'} · ${taskReasoningLabel(connection, effort, model)}${heartbeatUseCurrentWorkspace ? ' · Update pending' : ''}`;
   $('heartbeat-use-workspace').title = `Use ${state.settings.workspace || 'the selected folder'} and the current model settings`;
 }
 
@@ -2823,7 +2858,7 @@ function editGoal(goal) {
   $('goal-name').value = goal?.name || '';
   $('goal-objective').value = goal?.objective || '';
   $('goal-steps').value = (goal?.steps || []).join('\n');
-  $('goal-workspace').textContent = `Folder: ${goalDraftContext.workspace}\nModel: ${goalDraftContext.model} · ${taskReasoningLabel(goalDraftContext.connection, goalDraftContext.effort)}`;
+  $('goal-workspace').textContent = `Folder: ${goalDraftContext.workspace}\nModel: ${goalDraftContext.model} · ${taskReasoningLabel(goalDraftContext.connection, goalDraftContext.effort, goalDraftContext.model)}`;
   $('goal-checks').replaceChildren();
   goalCheckSequence = 0;
   (goal?.checks?.length ? goal.checks : [{ type: 'fileExists' }]).forEach(addGoalCheck);
@@ -3622,9 +3657,11 @@ $('message-input').addEventListener('keydown', (event) => {
 $('stop-button').addEventListener('click', () => {
   if (selectedChatId) attempt(() => window.bot.stop({ chatId: selectedChatId }));
 });
-for (const id of ['model-select', 'effort-select']) {
-  $(id).addEventListener('change', () => attempt(() => window.bot.saveSettings({ model: $('model-select').value, effort: $('effort-select').value })));
-}
+$('model-select').addEventListener('change', () => attempt(() => window.bot.saveSettings({
+  model: $('model-select').value,
+  effort: state.settings.effort || 'low',
+})));
+$('effort-select').addEventListener('change', changeReasoningEffort);
 $('thinking-toggle').addEventListener('click', toggleThinking);
 $('plan-mode-toggle').addEventListener('click', () => {
   if ($('plan-mode-toggle').disabled) return;

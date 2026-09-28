@@ -414,7 +414,7 @@ class Controller extends EventEmitter {
   providerConfig() {
     const settings = this.store.data.settings;
     return providerConfig(settings, this.connection,
-      settings.connection === 'local' ? this.localModelRelay.endpoint(settings.localBaseUrl) : undefined);
+      settings.connection === 'local' ? this.localModelRelay.endpoint(settings.localBaseUrl, this.connection?.adapter) : undefined);
   }
   get goalChat() { return this.goalExecutor.active; }
   runGoal(goal, options) { return this.goalExecutor.run(goal, options); }
