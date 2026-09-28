@@ -2,6 +2,7 @@
 
 const { EventBus } = require('./event-bus.cjs');
 const { StandingIntentStore } = require('./standing-intents.cjs');
+const { advanceMissedSchedules, missedCount } = require('./missed-schedules.cjs');
 
 const MINUTE = 60000;
 const CALENDAR_HORIZONS = Object.freeze([1440, 60, 15]);
@@ -44,6 +45,11 @@ class EventRuntime {
 
   start() {
     if (this.bus.state.started) return false;
+    const skipped = advanceMissedSchedules(this.store.data, this.now());
+    if (missedCount(skipped)) {
+      this.store.save();
+      this._changed(true);
+    }
     this.unsubscribers = [
       this.bus.subscribe({ id: 'runtime:automation-due', type: 'automation.due', priority: 10,
         handler: event => this._runAutomationDue(event) }),

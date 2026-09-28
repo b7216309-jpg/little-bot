@@ -11,7 +11,7 @@ function fixture() {
   const calls = [];
   const goalsData = [{ id: 'goal-1', name: 'Review report', authorized: true, status: 'paused' }];
   const store = {
-    data: { calendar: { events: [] }, automations: [{ id: 'automation-1', authorized: true, lastStatus: 'never' }], standingIntents: { intents: [] } },
+    data: { calendar: { events: [] }, automations: [{ id: 'automation-1', authorized: true, lastStatus: 'never' }], autonomy: { goals: goalsData }, standingIntents: { intents: [] } },
     saves: 0,
     save() { this.saves++; },
   };
@@ -115,4 +115,18 @@ test('calendar changes are normalized into in-process events', async () => {
   assert.equal(seen.length, 1);
   assert.equal(seen[0].eventId, 'event-1');
   assert.equal(seen[0].title, 'Demo');
+});
+
+test('startup advances overdue schedules instead of replaying closed-app work', async () => {
+  const { runtime, bus, store, goalsData, calls, now } = fixture();
+  store.data.automations[0] = { id: 'automation-1', name: 'Missed routine', enabled: true, authorized: true,
+    scheduleType: 'interval', intervalMinutes: 60, nextRunAt: now() - 1, lastStatus: 'never' };
+  store.data.heartbeat = { enabled: true, checklist: 'Check notes', intervalMinutes: 30, nextRunAt: now() - 1 };
+  Object.assign(goalsData[0], { status: 'queued', trigger: { type: 'interval', intervalMinutes: 45 }, nextRunAt: now() - 1 });
+  runtime.start();
+  await drain(bus);
+  assert.deepEqual(calls, []);
+  assert.ok(store.data.automations[0].nextRunAt > now());
+  assert.ok(store.data.heartbeat.nextRunAt > now());
+  assert.ok(goalsData[0].nextRunAt > now());
 });

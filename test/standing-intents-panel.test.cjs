@@ -18,3 +18,11 @@ test('standing-intent panel stays modular and uses only exposed IPC methods', ()
   assert.match(panel, /Foreground only/);
   assert.doesNotMatch(panel, /fetch\(|WebSocket|http:\/\/|https:\/\//);
 });
+
+test('the app loads the standing-intent helper, panel, and stylesheet in dependency order', () => {
+  const html = fs.readFileSync(path.join(root, 'src', 'renderer', 'index.html'), 'utf8');
+  assert.match(html, /standing-intents\.css/);
+  assert.match(html, /standing-intents-ui\.js/);
+  assert.match(html, /standing-intents-panel\.js/);
+  assert.ok(html.indexOf('standing-intents-ui.js') < html.indexOf('standing-intents-panel.js'));
+});
