@@ -13,7 +13,7 @@ function fixture(options = {}) {
     now: () => now,
     setTimer: (handler, delay) => { const timer = { handler, at: now + delay, unref() {} }; timers.push(timer); return timer; },
     clearTimer: timer => { const index = timers.indexOf(timer); if (index >= 0) timers.splice(index, 1); },
-    defer: handler => handler(),
+    defer: handler => queueMicrotask(handler),
     onDrop: entry => drops.push(entry),
     onError: (...entry) => errors.push(entry),
     ...options,
