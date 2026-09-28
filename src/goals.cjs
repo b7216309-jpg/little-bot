@@ -6,9 +6,9 @@ const files = require('./goal-files.cjs');
 const { connectionBinding, isConnectionSelected, requireSelectedConnection } = require('./connections.cjs');
 const { questionInput, questionText, pendingQuestion, clarifications } = require('./user-questions.cjs');
 const {
-  normalizeGoalLedger, reconcileGoalLedger, applyGoalLedgerUpdate,
+  normalizeGoalLedger, reconcileGoalLedger, restartGoalLedger, applyGoalLedgerUpdate,
   recordVerificationEvidence, recordSnapshotEvidence, recordGoalBlock,
-  recordGoalPause, recordUserAnswer, completeGoalLedger, recoverGoalLedger,
+  recordGoalPause, recordGoalRestore, recordUserAnswer, completeGoalLedger, recoverGoalLedger,
 } = require('./goal-ledger.cjs');
 
 const STATUSES = ['draft', 'queued', 'running', 'paused', 'blocked', 'completed'];
@@ -172,8 +172,10 @@ class GoalRunner {
     if (goal.pendingQuestion) throw new Error('Answer this goal’s question before continuing.');
     requireSelectedConnection(goal, this.store.data.settings);
     if (id === this.activeId) throw new Error('This goal is already running.');
-    goal.ledger = normalizeGoalLedger(goal.ledger, goal);
-    goal.authorized = true; goal.status = 'queued'; goal.nextRunAt = Date.now(); delete goal.pauseReason; delete goal.needsEffectReview;
+    const restarting = goal.status === 'completed';
+    goal.status = 'queued';
+    goal.ledger = restarting ? restartGoalLedger(goal, { now: Date.now(), source: 'user' }) : normalizeGoalLedger(goal.ledger, goal);
+    goal.authorized = true; goal.nextRunAt = Date.now(); delete goal.pauseReason; delete goal.needsEffectReview;
     this.forceRuns.add(id); this.record(goal, 'queued', 'Queued by you.'); this.changed();
     this.emit('goal.queued', goal, { queuedAt: Date.now() }, { dedupeKey: `goal:queued:${goal.id}:${goal.updatedAt}` });
     this.wake(); return goal;
@@ -213,7 +215,11 @@ class GoalRunner {
   }
   async pauseAll() {
     this.data.paused = true;
-    if (this.activeId) { const goal = this.goal(this.activeId); goal.status = 'paused'; goal.pauseReason = 'all'; this.record(goal, 'paused', 'Paused with all goals.'); }
+    if (this.activeId) {
+      const goal = this.goal(this.activeId); goal.status = 'paused'; goal.pauseReason = 'all';
+      recordGoalPause(goal, 'Paused with all goals.', { source: 'user' });
+      this.record(goal, 'paused', 'Paused with all goals.');
+    }
     this.changed();
     if (this.activeId) this.emit('goal.paused', this.goal(this.activeId), { reason: 'All goals are paused.', pausedAt: Date.now() });
     if (this.activeId) { this.stopReason = 'All goals are paused.'; await this.stopRun?.(this.stopReason); await this.execution; }
@@ -241,6 +247,7 @@ class GoalRunner {
     try { result = await files.restoreSnapshot(goal, this.backupRoot, runId); }
     catch (error) { goal.status = 'paused'; this.record(goal, 'restore-error', clean(error), { runId }); this.changed(); throw error; }
     goal.status = 'paused';
+    recordGoalRestore(goal, result, { runId, now: Date.now() });
     for (const entry of goal.history) if (entry.snapshot?.runId === runId) entry.snapshot.undoAvailable = false;
     this.record(goal, 'restored', `Restored ${result.restored} files from the selected run.`, { runId }); this.changed(); return result;
   }
@@ -339,6 +346,7 @@ class GoalRunner {
       verification.push({ type: check.type, path: check.path, passed: result.passed === true, detail: clean(result.detail) });
     }
     if (this.closing || goal.status === 'paused') return false;
+    recordVerificationEvidence(goal, verification, { runId, phase: 'completion', now: Date.now() });
     this.record(goal, 'verification', 'Checked local completion conditions after the execution budget stopped work.', { runId, verification });
     if (!verification.every(check => check.passed)) return false;
     goal.status = 'completed'; goal.nextStep = ''; delete goal.pendingQuestion;

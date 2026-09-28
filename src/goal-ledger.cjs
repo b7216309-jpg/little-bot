@@ -209,8 +209,12 @@ function repairCurrentPlan(ledger, goal, now) {
     } else if (plan.steps.length < MAX_PLAN_STEPS) {
       plan.steps.push({ id: randomUUID(), text: fallbackStep(goal), status: 'active', createdAt: now, activatedAt: now });
     } else {
-      const last = plan.steps[plan.steps.length - 1];
-      last.status = 'active'; last.activatedAt ||= now; delete last.completedAt;
+      const version = Math.max(0, ...ledger.plans.map(item => item.version)) + 1;
+      ledger.plans.push(createPlan(version, [fallbackStep(goal)], {
+        now, source: 'system', reason: 'Added a fresh step because the prior plan had no remaining work.',
+      }));
+      ledger.plans = ledger.plans.slice(-MAX_PLAN_VERSIONS);
+      ledger.updatedAt = now;
     }
   }
 }
@@ -291,11 +295,11 @@ function addDecision(ledger, input = {}) {
   return item;
 }
 
-function revisePlan(ledger, steps, { now = Date.now(), source: planSource = 'agent', reason = 'Plan revised.', runId = '', goal = {} } = {}) {
+function revisePlan(ledger, steps, { now = Date.now(), source: planSource = 'agent', reason = 'Plan revised.', runId = '', goal = {}, force = false } = {}) {
   const texts = uniqueTexts(steps);
   if (!texts.length) return currentPlan(ledger);
   const current = currentPlan(ledger);
-  if (current && JSON.stringify(current.steps.map(step => step.text)) === JSON.stringify(texts)) return current;
+  if (!force && current && JSON.stringify(current.steps.map(step => step.text)) === JSON.stringify(texts)) return current;
   if (current) for (const step of current.steps) if (['active', 'pending'].includes(step.status)) step.status = 'superseded';
   const version = Math.max(0, ...ledger.plans.map(plan => plan.version)) + 1;
   const plan = createPlan(version, texts, { now, source: planSource, reason, runId, completed: goal?.status === 'completed' });
@@ -310,13 +314,27 @@ function reconcileGoalLedger(value, previousGoal, nextGoal, now = Date.now()) {
   if (!previousGoal) return normalizeGoalLedger(ledger, nextGoal, now);
   const changed = clean(previousGoal.objective, 12000) !== clean(nextGoal.objective, 12000)
     || JSON.stringify(uniqueTexts(previousGoal.steps)) !== JSON.stringify(uniqueTexts(nextGoal.steps));
-  if (changed) {
-    revisePlan(ledger, definitionSteps(nextGoal), { now, source: 'user', reason: 'Goal definition updated by the user.', goal: nextGoal });
-    addDecision(ledger, { at: now, source: 'user', text: 'Revised the goal plan.', rationale: 'The saved objective or suggested steps changed.' });
+  const reopened = previousGoal.status === 'completed' && nextGoal.status !== 'completed';
+  if (changed || reopened) {
+    const reason = reopened && !changed ? 'The completed goal was reopened by the user.' : 'Goal definition updated by the user.';
+    revisePlan(ledger, definitionSteps(nextGoal), { now, source: 'user', reason, goal: nextGoal, force: true });
+    addDecision(ledger, { at: now, source: 'user', text: reopened ? 'Reopened the goal with a fresh plan version.' : 'Revised the goal plan.',
+      rationale: changed ? 'The saved objective or suggested steps changed.' : 'The completed goal was prepared for another run.' });
   }
   repairCurrentPlan(ledger, nextGoal, now);
   ledger.updatedAt = now;
   return ledger;
+}
+
+function restartGoalLedger(goal, { now = Date.now(), source: recordSource = 'user' } = {}) {
+  const ledger = normalizeGoalLedger(goal.ledger, { ...goal, status: 'completed' }, now);
+  revisePlan(ledger, definitionSteps(goal), {
+    now, source: recordSource, reason: 'Started a new run after verified completion.',
+    goal: { ...goal, status: 'queued' }, force: true,
+  });
+  addDecision(ledger, { at: now, source: recordSource, text: 'Started a new plan version for another run.',
+    rationale: 'The previous plan ended in verified completion.' });
+  ledger.updatedAt = now; goal.ledger = ledger; return ledger;
 }
 
 function normalizeExecutorLedgerUpdate(value, { status = 'continue', summary = '' } = {}) {
@@ -420,6 +438,19 @@ function recordGoalPause(goal, reason, { now = Date.now(), source: recordSource 
   ledger.updatedAt = now; goal.ledger = ledger; return ledger;
 }
 
+function recordGoalRestore(goal, result, { runId = '', now = Date.now() } = {}) {
+  const ledger = normalizeGoalLedger(goal.ledger, goal, now);
+  const restored = Number.isSafeInteger(result?.restored) && result.restored >= 0 ? result.restored : 0;
+  addObservation(ledger, {
+    at: now, source: 'system', runId,
+    text: `Restored ${restored} path${restored === 1 ? '' : 's'} from saved file evidence.`,
+    evidence: { type: 'restore', changes: restored },
+  });
+  addDecision(ledger, { at: now, source: 'user', runId, text: 'Applied Review undo.',
+    rationale: `Restored ${restored} path${restored === 1 ? '' : 's'} from the selected run.` });
+  ledger.updatedAt = now; goal.ledger = ledger; return ledger;
+}
+
 function recordUserAnswer(goal, question, answer, { now = Date.now() } = {}) {
   const ledger = normalizeGoalLedger(goal.ledger, goal, now);
   addDecision(ledger, { at: now, source: 'user', text: `Answered: ${clean(question, 1000)}`, rationale: clean(answer, 3000) });
@@ -427,7 +458,9 @@ function recordUserAnswer(goal, question, answer, { now = Date.now() } = {}) {
 }
 
 function completeGoalLedger(goal, summary, { runId = '', now = Date.now() } = {}) {
-  const ledger = normalizeGoalLedger(goal.ledger, { ...goal, status: 'completed' }, now);
+  const rawPlan = currentPlan(goal.ledger);
+  const unfinished = rawPlan?.steps?.some(step => ['active', 'pending'].includes(step.status)) === true;
+  const ledger = normalizeGoalLedger(goal.ledger, { ...goal, status: unfinished ? 'running' : 'completed' }, now);
   const plan = currentPlan(ledger);
   for (const step of plan?.steps || []) {
     if (step.status === 'active') {
@@ -459,7 +492,7 @@ function goalLedgerContext(value, goal = {}) {
     planReason: plan?.reason || '',
     steps: (plan?.steps || []).map(step => ({ id: step.id, text: step.text, status: step.status, ...(step.summary ? { summary: step.summary } : {}) })),
     activeStep: active ? { id: active.id, text: active.text, ...(active.summary ? { summary: active.summary } : {}) } : null,
-    assumptions: latestAssumptions(ledger).filter(item => item.status === 'open').slice(-20).map(({ text, status, source }) => ({ text, status, source })),
+    assumptions: latestAssumptions(ledger).slice(-20).map(({ text, status, source }) => ({ text, status, source })),
     recentObservations: ledger.observations.slice(-20).map(({ text, source, evidence }) => ({ text, source, ...(evidence ? { evidence } : {}) })),
     recentDecisions: ledger.decisions.slice(-20).map(({ text, rationale, source }) => ({ text, rationale: rationale || '', source })),
   };
@@ -498,6 +531,7 @@ module.exports = {
   EXECUTOR_LEDGER_SCHEMA,
   normalizeGoalLedger,
   reconcileGoalLedger,
+  restartGoalLedger,
   normalizeExecutorLedgerUpdate,
   currentPlan,
   activeStep,
@@ -510,6 +544,7 @@ module.exports = {
   recordSnapshotEvidence,
   recordGoalBlock,
   recordGoalPause,
+  recordGoalRestore,
   recordUserAnswer,
   completeGoalLedger,
   recoverGoalLedger,

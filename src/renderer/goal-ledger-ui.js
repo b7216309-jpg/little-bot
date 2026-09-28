@@ -152,9 +152,10 @@
 
   function evidenceLabel(value) {
     if (!object(value)) return '';
-    if (value.type === 'snapshot') {
+    if (['snapshot', 'restore'].includes(value.type)) {
       const changes = Number.isSafeInteger(value.changes) && value.changes >= 0 ? value.changes : 0;
-      return `${changes} changed path${changes === 1 ? '' : 's'}`;
+      const verb = value.type === 'restore' ? 'restored' : 'changed';
+      return `${changes} ${verb} path${changes === 1 ? '' : 's'}`;
     }
     if (typeof value.passed === 'boolean') {
       const subject = text(value.path) || text(value.checkType) || 'check';
