@@ -24,7 +24,7 @@ function fixture() {
     async runNow(id) { calls.push(['automation', id]); return { id }; },
   };
   const heartbeat = { async runNow() { calls.push(['heartbeat']); return { status: 'quiet' }; } };
-  const bus = new EventBus({ dedupeWindowMs: 0 });
+  const bus = new EventBus({ now: () => now, dedupeWindowMs: 0 });
   const runtime = new EventRuntime({
     store, scheduler, heartbeat, goals, eventBus: bus, now: () => now,
     setIntervalFn: handler => { intervalHandlers.push(handler); return { unref() {} }; },
