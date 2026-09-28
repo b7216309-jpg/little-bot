@@ -1,12 +1,22 @@
 # Goals and autonomous work
 
-Open **Goals → New goal**, describe the outcome, and add completion checks. Save the draft, review its access and budget, then choose **Run**. The app saves its checkpoint, next step, usage, and history between runs. A model claiming success cannot mark a goal complete: every saved check must pass.
+Open **Goals → New goal**, describe the outcome, and add completion checks. Save the draft, review its access and budget, then choose **Run**. The app saves its checkpoint, usage, history, and versioned plan-and-evidence ledger between runs. A model claiming success cannot mark a goal complete: every saved check must pass.
 
 When information is missing, the model can use `ask_user`. Its question appears on the goal card with up to three suggested answers and a free-text field. **Answer & continue** saves your answer to that goal and queues its next step. The question and answer survive app restarts. Waiting releases the model and does not spend the execution budget; asking and continuing still count as model steps. The last five answers accompany subsequent steps.
 
 Answering preserves permissions and remaining budgets. **Pause all** still prevents execution; an individually paused goal stays paused. A depleted budget or interrupted external operation can still require review before retrying. An answer resolves a question, not an access request. Ordinary chats use the existing question dialog and resume their live turn; closing the app interrupts that chat turn as usual.
 
 Local Qwen may also ask a short question in plain text before taking any action; the app can save that as a free-text clarification. After tools run, a plain-text final report still has to pass the saved completion checks. Cloud goals keep their structured final-output requirement.
+
+## Plan and evidence ledger
+
+Each goal has a bounded ledger with a current plan, assumptions, observations, decisions, and host evidence. A non-completed goal has exactly one active step. The model may see later steps as context, but it is instructed to execute only the active step; Little Bot still runs one agent task at a time.
+
+The initial objective and suggested steps become plan version 1. Editing the objective or steps, revising the approach from new evidence, rerunning a completed goal, or repairing an exhausted malformed plan creates a new version. Unfinished work in the older version becomes superseded and remains visible under **Earlier plan versions** rather than being rewritten.
+
+Preflight and final completion checks become structured observations. Writable runs add bounded file-snapshot evidence, and **Review undo** adds restore evidence plus a user decision. The model can add concise public assumptions, observations, and decisions, but not a private reasoning or chain-of-thought transcript. Confirmed and rejected assumptions accompany later runs so disproved information is not silently forgotten.
+
+The ledger is stored on the goal itself, so it survives restart, pause, clarification, interval or file-triggered continuation, and conversation compaction. Interrupted local work keeps the same active recovery target; externally capable work retains the existing effect-review block. Expand **Plan, evidence, and history** on a goal card to inspect the current plan, evidence, decisions, activity history, and earlier versions. See [LEDGER.md](LEDGER.md) for the data model, limits, and recovery rules.
 
 ## Completion and recovery
 
@@ -52,7 +62,7 @@ Standing intents can react to foreground goal, file, calendar, automation, chat,
 
 ## File history and Undo
 
-Before writable goal work, Little Bot stores scoped local file copies outside the goal's writable folders. Run history records the resulting file changes. Choose **Review undo** to inspect affected paths and restore them. Undo refuses to overwrite a file changed after that run, and leaves the goal paused. Restore writes each file atomically; if a conflict arises during a multi-file restore, the activity log reports partial progress.
+Before writable goal work, Little Bot stores scoped local file copies outside the goal's writable folders. Run history and the evidence ledger record the resulting file changes. Choose **Review undo** to inspect affected paths and restore them. Undo records the restored-path evidence and leaves the goal paused. It refuses to overwrite a file changed after that run. Restore writes each file atomically; if a conflict arises during a multi-file restore, the activity log reports partial progress.
 
 Storage is bounded: at most 50 goals, 50 history entries per goal, three retained snapshots per goal, 2,000 files and 25 MiB per snapshot, and 250 MiB across backups. Old snapshots are retired only after a new snapshot is saved. A full backup budget blocks new writable work until you remove a backup. Undo covers regular file contents and created/deleted files, not external services, registry changes, file permissions, or arbitrary process side effects.
 

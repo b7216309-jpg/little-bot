@@ -1,6 +1,6 @@
 ---
 name: little-bot
-description: Configure and explain Little Bot's app tools and controls. Read for heartbeat setup, recurring tasks or cron requests, standing intents, goals, memory, connections, and app behavior.
+description: Configure and explain Little Bot's app tools and controls. Read for heartbeat setup, recurring tasks or cron requests, standing intents, goals and their plan/evidence ledger, memory, connections, and app behavior.
 ---
 
 # Little Bot
@@ -13,7 +13,7 @@ Read the current tool definitions for argument shapes. There is no Little Bot sh
 
 - `skill_list` and `skill_read`: discover and read enabled skills. `$skill-name` includes a skill in a user request. Skills add instructions, not permissions.
 - `memory_search({query?,source?,scope?,offset?})`: search saved facts, recent notes, and past conversation text. An empty query browses recent records. `session_read({sessionId,offset?})` opens a result; follow `nextOffset` for more. Cite its title/date, check whether old decisions still apply, and say when nothing was found. Recall requires Memory on. History stays on the saved connection and in this folder; direct user chats can use `scope:"all"` when asked to look across folders. Background tasks stay in their own folder. Deleted chats cannot be read. Explicit saved facts remain shared memory until removed.
-- `goal_manage` and `schedule_manage`: list, create, update, pause, or resume goals and recurring routines. List before using an existing ID. Available in direct user chats only.
+- `goal_manage` and `schedule_manage`: list, create, update, pause, or resume goals and recurring routines. List before using an existing ID. Available in direct user chats only. Goal work uses a saved, versioned plan-and-evidence ledger; the tool does not directly edit ledger records.
 - `calendar_manage`: manage Little Bot's local calendar. Use `action:"list"` to inspect upcoming events, `create` with a title and local `startLocal`, `update` with an existing ID, and `delete` with an existing ID. Timed values use `YYYY-MM-DDTHH:MM`; all-day events use `YYYY-MM-DD` with `allDay:true`. This calendar uses the PC's local time and does not sync to Google, Outlook, or another provider.
 - `attachment_send({path,caption?})`: deliver a finished file or image as a chat attachment. Use its absolute path inside the chat folder, or a browser screenshot path. Wait for success before saying it was delivered. This sends to the current user, not another person.
 - `browser`: Vercel agent-browser with a separate profile. The `web-tools` skill covers snapshots, interaction, and screenshots.
@@ -81,6 +81,8 @@ Little Bot has no CLI or external API for submitting a prompt or running a saved
 
 Goals need an objective and observable checks: `fileExists`, `fileContains`, or `command`. Paths are relative to the chat folder; command checks require terminal permission. `goal_manage` creates/updates drafts. The user reviews permissions, budget, and trigger in **Goals**, then starts the first run. Triggers are manual, interval, or selected file changes. Interval goals advance unfinished work; completed goals stop. File-triggered goals record a new baseline whenever the app opens, so closed-app changes do not wake them. Tools cannot set these trigger/permission/budget fields or enlarge existing grants.
 
+Every goal has one active plan step. The model must work only on that step; future steps are context, not parallel work. User edits, evidence-driven revisions, and reruns after completion create new plan versions while earlier versions remain inspectable. Assumptions, observations, decisions, verification results, file snapshots, recovery notes, and Review undo evidence persist on the goal across restart and conversation compaction. These are concise public audit records, not hidden reasoning or chain of thought. Inspect them under **Plan, evidence, and history**. See [GOALS.md](../../../GOALS.md) and [LEDGER.md](../../../LEDGER.md).
+
 Everything runs only while Little Bot is open. There is no service, gateway, tray worker, closed-app event collection, or wake-from-sleep scheduler. On reopening, missed automations, heartbeat checks, and authorized queued interval goals advance to their next future occurrence without running the missed occurrence; file-triggered goals take a new baseline. Tasks wait while the open app is busy or their saved model connection is not selected; local tasks also need the local server. If the PC sleeps without closing the process, a due item may attempt once after wake. Routines may wait for user approvals. **Goals → Pause all** pauses all autonomous work across restarts; resume there. When a task does not run, check enabled/draft state, global pause, saved connection, busy work, then heartbeat active hours/daily limit and its last error. Do not infer current settings from these documented defaults.
 
 ## Controls
@@ -89,7 +91,7 @@ Everything runs only while Little Bot is open. There is no service, gateway, tra
 - **Settings:** compaction threshold 20–95%, default 80%; 0 retains native limits. Service keys go here and are encrypted, never pasted into chat.
 - **Profile:** USER.md holds user facts/preferences; SOUL.md sets voice and approach. Each allows 4,000 characters and applies on the next request. Do not silently rewrite them through tools.
 - **Memory:** `Remember that ...` saves an explicit workspace fact. The panel edits/removes facts and controls recall. Ordinary remarks are not automatically durable facts.
-- **Goals:** permissions, budgets, dependencies, triggers, Pause all, and Review undo. Undo covers captured files and refuses later-edit conflicts; external effects cannot be undone.
+- **Goals:** permissions, budgets, dependencies, triggers, Pause all, Review undo, and the versioned plan/evidence ledger. Exactly one step is active; earlier plans and restored-file evidence remain inspectable. Undo covers captured files and refuses later-edit conflicts; external effects cannot be undone.
 - **Automations → Standing intents:** deterministic foreground event reactions that run an already authorized goal or automation. Configuration is UI-only; no external listener or closed-app replay exists.
 - **Calendar:** a local first-party calendar with agent create/read/update/delete through `calendar_manage`. Events stay in Little Bot; external calendar sync is not bundled.
 - **Extensions:** skills, plugins, and MCP connections. Email is not bundled.
