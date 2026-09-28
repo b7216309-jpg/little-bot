@@ -172,6 +172,7 @@ class GoalRunner {
   async pause(id) {
     const goal = this.goal(id); goal.status = 'paused'; delete goal.pauseReason;
     this.record(goal, 'paused', 'Paused by you.'); this.changed();
+    this.emit('goal.paused', goal, { reason: 'Paused by you.', pausedAt: Date.now() });
     if (id === this.activeId) { this.stopReason = 'Paused by you.'; await this.stopRun?.(this.stopReason); await this.execution; }
     return goal;
   }
@@ -203,6 +204,7 @@ class GoalRunner {
     this.data.paused = true;
     if (this.activeId) { const goal = this.goal(this.activeId); goal.status = 'paused'; goal.pauseReason = 'all'; this.record(goal, 'paused', 'Paused with all goals.'); }
     this.changed();
+    if (this.activeId) this.emit('goal.paused', this.goal(this.activeId), { reason: 'All goals are paused.', pausedAt: Date.now() });
     if (this.activeId) { this.stopReason = 'All goals are paused.'; await this.stopRun?.(this.stopReason); await this.execution; }
     return this.data;
   }
@@ -216,7 +218,9 @@ class GoalRunner {
     const goal = this.goal(id);
     if (this.data.goals.some(item => item.dependsOn.includes(id))) throw new Error('Remove this goal from other goals’ dependencies first.');
     await files.removeGoalSnapshots(this.backupRoot, goal.id);
-    this.data.goals = this.data.goals.filter(item => item.id !== id); this.forceRuns.delete(id); this.filePending.delete(id); this.fileSessionBaselines.delete(id); this.changed(); return { ok: true };
+    this.data.goals = this.data.goals.filter(item => item.id !== id); this.forceRuns.delete(id); this.filePending.delete(id); this.fileSessionBaselines.delete(id); this.changed();
+    this.emit('goal.removed', goal, { removedAt: Date.now() });
+    return { ok: true };
   }
   async previewRestore(id, runId) { if (this.activeId) throw new Error('Wait for the active goal to stop before reviewing undo.'); return files.previewRestore(this.goal(id), this.backupRoot, runId); }
   async restore(id, runId) {

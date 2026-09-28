@@ -172,3 +172,42 @@ test('a debounced action resolves the current target after the intent is edited'
 
   assert.deepEqual(calls, [['automation', 'automation-2']]);
 });
+
+test('stopping foreground events restores a goal queued by an intent before it started', async () => {
+  const { runtime, bus, store, goalsData } = fixture();
+  const intent = runtime.saveIntent({
+    name: 'Foreground-only goal', enabled: true,
+    when: { type: 'file.changed', filters: [] },
+    action: { type: 'goal.run', goalId: 'goal-1' },
+  });
+  runtime.start();
+  runtime.publish({ type: 'file.changed', source: 'goal.runner', payload: { path: 'report.csv' } });
+  await drain(bus);
+  assert.equal(goalsData[0].status, 'queued');
+  assert.equal(store.data.standingIntents.intents.find(item => item.id === intent.id).lastStatus, 'queued');
+
+  runtime.stop();
+
+  assert.equal(goalsData[0].status, 'paused');
+  const saved = store.data.standingIntents.intents.find(item => item.id === intent.id);
+  assert.equal(saved.lastStatus, 'skipped');
+  assert.match(saved.lastError, /not replayed/);
+});
+
+test('pausing a standing-intent goal settles the intent as skipped', async () => {
+  const { runtime, bus, store } = fixture();
+  const intent = runtime.saveIntent({
+    name: 'Pause-aware goal', enabled: true,
+    when: { type: 'file.changed', filters: [] },
+    action: { type: 'goal.run', goalId: 'goal-1' },
+  });
+  runtime.start();
+  runtime.publish({ type: 'file.changed', source: 'goal.runner', payload: { path: 'report.csv' } });
+  await drain(bus);
+  runtime.publish({ type: 'goal.paused', source: 'goal.runner', payload: { goalId: 'goal-1', reason: 'Paused by you.' } });
+  await drain(bus);
+
+  const saved = store.data.standingIntents.intents.find(item => item.id === intent.id);
+  assert.equal(saved.lastStatus, 'skipped');
+  assert.match(saved.lastError, /Paused by you/);
+});

@@ -20,7 +20,7 @@ Little Bot closed
 → no model calls or actions
 ```
 
-Closing the application clears queued events. They are not saved for replay.
+Closing the application clears queued events. They are not saved for replay. If a standing intent queued a goal but that goal never entered execution, Little Bot restores the goal's earlier state and records the intent as skipped.
 
 When Little Bot opens again:
 

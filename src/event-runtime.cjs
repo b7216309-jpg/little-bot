@@ -58,7 +58,7 @@ class EventRuntime {
       this.bus.subscribe({ id: 'runtime:intent-action', type: 'standing_intent.action', priority: 10,
         handler: event => this._runIntentAction(event) }),
       this.bus.subscribe({ id: 'runtime:settle-goal', type: '*', priority: 8,
-        filter: event => ['goal.completed', 'goal.blocked'].includes(event.type), handler: event => this._settleGoal(event) }),
+        filter: event => ['goal.completed', 'goal.blocked', 'goal.paused', 'goal.removed'].includes(event.type), handler: event => this._settleGoal(event) }),
       this.bus.subscribe({ id: 'runtime:settle-automation', type: '*', priority: 8,
         filter: event => ['automation.completed', 'automation.error'].includes(event.type), handler: event => this._settleAutomation(event) }),
       this.bus.subscribe({ id: 'runtime:standing-intents', type: '*', priority: -10,
@@ -77,6 +77,7 @@ class EventRuntime {
     if (this.timer) this.clearIntervalFn(this.timer);
     this.timer = null;
     for (const unsubscribe of this.unsubscribers.splice(0)) unsubscribe();
+    this._cancelQueuedGoalActions();
     this.pendingGoals.clear();
     this.pendingAutomations.clear();
     const stopped = this.bus.stop({ clear: true });
@@ -217,7 +218,13 @@ class EventRuntime {
           this.intents.record(id, { status: 'skipped', event, error: 'The target goal is already queued or running.' });
           return;
         }
-        this._pending(this.pendingGoals, goal.id).set(id, event.intentTrace || [id]);
+        this._pending(this.pendingGoals, goal.id).set(id, {
+          trace: event.intentTrace || [id],
+          previous: {
+            status: goal.status, nextRunAt: goal.nextRunAt ?? null,
+            pauseReason: goal.pauseReason || null, needsEffectReview: goal.needsEffectReview === true,
+          },
+        });
         this.intents.record(id, { status: 'queued', event });
         this.goals.runNow(goal.id);
         return;
@@ -253,14 +260,46 @@ class EventRuntime {
     }
   }
 
+  _cancelQueuedGoalActions() {
+    let restored = false;
+    for (const [goalId, pending] of this.pendingGoals) {
+      let goal;
+      try { goal = this.goals.goal(goalId); } catch { continue; }
+      if (this.goals.activeId === goalId || goal.status !== 'queued') continue;
+      const launch = [...pending.values()].find(value => object(value) && object(value.previous));
+      if (!launch) continue;
+      const previous = launch.previous;
+      goal.status = previous.status;
+      goal.nextRunAt = previous.nextRunAt;
+      if (previous.pauseReason) goal.pauseReason = previous.pauseReason; else delete goal.pauseReason;
+      if (previous.needsEffectReview) goal.needsEffectReview = true; else delete goal.needsEffectReview;
+      this.goals.forceRuns?.delete(goalId);
+      this.goals.record?.(goal, 'skipped', 'Standing-intent launch was skipped because foreground event processing stopped before the goal started.');
+      for (const intentId of pending.keys()) {
+        try { this.intents.record(intentId, { status: 'skipped', error: 'Foreground event processing stopped before the target goal started. The launch was not replayed.' }); }
+        catch (error) { this._error(error); }
+      }
+      restored = true;
+    }
+    if (restored) {
+      try { this.store.save(); } catch (error) { this._error(error); }
+      this._changed(true);
+    }
+  }
+
   _settleGoal(event) {
     const goalId = event.payload?.goalId;
     if (typeof goalId !== 'string') return;
     const pending = this.pendingGoals.get(goalId);
     if (!pending) return;
+    const skipped = ['goal.paused', 'goal.removed'].includes(event.type);
     for (const [intentId] of pending) this.intents.record(intentId, {
-      status: event.type === 'goal.completed' ? 'completed' : 'error', event,
-      error: event.type === 'goal.blocked' ? String(event.payload?.reason || 'The target goal was blocked.') : '',
+      status: event.type === 'goal.completed' ? 'completed' : skipped ? 'skipped' : 'error', event,
+      error: event.type === 'goal.blocked'
+        ? String(event.payload?.reason || 'The target goal was blocked.')
+        : event.type === 'goal.paused'
+          ? String(event.payload?.reason || 'The target goal was paused.')
+          : event.type === 'goal.removed' ? 'The target goal was removed.' : '',
     });
     this.pendingGoals.delete(goalId);
   }
@@ -287,7 +326,7 @@ class EventRuntime {
     };
     const addPending = (map, key) => {
       if (!key) return;
-      for (const value of map.get(key)?.values() || []) add(value);
+      for (const value of map.get(key)?.values() || []) add(Array.isArray(value) ? value : value?.trace);
     };
     add(input?.intentTrace);
     addPending(this.pendingGoals, input?.payload?.goalId);
