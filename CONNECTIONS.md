@@ -16,6 +16,16 @@ The relay also supplies the missing `content_index: 0` on llama.cpp's single-par
 
 **Codex** remains available in Settings with ChatGPT sign-in or an OpenAI API key. Switching connections preserves saved sign-in credentials. A failed local connection never falls back to a cloud model.
 
+## Usage display
+
+**Settings → Connection** shows connection-specific, read-only usage information.
+
+For Codex, Little Bot reads the pinned app-server's `account/rateLimits/read` response. It supports one default bucket or multiple named buckets, primary and secondary windows, reset times, provider plan labels, and provider-reported limit state. Sparse rolling notifications trigger a full refetch so a partial event cannot erase the last complete display. Little Bot does not infer which bucket belongs to the selected model or convert allowance into a price.
+
+For Local Qwen, the app shows transient whole-turn timing and engine-reported token counts. Output tokens already include the reasoning-token subset, so reasoning is displayed separately without being counted twice. Tool-containing turns remain visible but are omitted from the rolling throughput average; compaction, failed, interrupted, and empty-output turns are excluded.
+
+These values are not saved to conversations, Memory, or `state.json`. They disappear when the app closes, and switching local models clears prior local samples. Goal token, time, action, run, and retry limits remain separate application controls. See [USAGE.md](USAGE.md).
+
 Each chat, goal, routine, and heartbeat keeps its connection. Earlier records remain bound to Codex. Select their saved connection before continuing them; create a new chat to use another connection. Changing the local server also requires a new chat or returning to the saved address. This avoids silently sending an existing conversation to a different provider.
 
 Image-input support is normalized per model across connections. Codex model discovery uses the pinned app-server `inputModalities` field; local discovery uses catalog capability hints and the selected server’s `/props` vision state, with `/props` taking precedence for the active model. The installed Qwen server reports image support and a 147,456-token window. Little Bot disables provider-hosted web search for local inference; the app's browser, Firecrawl, and Brave tools remain available according to their normal permissions.
