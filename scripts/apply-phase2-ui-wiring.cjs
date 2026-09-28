@@ -29,6 +29,11 @@ replaceOnce('src/renderer/index.html',
   `  <script src="./independent-check.js" defer></script>\n  <script src="./standing-intents-ui.js" defer></script>\n  <script src="./app.js" defer></script>\n  <script src="./standing-intents-panel.js" defer></script>`,
   'standing intents scripts');
 
+replaceOnce('test/event-runtime.test.cjs',
+  `    data: { calendar: { events: [] }, automations: [{ id: 'automation-1', authorized: true, lastStatus: 'never' }], standingIntents: { intents: [] } },`,
+  `    data: { calendar: { events: [] }, automations: [{ id: 'automation-1', authorized: true, lastStatus: 'never' }], autonomy: { goals: goalsData }, standingIntents: { intents: [] } },`,
+  'event runtime saved goals');
+
 const runtimeTestFile = 'test/event-runtime.test.cjs';
 const runtimeTest = read(runtimeTestFile);
 const runtimeAddition = `\n\ntest('startup advances overdue schedules instead of replaying closed-app work', async () => {\n  const { runtime, bus, store, goalsData, calls, now } = fixture();\n  store.data.automations[0] = { id: 'automation-1', name: 'Missed routine', enabled: true, authorized: true,\n    scheduleType: 'interval', intervalMinutes: 60, nextRunAt: now() - 1, lastStatus: 'never' };\n  store.data.heartbeat = { enabled: true, checklist: 'Check notes', intervalMinutes: 30, nextRunAt: now() - 1 };\n  Object.assign(goalsData[0], { status: 'queued', trigger: { type: 'interval', intervalMinutes: 45 }, nextRunAt: now() - 1 });\n  runtime.start();\n  await drain(bus);\n  assert.deepEqual(calls, []);\n  assert.ok(store.data.automations[0].nextRunAt > now());\n  assert.ok(store.data.heartbeat.nextRunAt > now());\n  assert.ok(goalsData[0].nextRunAt > now());\n});\n`;
