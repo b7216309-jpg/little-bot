@@ -42,9 +42,11 @@ Only one goal step runs at a time, sharing the engine with chat, heartbeat, and 
 
 - **Manual:** Run starts the goal and it continues through bounded steps until completed, blocked, or paused.
 - **Interval:** an unfinished goal takes another step at the configured cadence.
-- **File changes:** watched relative paths are checked every five seconds using file metadata. A change must remain stable across checks before it wakes the goal. The baseline is refreshed after its own run to avoid a self-trigger loop. Quiet checks make no model calls.
+- **File changes:** watched relative paths are checked every five seconds using file metadata. A change must remain stable across checks before it wakes the goal. Each foreground app session starts with a fresh baseline, so changes made while Little Bot was closed do not wake the goal. The baseline is also refreshed after its own run to avoid a self-trigger loop. Quiet checks make no model calls. Stable changes publish the foreground-only `file.changed` event described in [EVENTS.md](EVENTS.md).
 
-Completed goals stop monitoring. Use Automations or Heartbeat for an indefinite routine. Missed time while the app is closed does not create a burst of goal runs. Little Bot must remain open and the PC awake; this version has no tray worker or Windows service.
+Completed goals stop monitoring. Use Automations or Heartbeat for an indefinite routine. When Little Bot reopens, an overdue authorized interval goal advances to its next future step without running the missed step. File-triggered goals establish a new baseline instead of reacting to closed-app changes. If Little Bot remains open but busy, queued work waits for the one execution lane. There is no tray worker, Windows service, closed-app event backlog, or wake-from-sleep mechanism.
+
+Standing intents can react to foreground goal, file, calendar, automation, chat, heartbeat, and app-open events. They can start only an already authorized goal or automation and do not expand its permissions, budget, folder, model, or connection. Configure them under **Automations → Standing intents**; there is no agent management tool for them yet. See [EVENTS.md](EVENTS.md).
 
 **Pause all** persists across restarts and stops goals, heartbeat, and routines. It leaves normal chat available. Resume all preserves goals you paused individually, including goals paused by Undo.
 

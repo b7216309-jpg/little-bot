@@ -5,7 +5,7 @@ const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { parseSkill, LIMITS } = require('./extensions.cjs');
 
-const VERSION = 6;
+const VERSION = 7;
 const BUNDLES = [
   { name: 'little-bot', introduced: 1 }, { name: 'meeting-prep', introduced: 1 },
   { name: 'research-brief', introduced: 1 }, { name: 'web-tools', introduced: 2 },
@@ -16,7 +16,7 @@ const ORIGINAL_HASHES = {
     '2505dee9010535a4d865c32fc9a95bd2aef7e2222814125c2da52b069cd7f608', // v0.7
     '871fb7c3cd629f4990116661d73bd21f400ee01d9fe7678d69e8520854f8b49c', // v0.8
     '44ceaaee746a996fab351aa297d10347d445e1b130ed9d888d3263e2e0f8c49e', // v0.8.1
-    '650d9146590bea6923d740505afd6d31fb6b7ea671a103dc9675b0383ffd4b96', // v0.8.2–0.8.7
+    '650d9146590bea6923d740505afd6d31fb6b7ea671a103dc9675b0383ffd4b96', // v0.8.2–0.8.8
   ],
   'web-tools': ['ddc0f9422378b1ef3ac91d8332b6316fe63bcdbbc8bcf98c3c5e22be61ac789e'],
 };

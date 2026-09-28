@@ -1,6 +1,6 @@
 ---
 name: little-bot
-description: Configure and explain Little Bot's app tools and controls. Read for heartbeat setup, recurring tasks or cron requests, goals, memory, connections, and app behavior.
+description: Configure and explain Little Bot's app tools and controls. Read for heartbeat setup, recurring tasks or cron requests, standing intents, goals, memory, connections, and app behavior.
 ---
 
 # Little Bot
@@ -27,7 +27,7 @@ Use image input to inspect photos; use `attachment_send` to return existing imag
 
 ## Heartbeat and scheduling
 
-Choose **Heartbeat** for a continuing checklist that should stay quiet without meaningful changes; **Automations** for a prompt repeated by elapsed interval or at an exact local clock time; **Goals** for work with completion checks that stops when done. Do not create a real routine merely to explain setup.
+Choose **Heartbeat** for a continuing checklist that should stay quiet without meaningful changes; **Automations** for a prompt repeated by elapsed interval or at an exact local clock time; **Standing intents** for a deterministic reaction to an event that occurs while Little Bot is open; **Goals** for work with completion checks that stops when done. Do not create real work merely to explain setup.
 
 ### Heartbeat setup
 
@@ -61,17 +61,27 @@ Automations support two schedule forms:
 
 Each object is a separate call. Names allow 1–80 characters and prompts 1–32,000. Create saves a **disabled draft**; the user enables it in **Automations**. Stop or finish a running routine first; pause an enabled routine before updating. Every tool update requires enabling it again. Resume works only for a previously authorized routine and cannot bypass **Pause all**. Recreate a routine to change its saved folder/model/connection. Run/delete controls are in the app, not these tools.
 
-Interval schedules count elapsed time from the previous start. Exact-time schedules use the PC's local time and selected weekdays. If Little Bot is closed, busy, or the PC is asleep when a schedule becomes due, it makes one attempt when work can resume and then advances to the next future occurrence; it does not create a catch-up burst. Manual **Run now** does not convert or drift the saved exact-time schedule.
+Interval schedules count elapsed time from the previous start. Exact-time schedules use the PC's local time and selected weekdays. If Little Bot is closed when an automation becomes due, that occurrence is skipped and the next future occurrence is selected on reopening. If the app remains open but its single execution lane is busy, the due automation waits. If the PC sleeps while the process remains open, a due automation may make one attempt after the process resumes. Manual **Run now** does not convert or drift the saved exact-time schedule.
 
 There is **no cron-expression parser or one-time timer**. Do not claim a cron expression was installed. Exact local times and weekday schedules should use the clock schedule fields above.
+
+### Standing intents
+
+Standing intents are configured in **Automations → Standing intents**. There is no agent configuration tool for them yet, so explain the fields for the user to apply; do not edit `state.json` or claim to save one.
+
+A standing intent deterministically matches an in-process event, optional event source, and optional payload condition, then starts an existing authorized goal or automation. Supported conditions are equals, does not equal, contains, starts with, wildcard match, and exists. The target must already have been run or enabled through its normal panel. The intent does not create new permissions, budgets, folders, models, or connections.
+
+Useful foreground events include calendar approach thresholds, goal completion or blockage, automation completion or failure, chat completion, heartbeat alerts, and `file.changed`. The `file.changed` event is produced only by an existing file-triggered goal; it is not a generic Windows watcher, and changes made while Little Bot was closed are baselined rather than replayed.
+
+The event queue exists only inside the open app. There is no gateway, webhook, socket, inbox listener, remote endpoint, service, persisted backlog, or parallel agent. Closing Little Bot clears pending events and retries. See the app's [EVENTS.md](../../../EVENTS.md) for payload fields, limits, and examples.
 
 Little Bot has no CLI or external API for submitting a prompt or running a saved routine. Windows Task Scheduler cannot send it a prompt through a supported interface; merely launching the app does not execute a named task on demand. Do not present that as a working workaround.
 
 ### Goals and runtime limits
 
-Goals need an objective and observable checks: `fileExists`, `fileContains`, or `command`. Paths are relative to the chat folder; command checks require terminal permission. `goal_manage` creates/updates drafts. The user reviews permissions, budget, and trigger in **Goals**, then starts the first run. Triggers are manual, interval, or selected file changes. Interval goals advance unfinished work; completed goals stop. Tools cannot set these trigger/permission/budget fields or enlarge existing grants.
+Goals need an objective and observable checks: `fileExists`, `fileContains`, or `command`. Paths are relative to the chat folder; command checks require terminal permission. `goal_manage` creates/updates drafts. The user reviews permissions, budget, and trigger in **Goals**, then starts the first run. Triggers are manual, interval, or selected file changes. Interval goals advance unfinished work; completed goals stop. File-triggered goals record a new baseline whenever the app opens, so closed-app changes do not wake them. Tools cannot set these trigger/permission/budget fields or enlarge existing grants.
 
-Everything runs only while Little Bot is open and the PC awake. There is no service, tray worker, or wake-from-sleep scheduler. Missed intervals do not produce a catch-up burst. Tasks wait while the app is busy or their saved model connection is not selected; local tasks also need the local server. Routines may wait for user approvals. **Goals → Pause all** pauses all autonomous work across restarts; resume there. When a task does not run, check enabled/draft state, global pause, saved connection, busy work, then heartbeat active hours/daily limit and its last error. Do not infer current settings from these documented defaults.
+Everything runs only while Little Bot is open. There is no service, gateway, tray worker, closed-app event collection, or wake-from-sleep scheduler. On reopening, missed automations, heartbeat checks, and authorized queued interval goals advance to their next future occurrence without running the missed occurrence; file-triggered goals take a new baseline. Tasks wait while the open app is busy or their saved model connection is not selected; local tasks also need the local server. If the PC sleeps without closing the process, a due item may attempt once after wake. Routines may wait for user approvals. **Goals → Pause all** pauses all autonomous work across restarts; resume there. When a task does not run, check enabled/draft state, global pause, saved connection, busy work, then heartbeat active hours/daily limit and its last error. Do not infer current settings from these documented defaults.
 
 ## Controls
 
@@ -80,6 +90,7 @@ Everything runs only while Little Bot is open and the PC awake. There is no serv
 - **Profile:** USER.md holds user facts/preferences; SOUL.md sets voice and approach. Each allows 4,000 characters and applies on the next request. Do not silently rewrite them through tools.
 - **Memory:** `Remember that ...` saves an explicit workspace fact. The panel edits/removes facts and controls recall. Ordinary remarks are not automatically durable facts.
 - **Goals:** permissions, budgets, dependencies, triggers, Pause all, and Review undo. Undo covers captured files and refuses later-edit conflicts; external effects cannot be undone.
+- **Automations → Standing intents:** deterministic foreground event reactions that run an already authorized goal or automation. Configuration is UI-only; no external listener or closed-app replay exists.
 - **Calendar:** a local first-party calendar with agent create/read/update/delete through `calendar_manage`. Events stay in Little Bot; external calendar sync is not bundled.
 - **Extensions:** skills, plugins, and MCP connections. Email is not bundled.
 
