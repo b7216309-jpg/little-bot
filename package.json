@@ -7,7 +7,10 @@
   "main": "src/main.cjs",
   "scripts": {
     "start": "electron .",
+    "check:syntax": "node scripts/check-syntax.cjs",
     "test": "node --test test/*.test.cjs",
+    "test:electron": "electron test/agent-side-panel-electron.cjs && electron test/calendar-electron.cjs && electron test/chat-scroll-electron.cjs && electron test/slash-commands-electron.cjs",
+    "ci": "npm run check:syntax && npm test && npm run test:electron",
     "package": "node scripts/package.cjs",
     "smoke": "electron . --smoke-test",
     "package:portable": "node scripts/package.cjs --portable-only"
