@@ -188,7 +188,7 @@
     byId('standing-intent-action').value = intent?.action?.type || 'goal.run';
     const targetId = intent?.action?.goalId || intent?.action?.automationId || '';
     populateTargets(targetId);
-    byId('standing-intent-debounce').value = String(Math.round((intent?.debounceMs || 30000) / 1000));
+    byId('standing-intent-debounce').value = String(Math.round((intent ? intent.debounceMs : 30000) / 1000));
     byId('standing-intent-priority').value = String(intent?.priority || 0);
     byId('standing-intent-enabled').checked = intent ? intent.enabled === true : true;
     byId('save-standing-intent').textContent = intent ? 'Save changes' : 'Create standing intent';

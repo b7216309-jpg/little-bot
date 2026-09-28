@@ -130,7 +130,7 @@ class GoalRunner {
     Object.assign(this, { store, run, stopRun, verifyCommand, backupRoot, canRun, onChange, onAlert, publish });
     store.data.autonomy ||= normalizeAutonomy(null, store.data.settings);
     this.activeId = null; this.execution = null; this.timer = null; this.closing = false; this.ticking = false;
-    this.forceRuns = new Set(); this.filePending = new Map(); this.stopReason = null;
+    this.forceRuns = new Set(); this.filePending = new Map(); this.fileSessionBaselines = new Set(); this.stopReason = null;
   }
   get data() { return this.store.data.autonomy; }
   goal(id) { const goal = this.data.goals.find(item => item.id === id); if (!goal) throw new Error('Goal not found.'); return goal; }
@@ -156,6 +156,7 @@ class GoalRunner {
       for (const key of ['pendingQuestion', 'clarifications', 'continueAfterAnswer', 'needsEffectReview']) if (!(key in goal)) delete existing[key];
       Object.assign(existing, goal);
     } else this.data.goals.push(goal);
+    this.fileSessionBaselines.delete(goal.id);
     this.changed(); return existing || goal;
   }
   runNow(id) {
@@ -215,7 +216,7 @@ class GoalRunner {
     const goal = this.goal(id);
     if (this.data.goals.some(item => item.dependsOn.includes(id))) throw new Error('Remove this goal from other goals’ dependencies first.');
     await files.removeGoalSnapshots(this.backupRoot, goal.id);
-    this.data.goals = this.data.goals.filter(item => item.id !== id); this.forceRuns.delete(id); this.filePending.delete(id); this.changed(); return { ok: true };
+    this.data.goals = this.data.goals.filter(item => item.id !== id); this.forceRuns.delete(id); this.filePending.delete(id); this.fileSessionBaselines.delete(id); this.changed(); return { ok: true };
   }
   async previewRestore(id, runId) { if (this.activeId) throw new Error('Wait for the active goal to stop before reviewing undo.'); return files.previewRestore(this.goal(id), this.backupRoot, runId); }
   async restore(id, runId) {
@@ -234,7 +235,7 @@ class GoalRunner {
     for (const entry of goal.history) if (entry.snapshot?.runId === runId) entry.snapshot.undoAvailable = false;
     this.record(goal, 'snapshot-removed', 'Removed the selected backup; activity history is retained.', { runId }); this.changed(); return { ok: true };
   }
-  start() { if (this.timer) return; this.closing = false; this.timer = setInterval(() => this.wake(), 5000); this.timer.unref?.(); this.wake(); }
+  start() { if (this.timer) return; this.closing = false; this.fileSessionBaselines.clear(); this.timer = setInterval(() => this.wake(), 5000); this.timer.unref?.(); this.wake(); }
   wake() { if (!this.closing) void this.tick().catch(error => this.onAlert({ title: 'Goal runner', message: clean(error) })); }
   async tick() {
     if (this.ticking || this.activeId || this.closing || this.data.paused) return;
@@ -248,12 +249,19 @@ class GoalRunner {
         if (!ready && goal.trigger.type === 'files') {
           try {
             const fingerprint = await files.fingerprintPaths(goal);
+            if (!this.fileSessionBaselines.has(goal.id)) {
+              this.fileSessionBaselines.add(goal.id);
+              goal.triggerFingerprint = fingerprint;
+              this.filePending.delete(goal.id);
+              this.changed();
+              continue;
+            }
             if (!goal.triggerFingerprint) { goal.triggerFingerprint = fingerprint; this.changed(); }
             else if (fingerprint !== goal.triggerFingerprint) {
               const previous = this.filePending.get(goal.id);
               if (previous?.fingerprint === fingerprint && Date.now() - previous.at >= 1000) {
                 ready = true;
-                this.emit('file.changed', goal, { paths: goal.trigger.paths, fingerprint, previousFingerprint: goal.triggerFingerprint },
+                this.emit('file.changed', goal, { path: goal.trigger.paths[0] || '', paths: goal.trigger.paths, fingerprint, previousFingerprint: goal.triggerFingerprint },
                   { dedupeKey: `file:${goal.id}:${fingerprint}`, debounceKey: `file:${goal.id}`, debounceMs: 1000 });
               } else this.filePending.set(goal.id, { fingerprint, at: Date.now() });
             } else this.filePending.delete(goal.id);

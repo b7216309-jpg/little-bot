@@ -16,6 +16,7 @@ test('standing-intent panel stays modular and uses only exposed IPC methods', ()
   }
   assert.match(panel, /automations-view/);
   assert.match(panel, /Foreground only/);
+  assert.ok(panel.includes('intent ? intent.debounceMs : 30000'));
   assert.doesNotMatch(panel, /fetch\(|WebSocket|http:\/\/|https:\/\//);
 });
 

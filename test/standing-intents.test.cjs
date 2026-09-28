@@ -72,13 +72,15 @@ test('supports equals, notEquals, contains, startsWith, exists, and glob matchin
   }), true);
 });
 
-test('normalization omits invalid and duplicate persisted records and skips queued work after restart', () => {
-  const first = validateStandingIntent(input(), null, 1000);
-  first.lastStatus = 'queued';
-  const restored = normalizeStandingIntents({ intents: [first, { ...first }, { name: '' }] }, 2000, true);
-  assert.equal(restored.intents.length, 1);
-  assert.equal(restored.intents[0].lastStatus, 'skipped');
-  assert.match(restored.intents[0].lastError, /not replayed/);
+test('normalization omits invalid and duplicate records and skips interrupted matches after restart', () => {
+  for (const status of ['matched', 'queued']) {
+    const first = validateStandingIntent(input(), null, 1000);
+    first.lastStatus = status;
+    const restored = normalizeStandingIntents({ intents: [first, { ...first }, { name: '' }] }, 2000, true);
+    assert.equal(restored.intents.length, 1);
+    assert.equal(restored.intents[0].lastStatus, 'skipped');
+    assert.match(restored.intents[0].lastError, /not replayed/);
+  }
 });
 
 test('StandingIntentStore persists edits, ordering, results, and removal', () => {

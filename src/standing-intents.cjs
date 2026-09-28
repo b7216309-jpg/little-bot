@@ -98,7 +98,7 @@ function normalizeStandingIntents(value, now = Date.now(), recovering = false) {
       intent.lastStatus = STATUSES.includes(input.lastStatus) ? input.lastStatus : 'never';
       if (typeof input.lastEventId === 'string') intent.lastEventId = input.lastEventId.slice(0, 128);
       if (typeof input.lastError === 'string') intent.lastError = input.lastError.slice(0, 2000);
-      if (recovering && intent.lastStatus === 'queued') {
+      if (recovering && ['matched', 'queued'].includes(intent.lastStatus)) {
         intent.lastStatus = 'skipped';
         intent.lastError = 'The app closed before this standing intent could run. It was not replayed.';
       }
