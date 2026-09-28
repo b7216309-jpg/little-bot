@@ -55,29 +55,34 @@ test('weighted local average excludes tool turns', () => {
   assert.equal(average.sampleCount, 2);
 });
 
-test('reads Codex rate limits and accepts push updates without affecting failures', async () => {
+test('reads Codex limits and refetches sparse rolling updates without erasing the snapshot', async () => {
   let now = 1000;
   const calls = [];
-  let changed = 0;
+  let resolveSecond;
   const manager = new ProviderUsage({
     client: { request: async (method, params) => {
       calls.push([method, params]);
-      return { rateLimits: { primary: { usedPercent: 25, resetsAt: 1800000000 } } };
+      if (calls.length === 1) return { rateLimits: { primary: { usedPercent: 25, resetsAt: 1800000000 } } };
+      return new Promise(resolve => { resolveSecond = resolve; });
     } },
     connection: () => ({ type: 'codex', status: 'connected' }),
     account: () => ({ status: 'connected', plan: 'plus' }),
-    onChange: () => changed++, now: () => now,
+    now: () => now,
   });
-  const result = await manager.refresh();
+  const first = await manager.refresh();
   assert.deepEqual(calls, [['account/rateLimits/read', {}]]);
-  assert.equal(result.status, 'ready');
-  assert.equal(result.buckets[0].primary.remainingPercent, 75);
+  assert.equal(first.buckets[0].primary.remainingPercent, 75);
   now = 2000;
-  assert.equal(manager.notification('account/rateLimits/updated', {
-    rateLimitsByLimitId: { main: { name: 'Main', primary: { usedPercent: 40 } } },
-  }), true);
+  assert.equal(manager.notification('account/rateLimits/updated', { rateLimits: { primary: { usedPercent: 40 } } }), true);
+  assert.equal(manager.publicState().buckets[0].primary.remainingPercent, 75);
+  const pending = manager.refresh();
+  resolveSecond({ ordinaryUsageAllowed: false, rateLimitsByLimitId: {
+    main: { limitName: 'Main', primary: { usedPercent: 40 } },
+  } });
+  await pending;
+  assert.equal(calls.length, 2);
   assert.equal(manager.publicState().buckets[0].primary.remainingPercent, 60);
-  assert.ok(changed >= 3);
+  assert.equal(manager.publicState().ordinaryUsageAllowed, false);
 });
 
 test('Codex usage failures remain a display-only unavailable state', async () => {
@@ -112,11 +117,12 @@ test('local performance settles after completion and late usage, preserving hone
   } } }), true);
   const state = manager.publicState();
   assert.equal(state.status, 'ready');
-  assert.equal(state.latest.generatedTokens, 100);
+  assert.equal(state.latest.generatedTokens, 80);
   assert.equal(state.latest.durationMs, 1600);
   assert.equal(state.latest.firstOutputMs, 600);
   assert.equal(state.latest.generationMs, 1000);
-  assert.equal(state.latest.tokensPerSecond, 100);
+  assert.equal(state.latest.tokensPerSecond, 80);
+  assert.equal(state.latest.reasoningTokens, 20);
   assert.equal(state.latest.cachedInputTokens, 250);
 });
 
