@@ -5,7 +5,7 @@ Keep additions driven by actual use. Little Bot remains a foreground-only, singl
 Implemented foundations:
 
 - [Independent Check](INDEPENDENT-CHECK.md): Selective, Always, Off, and manual Challenge anti-sycophancy review.
-- [In-process events and standing intents](EVENTS.md): one bounded foreground queue connecting deterministic events to authorized goals and automations, with no gateway or closed-app backlog.
+- [In-process events and standing intents](EVENTS.md): one bounded foreground queue connecting deterministic events to authorized goals and automations, with no gateway or closed-app backlog. Delayed queue timers yield to earlier events, edited intents resolve their current target, and an unstarted intent-launched goal is restored when foreground processing stops.
 
 1. **Plan and evidence ledger.** Give each goal a versioned sequential plan, assumptions, observations, and decisions that survive restart and compaction. Exactly one plan step remains active at a time.
 2. **Windows UI Automation.** Add inspectable foreground control of native Windows applications through the accessibility tree, with one action between observations and screenshots only as fallback.
