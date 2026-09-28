@@ -8,6 +8,7 @@ const { pipeline } = require('node:stream/promises');
 const { localBaseUrl } = require('./connections.cjs');
 const { applyQwenGeneration } = require('./local-generation.cjs');
 const { prepareNamespaceTools, restoreNamespaceCalls } = require('./responses-namespace-compat.cjs');
+const { StrataStreamAdapter, estimateResponsesInputTokens, responsesToChat } = require('./strata-responses-adapter.cjs');
 
 // A 50 MiB attachment turn can exceed 64 MiB after base64 encoding.
 const MAX_BODY_BYTES = 96 * 1024 * 1024;
@@ -117,6 +118,7 @@ class LocalModelRelay {
     this.secret = token();
     this.routes = new Map();
     this.upstreams = new Map();
+    this.adapters = new Map();
     this.sockets = new Set();
     this.requests = new Set();
   }
@@ -165,14 +167,17 @@ class LocalModelRelay {
     }
   }
 
-  endpoint(baseUrl) {
+  endpoint(baseUrl, adapter = null) {
     if (!this.server?.listening || this.closing) throw new Error('The local model connection is not ready.');
     const base = localBaseUrl(baseUrl);
-    let route = this.upstreams.get(base);
+    const mode = adapter === 'strata' ? 'strata' : 'responses';
+    const key = `${mode}\0${base}`;
+    let route = this.upstreams.get(key);
     if (!route) {
       route = token();
-      this.upstreams.set(base, route);
+      this.upstreams.set(key, route);
       this.routes.set(route, base);
+      this.adapters.set(route, mode === 'strata' ? 'strata' : null);
     }
     return `${this.origin}/${this.secret}/${route}/v1`;
   }
@@ -185,6 +190,7 @@ class LocalModelRelay {
     }
     const match = /^\/([a-f0-9]{48})\/([a-f0-9]{48})\/v1\/(responses(?:\/input_tokens)?)$/.exec(request.url || '');
     const base = match?.[1] === this.secret ? this.routes.get(match[2]) : null;
+    const adapter = base ? this.adapters.get(match[2]) : null;
     if (!base || request.method !== 'POST') throw new RequestError(404, 'Local model route not found.');
     if (!/^application\/json(?:\s*;|$)/i.test(request.headers['content-type'] || '')) throw new RequestError(415, 'The local model request must be JSON.');
     // Pinned Codex only compresses authenticated OpenAI-backend requests; local
@@ -201,13 +207,27 @@ class LocalModelRelay {
     if (!object(body) || (body.chat_template_kwargs !== undefined && !object(body.chat_template_kwargs))) throw new RequestError(400, 'The local model request has invalid template settings.');
     body.chat_template_kwargs = { ...body.chat_template_kwargs, enable_thinking: thinking };
     const namespaceTools = prepareNamespaceTools(body);
-    if (match[3] === 'responses') applyQwenGeneration(body, thinking);
+    if (adapter === 'strata' && match[3] === 'responses/input_tokens') {
+      const data = Buffer.from(JSON.stringify({ object: 'response.input_tokens', input_tokens: estimateResponsesInputTokens(body) }));
+      response.writeHead(200, { 'content-type': 'application/json', 'content-length': String(data.length), 'cache-control': 'no-store' });
+      response.end(data);
+      return;
+    }
+    let upstreamPath = match[3], strataTools = null;
+    if (adapter === 'strata') {
+      const translated = responsesToChat(body, thinking);
+      body = translated.body;
+      strataTools = translated.toolKinds;
+      upstreamPath = 'chat/completions';
+    } else if (match[3] === 'responses') {
+      applyQwenGeneration(body, thinking);
+    }
     const data = Buffer.from(JSON.stringify(body));
     const headers = headersWithoutHopByHop(request.headers);
     for (const name of ['host', 'content-length', 'content-encoding', 'origin', 'referer', 'cookie', 'authorization', 'expect']) delete headers[name];
     headers['content-length'] = String(data.length);
     headers['accept-encoding'] = 'identity';
-    const target = new URL(`${base}/${match[3]}`);
+    const target = new URL(`${base}/${upstreamPath}`);
     const transport = target.protocol === 'https:' ? https : http;
     let upstream;
     const cancelled = () => upstream?.destroy();
@@ -235,8 +255,13 @@ class LocalModelRelay {
         && (!result.headers['content-encoding'] || result.headers['content-encoding'] === 'identity');
       if (repairEvents) delete resultHeaders['content-length'];
       response.writeHead(result.statusCode || 502, resultHeaders);
-      if (repairEvents) await pipeline(result, responseEvents(namespaceTools), response);
-      else await pipeline(result, response);
+      if (repairEvents && adapter === 'strata') {
+        await pipeline(result, new StrataStreamAdapter({ model: body.model, toolKinds: strataTools }), responseEvents(namespaceTools), response);
+      } else if (repairEvents) {
+        await pipeline(result, responseEvents(namespaceTools), response);
+      } else {
+        await pipeline(result, response);
+      }
     } finally {
       response.off('close', cancelled);
       upstream?.destroy();
@@ -250,7 +275,7 @@ class LocalModelRelay {
       const server = this.server;
       this.server = null;
       this.origin = null;
-      this.routes.clear(); this.upstreams.clear(); this.secret = token();
+      this.routes.clear(); this.upstreams.clear(); this.adapters.clear(); this.secret = token();
       for (const request of this.requests) request.destroy();
       for (const socket of this.sockets) socket.destroy();
       if (server?.listening) await new Promise(resolve => server.close(resolve));
