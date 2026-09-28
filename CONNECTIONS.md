@@ -6,6 +6,8 @@ Local inference uses the installed llama.cpp server's native Responses API. The 
 
 Strata is supported without changing that native llama.cpp path. When the selected server has Strata's `/health` shape and no llama.cpp `/props`, Little Bot marks only that connection for an in-process Responses-to-Chat-Completions adapter. Codex still speaks Responses API to Little Bot; the relay translates that Strata connection to `/v1/chat/completions` and translates Strata's streamed text, reasoning, and tool calls back to Responses events. Other local servers continue through the existing native Responses relay unchanged.
 
+For a detected Strata connection, the composer replaces the legacy local Thinking On/Off switch with **None / Low / Medium / High** reasoning levels. None disables thinking; Low, Medium, and High enable thinking and pass that effort through to Strata. The existing On/Off control remains unchanged for non-Strata local models, and Codex keeps its existing effort selector.
+
 The composer has a **Thinking On/Off** switch for Qwen. It defaults to on and saves one preference for all local chats, goals, automations, heartbeat, and compaction requests. Changes are accepted between runs, including in an existing chat. Codex retains its separate effort setting.
 
 In direct conversations, native reasoning events appear in a collapsed **Thinking…** disclosure. Opening it shows the streamed text; completed **Thoughts** stays in the saved conversation. Raw Qwen content takes precedence over duplicate summaries. Reasoning is separate from final answers and excluded from memory capture and history search. Interrupted reasoning is marked as stopped. Compaction and internal heartbeat reasoning are not added to the chat transcript.
