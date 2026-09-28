@@ -86,6 +86,7 @@ class EventBus {
     this.onChange = onChange;
     this.started = false;
     this.dispatching = false;
+    this.drainPromise = null;
     this.queue = [];
     this.subscriptions = new Map();
     this.dedupeUntil = new Map();
@@ -188,8 +189,18 @@ class EventBus {
     return { accepted: true, event };
   }
 
-  async drain() {
-    if (!this.started || this.dispatching) return false;
+  drain() {
+    if (!this.started) return Promise.resolve(false);
+    if (this.drainPromise) return this.drainPromise;
+    const operation = this._drain();
+    const tracked = operation.finally(() => {
+      if (this.drainPromise === tracked) this.drainPromise = null;
+    });
+    this.drainPromise = tracked;
+    return tracked;
+  }
+
+  async _drain() {
     this.dispatching = true;
     this.scheduled = false;
     if (this.timer) this.clearTimer(this.timer);
