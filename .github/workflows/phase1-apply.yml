@@ -27,7 +27,23 @@ jobs:
       - name: Assemble and apply the integration patch
         shell: pwsh
         run: |
-          $encoded = (Get-ChildItem -LiteralPath scripts/.phase1-patch -Filter 'part-*' | Sort-Object Name | ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw }) -join ''
+          $expectedParts = @{
+            'part-00' = '2788173f48921119b00297aa437769737e7e1a4cd22c5bdbe047b82ea611a69f'
+            'part-01' = '2f2a87904d4786ad31141ce1ec92cfb1571618ca1f8d396dc9fbef6f370b6d23'
+            'part-02' = 'e4dd3841caa7f37c69bb013cf9071964a9558ae4a29dc01e802c413e76752ad1'
+            'part-03' = 'f00963960100d9dd56f05b221881565ae72613e6ac7610408344e7d67e200cdf'
+            'part-04' = 'a6842afbb02cfa20d43767f6a4edd12085eb0614a0ce6c6a984192abd8ac0c27'
+            'part-05' = '02f3e99b8cb5376677cd3b90dea207c2c0bac68fbc17a8174b1b59a8a49ecd26'
+            'part-06' = '7b45fc2a730e1157abfb3bf6b973df1929efc375eac8153602f19a118364159d'
+            'part-07' = 'e87a761ac0518e793bef15590db03194cde653b147491d611ab6d3f239d3fdef'
+          }
+          $parts = Get-ChildItem -LiteralPath scripts/.phase1-patch -Filter 'part-*' | Sort-Object Name
+          foreach ($part in $parts) {
+            $value = Get-Content -LiteralPath $part.FullName -Raw
+            $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($value))).ToLowerInvariant()
+            if ($hash -ne $expectedParts[$part.Name]) { throw "Patch chunk mismatch for $($part.Name): $hash" }
+          }
+          $encoded = ($parts | ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw }) -join ''
           $actual = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($encoded))).ToLowerInvariant()
           if ($actual -ne '11e01edabc9a3935a4927bf59418eb4eb7d90514f5fb3baf324a03a753a3d76b') { throw "Patch checksum mismatch: $actual" }
           Set-Content -LiteralPath scripts/.phase1-patch/full.b64 -Value $encoded -NoNewline
