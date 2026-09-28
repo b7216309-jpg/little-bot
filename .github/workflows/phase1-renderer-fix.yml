@@ -1,0 +1,47 @@
+name: Apply Phase 1 renderer fix
+
+on:
+  push:
+    branches:
+      - feature/independent-check
+    paths:
+      - .github/workflows/phase1-renderer-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/independent-check
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - name: Apply renderer eligibility fix
+        run: node scripts/apply-independent-check-renderer.cjs
+      - name: Remove one-shot patch files
+        shell: pwsh
+        run: |
+          Remove-Item -LiteralPath scripts/apply-independent-check-renderer.cjs -Force
+          Remove-Item -LiteralPath .github/workflows/phase1-renderer-fix.yml -Force
+      - name: Check JavaScript syntax
+        run: npm run check:syntax
+      - name: Run Node test suite
+        run: npm test
+      - name: Run Electron integration tests
+        run: npm run test:electron
+      - name: Commit tested renderer fix
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if (git diff --cached --quiet) { throw 'The renderer patch produced no changes.' }
+          git commit -m "Restrict Independent Check actions to final messages"
+          git push origin HEAD:feature/independent-check
