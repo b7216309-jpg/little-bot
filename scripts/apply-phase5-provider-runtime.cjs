@@ -10,6 +10,55 @@ function replaceOnce(file, before, after, label) {
   fs.writeFileSync(file, source.replace(before, after), 'utf8');
 }
 
+replaceOnce('src/provider-usage.cjs',
+`  const byId = value.rateLimitsByLimitId ?? value.rate_limits_by_limit_id;
+  if (object(byId)) return Object.entries(byId);
+  const limits = value.rateLimits ?? value.rate_limits ?? value;`,
+`  const byId = value.rateLimitsByLimitId ?? value.rate_limits_by_limit_id;
+  if (object(byId) && Object.keys(byId).length) return Object.entries(byId);
+  const limits = value.rateLimits ?? value.rate_limits ?? value;`,
+'empty multi-bucket fallback');
+
+replaceOnce('src/provider-usage.cjs',
+`    } else {
+      this.state = {
+        kind: 'local', status: current.status === 'connected' ? (this.samples.length ? 'ready' : 'waiting') : 'offline',
+        updatedAt: this.samples.at(-1)?.at || null, model: current.model, latest: this.samples.at(-1) || null,
+        average: averageSamples(this.samples), sampleCount: this.samples.length,
+        error: current.status === 'connected' ? null : 'Local performance appears after a completed model turn.',
+      };
+    }`,
+`    } else {
+      if (current.model && this.samples.some(sample => sample.model && sample.model !== current.model)) this.samples = [];
+      const connected = current.status === 'connected';
+      const checking = current.status === 'checking';
+      this.state = {
+        kind: 'local', status: connected ? (this.samples.length ? 'ready' : 'waiting') : checking ? 'waiting' : 'offline',
+        updatedAt: this.samples.at(-1)?.at || null, model: current.model, latest: this.samples.at(-1) || null,
+        average: averageSamples(this.samples), sampleCount: this.samples.length,
+        error: connected || checking ? null : 'Local performance appears after a completed model turn.',
+      };
+    }`,
+'local connection state');
+
+replaceOnce('src/provider-usage.cjs',
+`    const current = normalizeConnection(this.connection());
+    if (current.type !== 'codex') return this.connectionChanged(current);
+    if (current.status !== 'connected' || this.account()?.status !== 'connected') {`,
+`    const current = normalizeConnection(this.connection());
+    if (current.type !== 'codex') {
+      const connected = current.status === 'connected';
+      this.state = {
+        kind: 'local', status: connected ? (this.samples.length ? 'ready' : 'waiting') : current.status === 'checking' ? 'waiting' : 'offline',
+        updatedAt: this.samples.at(-1)?.at || null, model: current.model, latest: this.samples.at(-1) || null,
+        average: averageSamples(this.samples), sampleCount: this.samples.length,
+        error: connected || current.status === 'checking' ? null : 'Local performance appears after a completed model turn.',
+      };
+      this.changed(); return this.publicState();
+    }
+    if (current.status !== 'connected' || this.account()?.status !== 'connected') {`,
+'non-destructive local refresh');
+
 replaceOnce('src/controller.cjs',
 `const { INDEPENDENT_CHECK_MODES, normalizeIndependentCheckMode } = require('./independent-check.cjs');`,
 `const { INDEPENDENT_CHECK_MODES, normalizeIndependentCheckMode } = require('./independent-check.cjs');
@@ -134,7 +183,7 @@ test('controller exposes transient provider usage and observes all engine turns'
   assert.match(controller, /new ProviderUsage/);
   assert.match(controller, /providerUsage: this\.providerUsage\.publicState\(\)/);
   assert.match(controller, /this\.providerUsage\.notification\(method, params\)/);
-  assert.match(controller, /account\/rateLimits\/read/);
+  assert.match(read('src/provider-usage.cjs'), /account\/rateLimits\/read/);
   assert.doesNotMatch(read('src/store.cjs'), /providerUsage/);
 });
 
