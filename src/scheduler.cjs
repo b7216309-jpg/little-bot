@@ -111,14 +111,16 @@ function validateAutomation(input, existing = null, settings = {}, nowMs = Date.
 }
 
 class Scheduler {
-  constructor({ store, run, canRun = () => true, onChange = () => {}, now = Date.now }) {
+  constructor({ store, run, canRun = () => true, onChange = () => {}, now = Date.now, publish = null }) {
     if (!store || typeof store.save !== 'function') throw new TypeError('A store is required.');
     if (typeof run !== 'function') throw new TypeError('A task runner is required.');
+    if (publish !== null && typeof publish !== 'function') throw new TypeError('Scheduler publish must be a function.');
     this.store = store;
     this.canRun = canRun;
     this.run = run;
     this.onChange = onChange;
     this.now = now;
+    this.publish = publish;
     this.timer = null;
     this.runningId = null;
   }
@@ -142,6 +144,12 @@ class Scheduler {
       .filter(automation => isConnectionSelected(automation, this.store.data.settings))
       .sort((left, right) => left.nextRunAt - right.nextRunAt)[0];
     if (!due) return null;
+    if (this.publish) return this.publish({
+      type: 'automation.due', source: 'scheduler', priority: 4,
+      dedupeKey: `automation:due:${due.id}:${due.nextRunAt}`,
+      expiresAt: nowMs + Math.max(MINUTE_MS, scheduleTypeOf(due) === 'clock' ? 60 * MINUTE_MS : due.intervalMinutes * MINUTE_MS),
+      payload: { automationId: due.id, name: due.name, workspace: due.workspace, dueAt: due.nextRunAt },
+    });
     try {
       return await this.runNow(due.id);
     } catch {
@@ -165,6 +173,8 @@ class Scheduler {
       delete automation.lastError;
       this.store.save();
       this.onChange();
+      this.publish?.({ type: 'automation.started', source: 'scheduler',
+        payload: { automationId: automation.id, name: automation.name, workspace: automation.workspace, startedAt } });
       // The runner resolves only after its task finishes, including any user-input wait.
       const result = await this.run({ ...automation });
       if (result === false) throw new Error('The automation could not start.');
@@ -190,6 +200,12 @@ class Scheduler {
     }
     this.store.save();
     this.onChange();
+    this.publish?.({
+      type: status === 'completed' ? 'automation.completed' : 'automation.error',
+      source: 'scheduler',
+      payload: { automationId: automation.id, name: automation.name, workspace: automation.workspace,
+        finishedAt: nowMs, ...(error ? { error: String(error).slice(0, 2000) } : {}) },
+    });
   }
 }
 

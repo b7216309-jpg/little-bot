@@ -12,6 +12,7 @@ const { normalizeCalendar } = require('./calendar.cjs');
 const { attachmentDescriptors } = require('./attachment-message.cjs');
 const { normalizeConnectionSettings, connectionBinding } = require('./connections.cjs');
 const { normalizeIndependentCheckMode, normalizeIndependentCheckRecord } = require('./independent-check.cjs');
+const { normalizeStandingIntents } = require('./standing-intents.cjs');
 
 const INTERRUPTED = 'Interrupted because Little Bot closed before the task finished.';
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -81,6 +82,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
   const automations = Array.isArray(data.automations) ? data.automations : [];
   return {
     autonomy: normalizeAutonomy(data.autonomy, { ...settings, workspace: string(settings.workspace, defaultWorkspace) }, recovering),
+    standingIntents: normalizeStandingIntents(data.standingIntents, Date.now(), recovering),
     extensions: normalizeExtensions(data.extensions),
     memory: normalizeMemory(data.memory),
     calendar: normalizeCalendar(data.calendar),
@@ -236,6 +238,7 @@ class Store {
       const invalidShape = (source.settings !== undefined && !isObject(source.settings))
         || (source.autonomy !== undefined && (!isObject(source.autonomy)
           || !Array.isArray(source.autonomy.goals) || source.autonomy.goals.length !== this.data.autonomy.goals.length))
+        || (source.standingIntents !== undefined && (!isObject(source.standingIntents) || !Array.isArray(source.standingIntents.intents)))
         || ['chats', 'automations'].some(key => source[key] !== undefined
           && (!Array.isArray(source[key]) || source[key].some(item => !isObject(item))))
         || (Array.isArray(source.chats) && source.chats.some(chat => isObject(chat)

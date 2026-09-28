@@ -11,6 +11,7 @@ const { Heartbeat, validateHeartbeat } = require('./heartbeat.cjs');
 const { ExtensionFiles, validateServer, LIMITS } = require('./extensions.cjs');
 const { ExtensionRuntime } = require('./extension-runtime.cjs');
 const { GoalRunner } = require('./goals.cjs');
+const { EventRuntime } = require('./event-runtime.cjs');
 const { AgentTools } = require('./agent-tools.cjs');
 const { ProfileFiles } = require('./profile.cjs');
 const { installBundledSkills } = require('./bundled-skills.cjs');
@@ -29,7 +30,7 @@ if (process.env.LITTLE_BOT_DATA_DIR) app.setPath('userData', path.resolve(proces
 const smoke = process.argv.includes('--smoke-test');
 const launchTime = performance.now();
 if (!smoke && !app.requestSingleInstanceLock()) app.quit();
-let window, controller, scheduler, heartbeat, goals, errorLog, quitting = false;
+let window, controller, scheduler, heartbeat, goals, eventRuntime, errorLog, quitting = false;
 const rendererFile = path.join(__dirname, 'renderer', 'index.html');
 const rendererUrl = pathToFileURL(rendererFile).href;
 
@@ -128,13 +129,15 @@ app.whenReady().then(async () => {
   const extensionFiles = new ExtensionFiles({ root: path.join(stateDir, 'extensions'), store });
   const extensionRuntime = new ExtensionRuntime({ store, client, onChange: () => controller.changed() });
   controller.extensionRuntime = extensionRuntime;
-  scheduler = new Scheduler({ store, run: runAutomation, canRun: () => !store.data.autonomy.paused && !goals?.activeId && !controller.goalChat && !heartbeat?.running && !controller.extensionsBusy && !store.data.chats.some(chat => chat.status !== 'idle'), onChange: () => controller.changed() });
+  const publishEvent = event => eventRuntime?.publish(event) || { accepted: false, reason: 'stopped' };
+  scheduler = new Scheduler({ store, run: runAutomation, publish: publishEvent, canRun: () => !store.data.autonomy.paused && !goals?.activeId && !controller.goalChat && !heartbeat?.running && !controller.extensionsBusy && !store.data.chats.some(chat => chat.status !== 'idle'), onChange: () => controller.changed() });
   heartbeat = new Heartbeat({ store, run: config => controller.runHeartbeat(config),
     canNotify: () => !store.data.autonomy.paused && !window?.isFocused() && Notification.isSupported()
       && !store.data.chats.some(chat => chat.status !== 'idle'),
     canRun: () => controller.runtime.status === 'ready' && controller.account.status === 'connected'
       && !store.data.autonomy.paused && !goals?.activeId && !controller.goalChat && !controller.extensionsBusy && !scheduler.runningId && !controller.heartbeatChat && !store.data.chats.some(chat => chat.status !== 'idle'),
     onChange: () => controller.changed(),
+    publish: publishEvent,
     onAlert: item => {
       if (smoke || !Notification.isSupported() || window?.isFocused()) return;
       const notice = new Notification({ title: item.status === 'error' ? 'Little Bot needs attention' : item.source === 'goal' ? 'Little Bot goals' : 'Little Bot heartbeat',
@@ -155,6 +158,7 @@ app.whenReady().then(async () => {
       && !controller.extensionsBusy && !controller.goalChat && !controller.heartbeatChat && !heartbeat.running && !scheduler.runningId
       && !store.data.chats.some(chat => chat.status !== 'idle'),
     onChange: () => controller.changed(),
+    publish: publishEvent,
     onAlert: item => {
       const goal = store.data.autonomy.goals.find(goal => goal.id === item.goalId);
       heartbeat.recordActivity({ status: goal?.status === 'blocked' ? 'error' : 'alert',
@@ -163,17 +167,24 @@ app.whenReady().then(async () => {
         workspace: goal?.workspace || store.data.settings.workspace });
     },
   });
+  eventRuntime = new EventRuntime({ store, scheduler, heartbeat, goals, controller,
+    onChange: ({ persisted }) => controller.changed(persisted === true),
+    onError: (error, event) => logDiagnostic('event-runtime', error, { eventType: event?.type }),
+  });
+  controller.eventRuntime = eventRuntime;
   function saveCalendarRecord(payload) {
     const records = store.data.calendar.events;
     const existing = payload?.id ? records.find(event => event.id === payload.id) : null;
     if (payload?.id && !existing) throw new Error('This calendar event no longer exists.');
     if (!existing && records.length >= MAX_EVENTS) throw new Error('The local calendar has reached its 5,000-event limit.');
+    const action = existing ? 'updated' : 'created';
     const event = validateCalendarEvent(payload, existing);
     if (existing) Object.assign(existing, event);
     else records.push(event);
     records.sort((left, right) => left.startAt - right.startAt || left.title.localeCompare(right.title));
     store.save();
     controller.changed();
+    eventRuntime?.calendarChanged(action, event);
     return event;
   }
   function deleteCalendarRecord(id) {
@@ -184,6 +195,7 @@ app.whenReady().then(async () => {
     const [removed] = records.splice(index, 1);
     store.save();
     controller.changed();
+    eventRuntime?.calendarChanged('deleted', removed);
     return removed;
   }
 
@@ -426,6 +438,9 @@ app.whenReady().then(async () => {
     if (automation) { automation.authorized = true; store.save(); }
     return scheduler.runNow(id);
   });
+  register('saveStandingIntent', payload => { eventRuntime.saveIntent(payload); return controller.state(); });
+  register('deleteStandingIntent', ({ id } = {}) => { eventRuntime.removeIntent(id); return controller.state(); });
+  register('toggleStandingIntent', ({ id, enabled } = {}) => { eventRuntime.setIntentEnabled(id, enabled); return controller.state(); });
   register('saveMemory', ({ enabled } = {}) => {
     if (typeof enabled !== 'boolean') throw new Error('Memory enabled must be true or false.');
     store.data.memory.enabled = enabled;
@@ -548,7 +563,7 @@ app.whenReady().then(async () => {
   const startup = controller.start();
   startup.then(() => {
     controller.runtime.startupMs = Math.round(performance.now() - launchTime);
-    controller.changed(); scheduler.start(); heartbeat.start(); goals.start();
+    controller.changed(); eventRuntime.start(); scheduler.start(); heartbeat.start(); goals.start();
   }).catch(() => {});
   if (smoke) {
     try {
@@ -564,16 +579,16 @@ app.whenReady().then(async () => {
       }
       if (smokeOnly !== 'attachments') console.log(JSON.stringify({ recall: await require('./recall-smoke.cjs').run({ window, controller, store, stateDir }) }));
       await controller.browser.close({ shutdown: true }); controller.webServices.close();
-      scheduler.stop(); heartbeat.stop(); await goals.close(); await controller.close();
+      scheduler.stop(); heartbeat.stop(); eventRuntime.stop(); await goals.close(); await controller.close();
       app.exit(0);
-    } catch (error) { console.error(cleanError(error.stack || error)); scheduler.stop(); heartbeat.stop(); await goals.close(); await controller.browser.close({ shutdown: true }).catch(() => {}); controller.webServices.close(); await controller.close(); app.exit(1); }
+    } catch (error) { console.error(cleanError(error.stack || error)); scheduler.stop(); heartbeat.stop(); eventRuntime.stop(); await goals.close(); await controller.browser.close({ shutdown: true }).catch(() => {}); controller.webServices.close(); await controller.close(); app.exit(1); }
   }
 }).catch(error => { logDiagnostic('main:startup', error); console.error(cleanError(error)); app.exit(1); });
 app.on('second-instance', () => { if (window) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); } });
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', event => {
   if (quitting) return;
-  event.preventDefault(); quitting = true; scheduler?.stop(); heartbeat?.stop();
+  event.preventDefault(); quitting = true; scheduler?.stop(); heartbeat?.stop(); eventRuntime?.stop();
   controller?.webServices?.close();
   Promise.allSettled([goals?.close(), controller?.browser?.close({ shutdown: true })]).then(() => controller?.close()).catch(error => console.error(cleanError(error))).finally(() => app.quit());
 });

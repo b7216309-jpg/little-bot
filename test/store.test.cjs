@@ -28,6 +28,7 @@ test('new state is minimal and save preserves live references without persisting
   assert.equal(store.data.settings.autoCompactPercent, 80);
   assert.deepEqual(store.data.chats, []);
   assert.deepEqual(store.data.automations, []);
+  assert.deepEqual(store.data.standingIntents, { intents: [] });
   assert.deepEqual(store.data.memory, { enabled: true, facts: [], episodes: [] });
   assert.equal(store.data.heartbeat.enabled, false);
   assert.equal(store.data.heartbeat.mode, 'act');
@@ -38,7 +39,7 @@ test('new state is minimal and save preserves live references without persisting
   store.save();
   assert.equal(store.data.chats[0], chat);
   const saved = JSON.parse(fs.readFileSync(f.filePath, 'utf8'));
-  assert.deepEqual(Object.keys(saved).sort(), ['automations', 'autonomy', 'calendar', 'chats', 'extensions', 'heartbeat', 'memory', 'settings']);
+  assert.deepEqual(Object.keys(saved).sort(), ['automations', 'autonomy', 'calendar', 'chats', 'extensions', 'heartbeat', 'memory', 'settings', 'standingIntents']);
   assert.equal(saved.chats[0].status, 'running');
   assert.equal(fs.readFileSync(f.filePath, 'utf8').includes('sensitive-test-value'), false);
   assert.equal(fs.readdirSync(path.dirname(f.filePath)).length, 1);
@@ -323,4 +324,20 @@ test('malformed context counts are unknown rather than misleading usage', t => {
   assert.equal(chat.context.usedTokens, null);
   assert.equal(chat.context.windowTokens, null);
   assert.deepEqual(chat.compaction, { status: 'idle', count: 0, lastAt: null, lastError: null });
+});
+
+test('standing intents persist and queued actions are skipped rather than replayed after restart', t => {
+  const f = fixture(t);
+  const store = new Store(f);
+  store.data.standingIntents.intents.push({
+    id: 'intent-1', name: 'Review report', enabled: true, priority: 2, debounceMs: 1000,
+    when: { type: 'file.changed', source: '', filters: [{ path: 'payload.path', operator: 'glob', value: 'reports/*.csv' }] },
+    action: { type: 'goal.run', goalId: 'goal-1' }, createdAt: 100, updatedAt: 100, triggerCount: 1,
+    lastTriggeredAt: 200, lastStatus: 'queued', lastEventId: 'event-1',
+  });
+  store.save();
+  const reloaded = new Store(f);
+  assert.equal(reloaded.data.standingIntents.intents.length, 1);
+  assert.equal(reloaded.data.standingIntents.intents[0].lastStatus, 'skipped');
+  assert.match(reloaded.data.standingIntents.intents[0].lastError, /not replayed/);
 });

@@ -113,6 +113,7 @@ class Controller extends EventEmitter {
     this.attachments = null;
     this.browser = null;
     this.webServices = null;
+    this.eventRuntime = null;
     this.agentToolCalls = new Map();
     this.pendingQuestions = new Map();
     this.questionRequests = new Map();
@@ -143,6 +144,7 @@ class Controller extends EventEmitter {
       extensionsBusy: this.extensionsBusy,
       goalRuntime: this.goalExecutor.state,
       independentCheckRuntime: this.independentCheck.state,
+      eventRuntime: this.eventRuntime?.state || { status: 'stopped', bus: { started: false, queued: 0 }, standingIntentCount: 0, enabledStandingIntentCount: 0 },
       profile: this.profileFiles?.getState() || null,
       browser: this.browser?.getState() || null,
       webServices: this.webServices?.getState() || null,
@@ -769,6 +771,12 @@ class Controller extends EventEmitter {
       if (message.kind === 'reasoning') this.reasoningParts.delete(message);
     }
     chat.messages = chat.messages.filter(message => message.kind !== 'reasoning' || message.text.trim());
+    if (!chat.internal && !manual) this.eventRuntime?.publish({
+      type: error ? 'chat.failed' : 'chat.completed', source: 'chat',
+      dedupeKey: `chat:${chat.id}:${turnId || finishedAt}`,
+      payload: { chatId: chat.id, title: chat.title, workspace: chat.workspace, automationId: chat.automationId || null,
+        status: error ? 'failed' : 'completed', finishedAt, ...(error ? { error: cleanError(error) } : {}) },
+    });
     this.turns.delete(chat.id);
     for (const request of this.questionRequests.values()) if (request.chatId === chat.id) request.cancelled = true;
     for (const [key, approval] of this.approvals) if (approval.chatId === chat.id) {
@@ -1182,6 +1190,7 @@ class Controller extends EventEmitter {
   }
   async close() {
     this.closing = true;
+    this.eventRuntime?.stop();
     this.independentCheck.abort('interrupted', 'Independent Check stopped because Little Bot closed. The completed draft was kept.');
     for (const request of this.questionRequests.values()) request.cancelled = true;
     for (const [key, approval] of this.approvals) if (approval.dynamicTool === 'ask_user') {
