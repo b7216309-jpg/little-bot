@@ -88,15 +88,15 @@ test('Settings loads provider usage modules before app startup', () => {
   const html = read('src/renderer/index.html');
   assert.ok(html.indexOf('provider-usage-ui.js') < html.indexOf('provider-usage-panel.js'));
   assert.ok(html.indexOf('provider-usage-panel.js') < html.indexOf('app.js'));
-  assert.match(html, /id="provider-usage-content"/);
-  assert.match(html, /id="provider-usage-refresh"/);
-  assert.match(read('src/renderer/app.js'), /LittleBotProviderUsagePanel\?\.render\(state\.providerUsage/);
+  assert.ok(html.includes('id="provider-usage-content"'));
+  assert.ok(html.includes('id="provider-usage-refresh"'));
+  assert.ok(read('src/renderer/app.js').includes('LittleBotProviderUsagePanel?.render(state.providerUsage'));
 });
 
 test('provider usage remains a read-only display with a retained Electron fixture', () => {
   const panel = read('src/renderer/provider-usage-panel.js');
-  assert.match(panel, /refreshProviderUsage/);
-  assert.doesNotMatch(panel, /saveProviderUsage|setRateLimit|setBudget/);
-  assert.match(read('package.json'), /provider-usage-electron\.cjs/);
+  assert.ok(panel.includes('refreshProviderUsage'));
+  assert.equal(/saveProviderUsage|setRateLimit|setBudget/.test(panel), false);
+  assert.ok(read('package.json').includes('provider-usage-electron.cjs'));
 });
 `, 'utf8');
