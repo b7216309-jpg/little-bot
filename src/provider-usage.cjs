@@ -7,6 +7,10 @@ const number = value => Number.isFinite(value) && value >= 0 ? value : null;
 const integer = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
 const text = (value, maximum = 200) => typeof value === 'string'
   ? value.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, maximum) : '';
+const scrub = value => String(value?.message || value || 'Provider usage unavailable.')
+  .replace(/\bsk-[A-Za-z0-9_-]+/g, '[redacted]')
+  .replace(/((?:access[_-]?token|refresh[_-]?token|api[_-]?key|password|secret)["'\s:=]+)[^\s,}"']+/gi, '$1[redacted]')
+  .slice(0, 500);
 const clampPercent = value => Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : null;
 
 function timestamp(value) {
@@ -51,7 +55,7 @@ function bucketLike(value) {
 
 function normalizeCredits(value) {
   if (!object(value)) return null;
-  const balance = number(value.balance ?? value.remaining);
+  const balance = text(value.balance ?? value.remaining, 120) || null;
   const result = {
     hasCredits: typeof value.hasCredits === 'boolean' ? value.hasCredits
       : typeof value.has_credits === 'boolean' ? value.has_credits : null,
@@ -68,14 +72,20 @@ function normalizeBucket(value, id, index) {
   if (!primary && !secondary) return null;
   const bucketId = text(value.limitId ?? value.limit_id ?? id, 120) || `limit-${index + 1}`;
   const label = text(value.limitName ?? value.limit_name ?? value.name ?? value.label, 120) || bucketId;
+  const reachedType = text(value.rateLimitReachedType ?? value.rate_limit_reached_type
+    ?? value.reachedType ?? value.reached_type, 80) || null;
+  const spendControlReached = value.spendControlReached === true || value.spend_control_reached === true;
+  const explicitReached = typeof value.limitReached === 'boolean' ? value.limitReached
+    : typeof value.limit_reached === 'boolean' ? value.limit_reached : null;
   return {
     id: bucketId,
     label,
+    plan: text(value.planType ?? value.plan_type, 80) || null,
     primary,
     secondary,
-    limitReached: typeof value.limitReached === 'boolean' ? value.limitReached
-      : typeof value.limit_reached === 'boolean' ? value.limit_reached : null,
-    reachedType: text(value.reachedType ?? value.reached_type, 80) || null,
+    limitReached: explicitReached ?? (spendControlReached || Boolean(reachedType)),
+    reachedType,
+    spendControlReached,
     credits: normalizeCredits(value.credits),
   };
 }
@@ -97,11 +107,12 @@ function normalizeRateLimits(value, { now = Date.now(), plan = '' } = {}) {
     .map(([id, entry], index) => normalizeBucket(entry, id, index)).filter(Boolean);
   const ordinaryUsageAllowed = typeof source.ordinaryUsageAllowed === 'boolean' ? source.ordinaryUsageAllowed
     : typeof source.ordinary_usage_allowed === 'boolean' ? source.ordinary_usage_allowed : null;
+  const providerPlan = buckets.map(bucket => bucket.plan).find(Boolean) || null;
   return {
     kind: 'codex',
     status: buckets.length ? 'ready' : 'unavailable',
     updatedAt: now,
-    plan: text(source.planType ?? source.plan_type ?? plan, 80) || null,
+    plan: text(source.planType ?? source.plan_type ?? plan, 80) || providerPlan,
     ordinaryUsageAllowed,
     buckets,
     error: buckets.length ? null : 'The provider did not report a usable rate-limit window.',
@@ -143,6 +154,7 @@ class ProviderUsage {
     this.onChange = onChange;
     this.now = now;
     this.refreshing = null;
+    this.refreshAgain = false;
     this.turns = new Map();
     this.samples = [];
     this.state = { kind: 'local', status: 'waiting', updatedAt: null, model: null, latest: null, average: null, sampleCount: 0, error: null };
@@ -180,7 +192,15 @@ class ProviderUsage {
   async refresh() {
     if (this.refreshing) return this.refreshing;
     this.refreshing = this._refresh();
-    try { return await this.refreshing; } finally { this.refreshing = null; }
+    try { return await this.refreshing; } finally {
+      this.refreshing = null;
+      if (this.refreshAgain) { this.refreshAgain = false; this.requestRefresh(); }
+    }
+  }
+
+  requestRefresh() {
+    if (this.refreshing) { this.refreshAgain = true; return; }
+    void this.refresh();
   }
 
   async _refresh() {
@@ -207,7 +227,7 @@ class ProviderUsage {
     } catch (error) {
       this.state = {
         kind: 'codex', status: 'unavailable', updatedAt: this.now(), plan: text(this.account()?.plan, 80) || null,
-        ordinaryUsageAllowed: null, buckets: [], error: text(error?.message || error, 500) || 'Provider limits are unavailable.',
+        ordinaryUsageAllowed: null, buckets: [], error: text(scrub(error), 500) || 'Provider limits are unavailable.',
       };
     }
     this.changed(); return this.publicState();
@@ -216,8 +236,9 @@ class ProviderUsage {
   notification(method, params = {}) {
     if (method === 'account/rateLimits/updated') {
       if (normalizeConnection(this.connection()).type !== 'codex') return false;
-      this.state = normalizeRateLimits(params, { now: this.now(), plan: this.account()?.plan });
-      this.changed(); return true;
+      // Rolling notifications are sparse; preserve the last full snapshot and refetch.
+      this.requestRefresh();
+      return true;
     }
     if (normalizeConnection(this.connection()).type !== 'local') return false;
     return this.localNotification(method, params);
@@ -268,7 +289,8 @@ class ProviderUsage {
     if (!turn.completed || turn.excluded) return false;
     const outputTokens = integer(turn.usage.outputTokens) || 0;
     const reasoningTokens = integer(turn.usage.reasoningTokens) || 0;
-    const generatedTokens = outputTokens + reasoningTokens;
+    // Codex reports reasoning as a subset of output tokens; never count it twice.
+    const generatedTokens = outputTokens;
     if (!generatedTokens) return false;
     const durationMs = Math.max(1, turn.completedAt - turn.startedAt);
     const firstOutputMs = turn.firstOutputAt ? Math.max(0, turn.firstOutputAt - turn.startedAt) : null;
