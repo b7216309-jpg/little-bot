@@ -1,0 +1,66 @@
+name: Vector memory bootstrap
+
+on:
+  push:
+    branches: [bootstrap/vector-memory]
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-commit:
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Apply semantic-memory integration
+        run: node scripts/vector-memory-bootstrap-loader.cjs
+
+      - name: Install pinned dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Ensure Electron runtime
+        run: node node_modules/electron/install.js
+
+      - name: Syntax checks
+        run: npm run check:syntax
+
+      - name: Node tests
+        run: npm test
+
+      - name: Electron integration tests
+        run: npm run test:electron
+
+      - name: Build portable Windows package with bundled embedding model
+        run: npm run package:portable
+
+      - name: Verify packaged semantic-memory assets
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $model = "dist/$version/Little Bot-win32-x64/resources/app/resources/models/Xenova/all-MiniLM-L6-v2/onnx/model_quantized.onnx"
+          if (-not (Test-Path $model)) { throw "Bundled embedding model missing from package: $model" }
+          $size = (Get-Item $model).Length
+          if ($size -ne 22972370) { throw "Unexpected bundled embedding model size: $size" }
+          $hash = (Get-FileHash $model -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne 'afdb6f1a0e45b715d0bb9b11772f032c399babd23bfc31fed1c170afc848bdb1') { throw "Bundled embedding model hash mismatch: $hash" }
+
+      - name: Commit validated implementation
+        shell: bash
+        run: |
+          rm -f .github/workflows/vector-memory-bootstrap.yml scripts/apply-vector-memory-patch.cjs scripts/vector-memory-bootstrap.cjs scripts/vector-memory-bootstrap-loader.cjs
+          rm -rf scripts/vector-memory-payload
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Replace memory with local vector retrieval [skip ci]"
+          git push origin HEAD:bootstrap/vector-memory
