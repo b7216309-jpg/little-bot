@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/phase2-final-polish.yml
       - scripts/apply-phase2-final-polish.cjs
+      - scripts/fix-phase2-final-polish.cjs
 
 permissions:
   contents: write
@@ -24,12 +25,15 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - run: npm ci
+      - name: Correct generated assertion
+        run: node scripts/fix-phase2-final-polish.cjs
       - name: Apply foreground event polish
         run: node scripts/apply-phase2-final-polish.cjs
       - name: Remove one-shot patch files
         shell: pwsh
         run: |
           Remove-Item -LiteralPath scripts/apply-phase2-final-polish.cjs -Force
+          Remove-Item -LiteralPath scripts/fix-phase2-final-polish.cjs -Force
           Remove-Item -LiteralPath .github/workflows/phase2-final-polish.yml -Force
       - name: Check JavaScript syntax
         run: npm run check:syntax
