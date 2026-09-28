@@ -8,6 +8,8 @@ on:
       - .github/workflows/phase2-runtime-integration.yml
       - scripts/apply-phase2-runtime-integration.cjs
       - scripts/fix-phase2-runtime-script.cjs
+      - src/event-runtime.cjs
+      - test/event-runtime.test.cjs
 
 permissions:
   contents: write
