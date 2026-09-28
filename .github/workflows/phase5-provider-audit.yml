@@ -1,0 +1,49 @@
+name: Apply Phase 5 provider protocol audit
+
+on:
+  push:
+    branches:
+      - feature/provider-usage-display
+    paths:
+      - .github/workflows/phase5-provider-audit.yml
+      - scripts/apply-phase5-provider-audit.cjs
+      - test/provider-usage-protocol.test.cjs
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/provider-usage-display
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - name: Apply provider protocol corrections
+        run: node scripts/apply-phase5-provider-audit.cjs
+      - name: Remove one-shot patch files
+        shell: pwsh
+        run: |
+          Remove-Item -LiteralPath scripts/apply-phase5-provider-audit.cjs -Force
+          Remove-Item -LiteralPath .github/workflows/phase5-provider-audit.yml -Force
+      - name: Check JavaScript syntax
+        run: npm run check:syntax
+      - name: Run Node test suite
+        run: npm test
+      - name: Run Electron integration tests
+        run: npm run test:electron
+      - name: Commit tested provider protocol audit
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if (git diff --cached --quiet) { throw 'The Phase 5 provider protocol audit produced no changes.' }
+          git commit -m "Harden provider usage protocol handling"
+          git push origin HEAD:feature/provider-usage-display
