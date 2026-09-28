@@ -105,6 +105,7 @@ class EventBus {
     this.dedupeUntil = new Map();
     this.debounceIds = new Map();
     this.timer = null;
+    this.timerAt = null;
     this.scheduled = false;
     this.sequence = 0;
     this.subscriptionSequence = 0;
@@ -137,6 +138,7 @@ class EventBus {
     this.scheduled = false;
     if (this.timer) this.clearTimer(this.timer);
     this.timer = null;
+    this.timerAt = null;
     if (clear) {
       this.queue = [];
       this.debounceIds.clear();
@@ -218,6 +220,7 @@ class EventBus {
     this.scheduled = false;
     if (this.timer) this.clearTimer(this.timer);
     this.timer = null;
+    this.timerAt = null;
     try {
       while (this.started) {
         const nowMs = this.now();
@@ -296,16 +299,43 @@ class EventBus {
   }
 
   _schedule() {
-    if (!this.started || this.dispatching || this.scheduled) return;
-    if (this.timer) this.clearTimer(this.timer);
-    this.timer = null;
-    if (!this.queue.length) return;
-    const delay = Math.max(0, Math.min(...this.queue.map(entry => entry.event.availableAt)) - this.now());
+    if (!this.started || this.dispatching) return;
+    const nextAvailableAt = this.queue.length ? Math.min(...this.queue.map(entry => entry.event.availableAt)) : null;
+    if (nextAvailableAt === null) {
+      if (this.timer) this.clearTimer(this.timer);
+      this.timer = null;
+      this.timerAt = null;
+      this.scheduled = false;
+      return;
+    }
+    if (this.scheduled) {
+      // An already queued microtask will re-evaluate the complete queue. A real
+      // timer must move whenever the earliest available event changes.
+      if (!this.timer) return;
+      if (this.timerAt === nextAvailableAt) return;
+      this.clearTimer(this.timer);
+      this.timer = null;
+      this.timerAt = null;
+      this.scheduled = false;
+    }
+    const delay = Math.max(0, nextAvailableAt - this.now());
     this.scheduled = true;
+    this.timerAt = nextAvailableAt;
     if (delay === 0) {
-      this.defer(() => { this.scheduled = false; void this.drain(); });
+      const scheduledAt = nextAvailableAt;
+      this.defer(() => {
+        if (!this.started || !this.scheduled || this.timer || this.timerAt !== scheduledAt) return;
+        this.scheduled = false;
+        this.timerAt = null;
+        void this.drain();
+      });
     } else {
-      this.timer = this.setTimer(() => { this.timer = null; this.scheduled = false; void this.drain(); }, delay);
+      this.timer = this.setTimer(() => {
+        this.timer = null;
+        this.timerAt = null;
+        this.scheduled = false;
+        void this.drain();
+      }, delay);
       this.timer?.unref?.();
     }
   }

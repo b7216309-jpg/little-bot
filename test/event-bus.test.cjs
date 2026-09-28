@@ -146,3 +146,21 @@ test('depth protection rejects children beyond the causal limit', () => {
   for (let depth = 0; depth < MAX_EVENT_DEPTH; depth++) parent = normalizeEvent({ type: `child.${depth}` }, 1000 + depth, parent);
   assert.deepEqual(normalizeEvent({ type: 'child.too_deep' }, 2000, parent), { dropped: 'depth' });
 });
+
+test('an immediate event reschedules an existing delayed wake-up', async () => {
+  const { bus, timers } = fixture();
+  const seen = [];
+  bus.subscribe({ type: '*', handler: event => seen.push(event.type) });
+  bus.start();
+  bus.publish({ type: 'event.delayed', debounceMs: 1000 });
+  assert.equal(timers.length, 1);
+  assert.equal(timers[0].at, 2000);
+
+  bus.publish({ type: 'event.immediate' });
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.deepEqual(seen, ['event.immediate']);
+  assert.equal(bus.state.queued, 1);
+  assert.equal(timers.length, 1);
+  assert.equal(timers[0].at, 2000);
+});
