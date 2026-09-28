@@ -1,3 +1,4 @@
+.provider-usage-fixture{width:520px;padding:20px}
 .provider-usage-section{display:grid;gap:11px}
 .provider-usage-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
 .provider-usage-heading-copy{min-width:0}
@@ -34,4 +35,4 @@
 .provider-usage-average strong{font-size:12px;color:#5d7255}
 .provider-usage-average small{grid-column:1/-1;font-size:8px;color:#939a8e}
 .provider-usage-hint,.provider-usage-note{font-size:9px;line-height:1.55;color:#969d91}
-@media(max-width:520px){.provider-usage-heading,.provider-usage-window-top{align-items:flex-start;flex-direction:column}.provider-usage-heading-actions{width:100%;justify-content:space-between}.provider-usage-window-copy{flex-direction:column;gap:2px}.provider-usage-metrics{grid-template-columns:1fr}}
+@media(max-width:520px){.provider-usage-fixture{width:auto;padding:12px}.provider-usage-heading,.provider-usage-window-top{align-items:flex-start;flex-direction:column}.provider-usage-heading-actions{width:100%;justify-content:space-between}.provider-usage-window-copy{flex-direction:column;gap:2px}.provider-usage-metrics{grid-template-columns:1fr}}
