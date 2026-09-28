@@ -1,0 +1,48 @@
+name: Apply Phase 3 runtime
+
+on:
+  push:
+    branches:
+      - feature/plan-evidence-ledger
+    paths:
+      - .github/workflows/phase3-runtime.yml
+      - scripts/apply-phase3-runtime.cjs
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/plan-evidence-ledger
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - name: Apply plan and evidence ledger runtime integration
+        run: node scripts/apply-phase3-runtime.cjs
+      - name: Remove one-shot patch files
+        shell: pwsh
+        run: |
+          Remove-Item -LiteralPath scripts/apply-phase3-runtime.cjs -Force
+          Remove-Item -LiteralPath .github/workflows/phase3-runtime.yml -Force
+      - name: Check JavaScript syntax
+        run: npm run check:syntax
+      - name: Run Node test suite
+        run: npm test
+      - name: Run Electron integration tests
+        run: npm run test:electron
+      - name: Commit tested runtime integration
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if (git diff --cached --quiet) { throw 'The Phase 3 runtime patch produced no changes.' }
+          git commit -m "Integrate the goal plan and evidence ledger"
+          git push origin HEAD:feature/plan-evidence-ledger
