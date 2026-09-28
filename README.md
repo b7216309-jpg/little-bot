@@ -13,6 +13,8 @@ A Windows personal assistant for chat, files, terminal work, web browsing, and p
 
 **Local Qwen** is the default at `http://127.0.0.1:8080/v1`. Settings lets you change its address/model and check the connection. **Codex** is optional, using ChatGPT sign-in or an OpenAI API key. No cloud fallback occurs when the local model is offline.
 
+**Settings → Connection** also shows read-only provider usage for Codex or transient whole-turn performance for the selected local model. Codex values come from the pinned app-server rate-limit response; local output rates use engine-reported tokens and exclude tool turns from the rolling average. The panel does not estimate prices or change goal budgets. See [USAGE.md](USAGE.md).
+
 **Thinking On/Off** beside the model picker controls Qwen reasoning for all local tasks. It remembers your choice and applies to the next run. Finish or stop running work before switching. Codex keeps its effort selector.
 
 Click **Thinking…** in a reply to expand the reasoning as it streams. The completed **Thoughts** remains available in that conversation. Qwen3.6 sampling follows the thinking mode, with output space reserved for the answer.
@@ -62,7 +64,7 @@ Bundled skill updates preserve user edits, disabled state, IDs, and deletions. [
 
 Data lives in `%APPDATA%/Little Bot/data`: encrypted chat/memory state, profile, attachments, browser state, encrypted service keys, and isolated engine state. Saved conversations and Memory data are encrypted at rest with Windows DPAPI through Electron safeStorage; existing plaintext state migrates automatically on the next save. Attachments, profile Markdown files, calendar, automation, and standing-intent metadata, and other local configuration remain ordinary local files. The app does not change your existing Codex or OpenClaw configuration. Streaming replies checkpoint about every two seconds and save immediately on completion or interruption; an abrupt power loss can lose the most recent unsaved text.
 
-Prompts and attachments go to the selected model connection: local Qwen stays on this computer; Codex sends them to its provider. Web services and MCP tools have their own destinations. The renderer has no Node access or remote scripts. This is an unsigned personal build.
+Prompts and attachments go to the selected model connection: local Qwen stays on this computer; Codex sends them to its provider. Web services and MCP tools have their own destinations. Provider usage and local performance samples are transient and are not added to saved chats or Memory. The renderer has no Node access or remote scripts. This is an unsigned personal build.
 
 ## Development
 

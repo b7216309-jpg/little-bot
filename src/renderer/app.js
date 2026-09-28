@@ -309,6 +309,7 @@ function render() {
   renderSidebar();
   renderConnection();
   renderSettings();
+  window.LittleBotProviderUsagePanel?.render(state.providerUsage || null);
   if (currentView === 'chat') renderConversation();
   if (currentView === 'automations') renderAutomations();
   if (currentView === 'calendar') renderCalendar();

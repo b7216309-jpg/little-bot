@@ -329,6 +329,7 @@ app.whenReady().then(async () => {
   register('saveSettings', payload => controller.saveSettings(payload));
   register('saveConnection', payload => { ensureExtensionsIdle(); return controller.saveConnection(payload); });
   register('refreshConnection', () => controller.refreshConnection());
+  register('refreshProviderUsage', () => controller.refreshProviderUsage());
   register('chooseAttachments', async () => {
     const selected = await dialog.showOpenDialog(window, { title: 'Attach files', properties: ['openFile', 'multiSelections'] });
     return selected.canceled ? [] : controller.attachments.importPaths(selected.filePaths);

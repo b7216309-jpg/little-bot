@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'none'">
+  <link rel="stylesheet" href="../src/renderer/styles.css">
+  <link rel="stylesheet" href="../src/renderer/provider-usage.css">
+  <script src="../src/renderer/provider-usage-ui.js" defer></script>
+  <script src="../src/renderer/provider-usage-panel.js" defer></script>
+  <script src="./provider-usage-fixture.js" defer></script>
+</head>
+<body>
+  <main class="provider-usage-fixture">
+    <section class="settings-section provider-usage-section" aria-labelledby="provider-usage-title">
+      <div class="provider-usage-heading"><div class="provider-usage-heading-copy"><h3 id="provider-usage-title">Provider usage</h3><p id="provider-usage-subtitle" class="field-hint"></p></div><div class="provider-usage-heading-actions"><span id="provider-usage-status" class="service-status">Loading</span><button id="provider-usage-refresh" class="button text-button" type="button">Refresh</button></div></div>
+      <span id="provider-usage-updated" class="provider-usage-updated hidden"></span>
+      <div id="provider-usage-content" class="provider-usage-content"></div>
+      <p id="provider-usage-note" class="provider-usage-note"></p>
+    </section>
+  </main>
+</body>
+</html>

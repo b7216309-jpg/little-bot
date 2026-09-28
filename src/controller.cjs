@@ -14,6 +14,7 @@ const { questionInput, questionText } = require('./user-questions.cjs');
 const { SHELL_CONDUCT, commandTranscript, appendCommandDelta } = require('./shell-conduct.cjs');
 const { IndependentCheckRunner } = require('./independent-check-runner.cjs');
 const { INDEPENDENT_CHECK_MODES, normalizeIndependentCheckMode } = require('./independent-check.cjs');
+const { ProviderUsage } = require('./provider-usage.cjs');
 
 function cleanError(error) {
   return String(error?.message || error || 'Something went wrong')
@@ -119,6 +120,12 @@ class Controller extends EventEmitter {
     this.questionRequests = new Map();
     this.goalExecutor = new GoalExecutor(this);
     this.independentCheck = new IndependentCheckRunner(this);
+    this.providerUsage = new ProviderUsage({
+      client,
+      connection: () => this.connection,
+      account: () => this.account,
+      onChange: () => this.changed(),
+    });
     this.store.data.memory ||= defaultMemory();
     client.on('notification', (method, params) => this.notification(method, params));
     client.on('request', request => {
@@ -141,6 +148,7 @@ class Controller extends EventEmitter {
       stateRevision: this.stateRevision,
       runtime: this.runtime, account: this.account,
       connection: this.connection,
+      providerUsage: this.providerUsage.publicState(),
       extensionsBusy: this.extensionsBusy,
       goalRuntime: this.goalExecutor.state,
       independentCheckRuntime: this.independentCheck.state,
@@ -255,6 +263,7 @@ class Controller extends EventEmitter {
       // The sign-in screen still works if the provider catalog is temporarily unavailable.
       this.runtime.catalogError = cleanError(error);
     }
+    await this.providerUsage.refresh();
     this.changed();
   }
   async refreshConnection() {
@@ -267,15 +276,18 @@ class Controller extends EventEmitter {
     if (settings.connection === 'codex') { await this.refreshAccount(); return this.state(); }
     this.connection = { type: 'local', status: 'checking', label: 'Local Qwen', baseUrl: settings.localBaseUrl, model: settings.localModel, error: null };
     this.account = { status: 'signedOut', type: 'local' };
+    this.providerUsage.connectionChanged(this.connection);
     this.changed();
     try {
       const result = await probeLocal(settings);
       await this.localModelRelay.start();
       this.models = result.models; this.connection = result.connection;
       this.account = { status: 'connected', type: 'local' };
+      this.providerUsage.connectionChanged(this.connection);
     } catch (error) {
       this.models = []; this.account = { status: 'signedOut', type: 'local' };
       this.connection = { ...this.connection, status: 'offline', error: cleanError(error) };
+      this.providerUsage.connectionChanged(this.connection);
     }
     this.changed(); return this.state();
   }
@@ -290,8 +302,14 @@ class Controller extends EventEmitter {
     next.model = next.connection === 'local' ? next.localModel : next.codexModel || '';
     this.store.data.settings = next;
     try { this.store.save(); } catch (error) { this.store.data.settings = previous; throw error; }
-    this.models = []; this.changed();
+    this.models = [];
+    this.providerUsage.connectionChanged({ type: next.connection, status: 'checking', model: next.model });
+    this.changed();
     return this.refreshConnection();
+  }
+  async refreshProviderUsage() {
+    await this.providerUsage.refresh();
+    return this.state();
   }
   async login({ type, apiKey } = {}) {
     if (this.runtime.status !== 'ready') throw new Error('The assistant engine is still starting.');
@@ -845,6 +863,7 @@ class Controller extends EventEmitter {
   }
   notification(method, params = {}) {
     if (this.closing) return;
+    this.providerUsage.notification(method, params);
     if (this.independentCheck.notification(method, params)) return;
     if (this.goalExecutor.notification(method, params)) return;
     if (method === 'account/login/completed') {

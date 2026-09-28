@@ -7,9 +7,9 @@ Implemented foundations:
 - [Independent Check](INDEPENDENT-CHECK.md): Selective, Always, Off, and manual Challenge anti-sycophancy review.
 - [In-process events and standing intents](EVENTS.md): one bounded foreground queue connecting deterministic events to authorized goals and automations, with no gateway or closed-app backlog.
 - [Goal plan and evidence ledger](LEDGER.md): one active step, versioned plans, bounded assumptions, observations, decisions, host verification evidence, restart recovery, and inspectable prior versions.
+- [Provider usage and local performance](USAGE.md): read-only Codex rate-limit windows, sparse-update refetch, transient local turn timing, and no pricing or goal-budget inference.
 
 1. **Windows UI Automation.** Add inspectable foreground control of native Windows applications through the accessibility tree, with one action between observations and screenshots only as fallback.
-2. **Provider usage display.** Show reliable provider limits or local performance when available; existing token, time, and action budgets remain independent of a pricing service.
 
 ## Deliberate non-goals
 
