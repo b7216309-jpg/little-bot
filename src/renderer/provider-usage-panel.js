@@ -65,7 +65,7 @@
       metric(doc, 'Reported output', view.latest.tokensPerSecond, view.latest.includesTools ? 'Turn included tools' : 'Model output interval'),
       metric(doc, 'First output', view.latest.firstOutput),
       metric(doc, 'Turn duration', view.latest.turnDuration),
-      metric(doc, 'Generated tokens', view.latest.generatedTokens, `${view.latest.outputTokens} output · ${view.latest.reasoningTokens} reasoning`),
+      metric(doc, 'Generated tokens', view.latest.generatedTokens, `${view.latest.outputTokens} output · ${view.latest.reasoningTokens} reasoning subset`),
       metric(doc, 'Input tokens', view.latest.inputTokens, `${view.latest.cachedInputTokens} cached`),
     );
     fragment.append(grid);
