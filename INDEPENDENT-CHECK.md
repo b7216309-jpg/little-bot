@@ -89,3 +89,14 @@ Focused tests cover:
 - Stop, malformed output, and fail-open behavior;
 - renderer eligibility for final answers and plans only;
 - the complete controller lifecycle with the real store.
+
+## Validation record
+
+Checked on 28 September 2026 with Node 24 on the Windows GitHub runner:
+
+- recursive JavaScript syntax checking passed;
+- the complete retained Node test suite passed, including core, runner, controller, persistence, and renderer regressions;
+- all Electron integration tests passed sequentially;
+- the one-shot integration and polish workflows committed changes only after those checks succeeded.
+
+No live provider call was made during this implementation. Model behavior was exercised through deterministic fake-engine responses; the pull request's packaging workflow validates the real Windows distribution, installer registration, and uninstallation path.
