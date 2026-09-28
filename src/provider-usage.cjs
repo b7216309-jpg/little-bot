@@ -83,7 +83,7 @@ function normalizeBucket(value, id, index) {
 function rateLimitEntries(value) {
   if (!object(value)) return [];
   const byId = value.rateLimitsByLimitId ?? value.rate_limits_by_limit_id;
-  if (object(byId)) return Object.entries(byId);
+  if (object(byId) && Object.keys(byId).length) return Object.entries(byId);
   const limits = value.rateLimits ?? value.rate_limits ?? value;
   if (bucketLike(limits)) return [['default', limits]];
   if (object(limits)) return Object.entries(limits).filter(([, entry]) => bucketLike(entry));
@@ -132,11 +132,12 @@ function normalizeConnection(value = {}) {
 
 class ProviderUsage {
   constructor({ client, connection = () => ({}), account = () => ({}), onChange = () => {}, now = () => Date.now() } = {}) {
-    if (!client || typeof client.request !== 'function') throw new TypeError('A provider usage client is required.');
     if (typeof connection !== 'function' || typeof account !== 'function' || typeof onChange !== 'function' || typeof now !== 'function') {
       throw new TypeError('Provider usage callbacks must be functions.');
     }
-    this.client = client;
+    this.client = client && typeof client.request === 'function' ? client : {
+      request: async () => { throw new Error('Provider usage is unavailable for this runtime.'); },
+    };
     this.connection = connection;
     this.account = account;
     this.onChange = onChange;
@@ -162,11 +163,14 @@ class ProviderUsage {
         plan: text(this.account()?.plan, 80) || null, ordinaryUsageAllowed: null, buckets: [], error: null,
       };
     } else {
+      if (current.model && this.samples.some(sample => sample.model && sample.model !== current.model)) this.samples = [];
+      const connected = current.status === 'connected';
+      const checking = current.status === 'checking';
       this.state = {
-        kind: 'local', status: current.status === 'connected' ? (this.samples.length ? 'ready' : 'waiting') : 'offline',
+        kind: 'local', status: connected ? (this.samples.length ? 'ready' : 'waiting') : checking ? 'waiting' : 'offline',
         updatedAt: this.samples.at(-1)?.at || null, model: current.model, latest: this.samples.at(-1) || null,
         average: averageSamples(this.samples), sampleCount: this.samples.length,
-        error: current.status === 'connected' ? null : 'Local performance appears after a completed model turn.',
+        error: connected || checking ? null : 'Local performance appears after a completed model turn.',
       };
     }
     this.changed();
@@ -181,7 +185,16 @@ class ProviderUsage {
 
   async _refresh() {
     const current = normalizeConnection(this.connection());
-    if (current.type !== 'codex') return this.connectionChanged(current);
+    if (current.type !== 'codex') {
+      const connected = current.status === 'connected';
+      this.state = {
+        kind: 'local', status: connected ? (this.samples.length ? 'ready' : 'waiting') : current.status === 'checking' ? 'waiting' : 'offline',
+        updatedAt: this.samples.at(-1)?.at || null, model: current.model, latest: this.samples.at(-1) || null,
+        average: averageSamples(this.samples), sampleCount: this.samples.length,
+        error: connected || current.status === 'checking' ? null : 'Local performance appears after a completed model turn.',
+      };
+      this.changed(); return this.publicState();
+    }
     if (current.status !== 'connected' || this.account()?.status !== 'connected') {
       this.state = { kind: 'codex', status: 'signedOut', updatedAt: null, plan: null, ordinaryUsageAllowed: null, buckets: [], error: 'Connect Codex to read provider limits.' };
       this.changed(); return this.publicState();
