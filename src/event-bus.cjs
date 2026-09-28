@@ -5,6 +5,7 @@ const { createHash, randomUUID } = require('node:crypto');
 const MAX_PAYLOAD_BYTES = 64 * 1024;
 const MAX_EVENT_DEPTH = 12;
 const MAX_LINEAGE_REPEATS = 2;
+const MAX_INTENT_TRACE = 12;
 const TYPE_PATTERN = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const integer = (value, fallback, minimum, maximum) => Number.isInteger(value) && value >= minimum && value <= maximum ? value : fallback;
@@ -23,6 +24,16 @@ function payload(value) {
   const encoded = JSON.stringify(copy);
   if (Buffer.byteLength(encoded, 'utf8') > MAX_PAYLOAD_BYTES) throw new Error('Event payload is too large.');
   return copy;
+}
+
+function normalizeIntentTrace(value, parent = null) {
+  if (value !== undefined && !Array.isArray(value)) throw new TypeError('Event intentTrace must be an array.');
+  const trace = [];
+  for (const item of [...(parent?.intentTrace || []), ...(value || [])]) {
+    const id = string(item, 100);
+    if (id && !trace.includes(id)) trace.push(id);
+  }
+  return trace.slice(-MAX_INTENT_TRACE);
 }
 
 function eventSignature(value) {
@@ -58,6 +69,7 @@ function normalizeEvent(input, nowMs, parent = null) {
     debounceMs,
     correlationId: string(input.correlationId, 128) || parent?.correlationId || id,
     causationId: string(input.causationId, 128) || parent?.id || null,
+    intentTrace: normalizeIntentTrace(input.intentTrace, parent),
     depth,
   };
   const signature = eventSignature(value);
@@ -65,6 +77,7 @@ function normalizeEvent(input, nowMs, parent = null) {
   if (lineage.filter(item => item === signature).length > MAX_LINEAGE_REPEATS) return { dropped: 'cycle' };
   Object.defineProperty(value, '_lineage', { value: lineage, enumerable: false });
   Object.freeze(value.payload);
+  Object.freeze(value.intentTrace);
   return value;
 }
 
@@ -319,4 +332,5 @@ module.exports = {
   eventSignature,
   MAX_PAYLOAD_BYTES,
   MAX_EVENT_DEPTH,
+  MAX_INTENT_TRACE,
 };

@@ -31,7 +31,7 @@ function fixture() {
     clearIntervalFn: () => {},
   });
   const advance = milliseconds => { now += milliseconds; };
-  return { runtime, bus, store, goalsData, calls, advance, now: () => now, intervalHandlers };
+  return { runtime, bus, store, goalsData, scheduler, calls, advance, now: () => now, intervalHandlers };
 }
 
 async function drain(bus) {
@@ -129,4 +129,26 @@ test('startup advances overdue schedules instead of replaying closed-app work', 
   assert.ok(store.data.automations[0].nextRunAt > now());
   assert.ok(store.data.heartbeat.nextRunAt > now());
   assert.ok(goalsData[0].nextRunAt > now());
+});
+
+test('causal intent tracing prevents an intent from retriggering itself through its automation', async () => {
+  const { runtime, bus, store, scheduler, calls } = fixture();
+  const intent = runtime.saveIntent({
+    name: 'Run after routine', enabled: true,
+    when: { type: 'automation.completed', filters: [{ path: 'payload.automationId', operator: 'equals', value: 'automation-1' }] },
+    action: { type: 'automation.run', automationId: 'automation-1' },
+  });
+  scheduler.runNow = async id => {
+    calls.push(['automation', id]);
+    runtime.publish({ type: 'automation.completed', source: 'scheduler', payload: { automationId: id } });
+    return { id };
+  };
+  runtime.start();
+  runtime.publish({ type: 'automation.completed', source: 'scheduler', payload: { automationId: 'automation-1' } });
+  await drain(bus);
+  assert.deepEqual(calls, [['automation', 'automation-1']]);
+  const saved = store.data.standingIntents.intents.find(item => item.id === intent.id);
+  assert.equal(saved.triggerCount, 1);
+  assert.equal(saved.lastStatus, 'completed');
+  assert.equal(bus.state.queued, 0);
 });

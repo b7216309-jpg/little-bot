@@ -84,7 +84,10 @@ class EventRuntime {
     return stopped;
   }
 
-  publish(input, options) { return this.bus.publish(input, options); }
+  publish(input, options) {
+    const intentTrace = this._intentTraceFor(input);
+    return this.bus.publish(intentTrace.length ? { ...input, intentTrace } : input, options);
+  }
 
   saveIntent(input) { return this.intents.save(input); }
   removeIntent(id) { return this.intents.remove(id); }
@@ -175,12 +178,14 @@ class EventRuntime {
   }
 
   async _matchIntents(event, context) {
-    for (const intent of this.intents.matches(event).slice(0, 10)) {
+    const priorTrace = Array.isArray(event.intentTrace) ? event.intentTrace : [];
+    for (const intent of this.intents.matches(event).filter(item => !priorTrace.includes(item.id)).slice(0, 10)) {
       this.intents.record(intent.id, { status: 'matched', event });
-      context.publish({
+      const queued = context.publish({
         type: 'standing_intent.action',
         source: 'standing_intents',
         priority: intent.priority,
+        intentTrace: [...priorTrace, intent.id],
         debounceKey: `standing-intent:${intent.id}`,
         debounceMs: intent.debounceMs,
         expiresAt: this.now() + Math.max(60 * MINUTE, intent.debounceMs + 60 * MINUTE),
@@ -191,6 +196,7 @@ class EventRuntime {
           retryCount: 0,
         },
       });
+      if (!queued.accepted) this.intents.record(intent.id, { status: 'skipped', event, error: `The action was not queued: ${queued.reason}.` });
     }
   }
 
@@ -209,7 +215,7 @@ class EventRuntime {
           this.intents.record(id, { status: 'skipped', event, error: 'The target goal is already queued or running.' });
           return;
         }
-        this._pending(this.pendingGoals, goal.id).add(id);
+        this._pending(this.pendingGoals, goal.id).set(id, event.intentTrace || [id]);
         this.intents.record(id, { status: 'queued', event });
         this.goals.runNow(goal.id);
         return;
@@ -218,7 +224,7 @@ class EventRuntime {
         const automation = this.store.data.automations.find(item => item.id === action.automationId);
         if (!automation) throw new Error('The target automation no longer exists.');
         if (automation.authorized !== true) throw new Error('Run or enable this automation once before a standing intent can start it.');
-        this._pending(this.pendingAutomations, automation.id).add(id);
+        this._pending(this.pendingAutomations, automation.id).set(id, event.intentTrace || [id]);
         this.intents.record(id, { status: 'queued', event });
         await this.scheduler.runNow(automation.id);
         return;
@@ -232,6 +238,7 @@ class EventRuntime {
           type: 'standing_intent.action', source: 'standing_intents', priority: intent.priority,
           debounceKey: `standing-intent:${intent.id}`, debounceMs: 15000,
           correlationId: event.correlationId,
+          intentTrace: event.intentTrace,
           expiresAt: this.now() + 60 * MINUTE,
           payload: { ...event.payload, retryCount: retryCount + 1 },
         });
@@ -249,7 +256,7 @@ class EventRuntime {
     if (typeof goalId !== 'string') return;
     const pending = this.pendingGoals.get(goalId);
     if (!pending) return;
-    for (const intentId of pending) this.intents.record(intentId, {
+    for (const [intentId] of pending) this.intents.record(intentId, {
       status: event.type === 'goal.completed' ? 'completed' : 'error', event,
       error: event.type === 'goal.blocked' ? String(event.payload?.reason || 'The target goal was blocked.') : '',
     });
@@ -261,16 +268,36 @@ class EventRuntime {
     if (typeof automationId !== 'string') return;
     const pending = this.pendingAutomations.get(automationId);
     if (!pending) return;
-    for (const intentId of pending) this.intents.record(intentId, {
+    for (const [intentId] of pending) this.intents.record(intentId, {
       status: event.type === 'automation.completed' ? 'completed' : 'error', event,
       error: event.type === 'automation.error' ? String(event.payload?.error || 'The target automation failed.') : '',
     });
     this.pendingAutomations.delete(automationId);
   }
 
+  _intentTraceFor(input) {
+    const trace = [];
+    const add = values => {
+      for (const value of values || []) {
+        const id = typeof value === 'string' ? value.slice(0, 100) : '';
+        if (id && !trace.includes(id)) trace.push(id);
+      }
+    };
+    const addPending = (map, key) => {
+      if (!key) return;
+      for (const value of map.get(key)?.values() || []) add(value);
+    };
+    add(input?.intentTrace);
+    addPending(this.pendingGoals, input?.payload?.goalId);
+    addPending(this.pendingAutomations, input?.payload?.automationId);
+    addPending(this.pendingGoals, this.goals.activeId);
+    addPending(this.pendingAutomations, this.scheduler.runningId);
+    return trace.slice(-12);
+  }
+
   _pending(map, key) {
     let pending = map.get(key);
-    if (!pending) { pending = new Set(); map.set(key, pending); }
+    if (!pending) { pending = new Map(); map.set(key, pending); }
     return pending;
   }
 

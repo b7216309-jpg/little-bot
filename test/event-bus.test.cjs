@@ -28,14 +28,16 @@ function fixture(options = {}) {
 }
 
 test('normalizes bounded events with correlation and causation metadata', () => {
-  const parent = normalizeEvent({ id: 'parent', type: 'goal.completed', source: 'goal.runner', payload: { goalId: 'g1' } }, 1000);
-  const child = normalizeEvent({ type: 'artifact.created', source: 'goal.runner', payload: { path: 'report.md' } }, 1001, parent);
+  const parent = normalizeEvent({ id: 'parent', type: 'goal.completed', source: 'goal.runner', payload: { goalId: 'g1' }, intentTrace: ['intent-a'] }, 1000);
+  const child = normalizeEvent({ type: 'artifact.created', source: 'goal.runner', payload: { path: 'report.md' }, intentTrace: ['intent-b'] }, 1001, parent);
   assert.equal(child.correlationId, 'parent');
   assert.equal(child.causationId, 'parent');
   assert.equal(child.depth, 1);
+  assert.deepEqual(child.intentTrace, ['intent-a', 'intent-b']);
   assert.deepEqual(child.payload, { path: 'report.md' });
   assert.throws(() => normalizeEvent({ type: 'Goal Completed' }, 1000), /lowercase/);
   assert.throws(() => normalizeEvent({ type: 'goal.completed', payload: 'text' }, 1000), /payload/);
+  assert.throws(() => normalizeEvent({ type: 'goal.completed', intentTrace: 'intent-a' }, 1000), /intentTrace/);
 });
 
 test('dispatches subscriptions sequentially by priority and preserves publication order', async () => {
