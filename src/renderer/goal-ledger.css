@@ -28,6 +28,7 @@
 .goal-ledger-record:last-child{border-bottom:0}
 .goal-ledger-record-head{display:flex;align-items:center;gap:6px;margin-bottom:5px;min-width:0}
 .goal-ledger-record-source{font-size:8px;font-weight:650;color:#7e8976}
+.goal-ledger-record-context{display:inline-flex;min-width:0;padding:2px 5px;border:1px solid #e1e4dc;border-radius:4px;background:#f7f8f3;color:#7a8473;font-size:7px;font-weight:650;letter-spacing:.25px;white-space:nowrap}
 .goal-ledger-record-time{margin-left:auto;font-size:8px;color:#a0a59c;white-space:nowrap}
 .goal-ledger-record p{font-size:9px;line-height:1.6;color:#626d5c;overflow-wrap:anywhere}
 .goal-ledger-record-rationale{margin-top:5px!important;color:#8b9287!important}

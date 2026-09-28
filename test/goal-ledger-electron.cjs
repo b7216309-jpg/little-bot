@@ -26,6 +26,7 @@ async function run() {
           archivedPlans: archive?.querySelectorAll('.goal-ledger-archived-plan').length || 0,
           assumption: document.querySelector('.goal-ledger-record-badge.confirmed')?.textContent || '',
           evidence: document.querySelector('.goal-ledger-evidence.failed')?.textContent || '',
+          contexts: Array.from(document.querySelectorAll('.goal-ledger-record-context')).map(node => ({ text: node.textContent, title: node.title })),
           decision: Array.from(document.querySelectorAll('.goal-ledger-record-section')).at(-1)?.textContent || '',
           publicNote: document.querySelector('.goal-ledger-note')?.textContent || '',
         };
@@ -38,6 +39,9 @@ async function run() {
     assert.equal(result.archivedPlans, 1);
     assert.equal(result.assumption, 'Confirmed');
     assert.equal(result.evidence, 'Failed · report.md');
+    assert.equal(result.contexts.length, 3);
+    assert.ok(result.contexts.every(item => item.text === 'v2 · Step 1'));
+    assert.ok(result.contexts.every(item => item.title === 'Inspect the newer source.'));
     assert.match(result.decision, /Recalculate totals/);
     assert.match(result.publicNote, /not hidden model reasoning/i);
     console.log(JSON.stringify(result));

@@ -59,6 +59,11 @@
     const head = node(doc, 'div', 'goal-ledger-record-head');
     head.append(node(doc, 'span', 'goal-ledger-record-source', record.sourceLabel));
     if (kind === 'assumption') head.append(node(doc, 'span', `goal-ledger-record-badge ${record.status}`, record.statusLabel));
+    if (record.contextLabel) {
+      const context = node(doc, 'span', 'goal-ledger-record-context', record.contextLabel);
+      if (record.contextText) context.title = record.contextText;
+      head.append(context);
+    }
     if (record.at) head.append(node(doc, 'time', 'goal-ledger-record-time', dateLabel(record.at)));
     item.append(head, node(doc, 'p', '', record.text));
     if (kind === 'decision' && record.rationale) item.append(node(doc, 'p', 'goal-ledger-record-rationale', record.rationale));

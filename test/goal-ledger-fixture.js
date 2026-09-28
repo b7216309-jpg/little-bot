@@ -19,13 +19,13 @@ window.addEventListener('DOMContentLoaded', () => {
         },
       ],
       assumptions: [
-        { id: 'a1', at: 2500, text: 'The source uses UTF-8.', status: 'confirmed', source: 'verification' },
+        { id: 'a1', at: 2500, text: 'The source uses UTF-8.', status: 'confirmed', source: 'verification', stepId: 'done', planVersion: 2 },
       ],
       observations: [
-        { id: 'o1', at: 2600, text: 'The report exists but totals are missing.', source: 'verification', evidence: { type: 'completion', passed: false, path: 'report.md' } },
+        { id: 'o1', at: 2600, text: 'The report exists but totals are missing.', source: 'verification', stepId: 'done', planVersion: 2, evidence: { type: 'completion', passed: false, path: 'report.md' } },
       ],
       decisions: [
-        { id: 'd1', at: 2700, text: 'Recalculate totals before final verification.', rationale: 'The saved content check failed.', source: 'agent' },
+        { id: 'd1', at: 2700, text: 'Recalculate totals before final verification.', rationale: 'The saved content check failed.', source: 'agent', stepId: 'done', planVersion: 2 },
       ],
     },
   };

@@ -150,6 +150,24 @@
       .sort((left, right) => (right.at || 0) - (left.at || 0));
   }
 
+  function addRecordContext(records, allPlans) {
+    const steps = new Map();
+    for (const plan of allPlans) {
+      plan.steps.forEach((step, index) => steps.set(step.id, {
+        label: `v${plan.version} · Step ${index + 1}`,
+        text: step.text,
+      }));
+    }
+    return records.map(record => {
+      const linked = steps.get(record.stepId);
+      return {
+        ...record,
+        contextLabel: linked?.label || (record.planVersion ? `v${record.planVersion}` : ''),
+        contextText: linked?.text || '',
+      };
+    });
+  }
+
   function evidenceLabel(value) {
     if (!object(value)) return '';
     if (['snapshot', 'restore'].includes(value.type)) {
@@ -168,9 +186,9 @@
     const allPlans = plans(goal);
     const current = allPlans[allPlans.length - 1];
     const active = current.steps.find(step => step.status === 'active') || null;
-    const assumptions = latestAssumptions(goal?.ledger?.assumptions);
-    const observations = records(goal?.ledger?.observations, 'observation');
-    const decisions = records(goal?.ledger?.decisions, 'decision');
+    const assumptions = addRecordContext(latestAssumptions(goal?.ledger?.assumptions), allPlans);
+    const observations = addRecordContext(records(goal?.ledger?.observations, 'observation'), allPlans);
+    const decisions = addRecordContext(records(goal?.ledger?.decisions, 'decision'), allPlans);
     return {
       current,
       archived: allPlans.slice(0, -1).reverse(),
