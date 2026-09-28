@@ -7,6 +7,8 @@ on:
     paths:
       - .github/workflows/phase5-provider-ui.yml
       - scripts/apply-phase5-provider-ui.cjs
+      - test/provider-usage-fixture.html
+      - src/renderer/provider-usage.css
 
 permissions:
   contents: write
