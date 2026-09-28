@@ -31,6 +31,16 @@ test('responsesToChat maps messages and tools',()=>{
  assert.ok(estimateResponsesInputTokens(source)>0);
 });
 
+test('responsesToChat preserves Strata effort while the local toggle controls thinking',()=>{
+ const source={model:'qwen3.8-flash-next-iq2_xs',reasoning:{effort:'high'},input:'hello'};
+ const enabled=responsesToChat(source,true);
+ assert.deepEqual(enabled.body.reasoning,{effort:'high'});
+ assert.equal(enabled.body.chat_template_kwargs.enable_thinking,true);
+ const disabled=responsesToChat(source,false);
+ assert.deepEqual(disabled.body.reasoning,{effort:'high'});
+ assert.equal(disabled.body.chat_template_kwargs.enable_thinking,false);
+});
+
 test('stream adapter emits codex responses events', async()=>{
  const adapter=new StrataStreamAdapter({model:'qwen3.8-flash-next-iq2_xs',toolKinds:new Map([
   ['apply_patch',{type:'custom'}],['plain',{type:'function'}]
