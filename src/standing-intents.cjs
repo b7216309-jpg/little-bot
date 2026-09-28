@@ -6,6 +6,7 @@ const MAX_INTENTS = 50;
 const MAX_FILTERS = 8;
 const EVENT_TYPE = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
 const PATH = /^payload(?:\.[A-Za-z_][A-Za-z0-9_-]*){1,8}$/;
+const ID = /^[A-Za-z0-9_-]{1,100}$/;
 const OPERATORS = Object.freeze(['equals', 'notEquals', 'contains', 'startsWith', 'glob', 'exists']);
 const ACTIONS = Object.freeze(['goal.run', 'automation.run']);
 const STATUSES = Object.freeze(['never', 'matched', 'queued', 'completed', 'error', 'skipped']);
@@ -46,7 +47,7 @@ function normalizeAction(value) {
 
 function validateStandingIntent(input, existing = null, now = Date.now()) {
   if (!object(input)) throw new Error('Standing-intent details are required.');
-  if (input.id !== undefined && (!existing || input.id !== existing.id)) throw new Error('This standing intent no longer exists.');
+  if (existing && input.id !== undefined && input.id !== existing.id) throw new Error('This standing intent no longer exists.');
   if (!Number.isFinite(now) || now < 0) throw new Error('A valid current time is required.');
   const name = clean(input.name === undefined ? existing?.name : input.name, 80);
   if (!name) throw new Error('Give the standing intent a name.');
@@ -63,6 +64,7 @@ function validateStandingIntent(input, existing = null, now = Date.now()) {
   if (input.enabled !== undefined && typeof input.enabled !== 'boolean') throw new Error('Standing-intent enabled must be true or false.');
   const enabled = input.enabled === undefined ? existing?.enabled === true : input.enabled;
   const id = existing?.id || clean(input.id, 100) || randomUUID();
+  if (!ID.test(id)) throw new Error('Standing-intent ID is invalid.');
   const createdAt = existing?.createdAt || now;
   const result = {
     id,
