@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/phase2-intent-tracing.yml
       - scripts/apply-phase2-intent-tracing.cjs
+      - scripts/fix-phase2-intent-tracing.cjs
 
 permissions:
   contents: write
@@ -24,12 +25,15 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - run: npm ci
+      - name: Complete causal tracing test fixture
+        run: node scripts/fix-phase2-intent-tracing.cjs
       - name: Apply causal intent tracing
         run: node scripts/apply-phase2-intent-tracing.cjs
       - name: Remove one-shot patch files
         shell: pwsh
         run: |
           Remove-Item -LiteralPath scripts/apply-phase2-intent-tracing.cjs -Force
+          Remove-Item -LiteralPath scripts/fix-phase2-intent-tracing.cjs -Force
           Remove-Item -LiteralPath .github/workflows/phase2-intent-tracing.yml -Force
       - name: Check JavaScript syntax
         run: npm run check:syntax
