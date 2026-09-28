@@ -41,6 +41,7 @@ Optional **Firecrawl** and **Brave Search** keys go in **Settings → Web servic
 
 - **Profile:** edit USER.md for your facts/preferences and SOUL.md for the assistant's voice. Changes apply on the next request.
 - **Memory:** current conversation, recent work, and explicit saved facts—three layers. Say **Remember that ...** or use the Memory panel. The agent can also search and page through saved conversations, including older or compacted chats, using `memory_search` and `session_read`.
+- **Independent Check:** optional same-model anti-sycophancy review with Off, Selective, and Always modes plus a manual **Challenge this answer** action. It runs sequentially without tools and keeps the completed draft if review fails or is stopped. See [INDEPENDENT-CHECK.md](INDEPENDENT-CHECK.md).
 - **Goals:** define an objective, completion checks, permissions, and budget. Review the draft, then Run. Checkpoints persist; results are verified. Review undo restores eligible captured files.
 - **Automations:** repeating prompts with a saved folder, model, and connection, using either elapsed intervals or exact PC-local times on selected weekdays.
 - **Calendar:** a local Little Bot calendar with all-day or timed events. The UI and agent can create, edit, delete, and list events using the PC's local clock. External calendar sync is not included.

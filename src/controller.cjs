@@ -1113,7 +1113,7 @@ class Controller extends EventEmitter {
     this.approvals.set(requestId, { requestId, rpcId, method: 'item/tool/call', params: { ...params, questions },
       chatId: chat.id, kind: 'question', dynamicTool: 'ask_user', callKey,
       title: 'Little Bot has a question', detail: '', questions });
-    chat.messages.push({ id: messageId, role: 'assistant', text: input.question, status: 'waiting', createdAt: Date.now() });
+    chat.messages.push({ id: messageId, role: 'assistant', kind: 'question', text: input.question, status: 'waiting', createdAt: Date.now() });
     chat.status = 'waiting'; chat.updatedAt = Date.now();
     this.persistNow(); this.changed();
     return result;

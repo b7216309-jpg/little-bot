@@ -100,3 +100,11 @@ test('persisted records are bounded, normalized, and never require private reaso
   assert.equal('privateReasoning' in record, false);
   assert.equal(normalizeIndependentCheckRecord({ status: 'unknown' }), null);
 });
+
+test('structured assistant questions are not review targets', () => {
+  const chat = { messages: [
+    { id: 'request', role: 'user', text: 'Prepare the report.', status: 'completed' },
+    { id: 'question', role: 'assistant', kind: 'question', text: 'Which format?', status: 'completed' },
+  ] };
+  assert.equal(collectIndependentCheckContext(chat, { targetMessageId: 'question', messageStart: 0 }), null);
+});

@@ -13,6 +13,7 @@ test('only completed assistant answers and plans expose Independent Check action
     { role: 'assistant', phase: 'analysis', text: 'Private reasoning', status: 'completed' },
     { role: 'assistant', kind: 'reasoning', text: 'Reasoning', status: 'completed' },
     { role: 'assistant', kind: 'compaction', text: 'Compacted', status: 'completed' },
+    { role: 'assistant', kind: 'question', text: 'Which format?', status: 'completed' },
     { role: 'assistant', text: 'Streaming', status: 'running' },
     { role: 'tool', text: 'Tool output', status: 'completed' },
     { role: 'user', text: 'User text', status: 'completed' },

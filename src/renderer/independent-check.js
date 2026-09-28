@@ -7,7 +7,7 @@
 })(typeof globalThis === 'object' ? globalThis : window, () => {
   function eligible(message) {
     return Boolean(message && message.role === 'assistant'
-      && !['reasoning', 'compaction'].includes(message.kind)
+      && !['reasoning', 'compaction', 'question'].includes(message.kind)
       && !['analysis', 'commentary', 'internal'].includes(message.phase)
       && !['running', 'waiting', 'failed', 'interrupted', 'inProgress'].includes(message.status)
       && String(message.text || '').trim());

@@ -50,8 +50,8 @@ function independentCheckDecision({ mode, request, answer, force = false } = {})
 }
 
 function eligibleAnswer(message) {
-  return message && message.role === 'assistant' && !['reasoning', 'compaction'].includes(message.kind)
-    && !['analysis', 'commentary'].includes(message.phase)
+  return message && message.role === 'assistant' && !['reasoning', 'compaction', 'question'].includes(message.kind)
+    && !['analysis', 'commentary', 'internal'].includes(message.phase)
     && !['running', 'waiting', 'failed', 'interrupted', 'inProgress'].includes(message.status)
     && Boolean(text(message.text, MAX_ANSWER));
 }

@@ -663,6 +663,7 @@ function independentCheckSummary(record) {
   if (record?.assessment === 'supported') return 'Independent check: supported';
   if (record?.assessment === 'unsupported') return 'Independent check: unsupported';
   if (record?.assessment === 'preference') return 'Independent check: preference';
+  if (record?.assessment === 'not_applicable') return 'Independent check: no material claim';
   return 'Independent check: mixed';
 }
 
