@@ -29,7 +29,7 @@ jobs:
         run: |
           $encoded = (Get-ChildItem -LiteralPath scripts/.phase1-patch -Filter 'part-*' | Sort-Object Name | ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw }) -join ''
           $actual = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($encoded))).ToLowerInvariant()
-          if ($actual -ne '3e9e532349034406239c8b6f4e283e64b61db00939f593e789e27785584800f7') { throw "Patch checksum mismatch: $actual" }
+          if ($actual -ne 'b95e60c86eb4018c036ddc2a806943e142cb061f2615b40f443ae098774693a5') { throw "Patch checksum mismatch: $actual" }
           Set-Content -LiteralPath scripts/.phase1-patch/full.b64 -Value $encoded -NoNewline
           node -e "const fs=require('node:fs');const z=require('node:zlib');const encoded=fs.readFileSync('scripts/.phase1-patch/full.b64','utf8');fs.writeFileSync('scripts/apply-independent-check.cjs',z.gunzipSync(Buffer.from(encoded,'base64')));"
           node scripts/apply-independent-check.cjs
