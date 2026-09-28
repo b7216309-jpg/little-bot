@@ -24,7 +24,7 @@ class EventRuntime {
     this.clearIntervalFn = clearIntervalFn;
     this.onChange = onChange;
     this.onError = onError;
-    this.bus = eventBus || new EventBus({ dedupeWindowMs: 10000, onError, onChange: () => this._changed(false) });
+    this.bus = eventBus || new EventBus({ now, dedupeWindowMs: 10000, onError, onChange: () => this._changed(false) });
     this.intents = new StandingIntentStore({ store, now, onChange: () => this._changed(true) });
     this.timer = null;
     this.unsubscribers = [];
