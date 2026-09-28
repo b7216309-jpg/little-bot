@@ -374,6 +374,7 @@ app.whenReady().then(async () => {
     if (controller.browser.busy && controller.browser.owner === payload?.chatId) await controller.browser.close();
     return result;
   });
+  register('challengeIndependentCheck', payload => controller.challengeIndependentCheck(payload));
   register('compact', payload => controller.compact(payload));
   register('deleteChat', payload => controller.deleteChat(payload));
   register('respondApproval', payload => controller.respondApproval(payload));

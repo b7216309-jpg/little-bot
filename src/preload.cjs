@@ -15,7 +15,7 @@ contextBridge.exposeInMainWorld('bot', {
   openAttachment: invoke('openAttachment'), saveAttachment: invoke('saveAttachment'),
   saveServiceKey: invoke('saveServiceKey'), openServicePage: invoke('openServicePage'),
   openAgentBrowser: invoke('openAgentBrowser'), closeAgentBrowser: invoke('closeAgentBrowser'), installAgentBrowser: invoke('installAgentBrowser'),
-  stop: invoke('stop'), compact: invoke('compact'), deleteChat: invoke('deleteChat'), respondApproval: invoke('respondApproval'),
+  stop: invoke('stop'), challengeIndependentCheck: invoke('challengeIndependentCheck'), compact: invoke('compact'), deleteChat: invoke('deleteChat'), respondApproval: invoke('respondApproval'),
   saveAutomation: invoke('saveAutomation'), deleteAutomation: invoke('deleteAutomation'),
   runAutomation: invoke('runAutomation'), saveCalendarEvent: invoke('saveCalendarEvent'), deleteCalendarEvent: invoke('deleteCalendarEvent'), openWorkspace: invoke('openWorkspace'),
   saveGoal: invoke('saveGoal'), runGoal: invoke('runGoal'), pauseGoal: invoke('pauseGoal'), resumeGoal: invoke('resumeGoal'),

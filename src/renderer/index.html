@@ -9,6 +9,7 @@
   <script src="./chat-scroll.js" defer></script>
   <script src="./action-groups.js" defer></script>
   <script src="./slash-commands.js" defer></script>
+  <script src="./independent-check.js" defer></script>
   <script src="./app.js" defer></script>
 </head>
 <body>
@@ -181,6 +182,16 @@
         <p id="settings-system-prompt-hint" class="field-hint">This is the complete system prompt sent to the model. Editing it replaces Little Bot’s built-in instructions.</p>
         <div class="settings-actions"><button id="save-system-prompt" class="button primary" type="submit" disabled>Save prompt</button><button id="reset-system-prompt" class="button text-button" type="button">Restore default</button><span id="system-prompt-settings-saved" class="settings-save-status" role="status"></span></div>
         <p id="system-prompt-settings-error" class="inline-error hidden" role="alert"></p>
+      </form>
+    </section>
+    <section class="settings-section" aria-labelledby="independent-check-settings-title">
+      <h3 id="independent-check-settings-title">Independent Check</h3>
+      <p class="settings-description">Review judgment-oriented answers without automatically agreeing with the framing.</p>
+      <form id="independent-check-settings-form" novalidate>
+        <label class="field-label settings-field-label" for="settings-independent-check">Review mode</label>
+        <div class="settings-actions"><select id="settings-independent-check" aria-describedby="settings-independent-check-hint"><option value="selective">Selective · recommended</option><option value="always">Always</option><option value="off">Off</option></select><button id="save-independent-check-settings" class="button secondary" type="submit" disabled>Save</button><span id="independent-check-settings-saved" class="settings-save-status" role="status"></span></div>
+        <p id="settings-independent-check-hint" class="field-hint">Uses one sequential pass by the same selected model. It has no tools, network access, or parallel worker.</p>
+        <p id="independent-check-settings-error" class="inline-error hidden" role="alert"></p>
       </form>
     </section>
     <section class="settings-section" aria-labelledby="compaction-settings-title"><h3 id="compaction-settings-title">Context compaction</h3><form id="compaction-settings-form" novalidate><label class="field-label settings-field-label" for="settings-auto-compact">Compact at</label><div class="compaction-setting-control"><div class="percent-input"><input id="settings-auto-compact" type="number" min="0" max="95" step="1" value="80" inputmode="numeric" required aria-describedby="settings-compaction-hint"><span>%</span></div><button id="save-compaction-settings" class="button secondary" type="submit" disabled>Save</button><span id="compaction-settings-saved" class="settings-save-status" role="status"></span></div><p id="settings-compaction-hint" class="field-hint">20–95%, or 0 for the engine default. Chat history stays intact.</p><p id="compaction-settings-error" class="inline-error hidden" role="alert"></p></form></section>
