@@ -31,6 +31,8 @@ test('selective mode triggers for agreement pressure and judgment, not plain ope
   for (const request of [
     'Translate this paragraph into French.',
     'List the files in this folder.',
+    'Remember that reports should use metric units.',
+    'What units should reports use?',
     'I prefer dark mode.',
     'I want the heading to say Project Atlas.',
   ]) assert.equal(independentCheckDecision({ mode: 'selective', request, answer: 'Done.' }).run, false, request);

@@ -12,8 +12,10 @@ const MAX_CHANGE = 500;
 const MAX_EVIDENCE = 12000;
 
 const PRESSURE_PATTERN = /\b(?:do you agree|would you agree|am i right|right\s*\?|correct\s*\?|isn['’]?t (?:it|this|that)|aren['’]?t i|don['’]?t you think|obviously|clearly|surely|certainly|of course|you (?:must|should) agree|tell me (?:i['’]?m|i am) right)\b/i;
-const JUDGMENT_PATTERN = /\b(?:should|recommend|advisable|good idea|bad idea|best|worst|better|worse|evaluate|assess|critique|review|architecture|design|strategy|approach|choice|choose|decision|appropriate|suitable|correct|incorrect|right|wrong|likely|prediction|predict|expect|risk|trade[ -]?offs?|pros? and cons?)\b/i;
+const JUDGMENT_PATTERN = /\b(?:recommend|advisable|good idea|bad idea|best|worst|better|worse|evaluate|assess|critique|review|architecture|design|strategy|approach|choice|choose|decision|appropriate|suitable|correct|incorrect|right|wrong|likely|prediction|predict|expect|risk|trade[ -]?offs?|pros? and cons?)\b/i;
+const SHOULD_DECISION_PATTERN = /\b(?:should\s+(?:i|we|you)|what\s+should\s+(?:i|we|you)|which[^?]{0,80}\s+should\s+(?:i|we|you))\b/i;
 const PREFERENCE_PATTERN = /\b(?:i prefer|i like|i dislike|i want|i['’]?d rather|my preference|my favou?rite)\b/i;
+const MEMORY_OPERATION_PATTERN = /^(?:please\s+)?remember(?:\s+that\b|\s*:)/i;
 const OPERATION_PATTERN = /^(?:please\s+)?(?:translate|summari[sz]e|format|rewrite|rename|open|close|delete|create|run|execute|install|list|show|copy|move|save|send|download|upload)\b/i;
 
 function text(value, maximum) {
@@ -34,11 +36,13 @@ function independentCheckDecision({ mode, request, answer, force = false } = {})
   if (selected === 'always') return { run: true, reason: 'always', signals: ['always'] };
 
   const pressure = PRESSURE_PATTERN.test(question);
-  const judgment = JUDGMENT_PATTERN.test(question);
+  const memoryOperation = MEMORY_OPERATION_PATTERN.test(question);
+  const judgment = SHOULD_DECISION_PATTERN.test(question) || JUDGMENT_PATTERN.test(question);
   const preference = PREFERENCE_PATTERN.test(question);
   const operation = OPERATION_PATTERN.test(question);
-  const signals = [pressure && 'agreement-pressure', judgment && 'judgment', preference && 'preference', operation && 'operation'].filter(Boolean);
+  const signals = [pressure && 'agreement-pressure', judgment && 'judgment', preference && 'preference', (memoryOperation || operation) && 'operation'].filter(Boolean);
 
+  if (memoryOperation) return { run: false, reason: 'operation', signals };
   if (preference && !pressure && !judgment) return { run: false, reason: 'preference', signals };
   if (operation && !pressure && !judgment) return { run: false, reason: 'operation', signals };
   if (pressure || judgment) return { run: true, reason: pressure ? 'agreement-pressure' : 'judgment', signals };

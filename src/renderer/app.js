@@ -137,6 +137,10 @@ let systemPromptInitialized = false;
 let systemPromptBaseline = '';
 let systemPromptSaving = false;
 let systemPromptError = '';
+let independentCheckSettingsInitialized = false;
+let independentCheckSettingsBaseline = 'selective';
+let independentCheckSettingsSaving = false;
+let independentCheckSettingsError = '';
 let browserActionPending = '';
 let browserActionError = '';
 const serviceKeyPending = new Map();
@@ -651,9 +655,72 @@ function replaceConversationItems(host, items) {
   }
 }
 
+function independentCheckSummary(record) {
+  if (record?.status === 'running') return 'Independent check in progress…';
+  if (record?.status === 'failed') return 'Independent check unavailable';
+  if (record?.status === 'interrupted') return 'Independent check stopped';
+  if (record?.revisionApplied) return 'Independent check revised this answer';
+  if (record?.assessment === 'supported') return 'Independent check: supported';
+  if (record?.assessment === 'unsupported') return 'Independent check: unsupported';
+  if (record?.assessment === 'preference') return 'Independent check: preference';
+  return 'Independent check: mixed';
+}
+
+function renderIndependentCheck(node, chat, message) {
+  node.querySelector(':scope > .independent-check')?.remove();
+  node.querySelector(':scope > .independent-check-actions')?.remove();
+  const eligible = message.role === 'assistant' && !['reasoning', 'compaction'].includes(message.kind)
+    && !['running', 'waiting', 'failed', 'interrupted', 'inProgress'].includes(message.status)
+    && Boolean(String(message.text || '').trim());
+  if (!eligible) return;
+
+  const record = message.independentCheck;
+  if (record) {
+    const details = element('details', 'independent-check');
+    details.open = Boolean(record.revisionApplied || record.status === 'failed');
+    const summary = element('summary');
+    summary.append(icon('shield'), element('span', 'independent-check-label', independentCheckSummary(record)));
+    details.append(summary);
+    const body = element('div', 'independent-check-body');
+    if (record.status === 'running') body.append(element('p', '', 'The same selected model is reviewing the answer sequentially without tools.'));
+    else if (record.error) body.append(element('p', 'inline-error', record.error), element('p', 'field-hint', 'The completed draft was kept.'));
+    else {
+      if (record.strongestCounterpoint) body.append(element('p', '', record.strongestCounterpoint));
+      const meta = [];
+      if (record.assessment) meta.push(`Assessment: ${humanStatus(record.assessment)}`);
+      if (Number.isFinite(record.confidence)) meta.push(`Confidence: ${Math.round(record.confidence * 100)}%`);
+      if (meta.length) body.append(element('p', 'field-hint', meta.join(' · ')));
+      if (record.wouldChangeConclusion?.length) {
+        const list = element('ul', 'independent-check-change-list');
+        for (const condition of record.wouldChangeConclusion) list.append(element('li', '', condition));
+        body.append(element('strong', '', 'Would change the conclusion:'), list);
+      }
+      if (record.revisionApplied && record.originalAnswer) {
+        const original = element('details', 'independent-check-original');
+        original.append(element('summary', '', 'Draft before the check'), element('pre', '', record.originalAnswer));
+        body.append(original);
+      }
+    }
+    details.append(body);
+    node.append(details);
+  }
+
+  const actions = element('div', 'independent-check-actions');
+  const button = action(record?.status === 'failed' || record?.status === 'interrupted' ? 'Run check again' : 'Challenge this answer', async () => {
+    const result = await attempt(() => window.bot.challengeIndependentCheck({ chatId: chat.id, messageId: message.id }));
+    if (result) notify('Independent Check started.');
+  }, 'button text-button');
+  const busy = chat.status !== 'idle' || record?.status === 'running' || !isReady() || !isConnected();
+  button.disabled = busy;
+  button.title = busy ? 'Wait for the current task to finish.' : 'Force a sequential Independent Check of this answer.';
+  actions.append(button);
+  node.append(actions);
+}
+
 function conversationMessage(chat, message, index) {
   const key = `${chat.id}:${message.id || index}`;
-  const fingerprint = [message.role, message.kind, message.status, message.phase, message.text, JSON.stringify(message.attachments || [])];
+  const fingerprint = [message.role, message.kind, message.status, message.phase, message.text, JSON.stringify(message.attachments || []),
+    JSON.stringify(message.independentCheck || null), chat.status];
   const previous = renderedMessages.get(key);
   if (previous && fingerprint.every((value, position) => value === previous.fingerprint[position])) return previous.node;
   const variant = message.kind === 'compaction' ? 'compaction' : message.role === 'assistant' && message.kind === 'reasoning' ? 'reasoning'
@@ -717,6 +784,7 @@ function conversationMessage(chat, message, index) {
       node.querySelector(':scope > .attachment-list')?.remove();
       renderAttachments(node, message.attachments);
     }
+    renderIndependentCheck(node, chat, message);
   }
   node.dataset.messageId = message.id || String(index);
   renderedMessages.set(key, { node, variant, fingerprint });
@@ -790,8 +858,11 @@ function taskSummaryNode(chat) {
 function conversationActivityNode(chat) {
   const active = chat.status === 'running' && !chat.messages.some(message => message.kind === 'reasoning' && message.status === 'running');
   if (!active) return null;
-  const elapsed = chat.taskRun?.startedAt ? ` · ${formatTaskDuration(Date.now() - chat.taskRun.startedAt)}` : '';
-  const label = chat.compaction?.status === 'running' ? 'Summarizing older context…' : `Working…${elapsed}`;
+  const reviewStartedAt = state?.independentCheckRuntime?.chatId === chat.id ? state.independentCheckRuntime.startedAt : null;
+  const startedAt = chat.taskRun?.startedAt || reviewStartedAt;
+  const elapsed = startedAt ? ` · ${formatTaskDuration(Date.now() - startedAt)}` : '';
+  const reviewing = state?.independentCheckRuntime?.chatId === chat.id;
+  const label = chat.compaction?.status === 'running' ? 'Summarizing older context…' : reviewing ? `Independent check…${elapsed}` : `Working…${elapsed}`;
   if (!conversationActivity) {
     conversationActivity = element('div', 'thinking');
     conversationActivity.append(element('span', 'status-dot'), element('span', 'thinking-label', label));
@@ -804,9 +875,13 @@ function conversationActivityNode(chat) {
 function updateTaskClock() {
   if (currentView !== 'chat') return;
   const chat = currentChat();
-  if (!chat || chat.status !== 'running' || !chat.taskRun?.startedAt || chat.compaction?.status === 'running') return;
+  const reviewStartedAt = state?.independentCheckRuntime?.chatId === chat?.id ? state.independentCheckRuntime.startedAt : null;
+  const startedAt = chat?.taskRun?.startedAt || reviewStartedAt;
+  if (!chat || chat.status !== 'running' || !startedAt || chat.compaction?.status === 'running') return;
   const label = conversationActivity?.querySelector('.thinking-label');
-  if (label) label.textContent = `Working… · ${formatTaskDuration(Date.now() - chat.taskRun.startedAt)}`;
+  if (label) label.textContent = reviewStartedAt
+    ? `Independent check… · ${formatTaskDuration(Date.now() - startedAt)}`
+    : `Working… · ${formatTaskDuration(Date.now() - startedAt)}`;
   if (agentInspectorOpen && currentView === 'chat') $('inspector-elapsed').textContent = inspectorElapsedText(chat);
 }
 taskClockTimer = setInterval(updateTaskClock, 1000);
@@ -1415,6 +1490,7 @@ function renderSettings() {
     : 'Chats and memory are encrypted on this PC. Model requests go to OpenAI.';
   renderConnectionSettings();
   renderSystemPromptSettings();
+  renderIndependentCheckSettings();
   renderCompactionSettings();
   renderBrowserSettings();
   renderServiceKeys();
@@ -1546,6 +1622,42 @@ async function resetSystemPromptSettings() {
   } finally {
     systemPromptSaving = false;
     renderSystemPromptSettings();
+  }
+}
+
+function renderIndependentCheckSettings() {
+  const input = $('settings-independent-check');
+  const stored = state.settings.independentCheckMode || 'selective';
+  const hadDraft = independentCheckSettingsInitialized && input.value !== independentCheckSettingsBaseline;
+  independentCheckSettingsBaseline = stored;
+  if (!independentCheckSettingsInitialized || (!hadDraft && !independentCheckSettingsSaving)) input.value = stored;
+  independentCheckSettingsInitialized = true;
+  input.disabled = independentCheckSettingsSaving;
+  const dirty = input.value !== independentCheckSettingsBaseline;
+  $('save-independent-check-settings').disabled = independentCheckSettingsSaving || !dirty;
+  $('save-independent-check-settings').textContent = independentCheckSettingsSaving ? 'Saving…' : 'Save';
+  $('independent-check-settings-error').textContent = independentCheckSettingsError;
+  $('independent-check-settings-error').classList.toggle('hidden', !independentCheckSettingsError);
+}
+
+async function saveIndependentCheckSettings(event) {
+  event?.preventDefault();
+  if (independentCheckSettingsSaving) return;
+  const independentCheckMode = $('settings-independent-check').value;
+  independentCheckSettingsSaving = true;
+  independentCheckSettingsError = '';
+  $('independent-check-settings-saved').textContent = '';
+  renderIndependentCheckSettings();
+  try {
+    const result = await window.bot.saveSettings({ independentCheckMode });
+    if (result?.settings) applyState(result);
+    independentCheckSettingsBaseline = independentCheckMode;
+    $('independent-check-settings-saved').textContent = 'Saved';
+  } catch (error) {
+    independentCheckSettingsError = error?.message || 'Could not save Independent Check settings.';
+  } finally {
+    independentCheckSettingsSaving = false;
+    renderIndependentCheckSettings();
   }
 }
 
@@ -3423,6 +3535,12 @@ $('settings-system-prompt').addEventListener('input', () => {
   renderSystemPromptSettings();
 });
 $('reset-system-prompt').addEventListener('click', resetSystemPromptSettings);
+$('independent-check-settings-form').addEventListener('submit', saveIndependentCheckSettings);
+$('settings-independent-check').addEventListener('change', () => {
+  independentCheckSettingsError = '';
+  $('independent-check-settings-saved').textContent = '';
+  renderIndependentCheckSettings();
+});
 $('compaction-settings-form').addEventListener('submit', saveCompactionSettings);
 $('settings-auto-compact').addEventListener('input', () => {
   compactionSettingsError = '';

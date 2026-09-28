@@ -12,6 +12,8 @@ const { localBaseUrl, localModel, connectionBinding, normalizeModelCapabilities,
 const { LocalModelRelay } = require('./local-model-relay.cjs');
 const { questionInput, questionText } = require('./user-questions.cjs');
 const { SHELL_CONDUCT, commandTranscript, appendCommandDelta } = require('./shell-conduct.cjs');
+const { IndependentCheckRunner } = require('./independent-check-runner.cjs');
+const { INDEPENDENT_CHECK_MODES, normalizeIndependentCheckMode } = require('./independent-check.cjs');
 
 function cleanError(error) {
   return String(error?.message || error || 'Something went wrong')
@@ -115,6 +117,7 @@ class Controller extends EventEmitter {
     this.pendingQuestions = new Map();
     this.questionRequests = new Map();
     this.goalExecutor = new GoalExecutor(this);
+    this.independentCheck = new IndependentCheckRunner(this);
     this.store.data.memory ||= defaultMemory();
     client.on('notification', (method, params) => this.notification(method, params));
     client.on('request', request => {
@@ -139,6 +142,7 @@ class Controller extends EventEmitter {
       connection: this.connection,
       extensionsBusy: this.extensionsBusy,
       goalRuntime: this.goalExecutor.state,
+      independentCheckRuntime: this.independentCheck.state,
       profile: this.profileFiles?.getState() || null,
       browser: this.browser?.getState() || null,
       webServices: this.webServices?.getState() || null,
@@ -319,6 +323,9 @@ class Controller extends EventEmitter {
     if (input.effort !== undefined) {
       if (!['low', 'medium', 'high'].includes(input.effort)) throw new Error('Invalid thinking level.');
     }
+    if (input.independentCheckMode !== undefined && !INDEPENDENT_CHECK_MODES.includes(input.independentCheckMode)) {
+      throw new Error('Choose Off, Selective, or Always for Independent Check.');
+    }
     if (input.autoCompactPercent !== undefined && !validAutoCompactPercent(input.autoCompactPercent)) {
       throw new Error('Choose an automatic compaction threshold from 20% to 95%, or 0 to use only the engine limit.');
     }
@@ -341,6 +348,7 @@ class Controller extends EventEmitter {
     }
     if (input.effort !== undefined) this.store.data.settings.effort = input.effort;
     if (input.localThinking !== undefined) this.store.data.settings.localThinking = input.localThinking;
+    if (input.independentCheckMode !== undefined) this.store.data.settings.independentCheckMode = input.independentCheckMode;
     if (input.autoCompactPercent !== undefined) this.store.data.settings.autoCompactPercent = input.autoCompactPercent;
     if (input.systemPrompt !== undefined) {
       if (input.systemPrompt === null) delete this.store.data.settings.systemPrompt;
@@ -439,6 +447,7 @@ class Controller extends EventEmitter {
     if (this.extensionsBusy) throw new Error('Extensions are being updated. Try again in a moment.');
     if (this.goalChat) throw new Error('The goal is still stopping. Try your message again in a moment.');
     if (this.heartbeatChat) throw new Error('The heartbeat is still stopping. Try your message again in a moment.');
+    if (this.independentCheck.active) throw new Error('Wait for Independent Check to finish.');
     if (!Array.isArray(attachmentIds) || attachmentIds.length > 8 || attachmentIds.some(id => typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(id)) || new Set(attachmentIds).size !== attachmentIds.length) throw new Error('Choose up to 8 attachments.');
     if (override && attachmentIds.length) throw new Error('Attachments are available in direct conversations.');
     if (mode !== undefined && !['execute', 'plan'].includes(mode)) throw new Error('Choose Execute or Plan mode.');
@@ -470,7 +479,8 @@ class Controller extends EventEmitter {
     // Mark busy before awaiting RPC so two clicks cannot start overlapping turns.
     chat.mode = turnMode;
     chat.status = 'running'; chat.error = null; chat.updatedAt = Date.now();
-    chat.taskRun = { startedAt: Date.now(), messageStart: chat.messages.length };
+    chat.taskRun = { startedAt: Date.now(), messageStart: chat.messages.length,
+      independentCheckMode: normalizeIndependentCheckMode(settings.independentCheckMode) };
     if (override?.automationId) chat.automationId = override.automationId;
     if (chat.connection !== 'local') chat.model = settings.model || chat.model;
     chat.effort = settings.effort || 'low';
@@ -772,6 +782,7 @@ class Controller extends EventEmitter {
   }
   async stop({ chatId } = {}) {
     const chat = this.chat(chatId);
+    if (this.independentCheck.belongsTo(chatId)) return this.independentCheck.stop('Stopped by you.');
     if (!chat || chat.status === 'idle') return;
     if (this.manualCompactions.has(chatId)) return this.stopCompaction(chat);
     for (const approval of [...this.approvals.values()]) {
@@ -782,6 +793,7 @@ class Controller extends EventEmitter {
     await this.client.request('turn/interrupt', { threadId: chat.threadId, turnId });
     this.persistNow();
   }
+  challengeIndependentCheck(payload = {}) { return this.independentCheck.challenge(payload); }
   deleteChat({ chatId } = {}) {
     const chat = this.chat(chatId);
     if (!chat) return this.state();
@@ -825,6 +837,7 @@ class Controller extends EventEmitter {
   }
   notification(method, params = {}) {
     if (this.closing) return;
+    if (this.independentCheck.notification(method, params)) return;
     if (this.goalExecutor.notification(method, params)) return;
     if (method === 'account/login/completed') {
       this.emit('event', { type: 'login', success: !!params.success, error: params.error ? cleanError(params.error) : null });
@@ -888,6 +901,7 @@ class Controller extends EventEmitter {
     } else if (method === 'turn/completed') {
       const error = params.turn.error?.message || (params.turn.status === 'failed' ? 'The reply failed. Please try again.' :
         params.turn.status === 'interrupted' ? 'Stopped by you.' : null);
+      if (!error && this.independentCheck.startForTurn(chat, { turnId: eventTurnId })) return;
       this.finish(chat, error ? cleanError(error) : null); return;
     } else if (method === 'error') {
       if (!params.willRetry) {
@@ -984,6 +998,10 @@ class Controller extends EventEmitter {
     else this.changed(!chat.internal);
   }
   async serverRequest({ id, method, params = {} }) {
+    if (this.independentCheck.ownsThread(params.threadId)) {
+      await this.client.reject(id, 'Independent Check does not use tools or request user input.');
+      return;
+    }
     if (this.goalChat && [this.goalChat.threadId, this.goalChat.brokerThreadId].filter(Boolean).includes(params.threadId)) {
       await this.goalExecutor.serverRequest({ id, method, params }); return;
     }
@@ -1155,6 +1173,7 @@ class Controller extends EventEmitter {
     if (this.closing) return;
     this.onError('engine-crash', error);
     this.runtime = { status: 'error', error: cleanError(error) };
+    this.independentCheck.abort('failed', 'Independent Check stopped because the assistant engine stopped. The completed draft was kept.');
     this.goalExecutor.abort('The assistant engine stopped. Reopen Little Bot to reconnect.');
     for (const chat of this.store.data.chats) if (chat.status !== 'idle') this.finish(chat, 'The assistant engine stopped. Reopen Little Bot to reconnect.');
     if (this.heartbeatChat) this.finish(this.heartbeatChat, 'The assistant engine stopped. Reopen Little Bot to reconnect.');
@@ -1163,6 +1182,7 @@ class Controller extends EventEmitter {
   }
   async close() {
     this.closing = true;
+    this.independentCheck.abort('interrupted', 'Independent Check stopped because Little Bot closed. The completed draft was kept.');
     for (const request of this.questionRequests.values()) request.cancelled = true;
     for (const [key, approval] of this.approvals) if (approval.dynamicTool === 'ask_user') {
       this.settleQuestion(approval, { answer: null, cancelled: true });

@@ -11,6 +11,7 @@ const { normalizeAutoCompactPercent } = require('./compaction.cjs');
 const { normalizeCalendar } = require('./calendar.cjs');
 const { attachmentDescriptors } = require('./attachment-message.cjs');
 const { normalizeConnectionSettings, connectionBinding } = require('./connections.cjs');
+const { normalizeIndependentCheckMode, normalizeIndependentCheckRecord } = require('./independent-check.cjs');
 
 const INTERRUPTED = 'Interrupted because Little Bot closed before the task finished.';
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -90,6 +91,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
       model: string(settings.model),
       effort: effort(settings.effort),
       autoCompactPercent: normalizeAutoCompactPercent(settings.autoCompactPercent),
+      independentCheckMode: normalizeIndependentCheckMode(settings.independentCheckMode),
       ...(typeof settings.systemPrompt === 'string' ? { systemPrompt: settings.systemPrompt.slice(0, 100000) } : {}),
     },
     chats: chats.filter(isObject).filter(chat => chat.private !== true).map(chat => {
@@ -120,6 +122,15 @@ function persistedData(data, defaultWorkspace, recovering = false) {
           }
           for (const key of ['createdAt', 'updatedAt']) {
             if (Number.isFinite(message[key])) entry[key] = message[key];
+          }
+          const independentCheck = normalizeIndependentCheckRecord(message.independentCheck);
+          if (independentCheck) {
+            if (recovering && independentCheck.status === 'running') {
+              independentCheck.status = 'interrupted';
+              independentCheck.error = 'Independent Check was interrupted when Little Bot closed.';
+              independentCheck.checkedAt = Date.now();
+            }
+            entry.independentCheck = independentCheck;
           }
           return entry;
         }),
