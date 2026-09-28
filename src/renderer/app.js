@@ -669,9 +669,7 @@ function independentCheckSummary(record) {
 function renderIndependentCheck(node, chat, message) {
   node.querySelector(':scope > .independent-check')?.remove();
   node.querySelector(':scope > .independent-check-actions')?.remove();
-  const eligible = message.role === 'assistant' && !['reasoning', 'compaction'].includes(message.kind)
-    && !['running', 'waiting', 'failed', 'interrupted', 'inProgress'].includes(message.status)
-    && Boolean(String(message.text || '').trim());
+  const eligible = window.LittleBotIndependentCheck.eligible(message);
   if (!eligible) return;
 
   const record = message.independentCheck;
