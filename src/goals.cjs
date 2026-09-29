@@ -398,7 +398,13 @@ class GoalRunner {
       planVersion: ledgerPlanAtStart?.version || null,
     };
     let snapshot = null, verificationActions = 0, modelUsage = { tokens: 0, actions: 0, elapsedMs: 0 }, result = null, timer;
-    const updateUsage = () => { goal.usage.tokens = before.tokens + Math.floor(number(modelUsage.tokens)); goal.usage.actions = before.actions + verificationActions + Math.floor(number(modelUsage.actions)); goal.usage.elapsedMs = before.elapsedMs + Math.max(Date.now() - startedAt, Math.floor(number(modelUsage.elapsedMs))); };
+    const completedBefore = goal.lastCompletedAt;
+    const updateUsage = () => {
+      if (isRecurringGoal(goal) && goal.lastCompletedAt !== completedBefore) return;
+      goal.usage.tokens = before.tokens + Math.floor(number(modelUsage.tokens));
+      goal.usage.actions = before.actions + verificationActions + Math.floor(number(modelUsage.actions));
+      goal.usage.elapsedMs = before.elapsedMs + Math.max(Date.now() - startedAt, Math.floor(number(modelUsage.elapsedMs)));
+    };
     goal.status = 'running'; delete goal.needsRecoveryCheck; delete goal.continueAfterAnswer; this.record(goal, 'checking', 'Checking saved completion conditions before doing work.', { runId }); this.changed();
     try {
       let checked = await this.verify(goal, action => { if (action) verificationActions++; updateUsage(); }); updateUsage();
