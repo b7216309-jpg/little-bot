@@ -1,0 +1,6 @@
+{
+  "name": "github-tools",
+  "version": "1.0.0",
+  "description": "GitHub repository, issue, pull-request, code-search, and file tools using the GitHub REST API. Credentials stay in environment variables.",
+  "skills": "./skills"
+}
