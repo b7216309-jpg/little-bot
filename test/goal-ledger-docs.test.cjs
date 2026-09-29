@@ -27,7 +27,7 @@ test('Phase 3 documentation links the implemented ledger consistently', () => {
 test('the bundled operating guide migrates only the original previous guide', () => {
   const bundled = read('src/bundled-skills.cjs');
   const skill = read('resources/skills/little-bot/SKILL.md');
-  assert.match(bundled, /const VERSION = 11;/);
+  assert.match(bundled, /const VERSION = 13;/);
   assert.ok(bundled.includes(previousGuideHash));
   assert.match(skill, /plan\/evidence ledger/i);
   assert.match(skill, /Exactly one step is active/);

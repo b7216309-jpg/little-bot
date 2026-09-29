@@ -2762,8 +2762,10 @@ function renderGoals() {
     const budget = element('div', 'goal-budget-row');
     const number = (value) => Number.isFinite(value) ? value.toLocaleString() : '—';
     const elapsed = Number.isFinite(usage.elapsedMs) ? Math.round(usage.elapsedMs / 6000) / 10 : 0;
-    budget.append(element('span', '', `${number(usage.tokens || 0)} / ${number(limits.maxTokens)} tokens`), element('span', '', `${elapsed} / ${number(limits.maxMinutes)} min`), element('span', '', `${usage.actions || 0} / ${number(limits.maxActions)} actions`), element('span', '', `${usage.runs || 0} / ${number(limits.maxRuns)} runs`), element('span', '', `${usage.retries || 0} / ${number(limits.maxRetries)} retries`));
+    budget.append(element('span', '', `${number(usage.tokens || 0)} / ${number(limits.maxTokens)} input + output tokens`), element('span', '', `${elapsed} / ${number(limits.maxMinutes)} min`), element('span', '', `${usage.actions || 0} / ${number(limits.maxActions)} actions`), element('span', '', `${usage.runs || 0} / ${number(limits.maxRuns)} runs`), element('span', '', `${usage.retries || 0} / ${number(limits.maxRetries)} retries`));
+    if (Number.isFinite(usage.inputTokens) && Number.isFinite(usage.outputTokens)) budget.append(element('span', '', `${number(usage.inputTokens)} input · ${number(usage.outputTokens)} generated`));
     card.append(budget);
+    if (goal.status === 'running' && goal.currentAction) card.append(element('p', 'goal-no-data', `Current action: ${goal.currentAction}`));
     const footer = element('div', 'goal-card-actions');
     const pending = goalPending.has(goal.id) || Boolean(goal.pendingQuestion && goalAnswerPending.has(goalQuestionKey(goal.id, goal.pendingQuestion.id)));
     const active = goal.status === 'running' || goal.status === 'queued';
@@ -2823,6 +2825,7 @@ function renderGoals() {
       const heading = element('div', 'goal-history-header');
       heading.append(element('strong', '', humanStatus(entry.kind || entry.status || 'Update')), element('time', '', formatDate(entry.at)));
       item.append(heading, element('p', 'goal-history-summary', entry.summary || 'No summary recorded.'));
+      if (Number.isFinite(entry.usage?.inputTokens) && Number.isFinite(entry.usage?.outputTokens)) item.append(element('p', 'goal-no-data', `${number(entry.usage.inputTokens)} input · ${number(entry.usage.outputTokens)} generated tokens. Input is counted again on each model request.`));
       if (Array.isArray(entry.actions) && entry.actions.length) item.append(element('pre', 'goal-history-actions', entry.actions.join('\n\n')));
       if (Array.isArray(entry.verification) && entry.verification.length) for (const result of entry.verification) item.append(goalEvidenceRow(result));
       const snapshot = entry.snapshot;

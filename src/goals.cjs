@@ -34,7 +34,10 @@ function integer(value, fallback, min, max, label) {
   if (!Number.isInteger(value) || value < min || value > max) throw new Error(`${label} must be an integer from ${min} to ${max}.`);
   return value;
 }
-function usageOf(value = {}) { return Object.fromEntries(['tokens', 'elapsedMs', 'actions', 'runs', 'retries'].map(key => [key, Math.floor(number(value[key]))])); }
+function usageOf(value = {}) {
+  value ||= {};
+  return Object.fromEntries(['tokens', 'elapsedMs', 'actions', 'runs', 'retries', ...['inputTokens', 'outputTokens'].filter(key => Number.isFinite(value[key]))].map(key => [key, Math.floor(number(value[key]))]));
+}
 function historyOf(value) {
   return (Array.isArray(value) ? value : []).filter(isObject).slice(-50).map(entry => {
     const record = { id: String(entry.id || randomUUID()).slice(0, 100), at: number(entry.at), kind: String(entry.kind || 'activity').slice(0, 40), summary: clean(entry.summary) };
@@ -404,10 +407,11 @@ class GoalRunner {
     const updateUsage = () => {
       if (isRecurringGoal(goal) && goal.lastCompletedAt !== completedBefore) return;
       goal.usage.tokens = before.tokens + Math.floor(number(modelUsage.tokens));
+      for (const key of ['inputTokens', 'outputTokens']) if (Number.isFinite(modelUsage[key])) goal.usage[key] = number(before[key]) + Math.floor(number(modelUsage[key]));
       goal.usage.actions = before.actions + verificationActions + Math.floor(number(modelUsage.actions));
       goal.usage.elapsedMs = before.elapsedMs + Math.max(Date.now() - startedAt, Math.floor(number(modelUsage.elapsedMs)));
     };
-    goal.status = 'running'; delete goal.needsRecoveryCheck; delete goal.continueAfterAnswer; this.record(goal, 'checking', 'Checking saved completion conditions before doing work.', { runId }); this.changed();
+    goal.status = 'running'; goal.currentAction = ''; delete goal.needsRecoveryCheck; delete goal.continueAfterAnswer; this.record(goal, 'checking', 'Checking saved completion conditions before doing work.', { runId }); this.changed();
     try {
       let checked = await this.verify(goal, action => { if (action) verificationActions++; updateUsage(); }); updateUsage();
       preflightPassed = checked.passed;
@@ -429,14 +433,15 @@ class GoalRunner {
       // The run limit bounds starts; reaching it does not cancel the last allowed run.
       timer = setInterval(() => { updateUsage(); if (goal.usage.elapsedMs >= goal.limits.maxMinutes * 60000 && !this.stopReason) { this.stopReason = 'The goal time budget was reached.'; void Promise.resolve(this.stopRun?.(this.stopReason)).catch(() => {}); } }, 1000); timer.unref?.();
       result = await this.run(goal, { onProgress: reported => {
-        for (const key of ['tokens', 'actions', 'elapsedMs']) modelUsage[key] = Math.max(modelUsage[key], number(reported?.[key]));
+        for (const key of ['tokens', 'actions', 'elapsedMs', 'inputTokens', 'outputTokens']) if (Number.isFinite(reported?.[key])) modelUsage[key] = Math.max(number(modelUsage[key]), number(reported[key]));
+        if (typeof reported?.currentAction === 'string') goal.currentAction = clean(reported.currentAction);
         updateUsage();
         if (reported?.clarification) this.saveQuestion(goal, reported.clarification, reported.checkpoint, reported.nextStep);
         const reason = goal.usage.tokens >= goal.limits.maxTokens ? 'The goal token budget was reached.' : goal.usage.actions > goal.limits.maxActions ? 'The goal action budget was reached.' : goal.usage.elapsedMs >= goal.limits.maxMinutes * 60000 ? 'The goal time budget was reached.' : null;
         if (reason && !this.stopReason) { this.stopReason = reason; void Promise.resolve(this.stopRun?.(reason)).catch(() => {}); }
         this.changed();
       } });
-      for (const key of ['tokens', 'actions', 'elapsedMs']) modelUsage[key] = Math.max(modelUsage[key], number(result?.usage?.[key])); updateUsage();
+      for (const key of ['tokens', 'actions', 'elapsedMs', 'inputTokens', 'outputTokens']) if (Number.isFinite(result?.usage?.[key])) modelUsage[key] = Math.max(number(modelUsage[key]), number(result.usage[key])); updateUsage();
       if (result?.checkpoint) goal.checkpoint = text(result.checkpoint, 'Checkpoint', 4000);
       if (result?.nextStep != null) goal.nextStep = text(result.nextStep, 'Next step', 2000);
       if (result?.clarification) this.saveQuestion(goal, result.clarification, result.checkpoint, result.nextStep);
@@ -461,11 +466,11 @@ class GoalRunner {
       });
       this.record(goal, 'verification', checked.passed ? 'All completion conditions passed.' : 'Completion conditions have not all passed.', { runId, verification: checked.results });
       if (this.stopReason || goal.status === 'paused' || this.closing) return;
-      if (checked.passed) {
+      if (result?.status === 'blocked') this.block(goal, clean(result.summary) || 'The goal needs your input.', { runId });
+      else if (checked.passed && (!preflightPassed || result?.status === 'verify')) {
         const summary = 'Goal completed and verified.';
         this.finishVerified(goal, { runId, summary, verification: checked.results, ledgerContext: ledgerRunContext });
       }
-      else if (result?.status === 'blocked') this.block(goal, clean(result.summary) || 'The goal needs your input.', { runId });
       else {
         const previousRuns = goal.history.filter(entry => entry.kind === 'run').slice(-3);
         const repeatedActions = previousRuns.length === 3 && previousRuns.every(entry => JSON.stringify(entry.actions || []) === JSON.stringify(actions));
@@ -477,7 +482,7 @@ class GoalRunner {
       }
     } catch (error) {
       if (goal.pendingQuestion && (goal.permissions.network || goal.permissions.mcpTools.length)) goal.needsEffectReview = true;
-      for (const key of ['tokens', 'actions', 'elapsedMs']) modelUsage[key] = Math.max(modelUsage[key], number(error?.usage?.[key]));
+      for (const key of ['tokens', 'actions', 'elapsedMs', 'inputTokens', 'outputTokens']) if (Number.isFinite(error?.usage?.[key])) modelUsage[key] = Math.max(number(modelUsage[key]), number(error.usage[key]));
       updateUsage();
       if (Array.isArray(error.actions) && error.actions.length) this.record(goal, 'run-error', clean(error), { runId, actions: error.actions.slice(0, 30).map(clean), usage: modelUsage });
       if (snapshot) try {

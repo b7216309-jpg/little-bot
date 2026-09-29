@@ -237,3 +237,23 @@ for (const previousArtifact of [false, true]) {
     assert.equal(Number.isFinite(goal.lastCompletedAt), !previousArtifact);
   });
 }
+
+for (const status of ['blocked', 'continue']) {
+  test(`old passing file cannot complete a cycle reporting ${status}`, async t => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'little-bot-incomplete-cycle-'));
+    const backupRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'little-bot-incomplete-backup-'));
+    t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+    t.after(() => fs.rm(backupRoot, { recursive: true, force: true }));
+    await fs.writeFile(path.join(workspace, 'done.txt'), 'old cycle');
+    const input = draft(workspace); input.trigger.type = 'interval';
+    const goal = validateGoal(input, null, settings(workspace));
+    goal.status = 'queued'; goal.authorized = true;
+    const store = { data: { settings: settings(workspace), autonomy: { paused: false, goals: [goal] } }, save() {} };
+    const runner = new GoalRunner({ store, backupRoot, canRun: () => true, onChange() {}, onAlert() {},
+      run: async () => ({ status, summary: 'Still needs a write.', checkpoint: 'Prepared update.', nextStep: 'Write the file.', usage: {}, actions: [] }) });
+    await runner.execute(goal);
+    assert.equal(goal.history.some(entry => entry.kind === 'cycle-completed'), false);
+    assert.equal(Number.isFinite(goal.lastCompletedAt), false);
+    if (status === 'blocked') assert.equal(goal.status, 'blocked');
+  });
+}

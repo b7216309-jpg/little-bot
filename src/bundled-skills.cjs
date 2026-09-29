@@ -5,13 +5,15 @@ const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { parseSkill, LIMITS } = require('./extensions.cjs');
 
-const VERSION = 11;
+const VERSION = 13;
 const BUNDLES = [
   { name: 'little-bot', introduced: 1 }, { name: 'meeting-prep', introduced: 1 },
   { name: 'research-brief', introduced: 1 }, { name: 'web-tools', introduced: 2 },
 ];
 const ORIGINAL_HASHES = {
   'little-bot': [
+    'b94c97e9aa9e99faa090788d6903437d0f912c651f15486c7bcaf1ec643d5683', // interim goal usage guide
+    'cafd0511925fbdf3e2d646eaddd2e65c0cd9f4733fe5c17bbdff295fd6afb643', // v0.9.2 CPU memory guide
     'cd648d7e9ffe8aecc59e885996e5e46513c8b1b3c68902926a4c540b98cd3d89', // interim 0.9.1 MiniLM guide
     '49b7160f1d5e5b4f97dd234a62fafea23eadb32c66df6cf83b4ec2dfa7925f6f', // v0.9.0 continuous memory guide
     '3c5398aebe83acc9388b4482888fe2387442986bbb456eb1d725eec775cf9cd5', // v0.8.9 with activity inbox and scheduling
