@@ -107,6 +107,72 @@ test('GoalRunner reruns a completed goal with a new active plan version', async 
   assert.equal(activeStep(goal.ledger).text, 'Create done.txt');
 });
 
+test('rerunning a completed goal does fresh work even when its old checks still pass', async t => {
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'little-bot-ledger-rerun-work-'));
+  t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  await fs.writeFile(path.join(workspace, 'done.txt'), 'old');
+  const goal = validateGoal(draft(workspace), null, settings(workspace));
+  goal.status = 'completed'; goal.authorized = true;
+  goal.usage = { tokens: 4000, elapsedMs: 2000, actions: 3, runs: goal.limits.maxRuns, retries: 1 };
+  goal.ledger = normalizeGoalLedger(goal.ledger, goal, 1000);
+  const store = { data: { settings: settings(workspace), autonomy: { paused: false, goals: [goal] } }, save() {} };
+  let runs = 0;
+  const runner = new GoalRunner({
+    store, backupRoot: path.join(workspace, '.backups'), canRun: () => true, onChange() {}, onAlert() {},
+    run: async () => {
+      runs++;
+      await fs.writeFile(path.join(workspace, 'done.txt'), 'fresh');
+      return { status: 'verify', summary: 'Refreshed the output.', checkpoint: 'Fresh output saved.', nextStep: '',
+        usage: { tokens: 12, actions: 1, elapsedMs: 5 }, actions: ['Wrote done.txt'] };
+    },
+  });
+
+  runner.runNow(goal.id);
+  assert.equal(goal.usage.runs, 0, 'Run again starts with a fresh cycle budget');
+  await runner.tick();
+
+  assert.equal(runs, 1, 'A passing check from the previous cycle must not skip the rerun');
+  assert.equal(goal.status, 'completed');
+  assert.equal(goal.freshRun, undefined);
+  assert.equal(await fs.readFile(path.join(workspace, 'done.txt'), 'utf8'), 'fresh');
+});
+
+test('interval goals stay active and reset their budget after each verified cycle', async t => {
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'little-bot-ledger-recurring-'));
+  t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  await fs.writeFile(path.join(workspace, 'done.txt'), 'already valid');
+  const input = draft(workspace);
+  input.trigger = { type: 'interval', intervalMinutes: 30, paths: [] };
+  input.limits = { ...input.limits, maxRuns: 1 };
+  const goal = validateGoal(input, null, settings(workspace));
+  goal.status = 'queued'; goal.authorized = true; goal.nextRunAt = Date.now() - 1;
+  const store = { data: { settings: settings(workspace), autonomy: { paused: false, goals: [goal] } }, save() {} };
+  let runs = 0;
+  const runner = new GoalRunner({
+    store, backupRoot: path.join(workspace, '.backups'), canRun: () => true, onChange() {}, onAlert() {},
+    run: async () => {
+      runs++;
+      return { status: 'verify', summary: `Completed cycle ${runs}.`, checkpoint: `Cycle ${runs} checked.`, nextStep: '',
+        usage: { tokens: 10, actions: 0, elapsedMs: 5 }, actions: [] };
+    },
+  });
+
+  await runner.tick();
+  assert.equal(runs, 1, 'A recurring goal must run even when the prior verification still passes');
+  assert.equal(goal.status, 'queued');
+  assert.equal(goal.usage.runs, 0, 'Recurring work limits are per verified cycle');
+  assert.ok(Number.isFinite(goal.lastCompletedAt));
+  assert.ok(goal.nextRunAt > Date.now());
+  assert.equal(goal.history.filter(entry => entry.kind === 'cycle-completed').length, 1);
+
+  goal.nextRunAt = Date.now() - 1;
+  await runner.tick();
+  assert.equal(runs, 2);
+  assert.equal(goal.status, 'queued');
+  assert.equal(goal.usage.runs, 0);
+  assert.equal(goal.history.filter(entry => entry.kind === 'cycle-completed').length, 2);
+});
+
 test('Pause all records why the active goal was paused', async t => {
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'little-bot-ledger-pause-'));
   t.after(() => fs.rm(workspace, { recursive: true, force: true }));
