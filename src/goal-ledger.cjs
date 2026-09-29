@@ -505,7 +505,7 @@ function completeGoalLedger(goal, summary, {
     at: now, source: 'verification', runId,
     stepId: targetStep?.id || explicitStepId,
     planVersion: targetPlan?.version || explicitPlanVersion,
-    text: 'Marked the goal complete.',
+    text: 'Marked the current run complete.',
     rationale: clean(summary, 3000) || 'All saved completion checks passed.',
   });
   ledger.updatedAt = now; goal.ledger = ledger; return ledger;
