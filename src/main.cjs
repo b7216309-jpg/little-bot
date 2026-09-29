@@ -7,6 +7,7 @@ const { Scheduler, validateAutomation, nextAutomationRunAt } = require('./schedu
 const { CodexClient } = require('./codex.cjs');
 const { Controller, cleanError } = require('./controller.cjs');
 const { saveFact, deleteFact, clearEpisodes } = require('./memory.cjs');
+const { MemoryConsolidator } = require('./memory-consolidator.cjs');
 const { Heartbeat, validateHeartbeat } = require('./heartbeat.cjs');
 const { ExtensionFiles, validateServer, LIMITS } = require('./extensions.cjs');
 const { ExtensionRuntime } = require('./extension-runtime.cjs');
@@ -59,7 +60,7 @@ function stateProtector() {
     available = safeStorage.isEncryptionAvailable() === true
       && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend?.() !== 'basic_text');
   } catch { available = false; }
-  if (!available) throw new Error('Windows secure storage is unavailable. Little Bot will not save chats or memory without encryption.');
+  if (!available) throw new Error('Windows secure storage is unavailable for the saved conversation state.');
   return {
     encryptString: value => safeStorage.encryptString(value),
     decryptString: value => safeStorage.decryptString(value),
@@ -110,6 +111,7 @@ app.whenReady().then(async () => {
   if (store.locked) throw new Error(store.warning || 'Encrypted app state could not be opened.');
   const client = new CodexClient({ homeDir: codexHome, cwd: defaultWorkspace });
   controller = new Controller({ store, client, onError: logDiagnostic });
+  controller.memoryConsolidator = new MemoryConsolidator(controller);
   controller.browser = new AgentBrowser({ root: path.join(stateDir, 'browser'), headed: !smoke, onChange: () => controller.changed() });
   controller.webServices = new WebServices({ root: path.join(stateDir, 'services'), safeStorage });
   controller.attachments = new Attachments({ root: path.join(stateDir, 'attachments'), nativeImage });
@@ -130,12 +132,12 @@ app.whenReady().then(async () => {
   const extensionRuntime = new ExtensionRuntime({ store, client, onChange: () => controller.changed() });
   controller.extensionRuntime = extensionRuntime;
   const publishEvent = event => eventRuntime?.publish(event) || { accepted: false, reason: 'stopped' };
-  scheduler = new Scheduler({ store, run: runAutomation, publish: publishEvent, canRun: () => !store.data.autonomy.paused && !goals?.activeId && !controller.goalChat && !heartbeat?.running && !controller.extensionsBusy && !store.data.chats.some(chat => chat.status !== 'idle'), onChange: () => controller.changed() });
+  scheduler = new Scheduler({ store, run: runAutomation, publish: publishEvent, canRun: () => !store.data.autonomy.paused && !goals?.activeId && !controller.goalChat && !heartbeat?.running && !controller.extensionsBusy && !controller.memoryBusy && !store.data.chats.some(chat => chat.status !== 'idle'), onChange: () => controller.changed() });
   heartbeat = new Heartbeat({ store, run: config => controller.runHeartbeat(config),
     canNotify: () => !store.data.autonomy.paused && !window?.isFocused() && Notification.isSupported()
       && !store.data.chats.some(chat => chat.status !== 'idle'),
     canRun: () => controller.runtime.status === 'ready' && controller.account.status === 'connected'
-      && !store.data.autonomy.paused && !goals?.activeId && !controller.goalChat && !controller.extensionsBusy && !scheduler.runningId && !controller.heartbeatChat && !store.data.chats.some(chat => chat.status !== 'idle'),
+      && !store.data.autonomy.paused && !goals?.activeId && !controller.goalChat && !controller.extensionsBusy && !controller.memoryBusy && !scheduler.runningId && !controller.heartbeatChat && !store.data.chats.some(chat => chat.status !== 'idle'),
     onChange: () => controller.changed(),
     publish: publishEvent,
     onAlert: item => {
@@ -155,7 +157,7 @@ app.whenReady().then(async () => {
     run: (goal, options) => controller.runGoal(goal, options), stopRun: reason => controller.stopGoal(reason),
     verifyCommand: (goal, check) => controller.verifyGoalCommand(goal, check),
     canRun: () => controller.runtime.status === 'ready' && controller.account.status === 'connected'
-      && !controller.extensionsBusy && !controller.goalChat && !controller.heartbeatChat && !heartbeat.running && !scheduler.runningId
+      && !controller.extensionsBusy && !controller.memoryBusy && !controller.goalChat && !controller.heartbeatChat && !heartbeat.running && !scheduler.runningId
       && !store.data.chats.some(chat => chat.status !== 'idle'),
     onChange: () => controller.changed(),
     publish: publishEvent,
@@ -289,6 +291,7 @@ app.whenReady().then(async () => {
     }
   }
   async function updateExtensions(action) {
+    await controller.memoryConsolidator.pauseForUser();
     ensureExtensionsIdle();
     const previous = structuredClone(store.data.extensions);
     controller.extensionsBusy = true;
@@ -326,7 +329,7 @@ app.whenReady().then(async () => {
     if (error) throw new Error(error);
     return { ok: true };
   });
-  register('saveSettings', payload => controller.saveSettings(payload));
+  register('saveSettings', async payload => { await controller.memoryConsolidator.pauseForUser(); return controller.saveSettings(payload); });
   register('saveConnection', payload => { ensureExtensionsIdle(); return controller.saveConnection(payload); });
   register('refreshConnection', () => controller.refreshConnection());
   register('refreshProviderUsage', () => controller.refreshProviderUsage());
@@ -364,6 +367,7 @@ app.whenReady().then(async () => {
   register('chooseWorkspace', async () => {
     const selected = await dialog.showOpenDialog(window, { title: 'Choose Little Bot’s working folder',
       defaultPath: store.data.settings.workspace, properties: ['openDirectory', 'createDirectory'] });
+    if (!selected.canceled) await controller.memoryConsolidator.pauseForUser();
     return selected.canceled ? null : controller.setWorkspace(selected.filePaths[0]);
   });
   register('openWorkspace', async () => {
@@ -442,13 +446,14 @@ app.whenReady().then(async () => {
   register('saveStandingIntent', payload => { eventRuntime.saveIntent(payload); return controller.state(); });
   register('deleteStandingIntent', ({ id } = {}) => { eventRuntime.removeIntent(id); return controller.state(); });
   register('toggleStandingIntent', ({ id, enabled } = {}) => { eventRuntime.setIntentEnabled(id, enabled); return controller.state(); });
-  register('saveMemory', ({ enabled } = {}) => {
+  register('saveMemory', async ({ enabled } = {}) => {
     if (typeof enabled !== 'boolean') throw new Error('Memory enabled must be true or false.');
+    if (!enabled) await controller.memoryConsolidator.pauseForUser();
     store.data.memory.enabled = enabled;
     store.save(); controller.changed(); return controller.state();
   });
   register('saveFact', payload => {
-    const existing = payload?.id ? store.data.memory.facts.find(fact => fact.id === payload.id) : null;
+    const existing = payload?.id ? store.memoryService.get(payload.id) : null;
     const settings = existing?.scope === 'workspace' && payload.scope === 'workspace'
       ? { ...store.data.settings, workspace: existing.workspace } : store.data.settings;
     saveFact(store.data.memory, payload, settings);
@@ -461,6 +466,20 @@ app.whenReady().then(async () => {
   register('clearEpisodes', () => {
     clearEpisodes(store.data.memory);
     store.save(); controller.changed(); return controller.state();
+  });
+  register('searchMemory', async ({ query = '', type, limit = 100, includeSuperseded = false } = {}) => {
+    await store.memoryService.prepareQuery(query);
+    const found = store.memoryService.search({ query, source: type || 'all', scope: 'all', limit, includeSuperseded });
+    return { records: found.results, nextOffset: found.nextOffset };
+  });
+  register('getMemorySource', ({ id } = {}) => ({ sources: store.memoryService.sources(id) }));
+  register('configureMemory', ({ embedding } = {}) => {
+    store.memoryService.configureEmbedding(embedding);
+    controller.changed(); return controller.state();
+  });
+  register('linkMemoryProject', ({ projectId, workspace } = {}) => {
+    store.memoryService.addProjectAlias(projectId, workspace);
+    controller.changed(); return controller.state();
   });
   register('saveHeartbeat', payload => {
     if (heartbeat.running) throw new Error('Stop the heartbeat before changing its settings.');

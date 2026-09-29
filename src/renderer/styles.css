@@ -139,3 +139,21 @@
 .independent-check-original pre { max-height: 240px; overflow: auto; white-space: pre-wrap; }
 .independent-check-actions { display: flex; justify-content: flex-end; margin-top: 5px; }
 .independent-check-actions .button { padding: 4px 7px; font-size: 11px; }
+
+.continuous-session-note { color: var(--text-muted, #888); font-size: 12px; line-height: 1.6; padding: 16px 12px; }
+.memory-toolbar { display: flex; gap: 12px; margin: 24px 0 8px; flex-wrap: wrap; }
+.memory-toolbar input { flex: 1; min-width: 180px; }
+.memory-toolbar input, .memory-toolbar select { padding: 10px 12px; border: 1px solid var(--border, #ddd); border-radius: 8px; background: var(--surface, #fff); color: inherit; }
+.memory-item-actions { flex-wrap: wrap; align-self: flex-start; }
+.memory-item-copy { min-width: 0; }
+.memory-source { margin-top: 12px; padding: 12px; border-left: 2px solid var(--border, #ddd); }
+.memory-source pre, .memory-used pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.memory-used { margin-top: 28px; }
+@media (max-width: 760px) { .memory-item { flex-direction: column; } }
+
+#memory-advanced { margin-top: 16px; }
+#memory-advanced > summary { cursor: pointer; }
+#memory-advanced form { margin-top: 18px; max-width: 640px; }
+#memory-advanced form + form { padding-top: 20px; border-top: 1px solid var(--line); }
+#memory-advanced form > button { margin-top: 12px; }
+#memory-advanced .field-hint { margin-top: 10px; }

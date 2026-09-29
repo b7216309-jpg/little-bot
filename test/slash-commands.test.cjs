@@ -18,7 +18,9 @@ test('slash command aliases map to the canonical app command', () => {
   assert.equal(parse('/automation').name, 'schedule');
   assert.equal(parse('/automations').name, 'schedule');
   assert.equal(parse('/exec').name, 'execute');
-  assert.equal(parse('/incognito').name, 'private');
+  assert.equal(parse('/incognito').known, false);
+  assert.equal(parse('/new').known, false);
+  assert.equal(parse('/private').known, false);
   assert.equal(parse('/inspector').name, 'activity');
   assert.equal(parse('/cal').name, 'calendar');
 });
@@ -32,7 +34,7 @@ test('unknown slash commands are distinguished from normal chat', () => {
 
 test('help lists the basic command surface', () => {
   const help = helpText();
-  for (const command of ['/help', '/new', '/plan', '/execute', '/private', '/goal [objective]', '/schedule [task]', '/calendar', '/memory', '/activity', '/settings', '/clear']) {
+  for (const command of ['/help', '/plan', '/execute', '/goal [objective]', '/schedule [task]', '/calendar', '/memory', '/activity', '/settings', '/clear']) {
     assert.equal(help.includes(command), true, command);
   }
 });

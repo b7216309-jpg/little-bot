@@ -49,15 +49,7 @@ async function fixture(t) {
     workspace: root,
     effort: 'low',
   });
-  store.data.memory.facts.push({
-    id: 'fact-private-test',
-    text: 'PRIVATE MEMORY SENTINEL 94731',
-    scope: 'global',
-    workspace: '',
-    source: 'manual',
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  });
+  store.memoryService.save({ text: 'PRIVATE MEMORY SENTINEL 94731', scope: 'global', pinned: true });
   const client = new FakeClient();
   const controller = new Controller({ store, client });
   await controller.start();
@@ -72,74 +64,27 @@ function finish(client, chat, id = 'turn-1') {
   client.notice('turn/completed', { threadId: chat.threadId, turn: { id, status: 'completed' } });
 }
 
-test('private session uses an ephemeral engine thread and excludes saved memory context', async t => {
-  const { controller, client } = await fixture(t);
-  const { chatId } = await controller.send({
-    text: 'remember that private-session-secret-421 should stay only here',
-    privateSession: true,
-  });
-  const chat = controller.chat(chatId);
-  const thread = client.calls.find(call => call.method === 'thread/start').params;
-  const turn = client.calls.find(call => call.method === 'turn/start').params;
-
-  assert.equal(chat.private, true);
-  assert.equal(thread.ephemeral, true);
-  assert.equal(thread.approvalPolicy, 'never');
-  assert.equal(thread.sandbox, 'danger-full-access');
-  assert.equal(turn.input[0].text.includes('PRIVATE MEMORY SENTINEL 94731'), false);
-  assert.equal(controller.store.data.memory.facts.some(fact => fact.text.includes('private-session-secret-421')), false);
-
-  finish(client, chat);
-  assert.equal(controller.store.data.memory.episodes.some(item => item.chatId === chatId), false);
+test('obsolete private-session requests fail before sending or persisting', async t => {
+  const { controller, client, store } = await fixture(t);
+  await assert.rejects(controller.send({ text: 'Do not persist this', privateSession: true }), /one persistent conversation/);
+  assert.equal(store.data.chats.length, 0);
+  assert.equal(client.calls.some(call => call.method === 'turn/start'), false);
 });
 
-test('private conversation is visible at runtime but never serialized to state.json', async t => {
+test('the continuous conversation persists and uses shared memory', async t => {
   const { controller, client, store, filePath } = await fixture(t);
-  const { chatId } = await controller.send({ text: 'runtime only secret 88311', privateSession: true });
+  const { chatId } = await controller.send({ text: 'What do you remember about the sentinel?' });
   const chat = controller.chat(chatId);
-  finish(client, chat);
-  store.flush();
-
-  assert.ok(controller.state().chats.some(item => item.id === chatId && item.private === true));
-  const persisted = await readFile(filePath, 'utf8');
-  assert.equal(persisted.includes(chatId), false);
-  assert.equal(persisted.includes('runtime only secret 88311'), false);
+  assert.match(client.calls.find(call => call.method === 'turn/start').params.input[0].text, /PRIVATE MEMORY SENTINEL 94731/);
+  assert.equal(client.calls.find(call => call.method === 'thread/start').params.ephemeral, undefined);
+  finish(client, chat); store.flush();
+  assert.ok((await readFile(filePath, 'utf8')).includes(chatId));
+  assert.throws(() => controller.deleteChat({ chatId }), /continuous conversation/);
 });
 
-test('ordinary conversations still persist and may use saved memory', async t => {
-  const { controller, client, store, filePath } = await fixture(t);
-  const { chatId } = await controller.send({ text: 'What do you remember about the sentinel?', privateSession: false });
-  const chat = controller.chat(chatId);
-  const turn = client.calls.find(call => call.method === 'turn/start').params;
-  assert.match(turn.input[0].text, /PRIVATE MEMORY SENTINEL 94731/);
-  finish(client, chat);
-  store.flush();
-
-  const persisted = await readFile(filePath, 'utf8');
-  assert.ok(persisted.includes(chatId));
-});
-
-test('private mode cannot be retroactively changed after a conversation starts', async t => {
-  const { controller, client } = await fixture(t);
-  const { chatId } = await controller.send({ text: 'Private start', privateSession: true });
-  const chat = controller.chat(chatId);
-  finish(client, chat);
-
-  await assert.rejects(
-    controller.send({ chatId, text: 'Try to make it normal', privateSession: false }),
-    /Private mode is fixed/,
-  );
-});
-
-test('renderer exposes private toggle and preserves merged chat features', () => {
+test('renderer exposes one Conversation with no private or new-chat toggle', () => {
   const html = readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'index.html'), 'utf8');
-  const app = readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
-
-  assert.match(html, /id="private-session-toggle"/);
-  assert.match(app, /privateSessionDrafts/);
-  assert.match(app, /privateSession \}\)/);
-  assert.match(app, /LittleBotActionGroups\.groupConversation/);
-  assert.match(app, /taskSummaryNode/);
-  assert.match(app, /renderSystemPromptSettings/);
-  assert.match(app, /currentPlanMode/);
+  assert.doesNotMatch(html, /id="private-session-toggle"/);
+  assert.doesNotMatch(html, /id="new-chat"/);
+  assert.match(html, /id="nav-conversation"/);
 });

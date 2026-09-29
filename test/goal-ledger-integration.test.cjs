@@ -51,7 +51,8 @@ test('restart normalization records interrupted execution in the durable ledger'
 
 test('one goal run advances the active plan and records model, file, and verification evidence', async t => {
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'little-bot-ledger-runner-'));
-  const backupRoot = path.join(workspace, 'backups');
+  const backupRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'little-bot-test-backups-'));
+  t.after(() => fs.rm(backupRoot, { recursive: true, force: true }));
   t.after(() => fs.rm(workspace, { recursive: true, force: true }));
   const goal = validateGoal(draft(workspace), null, settings(workspace));
   goal.status = 'queued'; goal.authorized = true; goal.nextRunAt = Date.now();
@@ -76,7 +77,7 @@ test('one goal run advances the active plan and records model, file, and verific
     },
   });
   await runner.tick();
-  assert.equal(runs, 1);
+  assert.equal(runs, 1, goal.nextStep);
   assert.equal(goal.status, 'completed');
   assert.equal(activeStep(goal.ledger), null);
   assert.ok(goal.ledger.observations.some(item => item.source === 'agent' && /done.txt was written/.test(item.text)));

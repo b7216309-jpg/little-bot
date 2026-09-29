@@ -1,4 +1,16 @@
-# Version 0.8.9 verification
+# Version 0.9.0 verification
+
+The continuous-conversation and SQLite memory redesign is verified with source-backed persistence tests, a deterministic fake model transport, and real Electron renderer/IPC fixtures. The memory database stores ordinary local text without redaction; state-file encryption is a separate legacy facility.
+
+- Memory tests cover more than 100 long records, database reopen, supersession and pinning, forgetting and source suppression, project aliases, cross-model history and tool outputs, direct source paging, durable extraction jobs, bounded context, and semantic retrieval using a local HTTP embedding fixture.
+- Controller tests cover a single timeline across model/provider/workspace changes, scheduled messages, restarts, engine thread release, Plan-to-Execute tool catalogs, failed lookup cleanup, working checkpoints, and foreground/background exclusion.
+- The Electron runtime fixture uses production Store, Controller, AgentTools, MemoryConsolidator, preload, renderer, and production memory IPC handlers. Only model transport is simulated. It verifies extraction, source inspection, pin/edit/forget, embedding configuration, aliases, paused management, continuity, and restart. Electron 44.4.5 exposes SQLite 3.53.4 in this environment.
+- No private reasoning or chain-of-thought transcript is requested by the memory extraction task. Source storage is searchable conversation/tool text; the extractor selects durable knowledge from completed turns.
+- Existing goal-runner test fixtures were corrected to place backups outside writable roots and await the execution already started by Run now. SQLite-backed fixtures close database handles before Windows directory cleanup.
+
+Live remote model quality is not established by deterministic tests. Optional embeddings require a configured compatible endpoint; full-text recall works without one. Final local verification: npm run ci passed (143 JavaScript files syntax-checked, 388 Node tests, all nine Electron integration fixtures). The Windows portable package builds successfully; the installer was not exercised locally for this change.
+
+## Earlier 0.8.9 verification
 
 Checked on 28 September 2026 with Node 24 on the Windows runner. This phase used deterministic executor fixtures rather than a live model-provider call.
 

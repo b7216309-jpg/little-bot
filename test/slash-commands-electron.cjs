@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { app, BrowserWindow } = require('electron');
+app.setPath('userData', require('node:fs').mkdtempSync(path.join(require('node:os').tmpdir(), 'little-bot-ui-test-')));
 
 async function submit(window, value) {
   const source = `(async () => {
@@ -12,7 +13,7 @@ async function submit(window, value) {
     await new Promise(resolve => setTimeout(resolve, 25));
     return {
       toast: document.getElementById('toast').textContent,
-      privatePressed: document.getElementById('private-session-toggle').getAttribute('aria-pressed'),
+      privateControl: Boolean(document.getElementById('private-session-toggle')),
       inspectorHidden: document.getElementById('agent-inspector').classList.contains('hidden'),
       input: input.value,
     };
@@ -40,8 +41,8 @@ async function run() {
     assert.equal(help.input, '');
 
     const privateResult = await submit(window, '/private');
-    assert.equal(privateResult.privatePressed, 'true');
-    assert.match(privateResult.toast, /Private session enabled/);
+    assert.equal(privateResult.privateControl, false);
+    assert.match(privateResult.toast, /Unknown command/);
 
     const activity = await submit(window, '/activity');
     assert.equal(activity.inspectorHidden, false);

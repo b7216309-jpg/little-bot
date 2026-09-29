@@ -111,7 +111,9 @@ test('last task summary survives a Store round trip', async t => {
   client.notice('turn/completed', { threadId: chat.threadId, turn: { id: 'turn-1', status: 'completed' } });
   store.flush();
 
-  const restored = new Store({ filePath, defaultWorkspace: root }).data.chats.find(item => item.id === chatId);
+  const restoredStore = new Store({ filePath, defaultWorkspace: root });
+  const restored = restoredStore.data.chats.find(item => item.id === chatId);
+  restoredStore.close();
   assert.equal(restored.lastTask.status, 'completed');
   assert.ok(restored.lastTask.durationMs >= 800);
   assert.equal(restored.lastTask.actions, 0);

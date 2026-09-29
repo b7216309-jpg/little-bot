@@ -8,6 +8,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { Controller } = require('../src/controller.cjs');
 const { Store } = require('../src/store.cjs');
+function readStoredChats(options) { const store = new Store(options); const chats = store.data.chats; store.close(); return chats; }
 const { Scheduler, validateAutomation } = require('../src/scheduler.cjs');
 
 class FakeCodexClient extends EventEmitter {
@@ -94,7 +95,7 @@ test('begin, streamed output, tool completion, and final answer survive an actua
   assert.deepEqual(await outcome, { error: null });
   assert.equal(chat.status, 'idle');
   store.flush();
-  const restored = new Store({ filePath, defaultWorkspace: root }).data.chats[0];
+  const restored = readStoredChats({ filePath, defaultWorkspace: root })[0];
   assert.equal(restored.threadId, chat.threadId);
   assert.deepEqual(restored.messages, JSON.parse(JSON.stringify(chat.messages)));
   assert.equal(restored.status, 'idle');
@@ -116,9 +117,9 @@ test('a persisted conversation is resumed exactly once before subsequent turns',
 test('command and file approval RPCs are accepted automatically without pausing chat', async (t) => {
   const { controller, client } = await setup(t);
   const first = await begin(controller, 'First task');
-  const second = await begin(controller, 'Second task');
+  const second = first;
   client.ask(12, 'item/commandExecution/requestApproval', { threadId: first.threadId, turnId: 'turn-1', itemId: 'cmd-1', command: 'pwd', cwd: first.workspace });
-  client.ask('other-rpc-id', 'item/fileChange/requestApproval', { threadId: second.threadId, turnId: 'turn-2', itemId: 'file-1', reason: 'Write a report' });
+  client.ask('other-rpc-id', 'item/fileChange/requestApproval', { threadId: second.threadId, turnId: 'turn-1', itemId: 'file-1', reason: 'Write a report' });
   assert.deepEqual(client.responses.slice(-2), [
     { id: 12, result: { decision: 'accept' } },
     { id: 'other-rpc-id', result: { decision: 'accept' } },
@@ -156,10 +157,10 @@ test('foreign and unsupported server requests are rejected without creating a pr
   assert.equal(chat.messages.length, 1);
 });
 
-test('Stop declines a genuine pending question and interrupts only the selected conversation', async (t) => {
+test('Stop declines a genuine pending question and interrupts the continuous conversation', async (t) => {
   const { controller, client } = await setup(t);
   const first = await begin(controller, 'First');
-  const second = await begin(controller, 'Second');
+  await assert.rejects(controller.send({ text: 'Second' }), /Wait for this reply/);
   client.ask('stop-question', 'item/tool/requestUserInput', { threadId: first.threadId, turnId: 'turn-1', itemId: 'question', questions: [{ id: 'choice', question: 'Which format?' }] });
   const outcome = controller.waitForChat(first.id);
   await controller.stop({ chatId: first.id });
@@ -169,7 +170,7 @@ test('Stop declines a genuine pending question and interrupts only the selected 
   completed(client, first, 'turn-1', 'interrupted');
   assert.match((await outcome).error, /Stopped/);
   assert.equal(first.status, 'idle');
-  assert.equal(second.status, 'running');
+  assert.equal(controller.state().chats.length, 1);
 });
 
 test('engine crash resolves in-flight work and clears approvals without leaking a key in state', async (t) => {
@@ -208,7 +209,6 @@ test('sign-in metadata and stored state exclude API keys, account details, and r
 test('blank, oversized, invalid, and signed-out sends create no conversation or model calls', async (t) => {
   const { controller, client } = await setup(t);
   for (const text of ['', '  \n ', 'x'.repeat(32001), null, 42]) await assert.rejects(controller.send({ text }), /Write a message or attach a file/);
-  await assert.rejects(controller.send({ chatId: 'missing', text: 'Hello' }), /no longer exists/);
   controller.account = { status: 'signedOut' };
   await assert.rejects(controller.send({ text: 'Hello' }), /Connect Codex|Sign in/);
   assert.equal(controller.state().chats.length, 0);

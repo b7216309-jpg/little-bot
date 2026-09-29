@@ -96,11 +96,13 @@ test('Review undo records restored evidence and a user decision', () => {
 test('GoalRunner reruns a completed goal with a new active plan version', async t => {
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'little-bot-ledger-rerun-'));
   t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  const backupRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'little-bot-test-backups-'));
+  t.after(() => fs.rm(backupRoot, { recursive: true, force: true }));
   const goal = validateGoal(draft(workspace), null, settings(workspace));
   goal.status = 'completed'; goal.authorized = true;
   goal.ledger = normalizeGoalLedger(goal.ledger, goal, 1000);
   const store = { data: { settings: settings(workspace), autonomy: { paused: false, goals: [goal] } }, save() {} };
-  const runner = new GoalRunner({ store, backupRoot: path.join(workspace, '.backups'), canRun: () => false, onChange() {}, onAlert() {}, run: async () => ({}), verifyCommand: async () => ({ passed: false }) });
+  const runner = new GoalRunner({ store, backupRoot, canRun: () => false, onChange() {}, onAlert() {}, run: async () => ({}), verifyCommand: async () => ({ passed: false }) });
   runner.runNow(goal.id);
   assert.equal(goal.status, 'queued');
   assert.equal(currentPlan(goal.ledger).version, 2);
@@ -110,6 +112,8 @@ test('GoalRunner reruns a completed goal with a new active plan version', async 
 test('rerunning a completed goal does fresh work even when its old checks still pass', async t => {
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'little-bot-ledger-rerun-work-'));
   t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  const backupRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'little-bot-test-backups-'));
+  t.after(() => fs.rm(backupRoot, { recursive: true, force: true }));
   await fs.writeFile(path.join(workspace, 'done.txt'), 'old');
   const goal = validateGoal(draft(workspace), null, settings(workspace));
   goal.status = 'completed'; goal.authorized = true;
@@ -118,7 +122,7 @@ test('rerunning a completed goal does fresh work even when its old checks still 
   const store = { data: { settings: settings(workspace), autonomy: { paused: false, goals: [goal] } }, save() {} };
   let runs = 0;
   const runner = new GoalRunner({
-    store, backupRoot: path.join(workspace, '.backups'), canRun: () => true, onChange() {}, onAlert() {},
+    store, backupRoot, canRun: () => true, onChange() {}, onAlert() {},
     run: async () => {
       runs++;
       await fs.writeFile(path.join(workspace, 'done.txt'), 'fresh');
@@ -130,6 +134,7 @@ test('rerunning a completed goal does fresh work even when its old checks still 
   runner.runNow(goal.id);
   assert.equal(goal.usage.runs, 0, 'Run again starts with a fresh cycle budget');
   await runner.tick();
+  await runner.execution;
 
   assert.equal(runs, 1, 'A passing check from the previous cycle must not skip the rerun');
   assert.equal(goal.status, 'completed');
@@ -140,6 +145,8 @@ test('rerunning a completed goal does fresh work even when its old checks still 
 test('interval goals stay active and reset their budget after each verified cycle', async t => {
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'little-bot-ledger-recurring-'));
   t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  const backupRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'little-bot-test-backups-'));
+  t.after(() => fs.rm(backupRoot, { recursive: true, force: true }));
   await fs.writeFile(path.join(workspace, 'done.txt'), 'already valid');
   const input = draft(workspace);
   input.trigger = { type: 'interval', intervalMinutes: 30, paths: [] };
@@ -149,7 +156,7 @@ test('interval goals stay active and reset their budget after each verified cycl
   const store = { data: { settings: settings(workspace), autonomy: { paused: false, goals: [goal] } }, save() {} };
   let runs = 0;
   const runner = new GoalRunner({
-    store, backupRoot: path.join(workspace, '.backups'), canRun: () => true, onChange() {}, onAlert() {},
+    store, backupRoot, canRun: () => true, onChange() {}, onAlert() {},
     run: async () => {
       runs++;
       return { status: 'verify', summary: `Completed cycle ${runs}.`, checkpoint: `Cycle ${runs} checked.`, nextStep: '',
@@ -176,10 +183,12 @@ test('interval goals stay active and reset their budget after each verified cycl
 test('Pause all records why the active goal was paused', async t => {
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'little-bot-ledger-pause-'));
   t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  const backupRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'little-bot-test-backups-'));
+  t.after(() => fs.rm(backupRoot, { recursive: true, force: true }));
   const goal = validateGoal(draft(workspace), null, settings(workspace));
   goal.status = 'running'; goal.authorized = true;
   const store = { data: { settings: settings(workspace), autonomy: { paused: false, goals: [goal] } }, save() {} };
-  const runner = new GoalRunner({ store, backupRoot: path.join(workspace, '.backups'), canRun: () => false, onChange() {}, onAlert() {}, run: async () => ({}), verifyCommand: async () => ({ passed: false }), stopRun: async () => {} });
+  const runner = new GoalRunner({ store, backupRoot, canRun: () => false, onChange() {}, onAlert() {}, run: async () => ({}), verifyCommand: async () => ({ passed: false }), stopRun: async () => {} });
   runner.activeId = goal.id;
   runner.execution = Promise.resolve();
   await runner.pauseAll();
@@ -190,11 +199,13 @@ test('Pause all records why the active goal was paused', async t => {
 test('budget-stop completion records verification evidence before closing the ledger', async t => {
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'little-bot-ledger-budget-complete-'));
   t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  const backupRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'little-bot-test-backups-'));
+  t.after(() => fs.rm(backupRoot, { recursive: true, force: true }));
   await fs.writeFile(path.join(workspace, 'done.txt'), 'done');
   const goal = validateGoal(draft(workspace), null, settings(workspace));
   goal.status = 'running'; goal.authorized = true;
   const store = { data: { settings: settings(workspace), autonomy: { paused: false, goals: [goal] } }, save() {} };
-  const runner = new GoalRunner({ store, backupRoot: path.join(workspace, '.backups'), canRun: () => false, onChange() {}, onAlert() {}, run: async () => ({}), verifyCommand: async () => ({ passed: false }) });
+  const runner = new GoalRunner({ store, backupRoot, canRun: () => false, onChange() {}, onAlert() {}, run: async () => ({}), verifyCommand: async () => ({ passed: false }) });
   assert.equal(await runner.completeStoppedFiles(goal, 'run-3', 'The goal action budget was reached.'), true);
   assert.equal(goal.status, 'completed');
   assert.ok(goal.ledger.observations.some(item => item.source === 'verification' && item.evidence?.passed === true));

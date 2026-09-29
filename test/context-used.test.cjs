@@ -43,12 +43,11 @@ async function fixture(t) {
     workspace: root,
     effort: 'low',
   });
-  store.data.memory.facts.push({
-    id: 'memory-context-test',
+  store.memoryService.save({
     text: 'Reports should use metric units.',
     scope: 'global',
     workspace: '',
-    source: 'manual',
+    pinned: true,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   });
@@ -94,13 +93,14 @@ test('context-used snapshot exactly mirrors developer instructions and turn text
   assert.match(snapshot.memoryStatus, /Relevant memory was injected/);
 });
 
-test('private session snapshot explains that saved memory was skipped', async t => {
-  const { controller } = await fixture(t);
-  const { chatId } = await controller.send({ text: 'Review reports and metric units.', privateSession: true });
+test('disabled memory snapshot explains that recall was skipped', async t => {
+  const { controller, store } = await fixture(t);
+  store.data.memory.enabled = false;
+  const { chatId } = await controller.send({ text: 'Review reports and metric units.' });
   const snapshot = controller.contextUsedFor(chatId);
-  assert.equal(snapshot.private, true);
+  assert.equal(snapshot.private, false);
   assert.equal(snapshot.inputBlocks.some(block => block.kind === 'memory'), false);
-  assert.match(snapshot.memoryStatus, /Skipped in Private session/);
+  assert.match(snapshot.memoryStatus, /Memory is disabled/);
 });
 
 test('context snapshot is live-only and never serialized into state.json', async t => {

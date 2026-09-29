@@ -199,7 +199,9 @@ test('MCP tool results become bounded persisted tool messages and exclude nontex
   assert.match(message.text, /The project has three tasks/);
   complete(client, chat.threadId);
   store.flush();
-  const restored = new Store({ filePath, defaultWorkspace: root }).data.chats[0];
+  const restoredStore = new Store({ filePath, defaultWorkspace: root });
+  const restored = restoredStore.data.chats[0];
+  restoredStore.close();
   assert.deepEqual(restored.messages.find(message => message.id === 'mcp-1'), message);
   assert.ok(!JSON.stringify(restored).includes('RAW_IMAGE_PAYLOAD'));
   assert.ok(!JSON.stringify(restored).includes('RAW_STRUCTURED_PAYLOAD'));

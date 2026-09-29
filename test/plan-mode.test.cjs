@@ -9,6 +9,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { Controller } = require('../src/controller.cjs');
 const { Store } = require('../src/store.cjs');
+function readStoredChats(options) { const store = new Store(options); const chats = store.data.chats; store.close(); return chats; }
 
 class FakeClient extends EventEmitter {
   constructor() {
@@ -128,14 +129,14 @@ test('switching from Plan back to Execute restores exact custom prompt and unres
   await controller.send({ chatId, text: 'Now execute it.', mode: 'execute' });
 
   const unsubscribe = client.calls.find(call => call.method === 'thread/unsubscribe');
-  const resume = client.calls.find(call => call.method === 'thread/resume');
+  const replacement = client.calls.filter(call => call.method === 'thread/start').at(-1);
   const turns = client.calls.filter(call => call.method === 'turn/start');
 
   assert.ok(unsubscribe);
-  assert.ok(resume);
-  assert.equal(resume.params.sandbox, 'danger-full-access');
-  assert.equal(resume.params.approvalPolicy, 'never');
-  assert.equal(resume.params.developerInstructions, custom);
+  assert.ok(replacement);
+  assert.equal(replacement.params.sandbox, 'danger-full-access');
+  assert.equal(replacement.params.approvalPolicy, 'never');
+  assert.equal(replacement.params.developerInstructions, custom);
   assert.equal(turns.at(-1).params.approvalPolicy, 'never');
   assert.deepEqual(turns.at(-1).params.sandboxPolicy, { type: 'dangerFullAccess' });
   assert.match(turns.at(-1).params.input[0].text, /Shell conduct for Windows CMD and PowerShell/);
@@ -149,7 +150,7 @@ test('conversation Plan mode persists and current renderer exposes the toggle wi
   finish(client, chat);
   store.flush();
 
-  const restored = new Store({ filePath, defaultWorkspace: root }).data.chats.find(item => item.id === chatId);
+  const restored = readStoredChats({ filePath, defaultWorkspace: root }).find(item => item.id === chatId);
   assert.equal(restored.mode, 'plan');
 
   const html = readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'index.html'), 'utf8');

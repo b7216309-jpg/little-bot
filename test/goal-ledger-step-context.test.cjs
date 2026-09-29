@@ -159,6 +159,8 @@ test('bounded model context keeps the most recently updated assumption statuses'
 test('the real GoalRunner assigns model, snapshot, and final verification evidence to the executed step', async t => {
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'little-bot-ledger-step-context-'));
   t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  const backupRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'little-bot-test-backups-'));
+  t.after(() => fs.rm(backupRoot, { recursive: true, force: true }));
   const goal = validateGoal(runnableGoal(workspace), null, settings(workspace));
   goal.status = 'queued';
   goal.authorized = true;
@@ -171,7 +173,7 @@ test('the real GoalRunner assigns model, snapshot, and final verification eviden
   };
   const runner = new GoalRunner({
     store,
-    backupRoot: path.join(workspace, '.backups'),
+    backupRoot,
     canRun: () => true,
     onChange() {},
     onAlert() {},

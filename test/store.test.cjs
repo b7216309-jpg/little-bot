@@ -5,11 +5,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { Store } = require('../src/store.cjs');
+const { Store: BaseStore } = require('../src/store.cjs');
+const openStores = new Set();
+class Store extends BaseStore { constructor(options) { super(options); openStores.add(this); } }
 
 function fixture(t) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'little-bot-store-test-'));
-  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  t.after(() => { for (const store of openStores) { store.close(); openStores.delete(store); } fs.rmSync(directory, { recursive: true, force: true }); });
   return { directory, filePath: path.join(directory, 'nested', 'state.json'), defaultWorkspace: directory };
 }
 
@@ -29,7 +31,7 @@ test('new state is minimal and save preserves live references without persisting
   assert.deepEqual(store.data.chats, []);
   assert.deepEqual(store.data.automations, []);
   assert.deepEqual(store.data.standingIntents, { intents: [] });
-  assert.deepEqual(store.data.memory, { enabled: true, facts: [], episodes: [] });
+  assert.deepEqual(store.data.memory, { enabled: true, facts: [], episodes: [], records: [], stats: { records: [], embeddingCount: 0, embeddingError: null }, embedding: null, projects: [] });
   assert.equal(store.data.heartbeat.enabled, false);
   assert.equal(store.data.heartbeat.mode, 'act');
   store.data.auth = { apiKey: 'sensitive-test-value' };
@@ -42,10 +44,10 @@ test('new state is minimal and save preserves live references without persisting
   assert.deepEqual(Object.keys(saved).sort(), ['automations', 'autonomy', 'calendar', 'chats', 'extensions', 'heartbeat', 'memory', 'settings', 'standingIntents']);
   assert.equal(saved.chats[0].status, 'running');
   assert.equal(fs.readFileSync(f.filePath, 'utf8').includes('sensitive-test-value'), false);
-  assert.equal(fs.readdirSync(path.dirname(f.filePath)).length, 1);
+  assert.equal(fs.readdirSync(path.dirname(f.filePath)).filter(name => !name.startsWith('memory.sqlite')).length, 1);
 });
 
-test('update and flush persist every chat without an arbitrary history limit', t => {
+test('update and flush persist the single canonical conversation', t => {
   const f = fixture(t);
   const store = new Store(f);
   store.update(data => {
@@ -59,7 +61,7 @@ test('update and flush persist every chat without an arbitrary history limit', t
   assert.equal(reloaded.data.settings.connection, 'codex');
   assert.equal(reloaded.data.settings.model, 'test-model');
   assert.equal(reloaded.data.settings.codexModel, 'test-model');
-  assert.equal(reloaded.data.chats.length, 105);
+  assert.equal(reloaded.data.chats.length, 1);
   assert.equal(reloaded.data.chats[0].createdAt, 0);
 });
 
@@ -104,7 +106,7 @@ test('corrupt state remains untouched until saved and is then retained in a reco
   const recoveryPath = store.recoveryPath;
   store.save();
   assert.equal(store.recoveryPath, recoveryPath);
-  assert.equal(fs.readdirSync(path.dirname(f.filePath)).length, 2);
+  assert.equal(fs.readdirSync(path.dirname(f.filePath)).filter(name => !name.startsWith('memory.sqlite')).length, 2);
 });
 
 test('failed atomic replacement leaves the prior saved state intact and cleans its temporary file', t => {
@@ -124,7 +126,7 @@ test('failed atomic replacement leaves the prior saved state intact and cleans i
     fs.renameSync = renameSync;
   }
   assert.equal(fs.readFileSync(f.filePath, 'utf8'), original);
-  assert.deepEqual(fs.readdirSync(path.dirname(f.filePath)), ['state.json']);
+  assert.deepEqual(fs.readdirSync(path.dirname(f.filePath)).filter(name => !name.startsWith('memory.sqlite')), ['state.json']);
 });
 
 test('invalid record shapes are reported and the original is retained while valid records are recovered', t => {
@@ -174,7 +176,9 @@ test('v0.1 state migrates onto the current schema without losing saved content',
   assert.equal(automation.intervalMinutes, 1440);
   assert.equal(automation.prompt, 'Check the existing project.');
 
-  assert.deepEqual(store.data.memory, { enabled: true, facts: [], episodes: [] });
+  assert.equal(store.data.memory.enabled, true);
+  assert.deepEqual(store.data.memory.facts, []);
+  assert.equal(store.data.memory.stats.records.find(row => row.type === 'history').count, 2);
   assert.equal(store.data.heartbeat.enabled, false);
   assert.equal(store.data.heartbeat.checklist, '');
   assert.equal(store.data.heartbeat.workspace, f.directory);
@@ -203,18 +207,11 @@ test('memory scopes and heartbeat counters round-trip with bounded, redacted act
   const f = fixture(t);
   const store = new Store(f);
   const recordedAt = Date.now() - 1000;
-  store.data.memory = {
-    enabled: false,
-    facts: [
-      { id: 'global-fact', text: 'Prefer concise replies.', scope: 'global', workspace: '', source: 'manual', createdAt: recordedAt, updatedAt: recordedAt },
-      { id: 'folder-fact', text: 'This project uses TypeScript.', scope: 'workspace', workspace: f.directory, source: 'remember',
-        sourceChatId: 'source-chat', createdAt: recordedAt, updatedAt: recordedAt },
-    ],
-    episodes: [
-      { id: 'recent', chatId: 'source-chat', workspace: f.directory, summary: 'Request: Fix login.\nOutcome: Login repaired.', createdAt: recordedAt, updatedAt: recordedAt },
-      { id: 'expired', chatId: 'old-chat', workspace: f.directory, summary: 'Expired work.', createdAt: recordedAt - 31 * 86400000, updatedAt: recordedAt - 31 * 86400000 },
-    ],
-  };
+  const globalFact = store.memoryService.save({ text: 'Prefer concise replies.', scope: 'global' });
+  const folderFact = store.memoryService.save({ text: 'This project uses TypeScript.', workspace: f.directory, source: { sessionId: 'source-chat' } });
+  store.memoryService.save({ type: 'episode', text: 'Request: Fix login. Outcome: Login repaired.', workspace: f.directory });
+  store.memoryService.save({ type: 'episode', text: 'Older work remains available.', workspace: f.directory });
+  store.data.memory.enabled = false;
   const performedActions = Array.from({ length: 25 }, (_, index) => `Action ${index}: ${'read a source file '.repeat(40)}`);
   performedActions[0] = 'Command returned api_key=private-test-value';
   Object.assign(store.data.heartbeat, {
@@ -230,10 +227,10 @@ test('memory scopes and heartbeat counters round-trip with bounded, redacted act
   const reloaded = new Store(f);
   assert.equal(reloaded.data.memory.enabled, false);
   assert.deepEqual(reloaded.data.memory.facts, store.data.memory.facts);
-  assert.equal(reloaded.data.memory.episodes.length, 1);
-  assert.equal(reloaded.data.memory.episodes[0].id, 'recent');
-  assert.equal(reloaded.data.memory.facts[1].workspace, f.directory);
-  assert.equal(reloaded.data.memory.facts[1].sourceChatId, 'source-chat');
+  assert.equal(reloaded.data.memory.episodes.length, 2);
+  assert.equal(reloaded.memoryService.get(folderFact.id).workspace, f.directory);
+  assert.equal(reloaded.memoryService.get(folderFact.id).source.sessionId, 'source-chat');
+  assert.equal(reloaded.memoryService.get(globalFact.id).scope, 'global');
   const heartbeat = reloaded.data.heartbeat;
   assert.equal(heartbeat.enabled, true);
   assert.equal(heartbeat.runsToday, 7);

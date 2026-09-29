@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld('bot', {
   deleteGoal: invoke('deleteGoal'), pauseAutonomy: invoke('pauseAutonomy'), resumeAutonomy: invoke('resumeAutonomy'),
   previewGoalRestore: invoke('previewGoalRestore'), restoreGoal: invoke('restoreGoal'), discardGoalSnapshot: invoke('discardGoalSnapshot'),
   saveMemory: invoke('saveMemory'), saveFact: invoke('saveFact'), deleteFact: invoke('deleteFact'), clearEpisodes: invoke('clearEpisodes'),
+  searchMemory: invoke('searchMemory'), getMemorySource: invoke('getMemorySource'),
+  configureMemory: invoke('configureMemory'), linkMemoryProject: invoke('linkMemoryProject'),
   saveHeartbeat: invoke('saveHeartbeat'), runHeartbeat: invoke('runHeartbeat'), stopHeartbeat: invoke('stopHeartbeat'), readHeartbeat: invoke('readHeartbeat'),
   heartbeatFeedback: invoke('heartbeatFeedback'),
   refreshExtensions: invoke('refreshExtensions'), saveMcpServer: invoke('saveMcpServer'), deleteMcpServer: invoke('deleteMcpServer'),
