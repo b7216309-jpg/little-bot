@@ -39,7 +39,7 @@ There is one saved heartbeat, with no agent configuration tool yet. Prepare a ch
 4. Check the displayed folder and model. **Use current working folder** captures the currently selected folder, model, effort, and connection when saved. Set **Enable**, then **Save settings**; the Enable toggle is an unsaved draft until Save settings is clicked. Stop a running check before editing.
 5. **Check now** uses saved settings and can run even when disabled or outside active hours; it still respects the daily run limit and global pause, and needs an available model and idle app. **Stop check** interrupts the current check; disabling and saving stops future automatic checks.
 
-Heartbeat can take small steps in its saved folder. It has no network/browser access and cannot schedule further work. Useful adjusts topic preference; Later defers an alert; Don't suggest this mutes its topic without pausing the underlying task. Never promise an alert for every check.
+Heartbeat can take small steps in its saved folder. It has no network/browser access and cannot schedule further work. Open **Activity inbox** in the sidebar for Heartbeat and goal updates. Filter by All, Unread, Errors, or source. Useful adjusts topic preference; Later defers an alert; Don't suggest this mutes its topic without pausing the underlying task. Muted topics and Unmute are also in Activity inbox. Never promise an alert for every check.
 
 ### Repeating tasks (Automations)
 
@@ -52,14 +52,14 @@ Automations support two schedule forms:
 
 ```json
 {"action":"list"}
-{"action":"create","name":"Review project notes","prompt":"Read notes.md and report the next unfinished action.","scheduleType":"interval","intervalMinutes":60}
-{"action":"create","name":"Morning review","prompt":"Review the workspace and list today’s priorities.","scheduleType":"clock","clockTime":"08:30","daysOfWeek":[1,2,3,4,5]}
+{"action":"create","name":"Review project notes","prompt":"Read notes.md and report the next unfinished action.","scheduleType":"interval","intervalMinutes":60,"enabled":true}
+{"action":"create","name":"Morning review","prompt":"Review the workspace and list today’s priorities.","scheduleType":"clock","clockTime":"08:30","daysOfWeek":[1,2,3,4,5],"enabled":true}
 {"action":"update","id":"<returned-id>","scheduleType":"clock","clockTime":"09:00","daysOfWeek":[1,2,3,4,5]}
 {"action":"pause","id":"<returned-id>"}
 {"action":"resume","id":"<returned-id>"}
 ```
 
-Each object is a separate call. Names allow 1–80 characters and prompts 1–32,000. Create saves a **disabled draft**; the user enables it in **Automations**. Stop or finish a running routine first; pause an enabled routine before updating. Every tool update requires enabling it again. Resume works only for a previously authorized routine and cannot bypass **Pause all**. Recreate a routine to change its saved folder/model/connection. Run/delete controls are in the app, not these tools.
+Each object is a separate call. Names allow 1–80 characters and prompts 1–32,000. When the user asks to schedule or enable a routine, use `enabled:true` on create/update. Use `enabled:false` for a draft or to pause it. Create defaults to disabled; updates preserve enabled state unless specified. Resume enables any existing routine, including a draft. Stop or finish a running routine before editing it. **Pause all** still suspends execution; the tool reports when an enabled routine is waiting for it to be resumed. Recreate a routine to change its saved folder/model/connection. Run/delete controls are in the app, not these tools.
 
 Interval schedules count elapsed time from the previous start. Exact-time schedules use the PC's local time and selected weekdays. If Little Bot is closed when an automation becomes due, that occurrence is skipped and the next future occurrence is selected on reopening. If the app remains open but its single execution lane is busy, the due automation waits. If the PC sleeps while the process remains open, a due automation may make one attempt after the process resumes. Manual **Run now** does not convert or drift the saved exact-time schedule.
 
