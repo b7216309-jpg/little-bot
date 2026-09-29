@@ -17,6 +17,8 @@ A Windows personal assistant with one continuous conversation, durable local mem
 
 **Thinking On/Off** beside the model picker controls Qwen reasoning for all local tasks. It remembers your choice and applies to the next run. Finish or stop running work before switching. Codex keeps its effort selector.
 
+Tool calls appear in expandable groups, including progress messages between calls. Running and failed counts stay visible when collapsed.
+
 Click **Thinking…** in a reply to expand the reasoning as it streams. The completed **Thoughts** remains available in that conversation. Qwen3.6 sampling follows the thinking mode, with output space reserved for the answer.
 
 Little Bot can ask a question during a normal chat, with optional choices or your own answer. Answer to continue, or skip. Autonomous goals save questions on their goal card; answering continues the goal within its existing access and remaining budget.
@@ -47,12 +49,13 @@ Optional **Firecrawl** and **Brave Search** keys go in **Settings → Web servic
 - **Goals:** define an objective, checks, permissions, and budget. Every goal keeps a versioned one-active-step plan plus bounded assumptions, observations, decisions, and verification evidence that survive restart and chat compaction. Review undo records restored file evidence. See [GOALS.md](GOALS.md) and [LEDGER.md](LEDGER.md).
 - **Automations and standing intents:** repeat prompts by interval or exact PC-local time, or connect foreground events to an existing authorized goal or automation. Standing intents use one bounded in-process queue and stop with the app. See [EVENTS.md](EVENTS.md).
 - **Calendar:** a local Little Bot calendar with all-day or timed events. The UI and agent can create, edit, delete, and list events using the PC's local clock. External calendar sync is not included.
+- **Activity inbox:** a dedicated sidebar tab for Heartbeat and goal updates, with unread/error and source filters, read controls, and topic feedback.
 - **Heartbeat:** a bounded checklist, active hours, and run limits. Useful, Later, and Don't suggest this control attention. Goals and heartbeat share the notification budget.
 - **Extensions:** skills, plugins, and MCP connections. Four included skills cover app operations, web work, research briefs, and meeting preparation. Scheduling questions automatically include the enabled `little-bot` guide with heartbeat setup, routine examples, and troubleshooting. You can also invoke it with `$little-bot`.
 
 Autonomous work runs while the app is open and the PC is awake. **Pause all** pauses it across restarts. There is no tray worker, startup service, or wake-from-sleep mechanism. See [GOALS.md](GOALS.md), [EXTENSIONS.md](EXTENSIONS.md), and [NEXT.md](NEXT.md).
 
-Automations support repeating intervals and exact PC-local clock times on selected weekdays. They do not parse cron expressions or provide one-time timers. If Little Bot is closed when work becomes due, that occurrence is skipped and the next future occurrence is selected on reopening. If the app remains open but the single execution lane is busy, due work waits for that lane. If the PC sleeps while the process remains open, a due item may make one attempt after the process resumes. Standing intents follow the same foreground-only lifecycle and collect no events while the app is closed. The agent can draft automation schedules through tools; heartbeat and standing-intent configuration use their panels. See [EVENTS.md](EVENTS.md) and the [built-in operating guide](resources/skills/little-bot/SKILL.md).
+Automations support repeating intervals and exact PC-local clock times on selected weekdays. They do not parse cron expressions or provide one-time timers. If Little Bot is closed when work becomes due, that occurrence is skipped and the next future occurrence is selected on reopening. If the app remains open but the single execution lane is busy, due work waits for that lane. If the PC sleeps while the process remains open, a due item may make one attempt after the process resumes. Standing intents follow the same foreground-only lifecycle and collect no events while the app is closed. The agent can create and enable automation schedules through chat, update them, or pause/resume them; heartbeat and standing-intent configuration use their panels. See [EVENTS.md](EVENTS.md) and the [built-in operating guide](resources/skills/little-bot/SKILL.md).
 
 Settings also controls automatic compaction: **20–95%**, default **80%**; **0** retains only native limits. **Compact now** summarizes older context while keeping the visible transcript. See [COMPACTION.md](COMPACTION.md).
 

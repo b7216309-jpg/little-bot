@@ -26,13 +26,14 @@
     <aside class="sidebar" aria-label="Navigation">
       <div class="brand"><div class="brand-mark" aria-hidden="true"><span></span><span></span></div><span>little bot<span class="brand-dot">.</span></span></div>
       <button id="nav-conversation" class="nav-button active"><span class="icon" data-icon="chat"></span><span>Conversation</span></button>
+      <button id="nav-inbox" class="nav-button"><span class="icon" data-icon="heartbeat"></span><span>Activity inbox</span><span id="heartbeat-unread" class="count hidden">0</span></button>
       <details id="sidebar-tools" class="sidebar-tools">
         <summary id="tools-toggle" aria-controls="tool-navigation"><span class="icon" data-icon="chevron-down"></span><span>Tools</span></summary>
         <nav id="tool-navigation" aria-label="Assistant tools">
           <button id="nav-goals" class="nav-button"><span class="icon" data-icon="goal"></span><span>Goals</span><span id="goals-count" class="count hidden">0</span></button>
           <button id="nav-automations" class="nav-button"><span class="icon" data-icon="clock"></span><span>Automations</span><span id="automation-count" class="count hidden">0</span></button>
           <button id="nav-calendar" class="nav-button"><span class="icon" data-icon="calendar"></span><span>Calendar</span><span id="calendar-count" class="count hidden">0</span></button>
-          <button id="nav-heartbeat" class="nav-button"><span class="icon" data-icon="heartbeat"></span><span>Heartbeat</span><span id="heartbeat-unread" class="count hidden">0</span></button>
+          <button id="nav-heartbeat" class="nav-button"><span class="icon" data-icon="heartbeat"></span><span>Heartbeat</span></button>
           <button id="nav-memory" class="nav-button"><span class="icon" data-icon="memory"></span><span>Memory</span></button>
           <button id="nav-profile" class="nav-button"><span class="icon" data-icon="user"></span><span>Profile</span></button>
           <button id="nav-extensions" class="nav-button"><span class="icon" data-icon="extensions"></span><span>Extensions</span></button>
@@ -138,6 +139,12 @@
         </div><div class="profile-save-bar"><div><p id="profile-save-status">Saved as Markdown files.</p><span id="profile-updated"></span></div><button id="save-profile" class="button primary" type="submit" disabled>Save changes</button></div></form>
         <p class="feature-footnote">Included in future requests. Editable here or in your own editor.</p>
       </section>
+      <section id="inbox-view" class="feature-view hidden" aria-label="Activity inbox">
+        <div class="section-heading"><div><h1>Activity inbox</h1><p id="inbox-summary">Updates from Heartbeat and goals appear here.</p></div><button id="heartbeat-read-all" class="button secondary" type="button">Mark all read</button></div>
+        <div class="inbox-toolbar"><div class="inbox-filters" role="group" aria-label="Filter updates"><button class="button" data-inbox-filter="all" aria-pressed="true">All</button><button class="button" data-inbox-filter="unread" aria-pressed="false">Unread</button><button class="button" data-inbox-filter="errors" aria-pressed="false">Errors</button></div><label>Source <select id="inbox-source"><option value="all">All sources</option><option value="heartbeat">Heartbeat</option><option value="goal">Goals</option></select></label></div>
+        <div id="heartbeat-inbox" class="heartbeat-inbox"></div>
+            <section id="heartbeat-muted-card" class="feature-card heartbeat-muted-card hidden"><div class="card-heading"><h2>Muted topics</h2><span id="heartbeat-muted-count" class="count">0</span></div><p class="field-hint">Muted until you unmute.</p><div id="heartbeat-muted-topics" class="heartbeat-muted-topics"></div></section>
+      </section>
       <section id="heartbeat-view" class="feature-view hidden" aria-label="Heartbeat">
         <div class="section-heading"><div><h1>Heartbeat</h1><p>Useful checks, on your schedule.</p></div><span id="heartbeat-status" class="heartbeat-status">Paused</span></div>
         <div class="automation-notice"><span class="icon" data-icon="info"></span><span>Keep Little Bot open and your PC awake for scheduled checks.</span></div>
@@ -154,8 +161,6 @@
           </form>
           <div class="heartbeat-side">
             <section class="feature-card heartbeat-check"><div class="card-heading"><h2>Latest check</h2><span class="icon" data-icon="heartbeat"></span></div><p id="heartbeat-last-check" class="check-summary">No checks yet.</p><p id="heartbeat-next-check" class="field-hint"></p><p id="heartbeat-run-count" class="field-hint"></p><p id="heartbeat-error" class="inline-error hidden" role="status"></p><details id="heartbeat-last-actions" class="entry-actions hidden"><summary id="heartbeat-last-actions-label">Recorded actions</summary><pre id="heartbeat-last-actions-text"></pre></details><div class="heartbeat-check-actions"><button id="run-heartbeat" class="button secondary" type="button"><span class="icon" data-icon="play"></span>Check now</button><button id="stop-heartbeat" class="button stop-button hidden" type="button"><span class="stop-square"></span>Stop check</button></div><p id="heartbeat-run-hint" class="field-hint">Manual checks use your saved settings.</p></section>
-            <section class="feature-card heartbeat-inbox-card"><div class="card-heading"><h2>Activity inbox</h2><button id="heartbeat-read-all" class="button text-button" type="button">Read all</button></div><p class="field-hint">Changes and errors only.</p><div id="heartbeat-inbox" class="heartbeat-inbox"></div></section>
-            <section id="heartbeat-muted-card" class="feature-card heartbeat-muted-card hidden"><div class="card-heading"><h2>Muted topics</h2><span id="heartbeat-muted-count" class="count">0</span></div><p class="field-hint">Muted until you unmute.</p><div id="heartbeat-muted-topics" class="heartbeat-muted-topics"></div></section>
           </div>
         </div>
         <p class="feature-footnote">Checks your checklist; no screen or microphone monitoring.</p>

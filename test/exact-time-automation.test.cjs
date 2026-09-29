@@ -82,7 +82,7 @@ test('agent scheduling tool and built-in guidance advertise exact local schedule
 });
 
 test('automation management resumes using the saved schedule rather than interval arithmetic', () => {
-  const main = readFileSync(path.join(__dirname, '..', 'src', 'main.cjs'), 'utf8');
-  assert.match(main, /nextAutomationRunAt\(existing, Date\.now\(\)\)/);
+  const main = readFileSync(path.join(__dirname, '..', 'src', 'schedule-management.cjs'), 'utf8');
+  assert.match(main, /nextAutomationRunAt\(existing, now\)/);
   assert.doesNotMatch(main, /Date\.now\(\) \+ existing\.intervalMinutes \* 60000/);
 });

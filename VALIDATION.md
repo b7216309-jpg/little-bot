@@ -8,7 +8,7 @@ The continuous-conversation and SQLite memory redesign is verified with source-b
 - No private reasoning or chain-of-thought transcript is requested by the memory extraction task. Source storage is searchable conversation/tool text; the extractor selects durable knowledge from completed turns.
 - Existing goal-runner test fixtures were corrected to place backups outside writable roots and await the execution already started by Run now. SQLite-backed fixtures close database handles before Windows directory cleanup.
 
-Live remote model quality is not established by deterministic tests. Optional embeddings require a configured compatible endpoint; full-text recall works without one. Final local verification: npm run ci passed (143 JavaScript files syntax-checked, 388 Node tests, all nine Electron integration fixtures). The Windows portable package builds successfully; the installer was not exercised locally for this change.
+Live remote model quality is not established by deterministic tests. Optional embeddings require a configured compatible endpoint; full-text recall works without one. Final local verification: npm run ci passed (146 JavaScript files syntax-checked, 393 Node tests, all ten Electron integration fixtures). The Windows portable package builds successfully; the installer was not exercised locally for this change.
 
 ## Earlier 0.8.9 verification
 

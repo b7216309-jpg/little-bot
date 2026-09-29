@@ -10,7 +10,7 @@ const tool = (id, status = 'completed', kind = 'command') => ({ id, role: 'tool'
 const assistant = id => ({ id, role: 'assistant', status: 'completed', text: id });
 const user = id => ({ id, role: 'user', status: 'completed', text: id });
 
-test('groups consecutive tool messages but leaves single tools alone', () => {
+test('groups consecutive calls and gives single tools the same compact presentation', () => {
   const messages = [
     user('u1'),
     tool('t1'),
@@ -26,8 +26,8 @@ test('groups consecutive tool messages but leaves single tools alone', () => {
   assert.deepEqual(units[1].tools.map(item => item.message.id), ['t1', 't2']);
   assert.equal(units[1].key, 't1');
   assert.equal(units[2].message.id, 'a1');
-  assert.equal(units[3].type, 'message');
-  assert.equal(units[3].message.id, 't3');
+  assert.equal(units[3].type, 'actions');
+  assert.equal(units[3].tools[0].message.id, 't3');
 });
 
 test('assistant and user messages split action groups', () => {
@@ -51,10 +51,21 @@ test('summary exposes running and failures without expanding details', () => {
     running: 1,
     failed: 1,
     completed: 1,
-    status: '1 failed',
+    status: '1 running · 1 failed',
     label: '3 actions',
   });
   assert.equal(summarize([tool('a'), tool('b')]).status, 'Completed');
+});
+
+test('progress between calls stays in order inside the group; trailing progress and final answers remain visible', () => {
+  const progress = { ...assistant('progress'), phase: 'commentary' };
+  const reasoning = { ...assistant('reasoning'), kind: 'reasoning', phase: 'analysis' };
+  const tail = { ...assistant('tail'), phase: 'commentary' };
+  const units = groupConversation([user('u'), tool('t1'), progress, reasoning, tool('t2'), tail, assistant('final')]);
+  assert.deepEqual(units[1].entries.map(item => item.message.id), ['t1', 'progress', 'reasoning', 't2']);
+  assert.deepEqual(units[1].tools.map(item => item.message.id), ['t1', 't2']);
+  assert.deepEqual(units.slice(2).map(item => item.message.id), ['tail', 'final']);
+  assert.equal(groupConversation([tool('t1')])[0].key, units[1].key);
 });
 
 test('renderer loads action grouping helper before app code', () => {

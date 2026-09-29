@@ -7,6 +7,10 @@
     return message?.role === 'tool';
   }
 
+  function isProgress(message) {
+    return message?.role === 'assistant' && (message.kind === 'reasoning' || ['commentary', 'analysis'].includes(message.phase));
+  }
+
   function groupConversation(messages = []) {
     const units = [];
     for (let index = 0; index < messages.length;) {
@@ -18,16 +22,21 @@
       }
       const start = index;
       const tools = [];
-      while (index < messages.length && isTool(messages[index])) {
-        tools.push({ message: messages[index], index });
+      const entries = [];
+      while (index < messages.length && (isTool(messages[index]) || isProgress(messages[index]))) {
+        const entry = { message: messages[index], index };
+        entries.push(entry);
+        if (isTool(messages[index])) tools.push(entry);
         index += 1;
       }
-      if (tools.length === 1) units.push({ type: 'message', ...tools[0] });
-      else units.push({
+      // Keep trailing progress visible until another tool arrives.
+      while (entries.length && !isTool(entries[entries.length - 1].message)) { entries.pop(); index -= 1; }
+      units.push({
         type: 'actions',
         key: String(tools[0].message?.id || start),
         start,
         tools,
+        entries,
       });
     }
     return units;
@@ -42,7 +51,7 @@
       else completed += 1;
     }
     const count = messages.length;
-    const status = failed ? `${failed} failed` : running ? `${running} running` : 'Completed';
+    const status = [running ? `${running} running` : '', failed ? `${failed} failed` : ''].filter(Boolean).join(' · ') || 'Completed';
     return { count, running, failed, completed, status, label: `${count} ${count === 1 ? 'action' : 'actions'}` };
   }
 
