@@ -1,4 +1,10 @@
-# Version 0.9.0 verification
+# Version 0.9.2 verification
+
+Bundled quantized BGE-base-en-v1.5 provides offline CPU embeddings through a worker and an explicitly selected ONNX CPU provider. Real-model tests verify normalized 768-dimensional vectors, paraphrase retrieval, unrelated-result rejection, long-text windows, disabled-mode fallback, and database migration. Tool and reasoning traces remain readable as source history but are excluded from recall and embeddings. The Memory panel defaults to saved knowledge.
+
+The local Node suite passed 396 tests; all ten Electron fixtures passed. The model assets are pinned by revision and SHA-256 and included in the portable package. No model download or embedding server is used at runtime. BGE-base is primarily English; the paraphrase checks are a smoke test, not a general retrieval-quality benchmark.
+
+## Earlier 0.9.0 verification
 
 The continuous-conversation and SQLite memory redesign is verified with source-backed persistence tests, a deterministic fake model transport, and real Electron renderer/IPC fixtures. The memory database stores ordinary local text without redaction; state-file encryption is a separate legacy facility.
 

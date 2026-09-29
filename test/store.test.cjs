@@ -31,7 +31,7 @@ test('new state is minimal and save preserves live references without persisting
   assert.deepEqual(store.data.chats, []);
   assert.deepEqual(store.data.automations, []);
   assert.deepEqual(store.data.standingIntents, { intents: [] });
-  assert.deepEqual(store.data.memory, { enabled: true, facts: [], episodes: [], records: [], stats: { records: [], embeddingCount: 0, embeddingError: null }, embedding: null, projects: [] });
+  assert.deepEqual(store.data.memory, { enabled: true, facts: [], episodes: [], records: [], stats: { records: [], embeddingCount: 0, archivedTraceCount: 0, embeddingError: null }, embedding: { provider: 'bundled', baseUrl: undefined, model: 'bge-base-en-v1.5-q8-v1' }, projects: [] });
   assert.equal(store.data.heartbeat.enabled, false);
   assert.equal(store.data.heartbeat.mode, 'act');
   store.data.auth = { apiKey: 'sensitive-test-value' };

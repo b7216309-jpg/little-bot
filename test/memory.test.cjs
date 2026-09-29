@@ -131,7 +131,7 @@ test("project aliases reconnect knowledge while different projects remain scoped
     1,
   );
 });
-test("continuous history indexes tool outputs and per-message projects across model switches", (t) => {
+test("tool traces stay readable but are excluded from recall across model switches", (t) => {
   const m = engine(t);
   const c = chat();
   m.indexChat(c);
@@ -147,7 +147,7 @@ test("continuous history indexes tool outputs and per-message projects across mo
   assert.equal(
     m.search({ query: "secret", workspace: folder, source: "sessions" }).results
       .length,
-    1,
+    0,
   );
   assert.equal(
     m.search({ query: "secret", workspace: c.workspace, source: "sessions" })
@@ -322,12 +322,12 @@ test("history result offsets jump to evidence and message-relative paging remain
   const c = chat();
   c.messages[0].text = "x".repeat(4000);
   m.indexChat(c);
-  const result = m.search({ query: "secret", scope: "all", source: "sessions" })
+  const result = m.search({ query: "redirect", scope: "all", source: "sessions" })
     .results[0];
-  assert.equal(result.offset, 3);
+  assert.equal(result.offset, 4);
   assert.equal(
     m.readSession({ sessionId: c.id, offset: result.offset }).messages[0].id,
-    "tool1",
+    "a1",
   );
   const page = m.readSession({ sessionId: c.id, messageId: "tool1", limit: 1 });
   assert.equal(page.messages[0].id, "tool1");

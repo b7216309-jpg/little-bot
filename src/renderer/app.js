@@ -2164,12 +2164,15 @@ function renderMemorySettings() {
   const memory = state.memory || {};
   const embedding = memory.config?.embedding || memory.embedding || {};
   if (!$('memory-advanced').contains(document.activeElement)) {
+    $('memory-embedding-provider').value = embedding.provider === 'bundled' ? 'bundled' : embedding.baseUrl ? 'remote' : 'none';
+    $('memory-remote-settings').classList.toggle('hidden', $('memory-embedding-provider').value !== 'remote');
     $('memory-embedding-url').value = embedding.baseUrl || '';
     $('memory-embedding-model').value = embedding.model || '';
     $('memory-embedding-key').value = embedding.apiKey || '';
   }
   const stats = memory.stats || {};
-  $('memory-engine-status').textContent = embedding.baseUrl ? `Semantic search configured · ${stats.embeddings || stats.embeddingCount || 0} indexed vectors${stats.embeddingError ? ` · ${stats.embeddingError}` : ''}` : 'Full-text search is active. Add an embedding server to also match meaning.';
+  const searchLabel = embedding.provider === 'bundled' ? 'Local BGE-base · CPU · offline' : embedding.baseUrl ? 'Custom semantic search' : 'Keyword search only';
+  $('memory-engine-status').textContent = `${searchLabel} · ${stats.embeddingCount || 0} indexed vectors · ${stats.archivedTraceCount || 0} tool/trace entries excluded from recall${stats.embeddingError ? ` · ${stats.embeddingError}` : ''}`;
   const selected = $('memory-project').value;
   const projects = [...new Map((memory.projects || []).map(project => [project.id, project])).values()];
   $('memory-project').replaceChildren(...projects.map(project => {
@@ -3722,9 +3725,15 @@ $('memory-enabled').addEventListener('change', async () => {
 $('add-fact').addEventListener('click', () => editFact());
 $('fact-form').addEventListener('submit', saveFact);
 $('fact-scope').addEventListener('change', renderFactScope);
+$('memory-embedding-provider').addEventListener('change', () => {
+  $('memory-remote-settings').classList.toggle('hidden', $('memory-embedding-provider').value !== 'remote');
+});
 $('memory-embedding-form').addEventListener('submit', async event => {
   event.preventDefault();
-  await attempt(() => window.bot.configureMemory({ embedding: { baseUrl: $('memory-embedding-url').value.trim(), model: $('memory-embedding-model').value.trim(), apiKey: $('memory-embedding-key').value } }), 'Memory search settings saved.');
+  const provider = $('memory-embedding-provider').value;
+  const embedding = provider === 'bundled' ? { provider } : provider === 'none' ? null : { baseUrl: $('memory-embedding-url').value.trim(), model: $('memory-embedding-model').value.trim(), apiKey: $('memory-embedding-key').value };
+  if (provider === 'remote' && (!embedding.baseUrl || !embedding.model)) return notify('Enter an embedding server URL and model.', true);
+  await attempt(() => window.bot.configureMemory({ embedding }), 'Memory search settings saved.');
 });
 $('memory-project-form').addEventListener('submit', async event => {
   event.preventDefault();
