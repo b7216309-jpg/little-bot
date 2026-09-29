@@ -286,7 +286,7 @@ class StrataStreamAdapter extends Transform {
     const outputTokens = Number(this.usage?.completion_tokens) || 0;
     this._event({ type: 'response.completed', response: {
       id: this.responseId, object: 'response', status: 'completed', model: this.model, output,
-      usage: { input_tokens: inputTokens, input_tokens_details: null, output_tokens: outputTokens,
+      usage: { input_tokens: inputTokens, input_tokens_details: this.usage?.prompt_tokens_details ? { cached_tokens: Math.min(inputTokens, Math.max(0, Number(this.usage.prompt_tokens_details.cached_tokens) || 0)) } : null, output_tokens: outputTokens,
         output_tokens_details: null, total_tokens: Number(this.usage?.total_tokens) || inputTokens + outputTokens },
     } });
   }

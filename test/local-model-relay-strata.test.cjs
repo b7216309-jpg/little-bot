@@ -115,3 +115,48 @@ test('Strata adapter translates Responses streaming to Chat Completions without 
   assert.ok(count.input_tokens > 0);
   assert.equal(upstreamRequests.length, beforeCount);
 });
+
+test('local stream timeout allows long prefill and is shared by engine and relay', async t => {
+  const { providerConfig, LOCAL_STREAM_IDLE_TIMEOUT_MS } = require('../src/connections.cjs');
+  const config = providerConfig({ connection: 'local' });
+  assert.equal(config['model_providers.little_bot_local'].stream_idle_timeout_ms, 600000);
+  const originalRequest = http.request;
+  let timeout;
+  t.mock.method(http, 'request', function (...args) {
+    const request = originalRequest.apply(this, args);
+    const originalSetTimeout = request.setTimeout;
+    request.setTimeout = function (ms, ...rest) {
+      timeout = ms;
+      return originalSetTimeout.call(this, ms, ...rest);
+    };
+    return request;
+  });
+  const upstream = await listen(async (req, res) => {
+    await readJson(req);
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    res.flushHeaders();
+    await new Promise(resolve => setTimeout(resolve, 50));
+    res.end('data: {"choices":[{"delta":{"content":"ready"},"finish_reason":"stop"}]}\n\n');
+  });
+  t.after(upstream.close);
+  const relay = new LocalModelRelay();
+  await relay.start();
+  t.after(() => relay.close());
+  const response = await fetch(`${relay.endpoint(upstream.baseUrl, 'strata')}/responses`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model: 'test', input: 'hello' }),
+  });
+  const events = responseEvents(await response.text());
+  assert.equal(timeout, LOCAL_STREAM_IDLE_TIMEOUT_MS);
+  assert.ok(events.some(event => event.type === 'response.completed'));
+});
+
+
+test('chat and background routes carry separate Strata cache slots', async t => {
+  const slots=[];
+  const upstream=await listen(async(req,res)=>{const b=await readJson(req);slots.push(b.strata_cache_slot);sse(res,[{choices:[{delta:{content:'ok'},finish_reason:'stop'}]}]);});
+  t.after(upstream.close);const relay=new LocalModelRelay();await relay.start();t.after(()=>relay.close());
+  const chat=relay.endpoint(upstream.baseUrl,'strata',0),memory=relay.endpoint(upstream.baseUrl,'strata',1);
+  assert.notEqual(chat,memory);assert.equal(chat,relay.endpoint(upstream.baseUrl,'strata',0));
+  for(const endpoint of [chat,memory,chat]){const r=await fetch(`${endpoint}/responses`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({model:'test',input:'hello'})});await r.text();}
+  assert.deepEqual(slots,[0,1,0]);
+});

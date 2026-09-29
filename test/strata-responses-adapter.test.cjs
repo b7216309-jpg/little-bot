@@ -51,7 +51,7 @@ test('stream adapter emits codex responses events', async()=>{
  adapter.write('data: '+JSON.stringify({id:'chat1',model:'qwen3.8-flash-next-iq2_xs',choices:[{index:0,delta:{content:'answer'},finish_reason:null}]})+'\n\n');
  adapter.write('data: '+JSON.stringify({id:'chat1',model:'qwen3.8-flash-next-iq2_xs',choices:[{index:0,delta:{tool_calls:[{index:0,id:'call1',type:'function',function:{name:'apply_patch',arguments:''}}]},finish_reason:null}]})+'\n\n');
  adapter.write('data: '+JSON.stringify({id:'chat1',model:'qwen3.8-flash-next-iq2_xs',choices:[{index:0,delta:{tool_calls:[{index:0,function:{arguments:'{"input":"*** Begin Patch"}'}}]},finish_reason:null}]})+'\n\n');
- adapter.end('data: '+JSON.stringify({id:'chat1',model:'qwen3.8-flash-next-iq2_xs',choices:[{index:0,delta:{},finish_reason:'tool_calls'}],usage:{prompt_tokens:10,completion_tokens:20,total_tokens:30}})+'\n\ndata: [DONE]\n\n');
+ adapter.end('data: '+JSON.stringify({id:'chat1',model:'qwen3.8-flash-next-iq2_xs',choices:[{index:0,delta:{},finish_reason:'tool_calls'}],usage:{prompt_tokens:10,prompt_tokens_details:{cached_tokens:8},completion_tokens:20,total_tokens:30}})+'\n\ndata: [DONE]\n\n');
  await once(adapter,'end');
  const events=text.split(/\r?\n/).filter(l=>l.startsWith('data: ')).map(l=>JSON.parse(l.slice(6)));
  assert.ok(events.some(e=>e.type==='response.created'));
@@ -63,4 +63,5 @@ test('stream adapter emits codex responses events', async()=>{
  const completed=events.find(e=>e.type==='response.completed');
  assert.equal(completed.response.usage.input_tokens,10);
  assert.equal(completed.response.usage.output_tokens,20);
+ assert.equal(completed.response.usage.input_tokens_details.cached_tokens,8);
 });

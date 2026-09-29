@@ -77,7 +77,7 @@ class MemoryConsolidator {
       const started = await c.client.request('thread/start', {
         cwd, model: settings.model || undefined, ephemeral: true, approvalPolicy: 'never',
         sandbox: 'read-only', developerInstructions: INSTRUCTIONS,
-        config: { ...disabled, ...c.providerConfig(), 'features.shell_tool': false,
+        config: { ...disabled, ...c.providerConfig(1), 'features.shell_tool': false,
           'features.unified_exec': false, 'features.js_repl': false, 'features.code_mode': false,
           'features.multi_agent': false, 'features.skill_mcp_dependency_install': false,
           web_search: 'disabled', model_reasoning_effort: 'low' },

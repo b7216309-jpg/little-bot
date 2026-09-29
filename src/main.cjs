@@ -15,6 +15,8 @@ const { GoalRunner } = require('./goals.cjs');
 const { EventRuntime } = require('./event-runtime.cjs');
 const { manageSchedule } = require('./schedule-management.cjs');
 const { AgentTools } = require('./agent-tools.cjs');
+const { AppManagement } = require('./app-management.cjs');
+const appHandlers = new Map();
 const { ProfileFiles } = require('./profile.cjs');
 const { installBundledSkills } = require('./bundled-skills.cjs');
 const { AgentBrowser } = require('./agent-browser.cjs');
@@ -68,6 +70,7 @@ function stateProtector() {
   };
 }
 function register(name, handler) {
+  appHandlers.set(name, handler);
   ipcMain.handle(`bot:${name}`, async (event, payload) => {
     if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame ||
       event.senderFrame.url.split('#')[0] !== rendererUrl) throw new Error('Untrusted app window.');
@@ -201,7 +204,8 @@ app.whenReady().then(async () => {
     return removed;
   }
 
-  controller.agentTools = new AgentTools({ store, browser: controller.browser, webServices: controller.webServices,
+  controller.appManagement = new AppManagement({controller,handlers:appHandlers,filename:path.join(stateDir,'app-operations.json')});
+  controller.agentTools = new AgentTools({ management:controller.appManagement, store, browser: controller.browser, webServices: controller.webServices,
     sendAttachment: async (input, chat) => {
       if (!chat || chat.internal || chat.automationId || chat.status !== 'running') throw new Error('Files can be delivered only in an active user conversation.');
       const descriptor = await controller.attachments.output(input.path, chat.workspace, { extraRoots: [path.join(stateDir, 'browser', 'screenshots')] });
@@ -286,6 +290,9 @@ app.whenReady().then(async () => {
     finally { controller.extensionsBusy = false; controller.changed(); }
   }
 
+  register('setWorkspacePath', ({path:folder}) => controller.setWorkspace(folder));
+  register('importSkillPath', ({path:file}) => updateExtensions(() => extensionFiles.importSkill(file)));
+  register('importPluginPath', ({path:folder}) => updateExtensions(() => extensionFiles.importPlugin(folder)));
   register('getState', () => controller.state());
   register('getContextUsed', ({ chatId } = {}) => controller.contextUsedFor(chatId));
   register('reportError', ({ kind, message, stack } = {}) => {

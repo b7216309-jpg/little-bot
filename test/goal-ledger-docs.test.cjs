@@ -27,7 +27,7 @@ test('Phase 3 documentation links the implemented ledger consistently', () => {
 test('the bundled operating guide migrates only the original previous guide', () => {
   const bundled = read('src/bundled-skills.cjs');
   const skill = read('resources/skills/little-bot/SKILL.md');
-  assert.match(bundled, /const VERSION = 15;/);
+  assert.match(bundled, /const VERSION = 18;/);
   assert.ok(bundled.includes(previousGuideHash));
   assert.match(skill, /plan\/evidence ledger/i);
   assert.match(skill, /Exactly one step is active/);
@@ -45,4 +45,12 @@ test('package and validation records advance to 0.9.2', () => {
   assert.match(validation, /^# Version 0\.9\.2 verification/);
   assert.match(validation, /deterministic fake model/);
   assert.match(validation, /No private reasoning or chain-of-thought transcript/);
+});
+
+test('the shipped operating guide parses within the actual importer limits', () => {
+ const {parseSkill}=require('../src/extensions.cjs');
+ const skill=parseSkill(read('resources/skills/little-bot/SKILL.md'));
+ assert.equal(skill.name,'little-bot');
+ assert.match(skill.content,/heartbeat_manage/);
+ assert.match(skill.content,/memory_manage/);
 });

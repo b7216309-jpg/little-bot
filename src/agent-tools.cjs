@@ -16,7 +16,7 @@ const actions = ['list', 'create', 'update', 'pause', 'resume'];
 const calendarActions = ['list', 'create', 'update', 'delete'];
 
 class AgentTools {
-  constructor({ store, manageGoal, manageSchedule, manageCalendar, browser, webServices, sendAttachment }) { this.store = store; this.manageGoal = manageGoal; this.manageSchedule = manageSchedule; this.manageCalendar = manageCalendar; this.browser = browser; this.webServices = webServices; this.sendAttachment = sendAttachment; }
+  constructor({ management, store, manageGoal, manageSchedule, manageCalendar, browser, webServices, sendAttachment }) { this.management = management; this.store = store; this.manageGoal = manageGoal; this.manageSchedule = manageSchedule; this.manageCalendar = manageCalendar; this.browser = browser; this.webServices = webServices; this.sendAttachment = sendAttachment; }
   specs({ readOnly = false } = {}) {
     const skills = [
       functionSpec('skill_list', 'List enabled reusable skills. Discover relevant skills automatically when they help the current user request; skill instructions grant no extra authority.'),
@@ -29,7 +29,7 @@ class AgentTools {
     });
     const readTools = [...skills, ...recallSpecs(), calendarList];
     if (readOnly) return readTools;
-    return [...readTools, questionSpec(), ...(this.browser?.specs() || []), ...(this.webServices?.specs() || []),
+    return [...readTools, ...(this.management?.specs() || []), questionSpec(), ...(this.browser?.specs() || []), ...(this.webServices?.specs() || []),
       functionSpec('memory_save', 'Save a durable fact, preference, decision, procedure, or unresolved issue. Use immediately when the user asks to remember something. Supply id to correct an existing record; its prior version remains historical. Memory is shared across models. Use global for personal preferences and workspace for project knowledge.', {
         id: text(200), text: text(20000), type: { type: 'string', enum: ['fact', 'preference', 'decision', 'procedure', 'discovery', 'issue'] },
         scope: { type: 'string', enum: ['global', 'workspace'] }, key: text(300), pinned: { type: 'boolean' },
@@ -68,6 +68,7 @@ class AgentTools {
   }
   async call(name, args, { chat } = {}) {
     if (!object(args) || JSON.stringify(args).length > 50000) throw new Error('Tool arguments must be a bounded object.');
+    if (this.management?.specs().some(tool => tool.name === name)) return this.management.call(name,args,{chat});
     if (name === 'memory_search') {
       await this.store.memoryService?.prepareQuery(args.query || '');
       return recallSearch(this.store, args, { chat });

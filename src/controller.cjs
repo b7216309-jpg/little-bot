@@ -1,5 +1,6 @@
 const { EventEmitter } = require('node:events');
 const { randomUUID } = require('node:crypto');
+const { migrateTools, fingerprint } = require('./tool-migration.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
 const { defaultMemory, automaticRemember, captureEpisode, buildMemoryContext } = require('./memory.cjs');
@@ -229,6 +230,17 @@ class Controller extends EventEmitter {
   }
   async start() {
     try {
+      // Migrate before the engine opens its history file handles (Windows).
+      if (this.client.homeDir && this.agentTools) for (const chat of this.store.data.chats) {
+        if (!chat.threadId) continue;
+        const tools = this.agentTools.specs({ readOnly: chat.toolMode === 'readOnly' });
+        const signature = fingerprint(tools);
+        if (chat.toolSchema !== signature) {
+          migrateTools(this.client.homeDir, chat.threadId, tools);
+          chat.toolSchema = signature;
+        }
+      }
+      this.persistNow();
       await this.client.start();
       await this.refreshConnection();
       this.runtime = { ...this.runtime, status: 'ready' };
@@ -416,10 +428,10 @@ class Controller extends EventEmitter {
       if (saved.connection === 'local' && binding.model && !this.models.some(model => model.id === binding.model)) throw new Error('This task uses a local model that is not loaded. Load it before continuing.');
     }
   }
-  providerConfig() {
+  providerConfig(cacheSlot = 0) {
     const settings = this.store.data.settings;
     return providerConfig(settings, this.connection,
-      settings.connection === 'local' ? this.localModelRelay.endpoint(settings.localBaseUrl, this.connection?.adapter) : undefined);
+      settings.connection === 'local' ? this.localModelRelay.endpoint(settings.localBaseUrl, this.connection?.adapter, cacheSlot) : undefined);
   }
   get goalChat() { return this.goalExecutor.active; }
   async runGoal(goal, options) { if (this.memoryConsolidator) await this.memoryConsolidator.pauseForUser(); return this.goalExecutor.run(goal, options); }
@@ -561,7 +573,7 @@ class Controller extends EventEmitter {
       const common = this.threadOptions(chat, folder);
       if (!chat.threadId) {
         const result = await this.client.request('thread/start', { ...common, ...(chat.private ? { ephemeral: true } : {}), ...(this.agentTools ? { dynamicTools: this.agentTools.specs({ readOnly: turnMode === 'plan' || Boolean(override?.automationId) }) } : {}) }, 60000);
-        chat.threadId = result.thread.id; this.resumed.add(chat.threadId);
+        chat.threadId = result.thread.id; chat.toolSchema = fingerprint(this.agentTools?.specs({ readOnly: toolMode === 'readOnly' }) || []); this.resumed.add(chat.threadId);
         this.threadCompactionSettings.set(chat.threadId, common.config.model_post_turn_compact_threshold_percent);
         this.threadInstructionSettings.set(chat.threadId, this.threadSignature(common));
       } else await this.resumeThread(chat, common);
@@ -707,7 +719,7 @@ class Controller extends EventEmitter {
         approvalPolicy: 'never', approvalsReviewer: 'user', sandbox: 'workspace-write',
         ...(this.agentTools ? { dynamicTools: this.agentTools.specs({ readOnly: true }) } : {}),
         developerInstructions: heartbeatInstructions(this.systemPrompt()),
-        config: { ...extensionConfig, ...this.providerConfig(), 'sandbox_workspace_write.network_access': false, 'model_reasoning_effort': config.effort || 'low',
+        config: { ...extensionConfig, ...this.providerConfig(2), 'sandbox_workspace_write.network_access': false, 'model_reasoning_effort': config.effort || 'low',
           'web_search': 'disabled', 'features.multi_agent': false },
       }, 60000);
       chat.threadId = started.thread.id;
@@ -1255,6 +1267,7 @@ class Controller extends EventEmitter {
   async close() {
     if (this.closing) return;
     this.closing = true;
+    this.appManagement?.close();
     await this.memoryConsolidator?.close();
     this.eventRuntime?.stop();
     this.independentCheck.abort('interrupted', 'Independent Check stopped because Little Bot closed. The completed draft was kept.');
