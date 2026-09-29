@@ -733,7 +733,7 @@ function renderIndependentCheck(node, chat, message) {
 function conversationMessage(chat, message, index) {
   const key = `${chat.id}:${message.id || index}`;
   const fingerprint = [message.role, message.kind, message.status, message.phase, message.text, JSON.stringify(message.attachments || []),
-    JSON.stringify(message.independentCheck || null), chat.status];
+    JSON.stringify(message.independentCheck || null), chat.status, message.automationId, message.automationName];
   const previous = renderedMessages.get(key);
   if (previous && fingerprint.every((value, position) => value === previous.fingerprint[position])) return previous.node;
   const variant = message.kind === 'compaction' ? 'compaction' : message.role === 'assistant' && message.kind === 'reasoning' ? 'reasoning'
@@ -780,9 +780,10 @@ function conversationMessage(chat, message, index) {
   } else {
     if (!node) {
       node = element('article', `message ${variant}`);
+      if (variant === 'user' && message.automationId) node.append(element('div', 'message-label automation-label', `Scheduled · ${message.automationName || 'Automation'}`));
       if (variant === 'assistant' || variant === 'plan') {
         const label = element('div', 'message-label');
-        label.append(element('span', 'mini-mark', variant === 'plan' ? 'P' : '✳'), document.createTextNode(variant === 'plan' ? 'Plan' : 'Little Bot'));
+        label.append(element('span', 'mini-mark', variant === 'plan' ? 'P' : '✳'), document.createTextNode(variant === 'plan' ? 'Plan' : message.automationId ? `Little Bot · ${message.automationName || 'Automation'}` : 'Little Bot'));
         node.append(label);
       }
       node.append(element('div', 'message-content'));
@@ -1986,7 +1987,7 @@ function renderAutomationScheduleEditor() {
 }
 
 function renderAutomations() {
-  $('automations-view').querySelector('.automation-notice span:last-child').textContent = state.autonomy?.paused ? 'Autonomous work is paused. Resume it from Goals to allow scheduled automations to continue.' : 'Automations run while Little Bot is open. Any action needing approval will wait for you.';
+  $('automations-view').querySelector('.automation-notice span:last-child').textContent = state.autonomy?.paused ? 'Autonomous work is paused. Resume it from Goals to allow scheduled automations to continue.' : 'Scheduled tasks run in your conversation while Little Bot is open. They wait until other work finishes.';
   const fragment = document.createDocumentFragment();
   const routines = state.automations || [];
   if (!routines.length) {

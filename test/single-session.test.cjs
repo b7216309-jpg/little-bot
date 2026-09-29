@@ -52,7 +52,7 @@ test('one timeline survives omitted and stale IDs, model/workspace rotations, sc
   assert.equal(restored.data.chats.length, 1); assert.equal(restored.data.chats[0].id, first.chatId);
   assert.equal(restored.data.chats[0].messages[0].workspace, root);
   assert.equal(restored.data.chats[0].messages.at(-1).workspace, folder);
-  assert.equal(restored.memoryService.getWorkingState(chat.id).objective, 'Scheduled check');
+  assert.equal(restored.memoryService.getWorkingState(chat.id).objective, 'What color do I like?');
   assert.equal(restored.memoryService.getWorkingState(chat.id).status, 'completed');
   restored.close();
 });
@@ -129,3 +129,48 @@ test('explicit remember records link to the original message', async t => {
   assert.equal(fact.sources[0].chatId, chatId);
 });
 
+
+test('automations keep one timeline without replacing foreground mode, objective, or user events', async t => {
+  const { root, store, client, controller } = await fixture(t);
+  const events = []; controller.eventRuntime = { publish: event => events.push(event), stop() {} };
+  const { chatId } = await controller.send({ text: 'Plan my project.', mode: 'plan' });
+  const chat = controller.chat(chatId);
+  chat.messages.push({ id: 'plan-answer', role: 'assistant', text: 'First, inspect the inputs.' });
+  controller.finish(chat);
+  const before = store.memoryService.getWorkingState(chatId);
+  const directEvents = events.length;
+  await controller.send({ text: 'Remember that I prefer daily reports.' }, { ...store.data.settings, automationId: 'daily', name: 'Daily review' });
+  assert.deepEqual(store.memoryService.getWorkingState(chatId), before);
+  const input = client.calls.filter(c => c.method === 'turn/start').at(-1).params.input[0].text;
+  assert.match(input, /Scheduled task: Daily review/);
+  assert.doesNotMatch(input, /Current user request:/);
+  const answer = controller.message(chat, 'daily-answer', 'assistant'); answer.text = 'Scheduled report: no new changes.';
+  controller.finish(chat);
+  assert.equal(chat.mode, 'plan'); assert.equal(chat.title, 'Conversation');
+  assert.equal(chat.automationId, undefined); assert.equal(chat.automationPreviousMode, undefined);
+  assert.equal(answer.automationId, 'daily'); assert.equal(answer.automationName, 'Daily review');
+  assert.deepEqual(store.memoryService.getWorkingState(chatId), before);
+  assert.equal(events.length, directEvents, 'scheduler owns automation completion; no recursive chat.completed event');
+  const request = chat.messages.find(m => m.kind === 'automation');
+  assert.equal(store.memoryService.pendingExtractions(100).some(job => job.sourceIds.includes(request.id)), false);
+  const row = store.memoryService.db.prepare('SELECT recallable FROM records WHERE id=?').get(`history:${chatId}:${request.id}`);
+  assert.equal(row.recallable, 0, 'scheduled instructions are archived without being personal recall');
+  assert.ok(store.memoryService.snapshot().episodes.some(e => e.text.startsWith('Scheduled task (Daily review):')));
+  const restored = new Store({ filePath: store.filePath, defaultWorkspace: root });
+  assert.equal(restored.data.chats[0].messages.at(-1).automationName, 'Daily review'); restored.close();
+  await controller.send({ text: 'Continue my plan.' });
+  assert.equal(chat.mode, 'plan'); assert.equal(store.data.chats.length, 1);
+  assert.equal(chat.messages.at(-1).automationId, undefined);
+});
+
+test('automation failure and interrupted restart preserve the conversation Plan preference', async t => {
+  const { root, store, controller } = await fixture(t);
+  const { chatId } = await controller.send({ text: 'Plan the work.', mode: 'plan' });
+  const chat = controller.chat(chatId); controller.finish(chat);
+  await controller.send({ text: 'Scheduled work' }, { ...store.data.settings, automationId: 'routine', name: 'Routine' });
+  const restored = new Store({ filePath: store.filePath, defaultWorkspace: root });
+  assert.equal(restored.data.chats[0].mode, 'plan'); restored.close();
+  controller.finish(chat, 'Stopped by you.');
+  assert.equal(chat.mode, 'plan'); assert.equal(chat.automationId, undefined);
+  assert.equal(store.memoryService.getWorkingState(chatId).objective, 'Plan the work.');
+});

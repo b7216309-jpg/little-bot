@@ -52,6 +52,8 @@ Heartbeat can take small steps in its saved folder. It has no network/browser ac
 
 Use `schedule_manage` in direct chats. List first to find or reuse a matching routine rather than duplicating it. New routines inherit this chat's folder and the selected connection/model. The tool returns saved status; report that status accurately.
 
+Scheduled runs append labelled task prompts and results to the one conversation. They keep the conversation title, restore its Plan/Execute preference, and preserve its foreground working objective. The saved automation supplies its folder/model/connection. Scheduled instructions are archived without being treated as new user facts; results remain available with their scheduled origin. Automation completion emits automation.completed/automation.error, not chat.completed/chat.failed; use the automation events for event-driven follow-ups.
+
 Automations support two schedule forms:
 
 - **Interval:** `scheduleType:"interval"` with `intervalMinutes` from 1 to 10,080.

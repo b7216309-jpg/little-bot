@@ -415,6 +415,7 @@ class MemoryService {
         role: message.role || "tool",
         kind: message.kind || "",
         phase: message.phase || "",
+        ...(message.automationId ? { automationId: message.automationId, automationName: message.automationName || "Scheduled task" } : {}),
         workspace: message.workspace || chat.workspace,
         model: message.model || chat.model,
         connection: message.connection || chat.connection,
@@ -443,7 +444,7 @@ class MemoryService {
           stamp,
         );
       const recallable = ['user', 'assistant'].includes(message.role)
-        && !['reasoning', 'analysis', 'plan', 'commentary'].includes(message.kind)
+        && !['reasoning', 'analysis', 'plan', 'commentary', 'automation'].includes(message.kind)
         && !['analysis', 'commentary'].includes(message.phase);
       this.db.prepare('UPDATE records SET recallable=?,embedding=CASE WHEN ? THEN embedding ELSE NULL END WHERE id=?').run(Number(recallable), Number(recallable), id);
       this.indexedMessages.set(id, fingerprint);
@@ -488,7 +489,7 @@ class MemoryService {
     if (existing) return this.get(existing.id);
     return this.save({
       type: "episode",
-      text: `Request: ${messages.slice(index).filter((message) => message.role === "user").map((message) => clean(message.text)).join("\nClarification: ")}\nOutcome: ${answer}`,
+      text: `${messages[index].automationId ? "Scheduled task (" + (messages[index].automationName || messages[index].automationId) + ")" : "Request"}: ${messages.slice(index).filter((message) => message.role === "user").map((message) => clean(message.text)).join("\nClarification: ")}\nOutcome: ${answer}`,
       workspace: messages[index].workspace || chat.workspace,
       key: episodeKey,
       source,
@@ -889,7 +890,7 @@ class MemoryService {
       start = messages.length - 1;
       while (start >= 0 && messages[start].role !== "user") start--;
     }
-    if (start < 0) return null;
+    if (start < 0 || messages[start].automationId || messages[start].kind === "automation") return null;
     const items = messages
       .slice(start)
       .map((m, i) => ({
