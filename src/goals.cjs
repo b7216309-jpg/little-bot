@@ -18,6 +18,7 @@ const LIMIT_RANGES = { maxTokens: [1000, 2000000], maxMinutes: [1, 240], maxActi
 const isObject = value => value && typeof value === 'object' && !Array.isArray(value);
 const number = value => Number.isFinite(value) && value >= 0 ? value : 0;
 const clean = value => String(value?.message || value || '').replace(/sk-[A-Za-z0-9_-]+/g, '[redacted]').replace(/(api_key|access_token|refresh_token)([\s"':=]+)[^\s,}]+/gi, '$1$2[redacted]').slice(0, 2000);
+const isRecurringGoal = goal => ['interval', 'files'].includes(goal?.trigger?.type);
 function text(value, label, max, required = false) {
   if (value == null && !required) return '';
   if (typeof value !== 'string' || value.length > max || value.includes('\0') || (required && !value.trim())) throw new Error(`${label} must contain ${required ? '1–' : 'at most '}${max} characters.`);
@@ -72,18 +73,21 @@ function validateGoal(input, existing = null, settings = {}) {
   if (trigger.type === 'files' && !trigger.paths.length) throw new Error('Choose at least one relative path for a file trigger.');
   const id = existing?.id || input.id || randomUUID();
   if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(id)) throw new Error('Invalid goal ID.');
+  const reopening = existing?.status === 'completed';
   const result = {
     id, name: text(input.name, 'Goal name', 80, true), objective: text(input.objective, 'Objective', 12000, true),
     steps: list(input.steps, 'Steps', 20, item => text(item, 'Step', 1000, true)),
     checkpoint: existing?.checkpoint || '', nextStep: existing?.nextStep || '',
-    status: existing?.status === 'completed' ? 'draft' : existing?.status || 'draft', priority: integer(input.priority, 3, 1, 5, 'Priority'),
+    status: reopening ? 'draft' : existing?.status || 'draft', priority: integer(input.priority, 3, 1, 5, 'Priority'),
     workspace, model: text(input.model ?? existing?.model ?? settings.model, 'Model', 200), effort: ['low', 'medium', 'high'].includes(input.effort) ? input.effort : existing?.effort || settings.effort || 'low',
     ...connectionBinding(existing || { ...settings, ...input }, settings.connection || 'codex'),
-    checks, permissions, limits, usage: usageOf(existing?.usage), trigger,
+    checks, permissions, limits, usage: usageOf(reopening ? null : existing?.usage), trigger,
     dependsOn: [...new Set(list(input.dependsOn, 'Dependencies', 20, value => text(value, 'Dependency', 100, true)))],
     authorized: existing?.authorized === true, history: historyOf(existing?.history),
     createdAt: existing?.createdAt || now, updatedAt: now, nextRunAt: existing?.nextRunAt ?? null,
   };
+  if (reopening || existing?.freshRun === true) result.freshRun = true;
+  if (Number.isFinite(existing?.lastCompletedAt)) result.lastCompletedAt = existing.lastCompletedAt;
   result.ledger = reconcileGoalLedger(input.ledger ?? existing?.ledger, existing, result, now);
   if (result.dependsOn.includes(id)) throw new Error('A goal cannot depend on itself.');
   if (existing?.triggerFingerprint) result.triggerFingerprint = existing.triggerFingerprint;
@@ -117,6 +121,8 @@ function normalizeAutonomy(value, settings = {}, recovering = false) {
       if (question && !['draft', 'completed'].includes(goal.status)) goal.pendingQuestion = question;
       if (input.continueAfterAnswer === true) goal.continueAfterAnswer = true;
       if (input.needsEffectReview === true) goal.needsEffectReview = true;
+      if (input.freshRun === true) goal.freshRun = true;
+      if (Number.isFinite(input.lastCompletedAt)) goal.lastCompletedAt = input.lastCompletedAt;
       goal.ledger = normalizeGoalLedger(input.ledger ?? goal.ledger, goal, Date.now());
       if (recovering && goal.status === 'running') {
         const external = goal.permissions.network || goal.permissions.mcpTools.length > 0;
@@ -174,6 +180,7 @@ class GoalRunner {
     requireSelectedConnection(goal, this.store.data.settings);
     if (id === this.activeId) throw new Error('This goal is already running.');
     const restarting = goal.status === 'completed';
+    if (restarting) { goal.usage = usageOf(); goal.freshRun = true; }
     goal.status = 'queued';
     goal.ledger = restarting ? restartGoalLedger(goal, { now: Date.now(), source: 'user' }) : normalizeGoalLedger(goal.ledger, goal);
     goal.authorized = true; goal.nextRunAt = Date.now(); delete goal.pauseReason; delete goal.needsEffectReview;
@@ -267,7 +274,10 @@ class GoalRunner {
       for (const goal of [...this.data.goals].sort((a, b) => a.priority - b.priority || a.createdAt - b.createdAt)) {
         if (goal.status !== 'queued' || !goal.authorized || goal.pendingQuestion) continue;
         if (!isConnectionSelected(goal, this.store.data.settings)) continue;
-        if (goal.dependsOn.some(id => this.data.goals.find(item => item.id === id)?.status !== 'completed')) continue;
+        if (goal.dependsOn.some(id => {
+          const dependency = this.data.goals.find(item => item.id === id);
+          return !dependency || (dependency.status !== 'completed' && !(isRecurringGoal(dependency) && Number.isFinite(dependency.lastCompletedAt)));
+        })) continue;
         let ready = this.forceRuns.has(goal.id) || goal.needsRecoveryCheck || goal.continueAfterAnswer;
         if (!ready && goal.trigger.type === 'files') {
           try {
@@ -335,6 +345,27 @@ class GoalRunner {
     }
     return { passed: goal.checks.length > 0 && results.length === goal.checks.length && results.every(item => item.passed), results };
   }
+  finishVerified(goal, { runId = '', summary = 'Goal completed and verified.', verification = [], ledgerContext = {} } = {}) {
+    const now = Date.now(), recurring = isRecurringGoal(goal), cycleUsage = usageOf(goal.usage);
+    completeGoalLedger(goal, summary, { runId, now, ...ledgerContext });
+    goal.lastCompletedAt = now; goal.nextStep = ''; delete goal.pendingQuestion; delete goal.freshRun;
+    if (recurring) {
+      this.record(goal, 'cycle-completed', summary, { runId, status: 'completed', verification, usage: cycleUsage });
+      goal.usage = usageOf(); goal.status = 'queued';
+      goal.nextRunAt = goal.trigger.type === 'interval' ? now + goal.trigger.intervalMinutes * 60000 : null;
+      goal.ledger = restartGoalLedger(goal, { now, source: 'system' });
+      this.changed();
+      this.emit('goal.completed', goal, { runId, summary, completedAt: now, recurring: true, nextRunAt: goal.nextRunAt });
+      this.onAlert({ title: goal.name, message: 'Goal cycle completed and verified.', goalId: goal.id });
+      return true;
+    }
+    goal.status = 'completed';
+    this.record(goal, 'completed', summary, { runId, status: 'completed', verification, usage: cycleUsage });
+    this.changed();
+    this.emit('goal.completed', goal, { runId, summary, completedAt: now });
+    this.onAlert({ title: goal.name, message: summary, goalId: goal.id });
+    return true;
+  }
   async completeStoppedFiles(goal, runId, reason, ledgerContext = {}) {
     // The last allowed native write can succeed just before the executor stops
     // at its budget. File-only checks establish completion without another
@@ -352,15 +383,9 @@ class GoalRunner {
     });
     this.record(goal, 'verification', 'Checked local completion conditions after the execution budget stopped work.', { runId, verification });
     if (!verification.every(check => check.passed)) return false;
-    goal.status = 'completed'; goal.nextStep = ''; delete goal.pendingQuestion;
-    completeGoalLedger(goal, 'Goal completed and verified after the final allowed action.', {
-      runId, now: Date.now(), ...ledgerContext,
+    return this.finishVerified(goal, {
+      runId, summary: 'Goal completed and verified after the final allowed action.', verification, ledgerContext,
     });
-    this.record(goal, 'completed', 'Goal completed and verified after the final allowed action.', { runId, status: 'completed' });
-    this.changed();
-    this.emit('goal.completed', goal, { runId, summary: 'Goal completed and verified after the final allowed action.', completedAt: Date.now() });
-    this.onAlert({ title: goal.name, message: 'Goal completed and verified.', goalId: goal.id });
-    return true;
   }
   async execute(goal) {
     this.activeId = goal.id; this.stopReason = null;
@@ -381,13 +406,10 @@ class GoalRunner {
         runId, phase: 'preflight', now: Date.now(), ...ledgerRunContext,
       }); this.changed();
       if (this.stopReason || goal.status === 'paused' || this.closing) return;
-      if (checked.passed) {
-        goal.status = 'completed'; goal.nextStep = '';
+      const requiresFreshWork = goal.freshRun === true || isRecurringGoal(goal);
+      if (checked.passed && !requiresFreshWork) {
         const summary = 'Verified: the completion conditions already pass. No model call was needed.';
-        completeGoalLedger(goal, summary, { runId, now: Date.now(), ...ledgerRunContext });
-        this.record(goal, 'completed', summary, { runId, status: 'completed', verification: checked.results }); this.changed();
-        this.emit('goal.completed', goal, { runId, summary, completedAt: Date.now() });
-        this.onAlert({ title: goal.name, message: 'Goal completed and verified.', goalId: goal.id }); return;
+        this.finishVerified(goal, { runId, summary, verification: checked.results, ledgerContext: ledgerRunContext }); return;
       }
       const exhausted = this.budgetReason(goal); if (exhausted) { this.block(goal, exhausted, { runId, verification: checked.results }); return; }
       if (!goal.checks.length) { this.block(goal, 'Add at least one verification check before running this goal.', { runId }); return; }
@@ -431,11 +453,8 @@ class GoalRunner {
       this.record(goal, 'verification', checked.passed ? 'All completion conditions passed.' : 'Completion conditions have not all passed.', { runId, verification: checked.results });
       if (this.stopReason || goal.status === 'paused' || this.closing) return;
       if (checked.passed) {
-        goal.status = 'completed'; goal.nextStep = ''; const summary = 'Goal completed and verified.';
-        completeGoalLedger(goal, summary, { runId, now: Date.now(), ...ledgerRunContext });
-        this.record(goal, 'completed', summary, { runId, status: 'completed' });
-        this.emit('goal.completed', goal, { runId, summary, completedAt: Date.now() });
-        this.onAlert({ title: goal.name, message: summary, goalId: goal.id });
+        const summary = 'Goal completed and verified.';
+        this.finishVerified(goal, { runId, summary, verification: checked.results, ledgerContext: ledgerRunContext });
       }
       else if (result?.status === 'blocked') this.block(goal, clean(result.summary) || 'The goal needs your input.', { runId });
       else {
