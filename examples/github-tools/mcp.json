@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "github-tools": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/server.cjs"],
+      "env_vars": ["GITHUB_TOKEN", "GH_TOKEN", "GITHUB_API_URL"]
+    }
+  }
+}
