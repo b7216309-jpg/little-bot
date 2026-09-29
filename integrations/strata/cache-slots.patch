@@ -210,3 +210,19 @@
              yield last
  
  
+--- a/serve/test_server.py
++++ b/serve/test_server.py
+@@ -528,3 +528,13 @@
+ 
+ if __name__ == "__main__":
+     unittest.main()
++
++
++class CacheSlotProtocol(unittest.TestCase):
++    def test_slot_selection_and_validation(self):
++        self.assertIn("cache_slot=0", StrataEngine.sampling_keys({}))
++        for slot in range(4):
++            self.assertIn(f"cache_slot={slot}", StrataEngine.sampling_keys({"strata_cache_slot":slot}))
++        for slot in [-1,4,True,"1",1.5]:
++            with self.assertRaises(ValueError):
++                StrataEngine.sampling_keys({"strata_cache_slot":slot})
