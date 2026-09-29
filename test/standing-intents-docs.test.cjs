@@ -26,6 +26,6 @@ test('public documentation describes foreground-only event semantics consistentl
 
 test('bundled operating guide migration advances for the standing-intent documentation', () => {
   const bundled = read('src/bundled-skills.cjs');
-  assert.match(bundled, /const VERSION = 13;/);
+  assert.match(bundled, /const VERSION = 14;/);
   assert.match(bundled, /v0\.8\.2–0\.8\.8/);
 });

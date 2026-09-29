@@ -64,3 +64,32 @@ test('goal writes state without terminal access and preserves files on rejected 
   assert.equal((await call('4', { path: 'state/growth.md', content: 'No' })).success, false);
   assert.equal(await fs.readFile(path.join(workspace, 'state/growth.md'), 'utf8'), 'Useful state');
 });
+
+test('goal_finish acknowledges a structured result before stopping and closes the tool gate', async () => {
+  const { executor, operation } = fixture();
+  operation.calls = new Map();
+  operation.finish = () => {};
+  let acknowledged = false;
+  executor.client.respond = async (_, response) => { assert.equal(response.success, true); acknowledged = true; };
+  executor.client.request = async method => {
+    assert.equal(method, 'turn/interrupt'); assert.equal(acknowledged, true);
+    executor.notification('turn/completed', { threadId: 't', turn: { status: 'interrupted' } });
+  };
+  const args = { status: 'verify', summary: 'State saved.', checkpoint: 'Read and updated growth state.', nextStep: '' };
+  await executor.serverRequest({ id: 1, method: 'item/tool/call', params: { threadId: 't', turnId: 'turn', callId: 'finish', tool: 'goal_finish', arguments: args } });
+  assert.deepEqual(operation.completion, args);
+  assert.equal(operation.terminal, true);
+  assert.equal(operation.error, null);
+  assert.equal((await executor.dynamicCall(operation, { turnId: 'turn', callId: 'late', tool: 'memory_search', arguments: { query: 'more work' } })).success, false);
+  clearTimeout(operation.stopTimer);
+});
+
+test('invalid goal_finish cannot claim completion or prevent a corrected result', async () => {
+  const { executor, operation } = fixture();
+  const params = { turnId: 'turn', callId: 'bad', tool: 'goal_finish', arguments: { status: 'completed', summary: 'Done', checkpoint: '', nextStep: '' } };
+  assert.equal((await executor.dynamicCall(operation, params)).success, false);
+  assert.equal(operation.completion, undefined);
+  params.callId = 'good'; params.arguments.status = 'blocked';
+  assert.equal((await executor.dynamicCall(operation, params)).success, true);
+  assert.equal(operation.completion.status, 'blocked');
+});

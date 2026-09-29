@@ -108,3 +108,5 @@ Everything runs only while Little Bot is open. There is no service, gateway, tra
 Normal chat follows the engine's approval rules; autonomous goals receive only saved grants. Profiles, skills, browser sign-in, and service credentials never authorize unrelated actions.
 
 Goal file updates use `workspace_write` when file changes are enabled, including when terminal access is off. Read existing text first and preserve useful content. Blocked or unfinished cycles cannot complete from older passing checks; unreadable completion records require review and retry.
+
+Local-model goal runs finish with `goal_finish`: submit a short status, summary, checkpoint, and next step. The app verifies saved checks and ends the turn without requesting a second narrative completion.

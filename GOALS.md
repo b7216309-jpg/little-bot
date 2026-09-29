@@ -80,3 +80,5 @@ The input + output token limit is cumulative across model requests, so repeated 
 
 
 Goals expose `workspace_write` for authorized UTF-8 file updates without terminal access. Blocked or unfinished results cannot reuse older passing verification to claim a completed cycle. Malformed completion records remain blocked for review.
+
+Local models can submit a concise result using `goal_finish`. Acknowledging it closes the tool gate and ends the turn; the runner still owns final verification.
