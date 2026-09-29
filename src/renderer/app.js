@@ -648,10 +648,53 @@ function independentCheckSummary(record) {
   return 'Independent check: mixed';
 }
 
+let answerMenu = null;
+function closeAnswerMenu() {
+  if (answerMenu?.matches(':popover-open')) answerMenu.hidePopover();
+}
+window.addEventListener('resize', closeAnswerMenu);
+document.addEventListener('scroll', closeAnswerMenu, true);
+
+function showAnswerMenu(event, node, chatId, messageId) {
+  const chat = state?.chats?.find(item => item.id === chatId);
+  const message = chat?.messages?.find(item => item.id === messageId);
+  if (!window.LittleBotIndependentCheck.eligible(message)) return;
+  event.preventDefault();
+  closeAnswerMenu();
+  if (!answerMenu) {
+    answerMenu = element('div', 'answer-context-menu');
+    answerMenu.setAttribute('popover', 'auto');
+    answerMenu.setAttribute('role', 'menu');
+    answerMenu.setAttribute('aria-label', 'Answer actions');
+    document.body.append(answerMenu);
+  }
+  const record = message.independentCheck;
+  const button = action(record?.status === 'failed' || record?.status === 'interrupted' ? 'Run check again' : 'Challenge this answer', async () => {
+    closeAnswerMenu();
+    node.focus({ preventScroll: true });
+    const result = await attempt(() => window.bot.challengeIndependentCheck({ chatId, messageId }));
+    if (result) notify('Independent Check started.');
+  }, 'button text-button');
+  button.setAttribute('role', 'menuitem');
+  button.disabled = chat.status !== 'idle' || record?.status === 'running' || !isReady() || !isConnected();
+  button.title = button.disabled ? 'Wait for the current task to finish.' : 'Force a sequential Independent Check of this answer.';
+  answerMenu.replaceChildren(button);
+  answerMenu.showPopover();
+  const anchor = node.getBoundingClientRect();
+  const x = event.clientX || anchor.left;
+  const y = event.clientY || anchor.top;
+  answerMenu.style.left = `${Math.max(8, Math.min(x, innerWidth - answerMenu.offsetWidth - 8))}px`;
+  answerMenu.style.top = `${Math.max(8, Math.min(y, innerHeight - answerMenu.offsetHeight - 8))}px`;
+  button.focus();
+}
+
 function renderIndependentCheck(node, chat, message) {
   node.querySelector(':scope > .independent-check')?.remove();
   node.querySelector(':scope > .independent-check-actions')?.remove();
   const eligible = window.LittleBotIndependentCheck.eligible(message);
+  node.oncontextmenu = eligible ? event => showAnswerMenu(event, node, chat.id, message.id) : null;
+  if (eligible) node.tabIndex = 0;
+  else node.removeAttribute('tabindex');
   if (!eligible) return;
 
   const record = message.independentCheck;
@@ -685,22 +728,12 @@ function renderIndependentCheck(node, chat, message) {
     node.append(details);
   }
 
-  const actions = element('div', 'independent-check-actions');
-  const button = action(record?.status === 'failed' || record?.status === 'interrupted' ? 'Run check again' : 'Challenge this answer', async () => {
-    const result = await attempt(() => window.bot.challengeIndependentCheck({ chatId: chat.id, messageId: message.id }));
-    if (result) notify('Independent Check started.');
-  }, 'button text-button');
-  const busy = chat.status !== 'idle' || record?.status === 'running' || !isReady() || !isConnected();
-  button.disabled = busy;
-  button.title = busy ? 'Wait for the current task to finish.' : 'Force a sequential Independent Check of this answer.';
-  actions.append(button);
-  node.append(actions);
 }
 
 function conversationMessage(chat, message, index) {
   const key = `${chat.id}:${message.id || index}`;
   const fingerprint = [message.role, message.kind, message.status, message.phase, message.text, JSON.stringify(message.attachments || []),
-    JSON.stringify(message.independentCheck || null), chat.status];
+    JSON.stringify(message.independentCheck || null), chat.status, message.automationId, message.automationName];
   const previous = renderedMessages.get(key);
   if (previous && fingerprint.every((value, position) => value === previous.fingerprint[position])) return previous.node;
   const variant = message.kind === 'compaction' ? 'compaction' : message.role === 'assistant' && message.kind === 'reasoning' ? 'reasoning'
@@ -747,9 +780,10 @@ function conversationMessage(chat, message, index) {
   } else {
     if (!node) {
       node = element('article', `message ${variant}`);
+      if (variant === 'user' && message.automationId) node.append(element('div', 'message-label automation-label', `Scheduled · ${message.automationName || 'Automation'}`));
       if (variant === 'assistant' || variant === 'plan') {
         const label = element('div', 'message-label');
-        label.append(element('span', 'mini-mark', variant === 'plan' ? 'P' : '✳'), document.createTextNode(variant === 'plan' ? 'Plan' : 'Little Bot'));
+        label.append(element('span', 'mini-mark', variant === 'plan' ? 'P' : '✳'), document.createTextNode(variant === 'plan' ? 'Plan' : message.automationId ? `Little Bot · ${message.automationName || 'Automation'}` : 'Little Bot'));
         node.append(label);
       }
       node.append(element('div', 'message-content'));
@@ -1953,7 +1987,7 @@ function renderAutomationScheduleEditor() {
 }
 
 function renderAutomations() {
-  $('automations-view').querySelector('.automation-notice span:last-child').textContent = state.autonomy?.paused ? 'Autonomous work is paused. Resume it from Goals to allow scheduled automations to continue.' : 'Automations run while Little Bot is open. Any action needing approval will wait for you.';
+  $('automations-view').querySelector('.automation-notice span:last-child').textContent = state.autonomy?.paused ? 'Autonomous work is paused. Resume it from Goals to allow scheduled automations to continue.' : 'Scheduled tasks run in your conversation while Little Bot is open. They wait until other work finishes.';
   const fragment = document.createDocumentFragment();
   const routines = state.automations || [];
   if (!routines.length) {
@@ -2164,12 +2198,15 @@ function renderMemorySettings() {
   const memory = state.memory || {};
   const embedding = memory.config?.embedding || memory.embedding || {};
   if (!$('memory-advanced').contains(document.activeElement)) {
+    $('memory-embedding-provider').value = embedding.provider === 'bundled' ? 'bundled' : embedding.baseUrl ? 'remote' : 'none';
+    $('memory-remote-settings').classList.toggle('hidden', $('memory-embedding-provider').value !== 'remote');
     $('memory-embedding-url').value = embedding.baseUrl || '';
     $('memory-embedding-model').value = embedding.model || '';
     $('memory-embedding-key').value = embedding.apiKey || '';
   }
   const stats = memory.stats || {};
-  $('memory-engine-status').textContent = embedding.baseUrl ? `Semantic search configured · ${stats.embeddings || stats.embeddingCount || 0} indexed vectors${stats.embeddingError ? ` · ${stats.embeddingError}` : ''}` : 'Full-text search is active. Add an embedding server to also match meaning.';
+  const searchLabel = embedding.provider === 'bundled' ? 'Local BGE-base · CPU · offline' : embedding.baseUrl ? 'Custom semantic search' : 'Keyword search only';
+  $('memory-engine-status').textContent = `${searchLabel} · ${stats.embeddingCount || 0} indexed vectors · ${stats.archivedTraceCount || 0} tool/trace entries excluded from recall${stats.embeddingError ? ` · ${stats.embeddingError}` : ''}`;
   const selected = $('memory-project').value;
   const projects = [...new Map((memory.projects || []).map(project => [project.id, project])).values()];
   $('memory-project').replaceChildren(...projects.map(project => {
@@ -2726,8 +2763,10 @@ function renderGoals() {
     const budget = element('div', 'goal-budget-row');
     const number = (value) => Number.isFinite(value) ? value.toLocaleString() : '—';
     const elapsed = Number.isFinite(usage.elapsedMs) ? Math.round(usage.elapsedMs / 6000) / 10 : 0;
-    budget.append(element('span', '', `${number(usage.tokens || 0)} / ${number(limits.maxTokens)} tokens`), element('span', '', `${elapsed} / ${number(limits.maxMinutes)} min`), element('span', '', `${usage.actions || 0} / ${number(limits.maxActions)} actions`), element('span', '', `${usage.runs || 0} / ${number(limits.maxRuns)} runs`), element('span', '', `${usage.retries || 0} / ${number(limits.maxRetries)} retries`));
+    budget.append(element('span', '', `${number(usage.tokens || 0)} / ${number(limits.maxTokens)} input + output tokens`), element('span', '', `${elapsed} / ${number(limits.maxMinutes)} min`), element('span', '', `${usage.actions || 0} / ${number(limits.maxActions)} actions`), element('span', '', `${usage.runs || 0} / ${number(limits.maxRuns)} runs`), element('span', '', `${usage.retries || 0} / ${number(limits.maxRetries)} retries`));
+    if (Number.isFinite(usage.inputTokens) && Number.isFinite(usage.outputTokens)) budget.append(element('span', '', `${number(usage.inputTokens)} input · ${number(usage.outputTokens)} generated`));
     card.append(budget);
+    if (goal.status === 'running' && goal.currentAction) card.append(element('p', 'goal-no-data', `Current action: ${goal.currentAction}`));
     const footer = element('div', 'goal-card-actions');
     const pending = goalPending.has(goal.id) || Boolean(goal.pendingQuestion && goalAnswerPending.has(goalQuestionKey(goal.id, goal.pendingQuestion.id)));
     const active = goal.status === 'running' || goal.status === 'queued';
@@ -2787,6 +2826,7 @@ function renderGoals() {
       const heading = element('div', 'goal-history-header');
       heading.append(element('strong', '', humanStatus(entry.kind || entry.status || 'Update')), element('time', '', formatDate(entry.at)));
       item.append(heading, element('p', 'goal-history-summary', entry.summary || 'No summary recorded.'));
+      if (Number.isFinite(entry.usage?.inputTokens) && Number.isFinite(entry.usage?.outputTokens)) item.append(element('p', 'goal-no-data', `${number(entry.usage.inputTokens)} input · ${number(entry.usage.outputTokens)} generated tokens. Input is counted again on each model request.`));
       if (Array.isArray(entry.actions) && entry.actions.length) item.append(element('pre', 'goal-history-actions', entry.actions.join('\n\n')));
       if (Array.isArray(entry.verification) && entry.verification.length) for (const result of entry.verification) item.append(goalEvidenceRow(result));
       const snapshot = entry.snapshot;
@@ -3722,9 +3762,15 @@ $('memory-enabled').addEventListener('change', async () => {
 $('add-fact').addEventListener('click', () => editFact());
 $('fact-form').addEventListener('submit', saveFact);
 $('fact-scope').addEventListener('change', renderFactScope);
+$('memory-embedding-provider').addEventListener('change', () => {
+  $('memory-remote-settings').classList.toggle('hidden', $('memory-embedding-provider').value !== 'remote');
+});
 $('memory-embedding-form').addEventListener('submit', async event => {
   event.preventDefault();
-  await attempt(() => window.bot.configureMemory({ embedding: { baseUrl: $('memory-embedding-url').value.trim(), model: $('memory-embedding-model').value.trim(), apiKey: $('memory-embedding-key').value } }), 'Memory search settings saved.');
+  const provider = $('memory-embedding-provider').value;
+  const embedding = provider === 'bundled' ? { provider } : provider === 'none' ? null : { baseUrl: $('memory-embedding-url').value.trim(), model: $('memory-embedding-model').value.trim(), apiKey: $('memory-embedding-key').value };
+  if (provider === 'remote' && (!embedding.baseUrl || !embedding.model)) return notify('Enter an embedding server URL and model.', true);
+  await attempt(() => window.bot.configureMemory({ embedding }), 'Memory search settings saved.');
 });
 $('memory-project-form').addEventListener('submit', async event => {
   event.preventDefault();

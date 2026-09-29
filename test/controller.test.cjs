@@ -219,9 +219,11 @@ test('a second send on the same conversation cannot race an in-flight turn-start
   const { controller, client } = await setup(t);
   const chat = await begin(controller);
   completed(client, chat);
-  let release;
-  client.hooks.set('turn/start', () => new Promise(resolve => { release = resolve; }));
+  let release, entered;
+  const turnRequested = new Promise(resolve => { entered = resolve; });
+  client.hooks.set('turn/start', () => new Promise(resolve => { release = resolve; entered(); }));
   const first = controller.send({ chatId: chat.id, text: 'First follow-up' });
+  await turnRequested;
   await assert.rejects(controller.send({ chatId: chat.id, text: 'Double click' }), /Wait for this reply/);
   assert.equal(chat.messages.filter(message => message.role === 'user').length, 2);
   release({ turn: { id: 'turn-2' } });

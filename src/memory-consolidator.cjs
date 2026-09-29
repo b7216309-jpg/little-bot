@@ -10,7 +10,7 @@ const EXTRACTION_SCHEMA = {
   } } }, required: ['memories'], additionalProperties: false,
 };
 const INSTRUCTIONS = `Extract useful durable memory from the supplied completed turn. Return JSON matching the schema.
-Remember stable user preferences, project facts, actual decisions, successful reusable procedures and unresolved issues. Use the user's language. An empty memories array is correct when nothing durable was learned.
+Remember stable user preferences, project facts, actual decisions, successful reusable procedures and unresolved issues. Use the user's language. An empty memories array is correct when nothing durable was learned. Do not save greetings, routine tool success/failure logs, transient execution status, verbatim replies, or one-off reminders as durable memories. Prefer a concise fact about an existing subject over many overlapping records.
 Each memory must cite sourceIds from the supplied messages. Distinguish a user's decision from an assistant suggestion; do not promote a suggestion or an unsupported assistant claim into a fact. Tool observations can establish facts about the observed state. Do not infer personal traits.
 Use a short stable key for the subject, for example project.package-manager. If a current record is corrected, set supersedesId to that record's exact ID and reuse its key. Global scope is for user preferences and facts; workspace scope is for the project. Existing records are provided to avoid duplicates.
 This is a text processing task. Produce the structured result without using tools.`;
@@ -47,8 +47,12 @@ class MemoryConsolidator {
   async tick() {
     if (!this.available()) return false;
     if (!this.embeddingWork && this.service.embedding?.model) {
-      this.embeddingWork = this.service.refreshEmbeddings().catch(error => {
+      this.embeddingWork = this.service.refreshEmbeddings().then(count => {
+        if (count && !this.closed) this.controller.changed(false);
+      }).catch(error => {
         this.lastError = `Semantic index: ${error.message}`;
+        this.service.embeddingError = error.message;
+        if (!this.closed) this.controller.changed(false);
       }).finally(() => { this.embeddingWork = null; });
     }
     const job = this.service.pendingExtractions(1)[0];

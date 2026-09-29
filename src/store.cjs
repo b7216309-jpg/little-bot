@@ -108,7 +108,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
         ...connectionBinding(chat),
         createdAt: timestamp(chat.createdAt, Date.now()),
         updatedAt: timestamp(chat.updatedAt, timestamp(chat.createdAt, Date.now())),
-        mode: chat.mode === 'plan' ? 'plan' : 'execute',
+        mode: (recovering && chat.automationPreviousMode ? chat.automationPreviousMode : chat.mode) === 'plan' ? 'plan' : 'execute',
         toolMode: chat.toolMode === 'readOnly' ? 'readOnly' : 'full',
         status: ['running', 'waiting'].includes(chat.status) ? chat.status : 'idle',
         messages: (Array.isArray(chat.messages) ? chat.messages : []).filter(isObject).map(message => {
@@ -119,7 +119,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
           };
           const attachments = attachmentDescriptors(message.attachments);
           if (attachments.length) entry.attachments = attachments;
-          for (const key of ['kind', 'status', 'phase', 'workspace', 'model', 'connection', 'automationId']) {
+          for (const key of ['kind', 'status', 'phase', 'workspace', 'model', 'connection', 'automationId', 'automationName']) {
             if (typeof message[key] === 'string') entry[key] = message[key];
           }
           if (recovering && ['running', 'waiting', 'inProgress'].includes(entry.status)) {
@@ -141,7 +141,11 @@ function persistedData(data, defaultWorkspace, recovering = false) {
         }),
       };
       if (typeof chat.error === 'string') result.error = chat.error;
-      if (typeof chat.automationId === 'string') result.automationId = chat.automationId;
+      if (!recovering && typeof chat.automationId === 'string') {
+        result.automationId = chat.automationId;
+        if (typeof chat.automationName === 'string') result.automationName = chat.automationName;
+        if (['plan', 'execute'].includes(chat.automationPreviousMode)) result.automationPreviousMode = chat.automationPreviousMode;
+      }
       if (typeof chat.effort === 'string') result.effort = effort(chat.effort);
       if (isObject(chat.lastTask)) {
         const status = ['completed', 'failed', 'interrupted'].includes(chat.lastTask.status) ? chat.lastTask.status : 'completed';

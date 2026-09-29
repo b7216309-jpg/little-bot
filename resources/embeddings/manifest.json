@@ -1,0 +1,38 @@
+{
+  "id": "bge-base-en-v1.5-q8-v1",
+  "model": "bge-base-en-v1.5",
+  "directory": "bge-base-en-v1.5",
+  "dimensions": 768,
+  "maxTokens": 512,
+  "pooling": "cls",
+  "queryPrefix": "Represent this sentence for searching relevant passages: ",
+  "minimumSimilarity": 0.4,
+  "license": "MIT",
+  "source": "https://huggingface.co/Xenova/bge-base-en-v1.5",
+  "files": [
+    {
+      "name": "model.onnx",
+      "url": "https://huggingface.co/Xenova/bge-base-en-v1.5/resolve/4d6cd88e18e51a5e020c2c305726d76ada9c03cf/onnx/model_quantized.onnx",
+      "bytes": 110083337,
+      "sha256": "c9729cc84cbd0e9fecc759505d2be65916c9fe05222d7ea26c65fcb3382af38d"
+    },
+    {
+      "name": "tokenizer.json",
+      "url": "https://huggingface.co/Xenova/bge-base-en-v1.5/resolve/4d6cd88e18e51a5e020c2c305726d76ada9c03cf/tokenizer.json",
+      "bytes": 711396,
+      "sha256": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66"
+    },
+    {
+      "name": "tokenizer_config.json",
+      "url": "https://huggingface.co/Xenova/bge-base-en-v1.5/resolve/4d6cd88e18e51a5e020c2c305726d76ada9c03cf/tokenizer_config.json",
+      "bytes": 366,
+      "sha256": "9261e7d79b44c8195c1cada2b453e55b00aeb81e907a6664974b4d7776172ab3"
+    },
+    {
+      "name": "config.json",
+      "url": "https://huggingface.co/Xenova/bge-base-en-v1.5/resolve/4d6cd88e18e51a5e020c2c305726d76ada9c03cf/config.json",
+      "bytes": 717,
+      "sha256": "d83c21fa7366994560727112ef0a31d8a2ec1c280c2a3e66326fdb877f64c91e"
+    }
+  ]
+}

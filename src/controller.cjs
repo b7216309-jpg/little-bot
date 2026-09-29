@@ -497,7 +497,7 @@ class Controller extends EventEmitter {
     const rotate = chat && (chat.toolMode !== toolMode || chat.workspace !== folder || chat.model !== settings.model || chat.connection !== binding.connection || chat.localBaseUrl !== binding.localBaseUrl);
     const retiredThreadId = rotate ? chat.threadId : null;
     const historyBridge = (!chat?.threadId || rotate) && chat?.messages.length
-      ? 'Recent conversation before this engine session (historical context):\n' + chat.messages.filter(item => item.role !== 'tool' && item.kind !== 'reasoning').slice(-24).map(item => `${item.role}: ${item.text}`).join('\n\n').slice(-24000) : '';
+      ? 'Recent conversation before this engine session (historical context):\n' + chat.messages.filter(item => item.role !== 'tool' && item.kind !== 'reasoning').slice(-24).map(item => `${item.automationId ? (item.role === 'user' ? 'Scheduled task' : 'Automation result') + ' [' + (item.automationName || item.automationId) + ']' : item.role}: ${item.text}`).join('\n\n').slice(-24000) : '';
     if (rotate) {
       this.resumed.delete(chat.threadId);
       this.threadCompactionSettings.delete(chat.threadId);
@@ -517,15 +517,16 @@ class Controller extends EventEmitter {
     Object.assign(chat, binding, { workspace: folder, model: settings.model, toolMode });
     delete chat.private;
     // Mark busy before awaiting RPC so two clicks cannot start overlapping turns.
+    if (override?.automationId) chat.automationPreviousMode = chat.mode || 'execute';
     chat.mode = turnMode;
     chat.status = 'running'; chat.error = null; chat.updatedAt = Date.now();
     chat.taskRun = { startedAt: Date.now(), messageStart: chat.messages.length,
       independentCheckMode: normalizeIndependentCheckMode(settings.independentCheckMode) };
-    if (override?.automationId) chat.automationId = override.automationId;
+    if (override?.automationId) { chat.automationId = override.automationId; chat.automationName = override.name || 'Scheduled task'; }
     else delete chat.automationId;
     if (chat.connection !== 'local') chat.model = settings.model || chat.model;
     chat.effort = settings.effort || 'low';
-    const userMessage = { id: randomUUID(), role: 'user', text, createdAt: Date.now(), workspace: folder, model: chat.model, connection: chat.connection, ...(override?.automationId ? { automationId: override.automationId, kind: 'automation' } : {}) };
+    const userMessage = { id: randomUUID(), role: 'user', text, createdAt: Date.now(), workspace: folder, model: chat.model, connection: chat.connection, ...(override?.automationId ? { automationId: override.automationId, automationName: override.name || 'Scheduled task', kind: 'automation' } : {}) };
     let memoryContext = '';
     let inputAccepted = false;
     let finish;
@@ -535,7 +536,7 @@ class Controller extends EventEmitter {
     try {
       if (retiredThreadId) await this.client.request('thread/unsubscribe', { threadId: retiredThreadId }, 10000);
       await this.store.memoryService?.prepareQuery(text);
-      memoryContext = buildMemoryContext(this.store.data.memory, { workspace: folder, query: text, chatId: chat.id, sessions: this.store.data.chats, settings: this.store.data.settings });
+      memoryContext = buildMemoryContext(this.store.data.memory, { workspace: folder, query: text, chatId: override?.automationId ? undefined : chat.id, sessions: this.store.data.chats, settings: this.store.data.settings });
       const prepared = attachmentIds.length ? await this.attachments.prepare(attachmentIds) : { descriptors: [], input: [], text: '' };
       const hasImageInput = prepared.input.some(item => item?.type === 'localImage');
       const vision = hasImageInput ? this.visionSupport(chat.model) : null;
@@ -545,7 +546,7 @@ class Controller extends EventEmitter {
       if (this.closing) throw new Error('Little Bot is closing.');
       if (prepared.descriptors.length) userMessage.attachments = attachmentDescriptors(prepared.descriptors);
       chat.messages.push(userMessage); chat.lastTurnRequestId = userMessage.id; inputAccepted = true;
-      this.store.memoryService?.setWorkingState(chat.id, {
+      if (!override?.automationId) this.store.memoryService?.setWorkingState(chat.id, {
         objective: text, status: 'running', workspace: folder, model: chat.model,
         source: { sessionId: chat.id, messageId: userMessage.id }, updatedAt: Date.now(),
       });
@@ -566,7 +567,9 @@ class Controller extends EventEmitter {
       } else await this.resumeThread(chat, common);
       if (override?.automationId && this.store.data.autonomy?.paused) throw new Error('Autonomous work is paused.');
       const profile = this.profileContext();
-      const requestBlock = `Current user request:\n${text || 'Examine the attached files.'}`;
+      const requestBlock = override?.automationId
+        ? `Scheduled task: ${override.name || 'Automation'}\n${text}\n\nThis is an automated run of a saved task, not a new message from the user. Use relevant conversation context, but perform only this scheduled task. Do not resume unrelated unfinished conversation work or treat this prompt as a new personal fact about the user.`
+        : `Current user request:\n${text || 'Examine the attached files.'}`;
       const inputBlocks = [
         historyBridge ? { kind: 'history', label: 'Conversation continuity', text: historyBridge } : null,
         profile ? { kind: 'profile', label: 'Profile · USER.md + SOUL.md', text: profile } : null,
@@ -574,7 +577,7 @@ class Controller extends EventEmitter {
         memoryContext ? { kind: 'memory', label: 'Memory recall', text: memoryContext } : null,
         prepared.text ? { kind: 'attachments', label: 'Attachment excerpts', text: prepared.text } : null,
         { kind: 'shell', label: 'Shell conduct', text: SHELL_CONDUCT },
-        { kind: 'request', label: 'Current user request', text: requestBlock },
+        { kind: 'request', label: override?.automationId ? 'Scheduled task' : 'Current user request', text: requestBlock },
       ].filter(Boolean);
       const result = await this.client.request('turn/start', {
         threadId: chat.threadId, input: [{ type: 'text', text: inputBlocks.map(block => block.text).join('\n\n') }, ...prepared.input],
@@ -813,6 +816,10 @@ class Controller extends EventEmitter {
         status: error ? (/stopp|interrupt/i.test(error) ? 'interrupted' : 'failed') : 'completed',
       };
     }
+    if (chat.automationId) {
+      for (const message of chat.messages.slice(chat.taskRun?.messageStart ?? chat.messages.length)) Object.assign(message, { automationId: chat.automationId, automationName: chat.automationName || 'Scheduled task' });
+      if (chat.automationPreviousMode) chat.mode = chat.automationPreviousMode;
+    }
     delete chat.taskRun;
     chat.status = 'idle'; chat.error = error; chat.updatedAt = finishedAt;
     for (const message of chat.messages) {
@@ -820,7 +827,7 @@ class Controller extends EventEmitter {
       if (message.kind === 'reasoning') this.reasoningParts.delete(message);
     }
     chat.messages = chat.messages.filter(message => message.kind !== 'reasoning' || message.text.trim());
-    if (!chat.internal && !manual) this.eventRuntime?.publish({
+    if (!chat.internal && !manual && !chat.automationId) this.eventRuntime?.publish({
       type: error ? 'chat.failed' : 'chat.completed', source: 'chat',
       dedupeKey: `chat:${chat.id}:${turnId || finishedAt}`,
       payload: { chatId: chat.id, title: chat.title, workspace: chat.workspace, automationId: chat.automationId || null,
@@ -836,14 +843,15 @@ class Controller extends EventEmitter {
     if (!chat.internal && !manual && !chat.private) {
       const request = chat.messages.find(message => message.id === chat.lastTurnRequestId) || chat.messages.findLast(message => message.role === 'user');
       const answer = chat.messages.slice(request ? chat.messages.indexOf(request) + 1 : 0).findLast(message => message.role === 'assistant' && !['reasoning', 'analysis'].includes(message.kind) && message.phase !== 'commentary');
-      this.store.memoryService?.setWorkingState(chat.id, {
+      if (!chat.automationId) this.store.memoryService?.setWorkingState(chat.id, {
         objective: request?.text || '', status: error ? chat.lastTask?.status || 'failed' : 'completed',
         workspace: chat.workspace, model: chat.model, latestAnswer: answer?.text || '', error,
         outcome: chat.lastTask || null, source: { sessionId: chat.id, messageId: request?.id }, updatedAt: finishedAt,
       });
       if (!error) captureEpisode(this.store.data.memory, chat);
-      this.memoryConsolidator?.enqueue(chat);
+      if (!chat.automationId) this.memoryConsolidator?.enqueue(chat);
     }
+    delete chat.automationId; delete chat.automationName; delete chat.automationPreviousMode;
     if (!chat.internal) this.persistNow();
     this.changed();
   }
@@ -869,7 +877,7 @@ class Controller extends EventEmitter {
   }
   message(chat, id, role, kind) {
     let message = chat.messages.find(item => item.id === id);
-    if (!message) { message = { id, role, text: '', kind, status: 'running', createdAt: Date.now(), workspace: chat.workspace, model: chat.model, connection: chat.connection }; chat.messages.push(message); }
+    if (!message) { message = { id, role, text: '', kind, status: 'running', createdAt: Date.now(), workspace: chat.workspace, model: chat.model, connection: chat.connection, ...(chat.automationId ? { automationId: chat.automationId, automationName: chat.automationName } : {}) }; chat.messages.push(message); }
     return message;
   }
   reasoningDelta(chat, params, raw) {

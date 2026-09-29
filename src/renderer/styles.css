@@ -137,8 +137,8 @@
 .independent-check-original { margin-top: 10px; }
 .independent-check-original summary { cursor: pointer; color: #625e55; }
 .independent-check-original pre { max-height: 240px; overflow: auto; white-space: pre-wrap; }
-.independent-check-actions { display: flex; justify-content: flex-end; margin-top: 5px; }
-.independent-check-actions .button { padding: 4px 7px; font-size: 11px; }
+.answer-context-menu { position: fixed; inset: auto; margin: 0; padding: 5px; border: 1px solid #ddd8ce; border-radius: 9px; background: #faf9f6; box-shadow: 0 5px 20px #0002; }
+.answer-context-menu .button { padding: 8px 12px; font-size: 12px; }
 
 .continuous-session-note { color: var(--text-muted, #888); font-size: 12px; line-height: 1.6; padding: 16px 12px; }
 .memory-toolbar { display: flex; gap: 12px; margin: 24px 0 8px; flex-wrap: wrap; }

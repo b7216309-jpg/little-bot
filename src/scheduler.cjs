@@ -160,7 +160,7 @@ class Scheduler {
 
   async runNow(id) {
     if (this.runningId) throw new Error('Another automation is already running.');
-    if (!this.canRun()) throw new Error('Wait for the heartbeat check to finish, or stop it first.');
+    if (!this.canRun()) throw new Error('Wait for the current conversation, goal, or heartbeat to finish, or stop it first.');
     const automation = this.store.data.automations.find(item => item.id === id);
     if (!automation) throw new Error('This automation no longer exists.');
     requireSelectedConnection(automation, this.store.data.settings);

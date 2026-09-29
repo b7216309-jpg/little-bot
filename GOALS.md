@@ -73,3 +73,12 @@ In a **new chat**, the agent can list, create, update, pause, and resume goals a
 Older chats retain the engine tool list with which they were created. Start a new chat to use management tools. Autonomous runs get skill discovery but cannot recursively schedule new work.
 
 All goal state lives in the app's existing data directory. It adds no database, indexing service, runtime dependency, or extra memory layer. Memory remains conversation, recent work, and durable facts.
+
+## Reading goal usage
+
+The input + output token limit is cumulative across model requests, so repeated context counts again after each tool call. It is not the number of generated tokens or the context-window size. Cards and history show input and generated tokens separately when the provider reports them, and running cards show the current tool action. Goal recall uses small pages (up to five search results or three conversation chunks), with further pages available for a specific missing fact. An interrupted run cannot reuse checks that already passed before the run as evidence of fresh completion.
+
+
+Goals expose `workspace_write` for authorized UTF-8 file updates without terminal access. Blocked or unfinished results cannot reuse older passing verification to claim a completed cycle. Malformed completion records remain blocked for review.
+
+Local models can submit a concise result using `goal_finish`. Acknowledging it closes the tool gate and ends the turn; the runner still owns final verification.

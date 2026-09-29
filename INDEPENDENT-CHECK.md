@@ -8,7 +8,7 @@ The feature is intended to reduce conclusion changes caused only by leading word
 
 Choose a mode in **Settings → Independent Check**:
 
-- **Off:** answers finish normally. You can still choose **Challenge this answer** under a completed answer or plan.
+- **Off:** answers finish normally. You can still right-click a completed answer or plan and choose **Challenge this answer**.
 - **Selective:** the default. A review runs for agreement pressure and decision-oriented evaluations such as recommendations, architecture choices, predictions, critiques, and “should I/we/you…” questions.
 - **Always:** every eligible completed answer or plan receives a review.
 

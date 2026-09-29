@@ -2,7 +2,7 @@
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { createHash } = require('node:crypto');
+const { createHash, randomUUID } = require('node:crypto');
 
 const MAX_FILES = 2000;
 const MAX_BYTES = 25 * 1024 * 1024;
@@ -60,6 +60,22 @@ async function resolveWriteRoots(goal) {
     }
   }
   return roots;
+}
+
+async function writeText(goal, relative, content) {
+  if (typeof content !== 'string' || content.length > 20000 || content.includes('\0')) throw new Error('Write up to 20,000 characters of text.');
+  const root = await workspaceRoot(goal);
+  const roots = await resolveWriteRoots(goal);
+  const target = await checkedPath(root, relative, { missing: true });
+  if (!roots.some(folder => target !== folder && inside(folder, target))) throw new Error('Choose a file inside a writable folder for this goal.');
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  await checkedPath(root, relative, { missing: true });
+  const temporary = path.join(path.dirname(target), `.goal-${randomUUID()}.tmp`);
+  try {
+    await fs.writeFile(temporary, content, { flag: 'wx' });
+    await fs.rename(temporary, target);
+  } finally { await fs.rm(temporary, { force: true }); }
+  return { path: relativePath(relative), bytes: Buffer.byteLength(content), written: true };
 }
 
 async function scan(goal, roots, { contents = false, metadataOnly = false } = {}) {
@@ -297,4 +313,4 @@ async function fingerprintPaths(goal) {
   return hash(JSON.stringify({ files: state.entries.map(entry => [entry.path, entry.hash]), directories: state.directories }));
 }
 
-module.exports = { relativePath, resolveWriteRoots, createSnapshot, finishSnapshot, previewRestore, restoreSnapshot, discardSnapshot, removeGoalSnapshots, verifyFile, fingerprintPaths, MAX_FILES, MAX_BYTES, MAX_BACKUP_BYTES };
+module.exports = { relativePath, resolveWriteRoots, writeText, createSnapshot, finishSnapshot, previewRestore, restoreSnapshot, discardSnapshot, removeGoalSnapshots, verifyFile, fingerprintPaths, MAX_FILES, MAX_BYTES, MAX_BACKUP_BYTES };

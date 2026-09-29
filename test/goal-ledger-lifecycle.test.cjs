@@ -206,8 +206,54 @@ test('budget-stop completion records verification evidence before closing the le
   goal.status = 'running'; goal.authorized = true;
   const store = { data: { settings: settings(workspace), autonomy: { paused: false, goals: [goal] } }, save() {} };
   const runner = new GoalRunner({ store, backupRoot, canRun: () => false, onChange() {}, onAlert() {}, run: async () => ({}), verifyCommand: async () => ({ passed: false }) });
-  assert.equal(await runner.completeStoppedFiles(goal, 'run-3', 'The goal action budget was reached.'), true);
+  assert.equal(await runner.completeStoppedFiles(goal, 'run-3', 'The goal action budget was reached.', {}, false), true);
   assert.equal(goal.status, 'completed');
   assert.ok(goal.ledger.observations.some(item => item.source === 'verification' && item.evidence?.passed === true));
   assert.equal(activeStep(goal.ledger), null);
 });
+
+for (const previousArtifact of [false, true]) {
+  test(`interrupted recurring cycle ${previousArtifact ? 'cannot reuse old passing output' : 'can verify newly completed output'}`, async t => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'little-bot-cycle-budget-'));
+    const backupRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'little-bot-cycle-backup-'));
+    t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+    t.after(() => fs.rm(backupRoot, { recursive: true, force: true }));
+    if (previousArtifact) await fs.writeFile(path.join(workspace, 'done.txt'), 'previous cycle');
+    const input = draft(workspace);
+    input.trigger.type = 'interval';
+    const goal = validateGoal(input, null, settings(workspace));
+    goal.status = 'queued'; goal.authorized = true;
+    const store = { data: { settings: settings(workspace), autonomy: { paused: false, goals: [goal] } }, save() {} };
+    const runner = new GoalRunner({
+      store, backupRoot, canRun: () => true, onChange() {}, onAlert() {},
+      run: async () => {
+        if (!previousArtifact) await fs.writeFile(path.join(workspace, 'done.txt'), 'new output');
+        throw new Error('The goal token budget was reached.');
+      },
+    });
+    await runner.execute(goal);
+    assert.equal(goal.status, previousArtifact ? 'blocked' : 'queued');
+    assert.equal(goal.history.some(entry => entry.kind === 'cycle-completed'), !previousArtifact);
+    assert.equal(Number.isFinite(goal.lastCompletedAt), !previousArtifact);
+  });
+}
+
+for (const status of ['blocked', 'continue']) {
+  test(`old passing file cannot complete a cycle reporting ${status}`, async t => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'little-bot-incomplete-cycle-'));
+    const backupRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'little-bot-incomplete-backup-'));
+    t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+    t.after(() => fs.rm(backupRoot, { recursive: true, force: true }));
+    await fs.writeFile(path.join(workspace, 'done.txt'), 'old cycle');
+    const input = draft(workspace); input.trigger.type = 'interval';
+    const goal = validateGoal(input, null, settings(workspace));
+    goal.status = 'queued'; goal.authorized = true;
+    const store = { data: { settings: settings(workspace), autonomy: { paused: false, goals: [goal] } }, save() {} };
+    const runner = new GoalRunner({ store, backupRoot, canRun: () => true, onChange() {}, onAlert() {},
+      run: async () => ({ status, summary: 'Still needs a write.', checkpoint: 'Prepared update.', nextStep: 'Write the file.', usage: {}, actions: [] }) });
+    await runner.execute(goal);
+    assert.equal(goal.history.some(entry => entry.kind === 'cycle-completed'), false);
+    assert.equal(Number.isFinite(goal.lastCompletedAt), false);
+    if (status === 'blocked') assert.equal(goal.status, 'blocked');
+  });
+}

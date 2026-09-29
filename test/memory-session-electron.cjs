@@ -19,7 +19,7 @@ async function run() {
         { id: 'decision', type: 'decision', text: 'Use SQLite for durable project memory.', scope: 'workspace', workspace: 'C:/Projects/little-bot', createdAt: Date.now() }
       ];
       window.bot = {
-        searchMemory: async input => ({ records: window.__records.filter(item => (!input.type || item.type === input.type) && item.text.toLowerCase().includes(input.query.toLowerCase())) }),
+        searchMemory: async input => ({ records: window.__records.filter(item => (!input.type || (input.type === 'facts' ? !['history', 'episode'].includes(item.type) : item.type === input.type)) && item.text.toLowerCase().includes(input.query.toLowerCase())) }),
         saveFact: async input => { window.__calls.push(['save', input]); const item = window.__records.find(item => item.id === input.id); if (item) Object.assign(item, input); else window.__records.push({id:'new',...input}); },
         deleteFact: async input => { window.__calls.push(['forget', input]); window.__records = window.__records.filter(item => item.id !== input.id); },
         getMemorySource: async () => ({sources:[{label:'User message',text:'Please use SQLite for the memory system.'}]}),
@@ -49,10 +49,13 @@ async function run() {
     await evaluate(`new Promise(resolve => setTimeout(resolve, 20))`);
     assert.equal(await evaluate(`window.__records.length`), 1);
     await evaluate(`(async () => { document.getElementById('memory-search').value = ''; await refreshMemoryResults(); document.getElementById('memory-advanced').open = true; })()`);
-    await evaluate(`document.getElementById('memory-embedding-url').value='http://localhost:1234/v1'; document.getElementById('memory-embedding-model').value='local-embedding'; document.getElementById('memory-embedding-form').requestSubmit(); document.getElementById('memory-project-workspace').value='C:/Moved/little-bot'; document.getElementById('memory-project-form').requestSubmit();`);
+    await evaluate(`document.getElementById('memory-embedding-provider').value='remote'; document.getElementById('memory-embedding-provider').dispatchEvent(new Event('change')); document.getElementById('memory-embedding-url').value='http://localhost:1234/v1'; document.getElementById('memory-embedding-model').value='local-embedding'; document.getElementById('memory-embedding-form').requestSubmit(); document.getElementById('memory-project-workspace').value='C:/Moved/little-bot'; document.getElementById('memory-project-form').requestSubmit();`);
     const calls = await evaluate('window.__calls');
     assert.equal(calls.find(item => item[0] === 'configure')[1].embedding.model, 'local-embedding');
     assert.equal(calls.find(item => item[0] === 'link')[1].projectId, 'project');
+    await evaluate(`document.getElementById('memory-embedding-provider').value='bundled'; document.getElementById('memory-embedding-provider').dispatchEvent(new Event('change')); document.getElementById('memory-embedding-form').requestSubmit();`);
+    assert.equal(await evaluate(`window.__calls.filter(item => item[0] === 'configure').at(-1)[1].embedding.provider`), 'bundled');
+    assert.equal(await evaluate(`document.getElementById('memory-remote-settings').classList.contains('hidden')`), true);
     await evaluate(`document.getElementById('memory-advanced').open=false; document.getElementById('sidebar-tools').open=true; document.getElementById('toast').classList.add('hidden');`);
     await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
     if (process.env.LITTLE_BOT_SCREENSHOT) {

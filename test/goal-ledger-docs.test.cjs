@@ -27,7 +27,7 @@ test('Phase 3 documentation links the implemented ledger consistently', () => {
 test('the bundled operating guide migrates only the original previous guide', () => {
   const bundled = read('src/bundled-skills.cjs');
   const skill = read('resources/skills/little-bot/SKILL.md');
-  assert.match(bundled, /const VERSION = 9;/);
+  assert.match(bundled, /const VERSION = 15;/);
   assert.ok(bundled.includes(previousGuideHash));
   assert.match(skill, /plan\/evidence ledger/i);
   assert.match(skill, /Exactly one step is active/);
@@ -35,14 +35,14 @@ test('the bundled operating guide migrates only the original previous guide', ()
   assert.match(skill, /\[LEDGER\.md\]\(\.\.\/\.\.\/\.\.\/LEDGER\.md\)/);
 });
 
-test('package and validation records advance to 0.9.0', () => {
+test('package and validation records advance to 0.9.2', () => {
   const packageJson = JSON.parse(read('package.json'));
   const lock = JSON.parse(read('package-lock.json'));
   const validation = read('VALIDATION.md');
-  assert.equal(packageJson.version, '0.9.0');
-  assert.equal(lock.version, '0.9.0');
-  assert.equal(lock.packages[''].version, '0.9.0');
-  assert.match(validation, /^# Version 0\.9\.0 verification/);
+  assert.equal(packageJson.version, '0.9.2');
+  assert.equal(lock.version, '0.9.2');
+  assert.equal(lock.packages[''].version, '0.9.2');
+  assert.match(validation, /^# Version 0\.9\.2 verification/);
   assert.match(validation, /deterministic fake model/);
   assert.match(validation, /No private reasoning or chain-of-thought transcript/);
 });

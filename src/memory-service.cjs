@@ -3,6 +3,8 @@ const { DatabaseSync } = require("node:sqlite");
 const { randomUUID, createHash } = require("node:crypto");
 const path = require("node:path");
 const fs = require("node:fs");
+const { LocalEmbeddings, BUNDLED_EMBEDDING } = require('./local-embeddings.cjs');
+const embeddingManifest = require('../resources/embeddings/manifest.json');
 const clean = (value) =>
   typeof value === "string" ? value.replace(/\u0000/g, "").trim() : "";
 const key = (value) =>
@@ -51,16 +53,16 @@ class MemoryService {
       CREATE TABLE IF NOT EXISTS extraction_jobs(id TEXT PRIMARY KEY,chat_id TEXT,workspace TEXT,payload TEXT,status TEXT DEFAULT 'pending',attempts INTEGER DEFAULT 0,next_attempt INTEGER DEFAULT 0,error TEXT);
       CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
     `);
-    this.embedding =
-      embedding ||
-      parse(
-        this.db
-          .prepare("SELECT value FROM settings WHERE key='embedding'")
-          .get()?.value,
-        null,
-      );
+    if (!this.db.prepare('PRAGMA table_info(records)').all().some(column => column.name === 'recallable')) {
+      this.db.exec("BEGIN; ALTER TABLE records ADD COLUMN recallable INTEGER NOT NULL DEFAULT 1; UPDATE records SET recallable=0,embedding=NULL,embedding_model=NULL WHERE type='history' AND (COALESCE(json_extract(source,'$.role'),'tool') NOT IN ('user','assistant') OR COALESCE(json_extract(source,'$.kind'),'') IN ('reasoning','analysis','plan','commentary') OR COALESCE(json_extract(source,'$.phase'),'') IN ('analysis','commentary')); COMMIT;");
+    }
+    const savedEmbedding = this.db.prepare("SELECT value FROM settings WHERE key='embedding'").get();
+    this.embedding = embedding || (savedEmbedding ? parse(savedEmbedding.value, null) : { ...BUNDLED_EMBEDDING });
+    if (this.embedding?.provider === 'bundled') this.embedding = { ...BUNDLED_EMBEDDING };
+    this.localEmbeddings = new LocalEmbeddings();
   }
   close() {
+    this.localEmbeddings.close();
     this.db.close();
   }
   get enabled() {
@@ -362,7 +364,7 @@ class MemoryService {
       enabled: this.enabled,
       records: rows.slice(0, 100),
       embedding: this.embedding
-        ? { baseUrl: this.embedding.baseUrl, model: this.embedding.model }
+        ? { provider: this.embedding.provider || 'remote', baseUrl: this.embedding.baseUrl, model: this.embedding.model }
         : null,
       facts: rows.filter((row) => row.type !== "episode"),
       episodes: rows.filter((row) => row.type === "episode"),
@@ -375,17 +377,18 @@ class MemoryService {
       stats: {
         records: this.db
           .prepare(
-            "SELECT type,status,COUNT(*) AS count FROM records GROUP BY type,status",
+            "SELECT type,status,COUNT(*) AS count FROM records WHERE recallable=1 GROUP BY type,status",
           )
           .all()
           .map((row) => ({ ...row })),
         embeddingCount: Number(
           this.db
             .prepare(
-              "SELECT COUNT(*) AS count FROM records WHERE embedding IS NOT NULL",
+              "SELECT COUNT(*) AS count FROM records WHERE embedding IS NOT NULL AND recallable=1 AND status='active' AND embedding_model=?",
             )
-            .get().count,
+            .get(this.embeddingIdentity()).count,
         ),
+        archivedTraceCount: Number(this.db.prepare("SELECT COUNT(*) AS count FROM records WHERE recallable=0").get().count),
         embeddingError: this.embeddingError || null,
       },
     };
@@ -411,6 +414,8 @@ class MemoryService {
         messageId,
         role: message.role || "tool",
         kind: message.kind || "",
+        phase: message.phase || "",
+        ...(message.automationId ? { automationId: message.automationId, automationName: message.automationName || "Scheduled task" } : {}),
         workspace: message.workspace || chat.workspace,
         model: message.model || chat.model,
         connection: message.connection || chat.connection,
@@ -438,6 +443,10 @@ class MemoryService {
           stamp,
           stamp,
         );
+      const recallable = ['user', 'assistant'].includes(message.role)
+        && !['reasoning', 'analysis', 'plan', 'commentary', 'automation'].includes(message.kind)
+        && !['analysis', 'commentary'].includes(message.phase);
+      this.db.prepare('UPDATE records SET recallable=?,embedding=CASE WHEN ? THEN embedding ELSE NULL END WHERE id=?').run(Number(recallable), Number(recallable), id);
       this.indexedMessages.set(id, fingerprint);
     }
   }
@@ -480,7 +489,7 @@ class MemoryService {
     if (existing) return this.get(existing.id);
     return this.save({
       type: "episode",
-      text: `Request: ${messages.slice(index).filter((message) => message.role === "user").map((message) => clean(message.text)).join("\nClarification: ")}\nOutcome: ${answer}`,
+      text: `${messages[index].automationId ? "Scheduled task (" + (messages[index].automationName || messages[index].automationId) + ")" : "Request"}: ${messages.slice(index).filter((message) => message.role === "user").map((message) => clean(message.text)).join("\nClarification: ")}\nOutcome: ${answer}`,
       workspace: messages[index].workspace || chat.workspace,
       key: episodeKey,
       source,
@@ -540,6 +549,7 @@ class MemoryService {
       .get(workspaceKey(workspace))?.project_id;
     const where = [
         includeSuperseded ? "r.status<>'forgotten'" : "r.status='active'",
+        "r.recallable=1",
       ],
       params = [];
     if (scope !== "all") {
@@ -570,6 +580,7 @@ class MemoryService {
           `SELECT r.*,0 AS rank FROM records r WHERE ${where.join(" AND ")} ORDER BY r.pinned DESC,r.updated_at DESC LIMIT ? OFFSET ?`,
         )
         .all(...params, Math.max(1, limit) + 1, offset);
+    const lexicalIds = new Set(rows.map(row => row.id));
     const semantic = this.semantic.get(key(query));
     if (terms.length && semantic) {
       const extra = this.db
@@ -582,6 +593,7 @@ class MemoryService {
     }
     rows = rows.map((row) => {
       let score = 0;
+      let similarity = -1;
       if (terms.length) {
         score = -Number(row.rank || 0);
         if (key(row.text).includes(key(query))) score += 3;
@@ -599,12 +611,14 @@ class MemoryService {
               a += vector[i] ** 2;
               b += semantic[i] ** 2;
             }
-            score += (2 * dot) / (Math.sqrt(a * b) || 1);
+            similarity = dot / (Math.sqrt(a * b) || 1);
+            score += 2 * similarity;
           }
         }
       }
-      return { ...this.decode(row), score };
-    });
+      const minimumSimilarity = this.embedding?.provider === 'bundled' ? embeddingManifest.minimumSimilarity : 0.3;
+      return { ...this.decode(row), score, relevant: !terms.length || lexicalIds.has(row.id) || similarity >= minimumSimilarity };
+    }).filter(row => row.relevant);
     if (terms.length)
       rows.sort(
         (a, b) =>
@@ -679,7 +693,7 @@ class MemoryService {
       .get(workspaceKey(workspace))?.project_id;
     const persistent = this.db
       .prepare(
-        "SELECT * FROM records WHERE status='active' AND (pinned=1 OR type='preference') AND (scope='global' OR project_id=?) ORDER BY pinned DESC,updated_at DESC",
+        "SELECT * FROM records WHERE status='active' AND recallable=1 AND (pinned=1 OR type='preference') AND (scope='global' OR project_id=?) ORDER BY pinned DESC,updated_at DESC",
       )
       .all(projectId || "")
       .map((row) => this.decode(row));
@@ -710,7 +724,8 @@ class MemoryService {
       ? `Retrieved memory (source-linked records):\n${selected.join("\n")}`
       : "";
   }
-  async embed(texts, timeout = 15000, config = this.embedding) {
+  async embed(texts, timeout = 15000, config = this.embedding, { query = false } = {}) {
+    if (this.enabled && config?.provider === 'bundled') return this.localEmbeddings.embed(texts, Math.max(timeout, 30000), { query });
     if (!this.enabled || !config?.baseUrl || !config?.model) return null;
     const response = await fetch(
       config.baseUrl.replace(/\/$/, "") + "/embeddings",
@@ -749,7 +764,7 @@ class MemoryService {
       config = { ...this.embedding };
     const rows = this.db
       .prepare(
-        "SELECT id,text FROM records WHERE status='active' AND (embedding IS NULL OR embedding_model<>?) LIMIT ?",
+        "SELECT id,text FROM records WHERE status='active' AND recallable=1 AND (embedding IS NULL OR embedding_model<>?) ORDER BY CASE WHEN type='history' THEN 1 ELSE 0 END,updated_at DESC LIMIT ?",
       )
       .all(identity, limit);
     if (!rows.length) return 0;
@@ -766,6 +781,7 @@ class MemoryService {
     )
       return 0;
     let updated = 0;
+    this.embeddingError = null;
     for (const [index, row] of rows.entries())
       updated += Number(
         this.db
@@ -782,8 +798,9 @@ class MemoryService {
     const identity = this.embeddingIdentity(),
       generation = this.embeddingGeneration,
       config = { ...this.embedding };
+    if (this.semantic.has(key(query))) return true;
     try {
-      const vectors = await this.embed([query], 3000, config);
+      const vectors = await this.embed([query], 3000, config, { query: true });
       if (
         !vectors ||
         !this.enabled ||
@@ -803,6 +820,7 @@ class MemoryService {
     }
   }
   embeddingIdentity() {
+    if (this.embedding?.provider === 'bundled') return BUNDLED_EMBEDDING.model;
     return this.embedding
       ? hash(
           this.embedding.baseUrl.replace(/\/$/, "") +
@@ -817,7 +835,7 @@ class MemoryService {
       this.embedding?.baseUrl?.replace(/\/$/, "");
     const existingKey = sameEndpoint ? this.embedding?.apiKey || "" : "";
     this.embeddingGeneration++;
-    this.embedding =
+    this.embedding = config?.provider === 'bundled' ? { ...BUNDLED_EMBEDDING } :
       config?.baseUrl && config?.model
         ? {
             baseUrl: clean(config.baseUrl),
@@ -831,6 +849,8 @@ class MemoryService {
       .prepare("INSERT OR REPLACE INTO settings VALUES('embedding',?)")
       .run(JSON.stringify(this.embedding));
     this.semantic.clear();
+    this.embeddingError = null;
+    this.localEmbeddings.close();
     return this.embedding;
   }
   sourceRefs(source) {
@@ -870,7 +890,7 @@ class MemoryService {
       start = messages.length - 1;
       while (start >= 0 && messages[start].role !== "user") start--;
     }
-    if (start < 0) return null;
+    if (start < 0 || messages[start].automationId || messages[start].kind === "automation") return null;
     const items = messages
       .slice(start)
       .map((m, i) => ({

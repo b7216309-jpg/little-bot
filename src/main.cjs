@@ -81,7 +81,6 @@ async function runAutomation(automation) {
   controller.ensureReady();
   const result = await controller.send({ text: automation.prompt }, { ...automation, automationId: automation.id });
   const chat = controller.chat(result.chatId);
-  chat.title = `Scheduled: ${automation.name}`; chat.automationId = automation.id; controller.changed(true);
   if (controller.store.data.autonomy.paused) await controller.stop({ chatId: chat.id });
   const outcome = await controller.waitForChat(result.chatId);
   if (outcome.error) throw new Error(outcome.error);
