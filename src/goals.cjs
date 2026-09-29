@@ -366,11 +366,13 @@ class GoalRunner {
     this.onAlert({ title: goal.name, message: summary, goalId: goal.id });
     return true;
   }
-  async completeStoppedFiles(goal, runId, reason, ledgerContext = {}) {
+  async completeStoppedFiles(goal, runId, reason, ledgerContext = {}, preflightPassed = true) {
     // The last allowed native write can succeed just before the executor stops
     // at its budget. File-only checks establish completion without another
     // model request, command, or possible duplicate external effect.
-    if (this.closing || goal.status === 'paused' || goal.permissions.network || goal.permissions.mcpTools.length
+    // A passing artifact from an earlier cycle cannot prove that interrupted
+    // fresh work completed. Rescue only checks that became passing this run.
+    if (preflightPassed !== false || this.closing || goal.status === 'paused' || goal.permissions.network || goal.permissions.mcpTools.length
         || !/budget|time limit|run limit/i.test(reason || '') || !goal.checks.length || goal.checks.some(check => check.type === 'command')) return false;
     const verification = [];
     for (const check of goal.checks) {
@@ -397,7 +399,7 @@ class GoalRunner {
       stepId: ledgerStepAtStart?.id || '',
       planVersion: ledgerPlanAtStart?.version || null,
     };
-    let snapshot = null, verificationActions = 0, modelUsage = { tokens: 0, actions: 0, elapsedMs: 0 }, result = null, timer;
+    let snapshot = null, verificationActions = 0, modelUsage = { tokens: 0, actions: 0, elapsedMs: 0 }, result = null, timer, preflightPassed = true;
     const completedBefore = goal.lastCompletedAt;
     const updateUsage = () => {
       if (isRecurringGoal(goal) && goal.lastCompletedAt !== completedBefore) return;
@@ -408,6 +410,7 @@ class GoalRunner {
     goal.status = 'running'; delete goal.needsRecoveryCheck; delete goal.continueAfterAnswer; this.record(goal, 'checking', 'Checking saved completion conditions before doing work.', { runId }); this.changed();
     try {
       let checked = await this.verify(goal, action => { if (action) verificationActions++; updateUsage(); }); updateUsage();
+      preflightPassed = checked.passed;
       recordVerificationEvidence(goal, checked.results, {
         runId, phase: 'preflight', now: Date.now(), ...ledgerRunContext,
       }); this.changed();
@@ -446,7 +449,7 @@ class GoalRunner {
       }
       this.record(goal, 'run', clean(result?.summary) || 'Goal step ended.', { runId, usage: { ...modelUsage, actions: modelUsage.actions + verificationActions }, actions, snapshot }); this.changed();
       if (this.stopReason || goal.status === 'paused' || this.closing) {
-        if (await this.completeStoppedFiles(goal, runId, this.stopReason, ledgerRunContext)) return;
+        if (await this.completeStoppedFiles(goal, runId, this.stopReason, ledgerRunContext, preflightPassed)) return;
         if (goal.status !== 'paused') this.block(goal, this.stopReason || 'Goal stopped.', { runId }); return;
       }
       if (goal.pendingQuestion) {
@@ -482,7 +485,7 @@ class GoalRunner {
         recordSnapshotEvidence(goal, snapshot, { runId, now: Date.now(), ...ledgerRunContext });
         this.record(goal, 'snapshot', 'Saved file evidence after an interrupted or failed step.', { runId, snapshot });
       } catch (snapshotError) { this.record(goal, 'snapshot-error', `Undo is unavailable: ${clean(snapshotError)}`, { runId }); }
-      if (await this.completeStoppedFiles(goal, runId, this.stopReason || clean(error), ledgerRunContext)) return;
+      if (await this.completeStoppedFiles(goal, runId, this.stopReason || clean(error), ledgerRunContext, preflightPassed)) return;
       if (goal.status !== 'paused') this.block(goal, this.stopReason || clean(error), { runId });
       else this.record(goal, 'stopped', this.stopReason || clean(error), { runId });
     } finally {
