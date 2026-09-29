@@ -34,8 +34,9 @@ class AgentTools {
       functionSpec('goal_manage', 'Manage Little Bot goals: list, create a draft, update a draft, pause, or resume a previously user-authorized goal. Create never starts work. Resume only when the current user explicitly requests it. Tools cannot grant permissions, enlarge budgets, change folders, or restart a never-authorized draft. Completion checks should be concrete.', {
         action: { type: 'string', enum: actions }, id: text(100), name: text(80), objective: text(12000), steps: { type: 'array', maxItems: 20, items: text(1000) }, checks: { type: 'array', maxItems: 20, items: checkSchema },
       }, ['action']),
-      functionSpec('schedule_manage', 'Manage Little Bot recurring routines: list, create a disabled draft, update a disabled draft, pause, or resume a previously user-authorized routine. Schedules can repeat by elapsed interval or at an exact PC-local clock time on selected weekdays. Resume only when the current user explicitly requests it. Creating a routine never enables it. The current chat folder is used.', {
+      functionSpec('schedule_manage', 'Manage Little Bot recurring routines: list, create, update, pause, or resume. Set enabled:true when the user asks to schedule or enable a routine; enabled:false saves a draft or pauses it. Resume enables an existing routine, including a draft. Updates preserve enabled state unless specified. Schedules repeat by interval or at an exact PC-local clock time on selected weekdays. The current chat folder is used. Global Pause all still suspends execution.', {
         action: { type: 'string', enum: actions }, id: text(100), name: text(80), prompt: text(32000),
+        enabled: { type: 'boolean', description: 'Enable scheduled runs, or save disabled. Creation defaults to disabled; updates preserve the current state.' },
         scheduleType: { type: 'string', enum: ['interval', 'clock'] },
         intervalMinutes: { type: 'integer', minimum: 1, maximum: 10080 },
         clockTime: { type: 'string', minLength: 5, maxLength: 5, description: 'PC-local 24-hour time in HH:MM format.' },
@@ -81,7 +82,7 @@ class AgentTools {
     const allowed = {
       skill_list: [], skill_read: ['name'],
       goal_manage: ['action', 'id', 'name', 'objective', 'steps', 'checks'],
-      schedule_manage: ['action', 'id', 'name', 'prompt', 'scheduleType', 'intervalMinutes', 'clockTime', 'daysOfWeek'],
+      schedule_manage: ['action', 'id', 'name', 'prompt', 'enabled', 'scheduleType', 'intervalMinutes', 'clockTime', 'daysOfWeek'],
       calendar_list: ['fromLocal', 'toLocal', 'limit'],
       calendar_manage: ['action', 'id', 'title', 'startLocal', 'endLocal', 'allDay', 'location', 'notes', 'fromLocal', 'toLocal', 'limit'],
     }[name];
@@ -150,6 +151,10 @@ class AgentTools {
         return check.type === 'command' ? { type: check.type, command: string(check.command, 'check command', 4000, true) }
           : { type: check.type, path: string(check.path, 'check path', 500, true), ...(check.type === 'fileContains' ? { contains: string(check.contains, 'check text', 4000, true) } : {}) };
       });
+    }
+    if (args.enabled !== undefined) {
+      if (typeof args.enabled !== 'boolean') throw new Error('Enabled must be true or false.');
+      payload.enabled = args.enabled;
     }
     if (args.scheduleType !== undefined) {
       if (!['interval', 'clock'].includes(args.scheduleType)) throw new Error('Invalid schedule type.');

@@ -139,3 +139,27 @@
 .independent-check-original pre { max-height: 240px; overflow: auto; white-space: pre-wrap; }
 .independent-check-actions { display: flex; justify-content: flex-end; margin-top: 5px; }
 .independent-check-actions .button { padding: 4px 7px; font-size: 11px; }
+
+/* Chat tool calls remain compact while their details stay inspectable. */
+.action-group{margin:12px 0;border:1px solid var(--line);border-radius:10px;background:#fafbf7;overflow:hidden}
+.action-group-details>summary{display:flex;align-items:center;gap:9px;padding:12px 14px;cursor:pointer;font-size:11px;list-style:none}
+.action-group-details>summary::before{content:'▸';color:var(--muted)}
+.action-group-details[open]>summary::before{content:'▾'}
+.action-group-count{color:var(--muted)}
+.action-group-status{margin-left:auto;color:var(--green);font-size:10px}
+.action-group.running .action-group-status{color:var(--accent)}
+.action-group.failed .action-group-status{color:#a34c36}
+.action-group-body{border-top:1px solid var(--line);padding:0 14px 10px}
+.action-group-body>.message{margin:12px 0}
+.inbox-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.inbox-filters{display:flex;gap:5px;padding:4px;border:1px solid var(--line);border-radius:10px;background:var(--soft)}
+.inbox-filters .button{background:transparent;color:var(--muted)}
+.inbox-filters .button[aria-pressed=true]{background:white;color:var(--ink);border-color:var(--line)}
+.inbox-toolbar label{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--muted)}
+.inbox-toolbar select{padding:8px;border:1px solid var(--line);border-radius:8px;background:white}
+#inbox-view{max-width:1100px;width:100%;align-self:center}
+#inbox-view .heartbeat-entry{padding:20px;margin-bottom:12px;background:#fff;border:1px solid var(--line);border-radius:10px}
+#inbox-view .heartbeat-entry.unread{border-left:3px solid var(--accent)}
+#inbox-view .entry-summary{font-size:13px;line-height:1.7}
+.entry-source{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:11px;margin:10px 0;flex-wrap:wrap}
+.entry-source .button{margin-left:auto;min-height:28px;padding:4px 8px}

@@ -45,6 +45,7 @@ async function run({ window, controller, store, heartbeat, output }) {
   heartbeat.recordActivity({ status: 'alert', topic: 'Research draft', summary: 'The research draft has fresh sources.', workspace: config.workspace, source: 'goal', goalId: 'smoke-feedback-goal' });
   const second = config.history.findLast(item => item.topic === 'Research draft');
   assert.equal(first.delivery, 'notified'); assert.equal(second.delivery, 'quiet');
+  await js("document.getElementById('nav-inbox').click()");
   await delay(150);
   const clickFeedback = async (id, label) => {
     await js(`Array.from(document.querySelectorAll('.heartbeat-entry[data-entry-id="${id}"] .feedback-button')).find(button=>button.textContent===${JSON.stringify(label)}).click()`);

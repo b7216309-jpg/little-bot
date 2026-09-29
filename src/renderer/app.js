@@ -90,6 +90,8 @@ let conversationActivity = null;
 let taskClockTimer = null;
 let selectedChatId = null;
 let currentView = 'chat';
+let inboxFilter = 'all';
+let inboxSource = 'all';
 let sending = false;
 let thinkingSaving = false;
 let loginPending = false;
@@ -316,6 +318,7 @@ function render() {
   if (currentView === 'calendar') renderCalendar();
   if (currentView === 'memory') renderMemory();
   if (currentView === 'heartbeat') renderHeartbeat();
+  if (currentView === 'inbox') renderActivityInbox();
   if (currentView === 'extensions') renderExtensions();
   if (currentView === 'goals') renderGoals();
   if (currentView === 'profile') renderProfile();
@@ -326,7 +329,7 @@ function render() {
 
 function renderHeader() {
   const chat = currentChat();
-  $('page-label').textContent = { goals: 'Goals', automations: 'Automations', calendar: 'Calendar', memory: 'Memory', profile: 'Profile', heartbeat: 'Heartbeat', extensions: 'Extensions' }[currentView] || chat?.title || 'New conversation';
+  $('page-label').textContent = { inbox: 'Activity inbox', goals: 'Goals', automations: 'Automations', calendar: 'Calendar', memory: 'Memory', profile: 'Profile', heartbeat: 'Heartbeat', extensions: 'Extensions' }[currentView] || chat?.title || 'New conversation';
   const status = state.runtime || {};
   const label = status.status === 'ready' ? 'Ready' : status.status === 'error' ? 'Needs attention' : 'Starting';
   const dot = element('span', `status-dot ${status.status === 'ready' ? '' : status.status === 'error' ? 'error' : 'starting'}`);
@@ -410,6 +413,7 @@ function renderSidebar() {
   $('nav-calendar').classList.toggle('active', currentView === 'calendar');
   $('nav-memory').classList.toggle('active', currentView === 'memory');
   $('nav-heartbeat').classList.toggle('active', currentView === 'heartbeat');
+  $('nav-inbox').classList.toggle('active', currentView === 'inbox');
   $('nav-extensions').classList.toggle('active', currentView === 'extensions');
   $('nav-goals').classList.toggle('active', currentView === 'goals');
   $('nav-profile').classList.toggle('active', currentView === 'profile');
@@ -433,6 +437,7 @@ function selectChat(id) {
   $('calendar-view').classList.add('hidden');
   $('memory-view').classList.add('hidden');
   $('heartbeat-view').classList.add('hidden');
+  $('inbox-view').classList.add('hidden');
   $('extensions-view').classList.add('hidden');
   $('goals-view').classList.add('hidden');
   $('profile-view').classList.add('hidden');
@@ -451,7 +456,7 @@ function showFeature(view) {
   if (currentView === 'chat') saveCurrentDraft();
   currentView = view;
   $('chat-view').classList.add('hidden');
-  for (const feature of ['goals', 'automations', 'calendar', 'memory', 'profile', 'heartbeat', 'extensions']) $(feature + '-view').classList.toggle('hidden', feature !== view);
+  for (const feature of ['goals', 'automations', 'calendar', 'memory', 'profile', 'heartbeat', 'inbox', 'extensions']) $(feature + '-view').classList.toggle('hidden', feature !== view);
   render();
 }
 
@@ -812,7 +817,7 @@ function actionGroupNode(chat, group) {
       else expandedActionGroups.delete(key);
     });
     const summary = element('summary');
-    summary.append(icon('sparkles'), element('strong', '', 'Actions'), element('span', 'action-group-count'), element('span', 'action-group-status'));
+    summary.append(icon('sparkles'), element('strong', '', 'Tool calls'), element('span', 'action-group-count'), element('span', 'action-group-status'));
     details.append(summary, element('div', 'action-group-body'));
     node.append(details);
     renderedActionGroups.set(key, node);
@@ -820,7 +825,7 @@ function actionGroupNode(chat, group) {
   const messages = group.tools.map(({ message }) => message);
   updateActionGroupSummary(node, messages);
   node.dataset.actionMessageIds = JSON.stringify(messages.map(message => message.id));
-  const children = group.tools.map(({ message, index }) => conversationMessage(chat, message, index));
+  const children = group.entries.map(({ message, index }) => conversationMessage(chat, message, index));
   replaceConversationItems(node.querySelector('.action-group-body'), children);
   return node;
 }
@@ -889,7 +894,10 @@ taskClockTimer = setInterval(updateTaskClock, 1000);
 taskClockTimer.unref?.();
 
 function renderStreamedMessages(chat, messages, indexes) {
-  if (renderedChatId !== chat.id || messages.some(message => !renderedMessages.has(`${chat.id}:${message.id}`))) {
+  if (renderedChatId !== chat.id || messages.some(message => {
+    const previous = renderedMessages.get(`${chat.id}:${message.id}`)?.fingerprint;
+    return !previous || previous[0] !== message.role || previous[1] !== message.kind || previous[3] !== message.phase;
+  })) {
     renderConversation();
     return;
   }
@@ -932,7 +940,7 @@ function renderConversation() {
       }
       const actionKey = `${chat.id}:actions:${unit.key}`;
       actionKeys.add(actionKey);
-      for (const { message, index } of unit.tools) keys.add(`${chat.id}:${message.id || index}`);
+      for (const { message, index } of unit.entries) keys.add(`${chat.id}:${message.id || index}`);
       items.push(actionGroupNode(chat, unit));
     }
     for (const key of renderedMessages.keys()) if (!keys.has(key)) renderedMessages.delete(key);
@@ -2353,7 +2361,7 @@ function renderHeartbeat() {
   badge.classList.toggle('running', running);
   badge.classList.toggle('error', !running && heartbeat.lastStatus === 'error');
   badge.replaceChildren(element('span', `status-dot ${running ? 'starting' : heartbeat.lastStatus === 'error' ? 'error' : ''}`), document.createTextNode(status));
-  const latest = running ? 'Working through your checklist…' : heartbeat.lastStatus === 'quiet' ? 'All quiet. Nothing needs your attention.' : heartbeat.lastStatus === 'alert' ? 'A meaningful update is waiting below.' : heartbeat.lastStatus === 'error' ? 'The last check needs attention.' : 'No checks yet.';
+  const latest = running ? 'Working through your checklist…' : heartbeat.lastStatus === 'quiet' ? 'All quiet. Nothing needs your attention.' : heartbeat.lastStatus === 'alert' ? 'A meaningful update is waiting in Activity inbox.' : heartbeat.lastStatus === 'error' ? 'The last check needs attention.' : 'No checks yet.';
   $('heartbeat-last-check').textContent = `${latest}${heartbeat.lastRunAt && !running ? `\n${formatDate(heartbeat.lastRunAt)}` : ''}`;
   $('heartbeat-next-check').textContent = state.autonomy?.paused ? 'Autonomous work is paused. Resume it from Goals.' : heartbeat.enabled && heartbeat.nextRunAt ? `Next scheduled check: ${formatDate(heartbeat.nextRunAt)}` : heartbeat.enabled ? 'Next check follows your active hours and daily limit.' : 'Scheduled checks are paused.';
   $('heartbeat-run-count').textContent = `${heartbeat.runsToday || 0} of ${heartbeat.maxRunsPerDay || 12} checks used today${heartbeat.attention ? ` · ${heartbeat.attention.alertsToday || 0} of ${heartbeat.maxAlertsPerDay || 3} desktop alerts` : ''}`;
@@ -2363,9 +2371,20 @@ function renderHeartbeat() {
   $('heartbeat-last-actions').classList.toggle('hidden', lastActions.length === 0);
   $('heartbeat-last-actions-label').textContent = `${lastActions.length} recorded action${lastActions.length === 1 ? '' : 's'}`;
   $('heartbeat-last-actions-text').textContent = lastActions.join('\n\n');
-  const history = [...(heartbeat.history || [])].sort((a, b) => new Date(b.at) - new Date(a.at));
+}
+
+function renderActivityInbox() {
+  const heartbeat = state?.heartbeat || {};
+  const all = [...(heartbeat.history || [])].sort((a, b) => new Date(b.at) - new Date(a.at));
+  const history = all.filter(entry => (inboxFilter === 'all' || (inboxFilter === 'unread' ? entry.unread : entry.status === 'error'))
+    && (inboxSource === 'all' || (entry.source || 'heartbeat') === inboxSource));
+  $('inbox-summary').textContent = all.length ? `${all.filter(entry => entry.unread).length} unread · ${all.length} updates` : 'Updates from Heartbeat and goals appear here.';
+  $('inbox-source').value = inboxSource;
+  for (const button of document.querySelectorAll('[data-inbox-filter]')) {
+    button.setAttribute('aria-pressed', String(button.dataset.inboxFilter === inboxFilter));
+  }
   const expandedActions = new Set(Array.from($('heartbeat-inbox').querySelectorAll('details[open]'), (details) => details.dataset.entryId));
-  $('heartbeat-read-all').disabled = !history.some((entry) => entry.unread);
+  $('heartbeat-read-all').disabled = !all.some((entry) => entry.unread);
   const fragment = document.createDocumentFragment();
   for (const entry of history) {
     const row = element('article', `heartbeat-entry ${entry.unread ? 'unread' : ''} ${entry.status === 'error' ? 'error' : ''}`);
@@ -2373,8 +2392,18 @@ function renderHeartbeat() {
     const heading = element('div', 'entry-heading');
     const time = element('time', '', formatDate(entry.at));
     if (entry.at && !Number.isNaN(new Date(entry.at).getTime())) time.dateTime = new Date(entry.at).toISOString();
-    heading.append(element('strong', '', entry.status === 'error' ? 'Needs attention' : entry.source === 'goal' ? 'Goal update' : 'An update for you'), time);
+    heading.append(element('strong', '', entry.status === 'error' ? 'Needs attention' : entry.source === 'goal' ? 'Goal update' : 'Heartbeat update'), time);
     row.append(heading, element('p', 'entry-summary', entry.summary || (entry.status === 'error' ? 'The check could not finish.' : 'A check has an update.')));
+    const source = element('div', 'entry-source');
+    source.append(element('span', '', entry.source === 'goal' ? 'Goal' : 'Heartbeat'));
+    if (entry.workspace) { const folder = element('span', '', basename(entry.workspace)); folder.title = entry.workspace; source.append(folder); }
+    if (entry.source === 'goal' && entry.goalId && state.autonomy?.goals?.some(goal => goal.id === entry.goalId)) {
+      source.append(action('Open goal', () => {
+        showFeature('goals');
+        Array.from($('goals-list').children).find(node => node.dataset.goalId === entry.goalId)?.scrollIntoView({ block: 'nearest' });
+      }, 'button text-button'));
+    }
+    row.append(source);
     const topic = state.heartbeat?.attention?.topics?.find((item) => item.key === entry.subjectKey);
     const feedbackStatus = element('div', 'entry-feedback-status');
     if (entry.delivery === 'quiet') feedbackStatus.append(element('span', 'quiet-delivery', 'Saved quietly'));
@@ -2408,7 +2437,7 @@ function renderHeartbeat() {
   }
   if (!history.length) {
     const empty = element('div', 'inbox-empty');
-    empty.append(icon('heartbeat'), element('p', '', 'All quiet. Useful updates appear here.'));
+    empty.append(icon('heartbeat'), element('p', '', all.length ? 'No updates match these filters.' : 'All quiet. Useful updates appear here.'));
     fragment.append(empty);
   }
   $('heartbeat-inbox').replaceChildren(fragment);
@@ -2437,6 +2466,7 @@ async function sendHeartbeatFeedback(payload) {
   const key = payload.id || payload.subjectKey;
   if (heartbeatFeedbackPending.has(key)) return;
   heartbeatFeedbackPending.add(key);
+  if (currentView === 'inbox') renderActivityInbox();
   if (currentView === 'heartbeat') renderHeartbeat();
   try {
     const result = await window.bot.heartbeatFeedback(payload);
@@ -2445,6 +2475,7 @@ async function sendHeartbeatFeedback(payload) {
     notify(error?.message || String(error), true);
   } finally {
     heartbeatFeedbackPending.delete(key);
+    if (currentView === 'inbox') renderActivityInbox();
     if (currentView === 'heartbeat') renderHeartbeat();
   }
 }
@@ -3541,6 +3572,11 @@ $('new-chat').addEventListener('click', () => {
 $('nav-automations').addEventListener('click', showAutomations);
 $('nav-calendar').addEventListener('click', () => showFeature('calendar'));
 $('nav-memory').addEventListener('click', () => showFeature('memory'));
+$('nav-inbox').addEventListener('click', () => showFeature('inbox'));
+for (const button of document.querySelectorAll('[data-inbox-filter]')) button.addEventListener('click', () => {
+  inboxFilter = button.dataset.inboxFilter; renderActivityInbox();
+});
+$('inbox-source').addEventListener('change', () => { inboxSource = $('inbox-source').value; renderActivityInbox(); });
 $('nav-heartbeat').addEventListener('click', () => showFeature('heartbeat'));
 $('nav-extensions').addEventListener('click', () => showFeature('extensions'));
 $('nav-goals').addEventListener('click', () => showFeature('goals'));
@@ -3800,7 +3836,7 @@ if (!window.bot) {
       card?.querySelector('.goal-question-answer')?.focus({ preventScroll: true });
     }
     else if (event.type === 'memory' && event.message) notify(event.message, Boolean(event.error));
-    else if (event.type === 'heartbeat') showFeature('heartbeat');
+    else if (event.type === 'heartbeat') { inboxFilter = 'all'; inboxSource = 'all'; showFeature('inbox'); }
     else if (event.type === 'login') {
       loginMetadata = event;
       if (event.error || event.status === 'error' || event.status === 'cancelled' || event.status === 'complete' || event.status === 'success') loginPending = false;
