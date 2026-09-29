@@ -24,7 +24,7 @@ The ledger is stored on the goal itself, so it survives restart, pause, clarific
 - **File contains text:** a regular text file, up to 2 MiB, must contain the specified text.
 - **Command succeeds:** a PowerShell command must exit with code zero. This requires terminal permission, but verification always runs read-only with network disabled and a 20-second timeout. Use a check that does not need to build files or install dependencies. Returned detail is limited to 8,000 characters; history keeps a shorter excerpt.
 
-Checks run before work and after each successful step. If the result already exists, the goal completes without a model call. Failed verification and lack of progress consume the retry allowance. Repeating the same actions three times without file progress blocks the goal.
+Checks run before work and after each successful step. A manual goal completes without a model call when its checks already pass, except **Run again** starts a fresh cycle and does real work before verifying again. Interval and file-triggered goals treat checks as per-cycle verification: a verified cycle is recorded, its work budget resets, and the goal stays active for the next trigger. Failed verification and lack of progress consume the retry allowance. Repeating the same actions three times without file progress blocks the current cycle.
 
 After interrupted local work, Little Bot checks existing results before continuing. If the interrupted goal had network or MCP access, it stays blocked so you can review possible external effects before resuming. Local file snapshots cannot reverse an external service action.
 
@@ -40,7 +40,7 @@ Autonomous goal runs cannot grant themselves more access, request escalation, or
 
 ## Budgets
 
-The default lifetime budget for a goal is **50,000 tokens, 30 minutes, 50 actions, 10 model runs, and 2 retries**. Edit these in Advanced settings. Usage persists across pause, restart, and editing; increasing a limit adds room without erasing what has already been consumed.
+The default work budget is **50,000 tokens, 30 minutes, 50 actions, 10 model runs, and 2 retries**. Edit these in Advanced settings. Usage persists across pause and restart within the current cycle. **Run again** on a completed manual goal starts a fresh budget, and interval/file-triggered goals reset their budget after each verified cycle. Increasing a limit adds room without erasing usage from the current cycle.
 
 Tokens use cumulative usage reported by the engine. Actions include model tool invocations and verification commands. Time includes checks and run setup. Each model step has a maximum duration of ten minutes, within the goal's remaining time budget. Reaching a limit stops further work and records the reason.
 
@@ -50,11 +50,11 @@ These are execution controls, not a prepaid or monetary cap. An in-flight provid
 
 Only one goal step runs at a time, sharing the engine with chat, heartbeat, and routines. A chat message pauses the active goal. Queued goals use priority 1 first and wait for their dependencies to complete; dependency cycles are rejected.
 
-- **Manual:** Run starts the goal and it continues through bounded steps until completed, blocked, or paused.
-- **Interval:** an unfinished goal takes another step at the configured cadence.
-- **File changes:** watched relative paths are checked every five seconds using file metadata. A change must remain stable across checks before it wakes the goal. Each foreground app session starts with a fresh baseline, so changes made while Little Bot was closed do not wake the goal. The baseline is also refreshed after its own run to avoid a self-trigger loop. Quiet checks make no model calls. Stable changes publish the foreground-only `file.changed` event described in [EVENTS.md](EVENTS.md).
+- **Manual:** Run starts the goal and it continues through bounded steps until completed, blocked, or paused. **Run again** starts a new verified cycle even if the previous checks still pass.
+- **Interval:** each due time starts a new cycle. Passing the checks verifies that cycle, resets its work budget, and schedules the next one.
+- **File changes:** watched relative paths are checked every five seconds using file metadata. A stable change starts a new cycle; passing the checks verifies that cycle and returns the goal to watching. Each foreground app session starts with a fresh baseline, so changes made while Little Bot was closed do not wake the goal. The baseline is also refreshed after its own run to avoid a self-trigger loop. Quiet checks make no model calls. Stable changes publish the foreground-only `file.changed` event described in [EVENTS.md](EVENTS.md).
 
-Completed goals stop monitoring. Use Automations or Heartbeat for an indefinite routine. When Little Bot reopens, an overdue authorized interval goal advances to its next future step without running the missed step. File-triggered goals establish a new baseline instead of reacting to closed-app changes. If Little Bot remains open but busy, queued work waits for the one execution lane. There is no tray worker, Windows service, closed-app event backlog, or wake-from-sleep mechanism.
+Completed manual goals stop until you run them again. Interval and file-triggered goals remain active until paused or blocked. When Little Bot reopens, an overdue authorized interval goal advances to its next future step without running the missed step. File-triggered goals establish a new baseline instead of reacting to closed-app changes. If Little Bot remains open but busy, queued work waits for the one execution lane. There is no tray worker, Windows service, closed-app event backlog, or wake-from-sleep mechanism.
 
 Standing intents can react to foreground goal, file, calendar, automation, chat, heartbeat, and app-open events. They can start only an already authorized goal or automation and do not expand its permissions, budget, folder, model, or connection. Configure them under **Automations → Standing intents**; there is no agent management tool for them yet. See [EVENTS.md](EVENTS.md).
 
