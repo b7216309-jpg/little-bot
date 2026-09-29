@@ -3,7 +3,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
-const { normalizeMemory } = require('./memory.cjs');
+const { normalizeMemory, attachMemoryService, sync: syncMemory } = require('./memory.cjs');
+const { MemoryService } = require('./memory-service.cjs');
 const { normalizeHeartbeat } = require('./heartbeat.cjs');
 const { normalizeExtensions } = require('./extensions.cjs');
 const { normalizeAutonomy } = require('./goals.cjs');
@@ -96,17 +97,19 @@ function persistedData(data, defaultWorkspace, recovering = false) {
       independentCheckMode: normalizeIndependentCheckMode(settings.independentCheckMode),
       ...(typeof settings.systemPrompt === 'string' ? { systemPrompt: settings.systemPrompt.slice(0, 100000) } : {}),
     },
-    chats: chats.filter(isObject).filter(chat => chat.private !== true).map(chat => {
+    chats: chats.filter(isObject).filter(chat => chat.private !== true).slice(0, 1).map(chat => {
       const result = {
         id: string(chat.id) || randomUUID(),
         title: string(chat.title, 'New chat'),
         threadId: string(chat.threadId),
+        lastTurnRequestId: string(chat.lastTurnRequestId),
         workspace: string(chat.workspace, defaultWorkspace),
         model: string(chat.model),
         ...connectionBinding(chat),
         createdAt: timestamp(chat.createdAt, Date.now()),
         updatedAt: timestamp(chat.updatedAt, timestamp(chat.createdAt, Date.now())),
         mode: chat.mode === 'plan' ? 'plan' : 'execute',
+        toolMode: chat.toolMode === 'readOnly' ? 'readOnly' : 'full',
         status: ['running', 'waiting'].includes(chat.status) ? chat.status : 'idle',
         messages: (Array.isArray(chat.messages) ? chat.messages : []).filter(isObject).map(message => {
           const entry = {
@@ -116,7 +119,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
           };
           const attachments = attachmentDescriptors(message.attachments);
           if (attachments.length) entry.attachments = attachments;
-          for (const key of ['kind', 'status', 'phase']) {
+          for (const key of ['kind', 'status', 'phase', 'workspace', 'model', 'connection', 'automationId']) {
             if (typeof message[key] === 'string') entry[key] = message[key];
           }
           if (recovering && ['running', 'waiting', 'inProgress'].includes(entry.status)) {
@@ -254,10 +257,21 @@ class Store {
         this.warning = `Could not read saved app state: ${error.message} The original file is preserved.`;
       }
     }
+    this.memoryService = new MemoryService({ filename: path.join(path.dirname(this.filePath), 'memory.sqlite') });
+    attachMemoryService(this.data.memory, this.memoryService);
+    for (const chat of this.data.chats) this.memoryService.indexChat(chat);
+    for (const goal of this.data.autonomy.goals) this.memoryService.indexGoal(goal);
+    syncMemory(this.data.memory);
   }
 
   save() {
     if (this.locked) throw new Error('Encrypted app state is locked. Little Bot will not overwrite it.');
+    if (this.memoryService) {
+      this.memoryService.enabled = this.data.memory.enabled !== false;
+      for (const chat of this.data.chats) this.memoryService.indexChat(chat);
+      for (const goal of this.data.autonomy.goals) this.memoryService.indexGoal(goal);
+      syncMemory(this.data.memory);
+    }
     const normalized = persistedData(this.data, this.defaultWorkspace);
     const serialized = `${JSON.stringify(protectedEnvelope(normalized, this.protector), null, 2)}\n`;
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
@@ -283,6 +297,12 @@ class Store {
       throw error;
     }
     return this.data;
+  }
+
+  close() {
+    if (this.closed) return;
+    this.closed = true;
+    this.memoryService?.close();
   }
 
   flush() {

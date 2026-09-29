@@ -124,6 +124,7 @@ test('custom prompt survives Store persistence and renderer exposes the editor',
   store.flush();
 
   const restored = new Store({ filePath, defaultWorkspace: root });
+  restored.close();
   assert.equal(restored.data.settings.systemPrompt, 'Persist this custom prompt.');
 
   const html = readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'index.html'), 'utf8');

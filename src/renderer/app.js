@@ -154,7 +154,6 @@ const expandedReasoning = new Set();
 const seenApprovals = new Set();
 const chatDrafts = new Map();
 const planModeDrafts = new Map();
-const privateSessionDrafts = new Map();
 const attachmentDrafts = new Map();
 let attachmentImportPending = false;
 let connectionInitialized = false;
@@ -176,7 +175,6 @@ const isStrataLocal = () => connectionType() === 'local' && state?.connection?.a
 const draftKey = () => selectedChatId || '__new__';
 const queuedAttachments = () => attachmentDrafts.get(draftKey()) || [];
 const currentPlanMode = () => planModeDrafts.has(draftKey()) ? planModeDrafts.get(draftKey()) : currentChat()?.mode === 'plan';
-const currentPrivateSession = () => privateSessionDrafts.has(draftKey()) ? privateSessionDrafts.get(draftKey()) : currentChat()?.private === true;
 const basename = (path) => String(path || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path || 'Choose workspace';
 
 function programmaticChatScroll(action) {
@@ -260,7 +258,7 @@ function applyState(next) {
     const latest = [...(state.chats || [])].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))[0];
     selectedChatId = latest?.id || null;
   }
-  if (selectedChatId && !currentChat()) selectedChatId = null;
+  selectedChatId = state.chats?.[0]?.id || null;
   if (isConnected()) {
     loginPending = false;
     loginMetadata = null;
@@ -329,7 +327,7 @@ function render() {
 
 function renderHeader() {
   const chat = currentChat();
-  $('page-label').textContent = { inbox: 'Activity inbox', goals: 'Goals', automations: 'Automations', calendar: 'Calendar', memory: 'Memory', profile: 'Profile', heartbeat: 'Heartbeat', extensions: 'Extensions' }[currentView] || chat?.title || 'New conversation';
+  $('page-label').textContent = { inbox: 'Activity inbox', goals: 'Goals', automations: 'Automations', calendar: 'Calendar', memory: 'Memory', profile: 'Profile', heartbeat: 'Heartbeat', extensions: 'Extensions' }[currentView] || 'Conversation';
   const status = state.runtime || {};
   const label = status.status === 'ready' ? 'Ready' : status.status === 'error' ? 'Needs attention' : 'Starting';
   const dot = element('span', `status-dot ${status.status === 'ready' ? '' : status.status === 'error' ? 'error' : 'starting'}`);
@@ -337,7 +335,7 @@ function renderHeader() {
   $('runtime-status').title = status.error || label;
   const workspace = currentView === 'chat' && chat ? chat.workspace : state.settings.workspace;
   $('workspace-label').textContent = basename(workspace);
-  $('choose-workspace').title = workspace ? `Current folder: ${workspace}\nChoose the folder for new chats` : 'Choose a workspace folder';
+  $('choose-workspace').title = workspace ? `Current folder: ${workspace}\nSwitch the working folder for this conversation` : 'Choose a workspace folder';
   const models = state.models || [];
   const catalogKey = JSON.stringify(models);
   if (catalogKey !== lastModelCatalog) {
@@ -382,33 +380,8 @@ function renderHeader() {
 }
 
 function renderSidebar() {
-  const chats = [...(state.chats || [])].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-  const fragment = document.createDocumentFragment();
-  if (!chats.length) fragment.append(element('p', 'chat-empty', 'No chats yet'));
-  for (const chat of chats) {
-    const row = element('div', `chat-item ${selectedChatId === chat.id && currentView === 'chat' ? 'active' : ''}`);
-    const button = element('button', 'chat-link');
-    button.type = 'button';
-    button.title = chat.title || 'Untitled conversation';
-    button.setAttribute('aria-current', selectedChatId === chat.id && currentView === 'chat' ? 'page' : 'false');
-    button.append(icon(chat.private ? 'shield' : 'chat'), element('span', 'chat-title', chat.title || 'Untitled conversation'));
-    if (chat.private) button.append(element('span', 'private-chat-badge', 'Private'));
-    if (chat.status === 'running' || chat.status === 'waiting') {
-      const activity = element('span', 'chat-activity');
-      activity.title = chat.status === 'waiting' ? 'Waiting for you' : 'Working';
-      button.append(activity);
-    }
-    button.addEventListener('click', () => selectChat(chat.id));
-    const remove = element('button', 'chat-delete');
-    remove.type = 'button';
-    remove.setAttribute('aria-label', `Delete ${chat.title || 'conversation'}`);
-    remove.title = 'Delete conversation';
-    remove.append(icon('trash'));
-    remove.addEventListener('click', () => deleteChat(chat));
-    row.append(button, remove);
-    fragment.append(row);
-  }
-  $('chat-list').replaceChildren(fragment);
+  $('nav-conversation').classList.toggle('active', currentView === 'chat');
+  $('nav-conversation').setAttribute('aria-current', currentView === 'chat' ? 'page' : 'false');
   $('nav-automations').classList.toggle('active', currentView === 'automations');
   $('nav-calendar').classList.toggle('active', currentView === 'calendar');
   $('nav-memory').classList.toggle('active', currentView === 'memory');
@@ -428,7 +401,8 @@ function saveCurrentDraft() {
 function selectChat(id) {
   navigationVersion += 1;
   saveCurrentDraft();
-  selectedChatId = id;
+  selectedChatId = state?.chats?.[0]?.id || null;
+  id = selectedChatId;
   currentView = 'chat';
   chatFollowTail = true;
   $('message-input').value = chatDrafts.get(id || '__new__') || '';
@@ -975,15 +949,7 @@ function updateComposer() {
   $('plan-mode-toggle').disabled = Boolean(running || sending || !isReady());
   $('plan-mode-toggle').setAttribute('aria-pressed', String(Boolean(currentPlanMode())));
   $('plan-mode-toggle').classList.toggle('active', Boolean(currentPlanMode()));
-  const privateSession = Boolean(currentPrivateSession());
-  $('private-session-toggle').disabled = Boolean(running || sending || !isReady() || chat);
-  $('private-session-toggle').setAttribute('aria-pressed', String(privateSession));
-  $('private-session-toggle').classList.toggle('active', privateSession);
-  $('private-session-toggle').title = chat?.private
-    ? 'Private session: not saved to chat history or memory.'
-    : chat ? 'Private mode can only be chosen before the first message.'
-      : 'Private session: no saved chat history or memory.';
-  $('message-input').placeholder = currentPlanMode() ? 'Ask Little Bot to plan…' : privateSession ? 'Private message…' : 'Message Little Bot…';
+  $('message-input').placeholder = currentPlanMode() ? 'Ask Little Bot to plan…' : 'Message Little Bot…';
   renderThinkingControl();
   renderAttachmentQueue();
   renderChatContext();
@@ -1113,7 +1079,7 @@ function inspectorFilePaths(chat) {
 function renderContextUsedSnapshot(snapshot, chat) {
   const host = $('inspector-context-used');
   if (!chat) {
-    $('inspector-memory-status').textContent = 'Start or select a conversation to inspect its context.';
+    $('inspector-memory-status').textContent = 'Send a message to inspect its context.';
     host.replaceChildren(element('p', 'inspector-empty', 'No turn context captured yet.'));
     return;
   }
@@ -1278,7 +1244,7 @@ function renderChatContext() {
   $('context-compaction-error').classList.toggle('hidden', !compaction.lastError);
   const reason = compactDisabledReason(chat);
   $('compact-chat').disabled = Boolean(reason);
-  $('compact-chat').title = reason || 'Summarize older model context now. Visible chat history and the three memory layers are preserved.';
+  $('compact-chat').title = reason || 'Summarize older model context now. Your conversation and durable memory are preserved.';
   $('compact-chat').replaceChildren(icon('compact'), document.createTextNode(pending ? 'Compacting…' : 'Compact now'));
 }
 
@@ -1334,18 +1300,6 @@ async function executeSlashCommand(parsed) {
       clearComposerDraft();
       notify(`Commands: ${LittleBotSlashCommands.helpText()}`);
       return true;
-    case 'new':
-      clearComposerDraft({ attachments: true });
-      planModeDrafts.delete('__new__');
-      privateSessionDrafts.delete('__new__');
-      attachmentDrafts.delete('__new__');
-      selectChat(null);
-      $('message-input').value = '';
-      chatDrafts.delete('__new__');
-      sizeComposer();
-      updateComposer();
-      notify('New conversation ready.');
-      return true;
     case 'plan':
     case 'execute':
       if (running) {
@@ -1357,16 +1311,6 @@ async function executeSlashCommand(parsed) {
       planModeDrafts.set(draftKey(), parsed.name === 'plan');
       updateComposer();
       notify(parsed.name === 'plan' ? 'Plan mode enabled for the next turn.' : 'Execute mode enabled for the next turn.');
-      return true;
-    case 'private':
-      clearComposerDraft();
-      if (chat) {
-        notify('Private mode is fixed when a conversation starts. Use /new first.', true);
-        return true;
-      }
-      privateSessionDrafts.set('__new__', !currentPrivateSession());
-      updateComposer();
-      notify(currentPrivateSession() ? 'Private session enabled.' : 'Private session disabled.');
       return true;
     case 'goal':
       clearComposerDraft();
@@ -1419,7 +1363,6 @@ async function sendMessage(event) {
   const text = submittedDraft.trim();
   const chat = currentChat();
   const mode = currentPlanMode() ? 'plan' : 'execute';
-  const privateSession = Boolean(currentPrivateSession());
   const attachmentIds = queuedAttachments().map((attachment) => attachment.id);
   const slashCommand = text ? LittleBotSlashCommands.parse(text) : null;
   if (slashCommand) {
@@ -1433,7 +1376,7 @@ async function sendMessage(event) {
   sending = true;
   updateComposer();
   try {
-    const result = await window.bot.send({ chatId: originChatId || undefined, text, attachmentIds, mode, privateSession });
+    const result = await window.bot.send({ chatId: originChatId || undefined, text, attachmentIds, mode });
     if (chatDrafts.get(originDraftKey) === submittedDraft) chatDrafts.delete(originDraftKey);
     const remainingAttachments = (attachmentDrafts.get(originDraftKey) || []).filter((attachment) => !attachmentIds.includes(attachment.id));
     if (remainingAttachments.length) attachmentDrafts.set(originDraftKey, remainingAttachments);
@@ -1445,10 +1388,8 @@ async function sendMessage(event) {
       if (result?.chatId) {
         selectedChatId = result.chatId;
         planModeDrafts.set(result.chatId, mode === 'plan');
-        privateSessionDrafts.set(result.chatId, privateSession);
         if (originDraftKey === '__new__') {
           planModeDrafts.delete('__new__');
-          privateSessionDrafts.delete('__new__');
         }
       }
     }
@@ -1529,8 +1470,8 @@ function renderSettings() {
   $('settings-version').textContent = `v${state.appVersion || '0.1.0'}`;
   $('settings-engine-detail').textContent = connectionType() === 'local' ? 'Your local model. No OpenAI account needed.' : 'Codex connection';
   $('settings-data-detail').textContent = connectionType() === 'local'
-    ? 'Chats and memory are encrypted on this PC. Web services connect only when used.'
-    : 'Chats and memory are encrypted on this PC. Model requests go to OpenAI.';
+    ? 'Conversation and memory are stored on this PC. Web services connect only when used.'
+    : 'Conversation and memory are stored on this PC. Model requests go to OpenAI.';
   renderConnectionSettings();
   renderSystemPromptSettings();
   renderIndependentCheckSettings();
@@ -1839,7 +1780,7 @@ async function chooseWorkspace() {
   if (result) {
     const next = await attempt(() => window.bot.getState());
     if (next) applyState(next);
-    notify(currentChat() ? 'Folder selected for new chats and automations.' : 'Workspace selected.');
+    notify(currentChat() ? 'Conversation workspace switched.' : 'Workspace selected.');
   }
 }
 
@@ -2204,50 +2145,120 @@ async function saveProfile(event) {
   }
 }
 
+let memorySearchVersion = 0;
+let memorySearchTimer;
+let visibleMemoryRecords = [];
+function memoryRecords() {
+  return state.memory?.records || [...(state.memory?.facts || []), ...(state.memory?.episodes || []).map(item => ({ ...item, type: 'episode', text: item.summary }))];
+}
+
 function renderMemory() {
-  const memory = state.memory || { enabled: true, facts: [], episodes: [] };
-  $('memory-enabled').checked = memory.enabled !== false;
-  $('memory-disabled-note').classList.toggle('hidden', memory.enabled !== false);
-  $('clear-episodes').disabled = !(memory.episodes || []).length;
-  const episodes = document.createDocumentFragment();
-  for (const episode of [...(memory.episodes || [])].sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt))) {
-    const row = element('article', 'memory-item');
-    const copy = element('div', 'memory-item-copy');
-    copy.append(element('p', 'memory-item-text', episode.summary));
-    const meta = element('div', 'memory-item-meta');
-    meta.append(memoryScope(episode.workspace), element('span', '', formatDate(episode.updatedAt || episode.createdAt)));
-    if ((state.chats || []).some((chat) => chat.id === episode.chatId)) {
-      meta.append(action('Open conversation', () => selectChat(episode.chatId), 'episode-link', 'arrow-up-right'));
+  $('memory-enabled').checked = state.memory?.enabled !== false;
+  $('memory-disabled-note').classList.toggle('hidden', state.memory?.enabled !== false);
+  refreshMemoryResults();
+  renderMemoryContext();
+  renderMemorySettings();
+}
+
+function renderMemorySettings() {
+  const memory = state.memory || {};
+  const embedding = memory.config?.embedding || memory.embedding || {};
+  if (!$('memory-advanced').contains(document.activeElement)) {
+    $('memory-embedding-url').value = embedding.baseUrl || '';
+    $('memory-embedding-model').value = embedding.model || '';
+    $('memory-embedding-key').value = embedding.apiKey || '';
+  }
+  const stats = memory.stats || {};
+  $('memory-engine-status').textContent = embedding.baseUrl ? `Semantic search configured · ${stats.embeddings || stats.embeddingCount || 0} indexed vectors${stats.embeddingError ? ` · ${stats.embeddingError}` : ''}` : 'Full-text search is active. Add an embedding server to also match meaning.';
+  const selected = $('memory-project').value;
+  const projects = [...new Map((memory.projects || []).map(project => [project.id, project])).values()];
+  $('memory-project').replaceChildren(...projects.map(project => {
+    const option = element('option', '', project.name || project.workspace || project.id);
+    option.value = project.id;
+    return option;
+  }));
+  if (projects.some(project => project.id === selected)) $('memory-project').value = selected;
+  $('memory-link-project').disabled = !projects.length;
+}
+
+async function refreshMemoryResults() {
+  const version = ++memorySearchVersion;
+  const query = $('memory-search').value.trim();
+  const type = $('memory-type').value;
+  try {
+    let records = memoryRecords();
+    if (window.bot.searchMemory) {
+      const result = await window.bot.searchMemory({ query, type: type || undefined, limit: 100 });
+      records = Array.isArray(result) ? result : result.records || [];
+    } else {
+      records = records.filter(item => (!type || item.type === type) && (!query || String(item.text).toLowerCase().includes(query.toLowerCase())));
     }
-    copy.append(meta);
-    row.append(copy);
-    episodes.append(row);
+    if (version !== memorySearchVersion) return;
+    visibleMemoryRecords = records;
+    $('memory-result-status').textContent = `${records.length} ${records.length === 1 ? 'memory' : 'memories'}${records.length === 100 ? ' · Refine your search to find more' : ''}`;
+    const fragment = document.createDocumentFragment();
+    for (const record of records) {
+      const row = element('article', 'memory-item');
+      row.dataset.memoryId = record.id;
+      const copy = element('div', 'memory-item-copy');
+      copy.append(element('p', 'memory-item-text', record.text || record.summary || ''));
+      const meta = element('div', 'memory-item-meta');
+      meta.append(element('span', 'memory-scope', `${record.pinned ? 'Pinned · ' : ''}${String(record.type || 'fact').replaceAll('_', ' ')}`), memoryScope(record.scope === 'global' ? null : record.workspace), element('span', '', formatDate(record.updatedAt || record.createdAt)));
+      if (record.status && record.status !== 'active') meta.append(element('span', '', record.status));
+      copy.append(meta);
+      const actions = element('div', 'memory-item-actions');
+      actions.append(action('Edit', () => editFact(record), 'button text-button', 'edit'));
+      actions.append(action(record.pinned ? 'Unpin' : 'Pin', async () => {
+        await attempt(() => window.bot.saveFact({ id: record.id, text: record.text, type: record.type, scope: record.scope, workspace: record.workspace, pinned: !record.pinned }));
+        refreshMemoryResults();
+      }, 'button text-button'));
+      actions.append(action('Source', async () => {
+        const details = row.querySelector('.memory-source');
+        if (details) { details.remove(); return; }
+        try {
+          const result = window.bot.getMemorySource ? await window.bot.getMemorySource({ id: record.id }) : { sources: record.sources || [] };
+          const sources = Array.isArray(result) ? result : result.sources || [];
+          const source = element('div', 'memory-source');
+          for (const item of sources) {
+            source.append(element('strong', '', item.label || item.role || 'Source'), element('pre', '', item.text || item.content || item.summary || JSON.stringify(item, null, 2)));
+          }
+          if (!sources.length) source.append(element('p', '', 'Manually added memory; no conversation source.'));
+          copy.append(source);
+        } catch (error) { notify(error.message || String(error), true); }
+      }, 'button text-button'));
+      actions.append(action('Forget', async () => {
+        if (await confirmAction('Forget this memory?', 'Remove this memory and prevent automatic learning from restoring it from the same source. The original timeline remains.', 'Forget')) {
+          await attempt(() => window.bot.deleteFact({ id: record.id }), 'Memory forgotten.');
+          refreshMemoryResults();
+        }
+      }, 'button text-button', 'trash'));
+      row.append(copy, actions);
+      fragment.append(row);
+    }
+    if (!records.length) fragment.append(element('p', 'memory-empty', query || type ? 'No matching memories.' : 'Memory grows as you work. Add something now or ask Little Bot to remember it.'));
+    $('facts-list').replaceChildren(fragment);
+  } catch (error) {
+    if (version === memorySearchVersion) $('memory-result-status').textContent = error.message || 'Could not search memory.';
   }
-  if (!(memory.episodes || []).length) episodes.append(element('p', 'memory-empty', 'No recent work notes yet. Useful context from completed conversations will appear here.'));
-  $('episodes-list').replaceChildren(episodes);
-  const facts = document.createDocumentFragment();
-  for (const fact of [...(memory.facts || [])].sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt))) {
-    const row = element('article', 'memory-item');
-    const copy = element('div', 'memory-item-copy');
-    copy.append(element('p', 'memory-item-text', fact.text));
-    const meta = element('div', 'memory-item-meta');
-    meta.append(memoryScope(fact.scope === 'global' ? null : fact.workspace), element('span', '', formatDate(fact.updatedAt || fact.createdAt)));
-    copy.append(meta);
-    const actions = element('div', 'memory-item-actions');
-    const edit = action('', () => editFact(fact), 'icon-button', 'edit');
-    edit.setAttribute('aria-label', 'Edit this fact');
-    const remove = action('', async () => {
-      if (await confirmAction('Forget this fact?', 'This fact will be removed from saved memory. The original conversation, if any, stays in your history.')) {
-        await attempt(() => window.bot.deleteFact({ id: fact.id }), 'Fact forgotten.');
-      }
-    }, 'icon-button', 'trash');
-    remove.setAttribute('aria-label', 'Forget this fact');
-    actions.append(edit, remove);
-    row.append(copy, actions);
-    facts.append(row);
+}
+
+async function renderMemoryContext() {
+  const chat = currentChat();
+  const host = $('memory-used-context');
+  if (!chat?.contextUsedAt || !window.bot.getContextUsed) {
+    host.replaceChildren(element('p', 'memory-empty', 'No context captured yet. Send a message to see what the bot recalled.'));
+    return;
   }
-  if (!(memory.facts || []).length) facts.append(element('p', 'memory-empty', 'Nothing saved yet. Add a preference, a project detail, or something you want Little Bot to remember.'));
-  $('facts-list').replaceChildren(facts);
+  try {
+    const snapshot = await window.bot.getContextUsed({ chatId: chat.id });
+    const blocks = (snapshot?.inputBlocks || []).filter(item => /memory|recall|history|continuity/i.test(`${item.kind} ${item.label}`));
+    const nodes = blocks.map(item => {
+      const details = element('details', 'inspector-context-block');
+      details.append(element('summary', '', item.label || item.kind || 'Recalled memory'), element('pre', '', item.text || ''));
+      return details;
+    });
+    host.replaceChildren(...(nodes.length ? nodes : [element('p', 'memory-empty', snapshot?.memoryStatus || 'No memory was included in this turn.')]));
+  } catch (error) { host.replaceChildren(element('p', 'memory-empty', error.message || 'Could not load context.')); }
 }
 
 function memoryScope(workspace) {
@@ -2259,7 +2270,8 @@ function memoryScope(workspace) {
 
 function editFact(fact) {
   editingFactId = fact?.id || null;
-  $('fact-title').textContent = fact ? 'Edit fact' : 'Add a fact';
+  $('fact-title').textContent = fact ? 'Edit memory' : 'Add memory';
+  $('fact-type').value = fact?.type || 'fact';
   $('fact-text').value = fact?.text || '';
   $('fact-scope').value = fact?.scope || 'workspace';
   $('save-fact').disabled = false;
@@ -2268,7 +2280,7 @@ function editFact(fact) {
 }
 
 function renderFactScope() {
-  const fact = state.memory?.facts?.find((item) => item.id === editingFactId);
+  const fact = visibleMemoryRecords.find(item => item.id === editingFactId) || memoryRecords().find(item => item.id === editingFactId);
   const workspace = fact?.scope === 'workspace' ? fact.workspace : state.settings.workspace;
   $('fact-workspace').textContent = $('fact-scope').value === 'global' ? 'Used across your workspaces when saved memory is enabled.' : `Folder: ${workspace || 'Choose a workspace first.'}`;
 }
@@ -2280,10 +2292,11 @@ async function saveFact(event) {
   if (!text) return;
   $('save-fact').disabled = true;
   try {
-    const result = await window.bot.saveFact({ ...(editingFactId ? { id: editingFactId } : {}), text, scope: $('fact-scope').value });
+    const result = await window.bot.saveFact({ ...(editingFactId ? { id: editingFactId } : {}), text, type: $('fact-type').value, scope: $('fact-scope').value });
     if (result?.settings) applyState(result);
     closeDialog('fact-dialog');
-    notify('Fact saved.');
+    notify('Memory saved.');
+    refreshMemoryResults();
   } catch (error) {
     notify(error?.message || String(error), true);
   } finally {
@@ -3537,38 +3550,7 @@ function resolveConfirm(accepted) {
   resolve?.(accepted);
 }
 
-async function deleteChat(chat) {
-  const running = chat.status === 'running' || chat.status === 'waiting';
-  if (running) {
-    selectChat(chat.id);
-    notify('Stop this conversation before deleting it.');
-    return;
-  }
-  const message = chat.private
-    ? `“${chat.title || 'This private session'}” is not saved. Closing it removes it from this app session.`
-    : `“${chat.title || 'This conversation'}” will be removed from your local chat history.`;
-  if (await confirmAction('Delete this chat?', message)) {
-    const deletingCurrent = selectedChatId === chat.id;
-    const originNavigation = navigationVersion;
-    const result = await attempt(() => window.bot.deleteChat({ chatId: chat.id }));
-    if (result !== null) {
-      chatDrafts.delete(chat.id);
-      planModeDrafts.delete(chat.id);
-      privateSessionDrafts.delete(chat.id);
-      attachmentDrafts.delete(chat.id);
-      if (deletingCurrent && navigationVersion === originNavigation) {
-        $('message-input').value = chatDrafts.get('__new__') || '';
-        selectChat(null);
-      }
-    }
-  }
-}
-
-$('new-chat').addEventListener('click', () => {
-  planModeDrafts.delete('__new__');
-  privateSessionDrafts.delete('__new__');
-  selectChat(null);
-});
+$('nav-conversation').addEventListener('click', () => selectChat(null));
 $('nav-automations').addEventListener('click', showAutomations);
 $('nav-calendar').addEventListener('click', () => showFeature('calendar'));
 $('nav-memory').addEventListener('click', () => showFeature('memory'));
@@ -3705,12 +3687,6 @@ $('plan-mode-toggle').addEventListener('click', () => {
   updateComposer();
   $('message-input').focus();
 });
-$('private-session-toggle').addEventListener('click', () => {
-  if ($('private-session-toggle').disabled || currentChat()) return;
-  privateSessionDrafts.set('__new__', !currentPrivateSession());
-  updateComposer();
-  $('message-input').focus();
-});
 document.querySelectorAll('[data-prompt]').forEach((button) => {
   button.addEventListener('click', () => {
     $('message-input').value = button.dataset.prompt;
@@ -3746,11 +3722,19 @@ $('memory-enabled').addEventListener('change', async () => {
 $('add-fact').addEventListener('click', () => editFact());
 $('fact-form').addEventListener('submit', saveFact);
 $('fact-scope').addEventListener('change', renderFactScope);
-$('clear-episodes').addEventListener('click', async () => {
-  if (await confirmAction('Clear recent work notes?', 'This removes the saved work notes. Your conversations and long-term facts will stay.', 'Clear notes')) {
-    await attempt(() => window.bot.clearEpisodes(), 'Recent work notes cleared.');
-  }
+$('memory-embedding-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  await attempt(() => window.bot.configureMemory({ embedding: { baseUrl: $('memory-embedding-url').value.trim(), model: $('memory-embedding-model').value.trim(), apiKey: $('memory-embedding-key').value } }), 'Memory search settings saved.');
 });
+$('memory-project-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const workspace = $('memory-project-workspace').value.trim();
+  if (!workspace || !$('memory-project').value) return;
+  await attempt(() => window.bot.linkMemoryProject({ projectId: $('memory-project').value, workspace }), 'Folder linked to project memory.');
+});
+$('memory-search').addEventListener('input', () => { clearTimeout(memorySearchTimer); memorySearchTimer = setTimeout(refreshMemoryResults, 160); });
+$('memory-type').addEventListener('change', refreshMemoryResults);
+$('memory-refresh-context').addEventListener('click', renderMemoryContext);
 for (const id of ['heartbeat-start-hour', 'heartbeat-end-hour']) {
   for (let hour = 0; hour < 24; hour += 1) {
     const option = element('option', '', `${String(hour).padStart(2, '0')}:00`);

@@ -30,7 +30,7 @@ For Local Qwen, the app shows transient whole-turn timing and engine-reported to
 
 These values are not saved to conversations, Memory, or `state.json`. They disappear when the app closes, and switching local models clears prior local samples. Goal token, time, action, run, and retry limits remain separate application controls. See [USAGE.md](USAGE.md).
 
-Each chat, goal, routine, and heartbeat keeps its connection. Earlier records remain bound to Codex. Select their saved connection before continuing them; create a new chat to use another connection. Changing the local server also requires a new chat or returning to the saved address. This avoids silently sending an existing conversation to a different provider.
+The app has one persistent conversation. Changing its connection, model, local server, or working folder rotates the engine context as needed while preserving the visible timeline. A recent-history bridge and relevant durable memory accompany the next request to the selected connection. Memory searches work across connections. Goals, routines, and heartbeat keep their saved connection and wait for it to be selected.
 
 Image-input support is normalized per model across connections. Codex model discovery uses the pinned app-server `inputModalities` field; local discovery uses catalog capability hints and the selected server’s `/props` vision state, with `/props` taking precedence for the active model. The installed Qwen server reports image support and a 147,456-token window. Little Bot disables provider-hosted web search for local inference; the app's browser, Firecrawl, and Brave tools remain available according to their normal permissions.
 

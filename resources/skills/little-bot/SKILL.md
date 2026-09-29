@@ -5,19 +5,26 @@ description: Configure and explain Little Bot's app tools and controls. Read for
 
 # Little Bot
 
-Read the current tool definitions for argument shapes. There is no Little Bot shell CLI. Do not invent commands, edit state.json, or bypass app controls. Older chats keep their original tool list; missing tools require a new chat.
+Read the current tool definitions for argument shapes. There is no Little Bot shell CLI. Do not invent commands, edit state.json, or bypass app controls. The app has one continuous Conversation timeline. Model, connection, and working-folder changes can rotate the underlying engine context while retaining that timeline and durable memory.
 
 ## App tools
 
 - `ask_user`: ask one necessary clarification, with optional choices; free text is always available. In a direct chat, wait for the answer and continue. In an autonomous goal, include a checkpoint and next step: the question is saved on the goal card and the model step ends. The user's answer accompanies the next step without expanding permissions or resetting budgets. Do not ask for credentials, unnecessary confirmation, or facts already supplied.
 
 - `skill_list` and `skill_read`: discover and read enabled skills. `$skill-name` includes a skill in a user request. Skills add instructions, not permissions.
-- `memory_search({query?,source?,scope?,offset?})`: search saved facts, recent notes, and past conversation text. An empty query browses recent records. `session_read({sessionId,offset?})` opens a result; follow `nextOffset` for more. Cite its title/date, check whether old decisions still apply, and say when nothing was found. Recall requires Memory on. History stays on the saved connection and in this folder; direct user chats can use `scope:"all"` when asked to look across folders. Background tasks stay in their own folder. Deleted chats cannot be read. Explicit saved facts remain shared memory until removed.
+- `memory_search({query?,source?,scope?,offset?})`: search durable knowledge, work episodes, and source history. An empty query browses recent records. `session_read({sessionId,messageId?,offset?})` opens source messages. Use either the search result offset alone, or messageId with offset omitted. With messageId, nextOffset is relative to that message; keep messageId when paging. Cite sources when useful, check whether old decisions still apply, and say when nothing was found. Recall requires Memory on. Memory is shared across models and connections; current-folder relevance uses a stable project identity with folder aliases. Direct user turns can search across folders with `scope:"all"`.
+- `memory_save`: immediately save or correct a durable preference, fact, decision, discovery, issue, or procedure. Inspect the current schema for types and update fields. Reuse a matching memory's ID or semantic key when correcting it; preserve useful scope. `memory_forget({id})` removes the durable record and its correction family from recall and suppresses relearning from the same source; the original conversation transcript remains searchable. search first if its ID is unknown. Background learning also extracts grounded knowledge after useful work, so explicit “Remember that” phrasing is not required. Wait for memory_save success before confirming an immediate save.
 - `goal_manage` and `schedule_manage`: list, create, update, pause, or resume goals and recurring routines. List before using an existing ID. Available in direct user chats only. Goal work uses a saved, versioned plan-and-evidence ledger; the tool does not directly edit ledger records.
 - `calendar_manage`: manage Little Bot's local calendar. Use `action:"list"` to inspect upcoming events, `create` with a title and local `startLocal`, `update` with an existing ID, and `delete` with an existing ID. Timed values use `YYYY-MM-DDTHH:MM`; all-day events use `YYYY-MM-DD` with `allDay:true`. This calendar uses the PC's local time and does not sync to Google, Outlook, or another provider.
 - `attachment_send({path,caption?})`: deliver a finished file or image as a chat attachment. Use its absolute path inside the chat folder, or a browser screenshot path. Wait for success before saying it was delivered. This sends to the current user, not another person.
 - `browser`: Vercel agent-browser with a separate profile. The `web-tools` skill covers snapshots, interaction, and screenshots.
 - `web_search_service` and `web_scrape`: configured Brave/Firecrawl search and Firecrawl page extraction. Available in direct chats and network-enabled goals, not heartbeat or routines.
+
+## Conversation and memory controls
+
+There is one persistent conversation, with no New chat, Private session, or Delete conversation control. Scheduled runs append to this timeline. Switching models, connections, folders, or Plan/Execute mode may replace the engine thread; saved history, project knowledge, and the working checkpoint remain. Clarification answers belong to the original task. Native compaction shortens engine context without erasing saved history; use recall tools for missing details.
+
+The Memory panel can search, edit, pin, forget, inspect sources, and show context used in the latest reply. Corrections supersede earlier versions. Memory has no fixed fact count or age expiry. Disabling Memory stops recall and automatic learning while retaining records for management. The new database is ordinary local SQLite without secret redaction. Optional semantic search needs a compatible embedding endpoint configured under Memory; keyword search works without it or when it is unavailable. Link a moved folder to its existing project in the same panel. Do not claim to configure these panel-only settings through an unavailable agent tool.
 
 ## Attachments
 
@@ -87,10 +94,10 @@ Everything runs only while Little Bot is open. There is no service, gateway, tra
 
 ## Controls
 
-- **Settings → Connection:** Local Qwen is the default and needs the user's local server running. Codex is optional. Chats and tasks retain their saved connection; switch to it before continuing. There is no cloud fallback. Never start or change the model server without a relevant user request.
+- **Settings → Connection:** Local Qwen is the default and needs the user's local server running. Codex is optional. The continuous conversation follows the selected connection while preserving its timeline and memory. Autonomous tasks retain their saved connection; switch to it before continuing them. There is no cloud fallback. Never start or change the model server without a relevant user request.
 - **Settings:** compaction threshold 20–95%, default 80%; 0 retains native limits. Service keys go here and are encrypted, never pasted into chat.
 - **Profile:** USER.md holds user facts/preferences; SOUL.md sets voice and approach. Each allows 4,000 characters and applies on the next request. Do not silently rewrite them through tools.
-- **Memory:** `Remember that ...` saves an explicit workspace fact. The panel edits/removes facts and controls recall. Ordinary remarks are not automatically durable facts.
+- **Memory:** search, edit, pin, forget, and inspect source links for saved records. The panel also shows the memory used in the latest reply, optional embedding-server settings, and project-folder aliases. Full-text search works without embeddings. Automatic learning runs when the execution lane is idle; user decisions and observed results remain distinguishable from assistant suggestions. Memory has no fixed 100-fact cap or 30-day expiry. Working-state checkpoints and goal ledgers support continuation separately from durable facts.
 - **Goals:** permissions, budgets, dependencies, triggers, Pause all, Review undo, and the versioned plan/evidence ledger. Exactly one step is active; earlier plans and restored-file evidence remain inspectable. Undo covers captured files and refuses later-edit conflicts; external effects cannot be undone.
 - **Automations → Standing intents:** deterministic foreground event reactions that run an already authorized goal or automation. Configuration is UI-only; no external listener or closed-app replay exists.
 - **Calendar:** a local first-party calendar with agent create/read/update/delete through `calendar_manage`. Events stay in Little Bot; external calendar sync is not bundled.

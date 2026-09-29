@@ -9,6 +9,7 @@ const os = require('node:os');
 const { CompactionTracker } = require('../src/compaction.cjs');
 const { Controller } = require('../src/controller.cjs');
 const { Store } = require('../src/store.cjs');
+function readStoredChats(options) { const store = new Store(options); const chats = store.data.chats; store.close(); return chats; }
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -95,7 +96,7 @@ test('manual compaction acknowledges promptly, keeps chat locked through turn co
   assert.deepEqual(store.data.memory, memory);
   assert.equal(client.calls.filter(call => call.method === 'turn/start').length, 1);
   store.flush();
-  const restored = new Store({ filePath, defaultWorkspace: root }).data.chats[0];
+  const restored = readStoredChats({ filePath, defaultWorkspace: root })[0];
   assert.equal(restored.compaction.count, 1);
   assert.equal(restored.context.usedTokens, 300);
   assert.deepEqual(restored.messages, JSON.parse(JSON.stringify(transcript)));

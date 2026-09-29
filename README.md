@@ -1,6 +1,6 @@
 # Little Bot
 
-A Windows personal assistant for chat, files, terminal work, web browsing, and proactive tasks. Electron, plain JavaScript, and a pinned Codex tool runtime.
+A Windows personal assistant with one continuous conversation, durable local memory, files, terminal work, web browsing, and proactive tasks. Electron, plain JavaScript, and a pinned Codex tool runtime.
 
 ## Start
 
@@ -21,9 +21,9 @@ Tool calls appear in expandable groups, including progress messages between call
 
 Click **Thinking…** in a reply to expand the reasoning as it streams. The completed **Thoughts** remains available in that conversation. Qwen3.6 sampling follows the thinking mode, with output space reserved for the answer.
 
-Little Bot can ask a question during a normal chat, with optional choices or your own answer. Answer to continue, or skip. Autonomous goals save questions on their goal card; answering continues the goal within its existing access and remaining budget. Start a new chat to receive newly added tools.
+Little Bot can ask a question during a normal chat, with optional choices or your own answer. Answer to continue, or skip. Autonomous goals save questions on their goal card; answering continues the goal within its existing access and remaining budget.
 
-Chats and autonomous tasks keep their saved connection. Older tasks remain on Codex; switch to their connection before continuing. Use a new chat for another connection or newly added tools. See [CONNECTIONS.md](CONNECTIONS.md).
+The Conversation view is one persistent timeline. Change its working folder, model, or connection between turns; Little Bot opens a fresh engine context when needed and carries forward recent conversation plus relevant memory. Autonomous tasks keep their saved execution settings. See [CONNECTIONS.md](CONNECTIONS.md).
 
 ## Files and images
 
@@ -44,7 +44,7 @@ Optional **Firecrawl** and **Brave Search** keys go in **Settings → Web servic
 ## Personal assistance
 
 - **Profile:** edit USER.md for your facts/preferences and SOUL.md for the assistant's voice. Changes apply on the next request.
-- **Memory:** current conversation, recent work, and explicit saved facts—three layers. Say **Remember that ...** or use the Memory panel. The agent can also search and page through saved conversations, including older or compacted chats, using `memory_search` and `session_read`.
+- **Memory:** SQLite stores preferences, project facts, decisions, discoveries, work episodes, and searchable source history. Automatic learning runs between tasks; explicit `memory_save` and `memory_forget` tools apply changes immediately. The Memory panel searches, edits, pins, forgets, and shows sources and the context used in the latest reply. Optional embeddings add semantic search; full-text search works without an embedding server. See [MEMORY.md](MEMORY.md).
 - **Independent Check:** optional same-model anti-sycophancy review with Off, Selective, and Always modes plus a manual **Challenge this answer** action. It runs sequentially without tools and keeps the completed draft if review fails or is stopped. See [INDEPENDENT-CHECK.md](INDEPENDENT-CHECK.md).
 - **Goals:** define an objective, checks, permissions, and budget. Every goal keeps a versioned one-active-step plan plus bounded assumptions, observations, decisions, and verification evidence that survive restart and chat compaction. Review undo records restored file evidence. See [GOALS.md](GOALS.md) and [LEDGER.md](LEDGER.md).
 - **Automations and standing intents:** repeat prompts by interval or exact PC-local time, or connect foreground events to an existing authorized goal or automation. Standing intents use one bounded in-process queue and stop with the app. See [EVENTS.md](EVENTS.md).
@@ -59,13 +59,13 @@ Automations support repeating intervals and exact PC-local clock times on select
 
 Settings also controls automatic compaction: **20–95%**, default **80%**; **0** retains only native limits. **Compact now** summarizes older context while keeping the visible transcript. See [COMPACTION.md](COMPACTION.md).
 
-Recall requires Memory on. Conversation history stays on its saved connection and defaults to the current folder; direct chats can search across folders when requested. Background work stays in its own folder. Explicit saved facts remain shared memory until removed. Deleted chats cannot be recalled. This searches Little Bot history, not other apps. Start a new chat to use newly added tools.
+Recall and automatic learning require Memory on. Knowledge is shared across models and connections, with current-project relevance and cross-folder search. Link moved folders under Memory settings to retain project continuity. Corrections supersede earlier facts; forgotten memories are suppressed from automatic relearning. The model can use `memory_search` and `session_read` to retrieve older details after native context compaction. This searches Little Bot history, not other apps.
 
 Bundled skill updates preserve user edits, disabled state, IDs, and deletions. [Skill sources and licenses](resources/skills/SOURCES.md).
 
 ## Local data
 
-Data lives in `%APPDATA%/Little Bot/data`: encrypted chat/memory state, profile, attachments, browser state, encrypted service keys, and isolated engine state. Saved conversations and Memory data are encrypted at rest with Windows DPAPI through Electron safeStorage; existing plaintext state migrates automatically on the next save. Attachments, profile Markdown files, calendar, automation, and standing-intent metadata, and other local configuration remain ordinary local files. The app does not change your existing Codex or OpenClaw configuration. Streaming replies checkpoint about every two seconds and save immediately on completion or interruption; an abrupt power loss can lose the most recent unsaved text.
+Data lives in `%APPDATA%/Little Bot/data`: the saved conversation, a local SQLite memory database, profile, attachments, browser state, service keys, and isolated engine state. The existing conversation state uses Windows DPAPI through Electron safeStorage; the new memory database is an ordinary local SQLite file. The app keeps one conversation timeline; legacy fact and episode arrays are not imported into the new database. Attachments, profile Markdown files, calendar, automation, and standing-intent metadata, and other local configuration remain ordinary local files. The app does not change your existing Codex or OpenClaw configuration. Streaming replies checkpoint about every two seconds and save immediately on completion or interruption; an abrupt power loss can lose the most recent unsaved text.
 
 Prompts and attachments go to the selected model connection: local Qwen stays on this computer; Codex sends them to its provider. Web services and MCP tools have their own destinations. Provider usage and local performance samples are transient and are not added to saved chats or Memory. The renderer has no Node access or remote scripts. This is an unsigned personal build.
 

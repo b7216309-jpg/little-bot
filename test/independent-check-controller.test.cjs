@@ -143,7 +143,9 @@ test('a material Independent Check revision survives a Store round trip with its
   assert.deepEqual(await outcome, { error: null });
   store.flush();
 
-  const restored = new Store({ filePath, defaultWorkspace: root }).data.chats[0];
+  const restoredStore = new Store({ filePath, defaultWorkspace: root });
+  const restored = restoredStore.data.chats[0];
+  restoredStore.close();
   const answer = restored.messages.find(message => message.id === 'answer-1');
   assert.equal(answer.text, 'Keep the current store until measured failures justify a migration.');
   assert.equal(answer.independentCheck.revisionApplied, true);
@@ -164,7 +166,7 @@ test('Selective mode skips operational and factual recall prompts', async (t) =>
     assert.equal(chat.status, 'idle');
     assert.equal(controller.independentCheck.active, null);
   }
-  assert.equal(client.calls.filter(call => call.method === 'thread/start').length, 3);
+  assert.equal(client.calls.filter(call => call.method === 'thread/start').length, 1);
   assert.equal(client.calls.filter(call => call.method === 'turn/start').length, 3);
 });
 

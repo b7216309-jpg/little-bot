@@ -5,13 +5,10 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   const commands = Object.freeze([
     { name: 'help', usage: '/help', description: 'Show available chat commands.' },
-    { name: 'new', usage: '/new', description: 'Start a new conversation.' },
     { name: 'plan', usage: '/plan', description: 'Use Plan mode for the next turn.' },
     { name: 'execute', usage: '/execute', description: 'Use Execute mode for the next turn.' },
-    { name: 'private', usage: '/private', description: 'Toggle Private mode before a new chat starts.' },
     { name: 'goal', usage: '/goal [objective]', description: 'Open a new goal draft.' },
     { name: 'schedule', usage: '/schedule [task]', description: 'Open a new automation draft.' },
-    { name: 'calendar', usage: '/calendar', description: 'Open the local calendar.' },
     { name: 'calendar', usage: '/calendar', description: 'Open the local calendar.' },
     { name: 'memory', usage: '/memory', description: 'Open saved memory.' },
     { name: 'activity', usage: '/activity', description: 'Open the agent activity panel.' },
@@ -23,9 +20,7 @@
     goals: 'goal',
     automation: 'schedule',
     automations: 'schedule',
-    cal: 'calendar',
     exec: 'execute',
-    incognito: 'private',
     inspector: 'activity',
     cal: 'calendar',
   });

@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { app, BrowserWindow } = require('electron');
+app.setPath('userData', require('node:fs').mkdtempSync(path.join(require('node:os').tmpdir(), 'little-bot-ui-test-')));
 
 async function run() {
   await app.whenReady();

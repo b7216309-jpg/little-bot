@@ -79,7 +79,7 @@ test('explicit remember is saved, available to later turns, and final work excer
   const facts = f.store.data.memory.facts;
   assert.equal(facts.length, 1);
   assert.equal(facts[0].text, 'reports should use metric units.');
-  assert.equal(facts[0].sourceChatId, chatId);
+  assert.equal(facts[0].source.sessionId, chatId);
   const sent = f.client.calls.find(call => call.method === 'turn/start').params.input[0].text;
   assert.ok(sent.endsWith(`Current user request:\n${text}`));
   assert.doesNotMatch(sent, /Durable facts:/);
@@ -91,11 +91,12 @@ test('explicit remember is saved, available to later turns, and final work excer
   assert.doesNotMatch(f.store.data.memory.episodes[0].summary, /Private intermediate/);
   await f.controller.send({ chatId, text: 'What units should reports use?' });
   const later = f.client.calls.filter(call => call.method === 'turn/start').at(-1).params.input[0].text;
-  assert.match(later, /Durable facts:/);
+  assert.match(later, /memory/i);
   assert.match(later, /reports should use metric units/);
   f.store.flush();
   const restored = new Store({ filePath: f.filePath, defaultWorkspace: f.root });
-  assert.deepEqual(restored.data.memory, JSON.parse(JSON.stringify(f.store.data.memory)));
+  restored.close();
+  assert.deepEqual(JSON.parse(JSON.stringify(restored.data.memory)), JSON.parse(JSON.stringify(f.store.data.memory)));
 });
 
 test('automatic prompts and assistant replies cannot create durable facts', async (t) => {
@@ -247,6 +248,7 @@ test('quiet command checks keep auditable lastActions without publishing an aler
   assert.equal(f.store.data.heartbeat.lastActions.length, 1);
   f.store.flush();
   const restored = new Store({ filePath: f.filePath, defaultWorkspace: f.root });
+  restored.close();
   assert.deepEqual(restored.data.heartbeat.lastActions, f.store.data.heartbeat.lastActions);
 });
 

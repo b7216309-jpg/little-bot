@@ -11,7 +11,7 @@ const { validateAutomation } = require('../src/scheduler.cjs');
 
 test('exact clock schedule survives a Store round trip', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'little-bot-clock-schedule-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => { store.close(); restoredStore.close(); return rm(root, { recursive: true, force: true }); });
   const filePath = path.join(root, 'state.json');
   const store = new Store({ filePath, defaultWorkspace: root });
   const now = new Date(2026, 8, 28, 8, 0, 0, 0).getTime();
@@ -26,7 +26,8 @@ test('exact clock schedule survives a Store round trip', async t => {
   store.data.automations.push(automation);
   store.flush();
 
-  const restored = new Store({ filePath, defaultWorkspace: root }).data.automations[0];
+  const restoredStore = new Store({ filePath, defaultWorkspace: root });
+  const restored = restoredStore.data.automations[0];
   assert.equal(restored.scheduleType, 'clock');
   assert.equal(restored.clockTime, '08:30');
   assert.deepEqual(restored.daysOfWeek, [1, 2, 3, 4, 5]);
@@ -35,7 +36,7 @@ test('exact clock schedule survives a Store round trip', async t => {
 
 test('legacy interval records normalize to the interval schedule type', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'little-bot-interval-migration-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => { store.close(); restoredStore.close(); return rm(root, { recursive: true, force: true }); });
   const store = new Store({ filePath: path.join(root, 'state.json'), defaultWorkspace: root });
   store.data.automations.push({
     id: 'legacy',
@@ -47,7 +48,8 @@ test('legacy interval records normalize to the interval schedule type', async t 
     workspace: root,
   });
   store.flush();
-  const restored = new Store({ filePath: store.filePath, defaultWorkspace: root }).data.automations[0];
+  const restoredStore = new Store({ filePath: store.filePath, defaultWorkspace: root });
+  const restored = restoredStore.data.automations[0];
   assert.equal(restored.scheduleType, 'interval');
   assert.equal(restored.intervalMinutes, 45);
 });

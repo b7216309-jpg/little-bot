@@ -30,6 +30,11 @@ class AgentTools {
     const readTools = [...skills, ...recallSpecs(), calendarList];
     if (readOnly) return readTools;
     return [...readTools, questionSpec(), ...(this.browser?.specs() || []), ...(this.webServices?.specs() || []),
+      functionSpec('memory_save', 'Save a durable fact, preference, decision, procedure, or unresolved issue. Use immediately when the user asks to remember something. Supply id to correct an existing record; its prior version remains historical. Memory is shared across models. Use global for personal preferences and workspace for project knowledge.', {
+        id: text(200), text: text(20000), type: { type: 'string', enum: ['fact', 'preference', 'decision', 'procedure', 'discovery', 'issue'] },
+        scope: { type: 'string', enum: ['global', 'workspace'] }, key: text(300), pinned: { type: 'boolean' },
+      }, ['text']),
+      functionSpec('memory_forget', 'Forget a memory by its ID. Also suppress automatic relearning of that memory. Search first if the ID is unknown.', { id: text(200) }, ['id']),
       ...(this.sendAttachment ? [functionSpec('attachment_send', 'Deliver an existing file or image to the user as a visible attachment with preview and save controls. Use for requested finished documents, images, browser screenshots and other files, instead of filesystem links. Path must be inside this chat workspace or the browser screenshot folder. Never send credential files. This does not send anything to another person.', { path: text(2000), caption: { type: 'string', maxLength: 1000 } }, ['path'])] : []),
       functionSpec('goal_manage', 'Manage Little Bot goals: list, create a draft, update a draft, pause, or resume a previously user-authorized goal. Create never starts work. Resume only when the current user explicitly requests it. Tools cannot grant permissions, enlarge budgets, change folders, or restart a never-authorized draft. Completion checks should be concrete.', {
         action: { type: 'string', enum: actions }, id: text(100), name: text(80), objective: text(12000), steps: { type: 'array', maxItems: 20, items: text(1000) }, checks: { type: 'array', maxItems: 20, items: checkSchema },
@@ -63,8 +68,26 @@ class AgentTools {
   }
   async call(name, args, { chat } = {}) {
     if (!object(args) || JSON.stringify(args).length > 50000) throw new Error('Tool arguments must be a bounded object.');
-    if (name === 'memory_search') return recallSearch(this.store, args, { chat });
+    if (name === 'memory_search') {
+      await this.store.memoryService?.prepareQuery(args.query || '');
+      return recallSearch(this.store, args, { chat });
+    }
     if (name === 'session_read') return recallRead(this.store, args, { chat });
+    if (name === 'memory_save' || name === 'memory_forget') {
+      const service = this.store.memoryService;
+      if (!service || this.store.data.memory?.enabled === false) throw new Error('Memory is off.');
+      if (!chat) throw new Error('Memory writing needs a conversation or active task.');
+      if (name === 'memory_forget') {
+        if (Object.keys(args).some(key => key !== 'id')) throw new Error('Forget accepts only a memory ID.');
+        const forgotten = service.forget(string(args.id, 'memory ID', 200, true));
+        this.store.save(); return { forgotten };
+      }
+      if (Object.keys(args).some(key => !['id', 'text', 'type', 'scope', 'key', 'pinned'].includes(key))) throw new Error('Unsupported memory field.');
+      const message = [...(chat.messages || [])].reverse().find(item => item.role === 'user');
+      const record = service.save({ ...args, text: string(args.text, 'memory text', 20000, true),
+        workspace: chat.workspace, source: { sessionId: chat.id, messageId: message?.id, messageIds: message?.id ? [message.id] : [], origin: 'remember' } });
+      this.store.save(); return { record };
+    }
     if (name === 'attachment_send') {
       if (!this.sendAttachment || !chat || chat.internal || chat.automationId || chat.status !== 'running') throw new Error('Attachments can be sent only in an active user conversation.');
       if (Object.keys(args).some(key => !['path', 'caption'].includes(key)) || typeof args.path !== 'string' || !args.path.trim() || args.path.length > 2000 || args.path.includes('\0') || (args.caption !== undefined && (typeof args.caption !== 'string' || args.caption.length > 1000))) throw new Error('Choose a file path and an optional short caption.');

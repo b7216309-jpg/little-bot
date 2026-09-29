@@ -48,7 +48,7 @@ test('calendar list returns overlapping events in chronological order and a boun
 
 test('calendar survives Store persistence', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'little-bot-calendar-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => { store.close(); restored.close(); return rm(root, { recursive: true, force: true }); });
   const filePath = path.join(root, 'state.json');
   const store = new Store({ filePath, defaultWorkspace: root });
   store.data.calendar.events.push(validateCalendarEvent({
