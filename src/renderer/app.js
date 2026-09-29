@@ -648,10 +648,53 @@ function independentCheckSummary(record) {
   return 'Independent check: mixed';
 }
 
+let answerMenu = null;
+function closeAnswerMenu() {
+  if (answerMenu?.matches(':popover-open')) answerMenu.hidePopover();
+}
+window.addEventListener('resize', closeAnswerMenu);
+document.addEventListener('scroll', closeAnswerMenu, true);
+
+function showAnswerMenu(event, node, chatId, messageId) {
+  const chat = state?.chats?.find(item => item.id === chatId);
+  const message = chat?.messages?.find(item => item.id === messageId);
+  if (!window.LittleBotIndependentCheck.eligible(message)) return;
+  event.preventDefault();
+  closeAnswerMenu();
+  if (!answerMenu) {
+    answerMenu = element('div', 'answer-context-menu');
+    answerMenu.setAttribute('popover', 'auto');
+    answerMenu.setAttribute('role', 'menu');
+    answerMenu.setAttribute('aria-label', 'Answer actions');
+    document.body.append(answerMenu);
+  }
+  const record = message.independentCheck;
+  const button = action(record?.status === 'failed' || record?.status === 'interrupted' ? 'Run check again' : 'Challenge this answer', async () => {
+    closeAnswerMenu();
+    node.focus({ preventScroll: true });
+    const result = await attempt(() => window.bot.challengeIndependentCheck({ chatId, messageId }));
+    if (result) notify('Independent Check started.');
+  }, 'button text-button');
+  button.setAttribute('role', 'menuitem');
+  button.disabled = chat.status !== 'idle' || record?.status === 'running' || !isReady() || !isConnected();
+  button.title = button.disabled ? 'Wait for the current task to finish.' : 'Force a sequential Independent Check of this answer.';
+  answerMenu.replaceChildren(button);
+  answerMenu.showPopover();
+  const anchor = node.getBoundingClientRect();
+  const x = event.clientX || anchor.left;
+  const y = event.clientY || anchor.top;
+  answerMenu.style.left = `${Math.max(8, Math.min(x, innerWidth - answerMenu.offsetWidth - 8))}px`;
+  answerMenu.style.top = `${Math.max(8, Math.min(y, innerHeight - answerMenu.offsetHeight - 8))}px`;
+  button.focus();
+}
+
 function renderIndependentCheck(node, chat, message) {
   node.querySelector(':scope > .independent-check')?.remove();
   node.querySelector(':scope > .independent-check-actions')?.remove();
   const eligible = window.LittleBotIndependentCheck.eligible(message);
+  node.oncontextmenu = eligible ? event => showAnswerMenu(event, node, chat.id, message.id) : null;
+  if (eligible) node.tabIndex = 0;
+  else node.removeAttribute('tabindex');
   if (!eligible) return;
 
   const record = message.independentCheck;
@@ -685,16 +728,6 @@ function renderIndependentCheck(node, chat, message) {
     node.append(details);
   }
 
-  const actions = element('div', 'independent-check-actions');
-  const button = action(record?.status === 'failed' || record?.status === 'interrupted' ? 'Run check again' : 'Challenge this answer', async () => {
-    const result = await attempt(() => window.bot.challengeIndependentCheck({ chatId: chat.id, messageId: message.id }));
-    if (result) notify('Independent Check started.');
-  }, 'button text-button');
-  const busy = chat.status !== 'idle' || record?.status === 'running' || !isReady() || !isConnected();
-  button.disabled = busy;
-  button.title = busy ? 'Wait for the current task to finish.' : 'Force a sequential Independent Check of this answer.';
-  actions.append(button);
-  node.append(actions);
 }
 
 function conversationMessage(chat, message, index) {
