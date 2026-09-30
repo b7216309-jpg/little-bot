@@ -100,3 +100,7 @@ Checked on 28 September 2026 with Node 24 on the Windows GitHub runner:
 - the one-shot integration and polish workflows committed changes only after those checks succeeded.
 
 No live provider call was made during this implementation. Model behavior was exercised through deterministic fake-engine responses; the pull request's packaging workflow validates the real Windows distribution, installer registration, and uninstallation path.
+
+## Conversation recall after compaction
+
+The review packet includes earlier user messages (up to 12 messages and 12,000 characters), the current request, prior conclusion and observed tool evidence. Truncated history is marked. Missing facts in that bounded packet alone are not grounds to rewrite a correct recall answer as amnesia. Original history and model context can contain more information than this excerpt.
