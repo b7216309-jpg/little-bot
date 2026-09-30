@@ -1,4 +1,6 @@
-# Version 0.9.2 verification
+# Version 0.10.0 verification
+
+Goals 0.10.0: isolated real local Qwen runs verify a finite file task, fresh correction of an obsolete fact, same-chat output, restart persistence and zero model requests on an unchanged review. Production renderer tests cover goal questions and exact answer routing. Model coaching quality remains subject to user feedback.
 
 Bundled quantized BGE-base-en-v1.5 provides offline CPU embeddings through a worker and an explicitly selected ONNX CPU provider. Real-model tests verify normalized 768-dimensional vectors, paraphrase retrieval, unrelated-result rejection, long-text windows, disabled-mode fallback, and database migration. Tool and reasoning traces remain readable as source history but are excluded from recall and embeddings. The Memory panel defaults to saved knowledge.
 

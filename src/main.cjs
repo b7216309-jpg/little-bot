@@ -11,6 +11,7 @@ const { MemoryConsolidator } = require('./memory-consolidator.cjs');
 const { Heartbeat, validateHeartbeat } = require('./heartbeat.cjs');
 const { ExtensionFiles, validateServer, LIMITS } = require('./extensions.cjs');
 const { ExtensionRuntime } = require('./extension-runtime.cjs');
+const goalContract = require('./goal-contract.cjs');
 const { GoalRunner } = require('./goals.cjs');
 const { EventRuntime } = require('./event-runtime.cjs');
 const { manageSchedule } = require('./schedule-management.cjs');
@@ -166,6 +167,7 @@ app.whenReady().then(async () => {
     publish: publishEvent,
     onAlert: item => {
       const goal = store.data.autonomy.goals.find(goal => goal.id === item.goalId);
+      if (goalContract.isV2(goal) && goal?.status === 'blocked') goalContract.deliver(goal, store.data, { runId: goal.pendingQuestion ? undefined : 'blocked:' + goal.updatedAt, summary: item.summary || item.message, question: goal.pendingQuestion });
       heartbeat.recordActivity({ status: goal?.status === 'blocked' ? 'error' : 'alert',
         summary: `${item.title || 'Goal'}: ${item.summary || item.message || 'A goal needs your attention.'}`,
         topic: item.title || 'Goal runner', source: 'goal', goalId: item.goalId,
@@ -224,10 +226,11 @@ app.whenReady().then(async () => {
         .map(({ id, name, objective, status, nextStep, checkpoint, authorized }) => ({ id, name, objective, status, nextStep, checkpoint, authorized }));
       if (action === 'create') {
         if (payload.id) throw new Error('A new goal cannot reuse an existing goal ID.');
-        const goal = await goals.save({ ...payload, workspace: context.workspace });
+        const goal = await goals.save({ kind: 'task', ...payload, workspace: context.workspace });
         return { goal, message: 'Saved as a draft. Use Goals → Run to authorize its access and start work.' };
       }
       const goal = owned();
+      if (action === 'answer') return goals.answer({ id: goal.id, questionId: payload.questionId, answer: payload.answer });
       if (action === 'update') {
         if (goal.status !== 'draft') throw new Error('Only draft goals can be edited by the agent. Change an active goal in Goals.');
         return goals.save({ ...goal, ...payload, id: goal.id });

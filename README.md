@@ -28,8 +28,8 @@ Run scheduled prompts in the same conversation, using intervals or selected days
 
 1. Start your existing Qwen launcher.
 2. Build from source with the Development commands below, then choose a generated Windows build:
-   - **Installer:** run `dist/0.9.2/Little-Bot-0.9.2-Setup.exe`. It installs per-user under LocalAppData, adds a Start Menu shortcut, and registers an uninstaller in Apps & Features.
-   - **Portable:** unzip `dist/0.9.2/Little-Bot-0.9.2-portable.zip` and run `Little Bot.exe`. Keep the extracted folder together.
+   - **Installer:** run `dist/0.10.0/Little-Bot-0.10.0-Setup.exe`. It installs per-user under LocalAppData, adds a Start Menu shortcut, and registers an uninstaller in Apps & Features.
+   - **Portable:** unzip `dist/0.10.0/Little-Bot-0.10.0-portable.zip` and run `Little Bot.exe`. Keep the extracted folder together.
    - **Development package:** open **Launch Little Bot.cmd** after `npm run package`.
 3. Choose a working folder and send a message.
 
@@ -68,7 +68,7 @@ Optional **Firecrawl** and **Brave Search** keys go in **Settings → Web servic
 - **Profile:** edit USER.md for your facts/preferences and SOUL.md for the assistant's voice. Changes apply on the next request.
 - **Memory:** SQLite stores preferences, project facts, decisions, discoveries, work episodes, and searchable source history. Automatic learning runs between tasks; explicit `memory_save` and `memory_forget` tools apply changes immediately. The Memory panel searches, edits, pins, forgets, and shows sources and the context used in the latest reply. Bundled quantized BGE-base adds offline CPU semantic search with no server setup; full-text search remains available. Tool traces are archived separately from recall, and the Memory panel opens on saved knowledge. See [MEMORY.md](MEMORY.md).
 - **Independent Check:** optional same-model anti-sycophancy review with Off, Selective, and Always modes plus a manual **Challenge this answer** action in the right-click menu on completed replies. It runs sequentially without tools and keeps the completed draft if review fails or is stopped. See [INDEPENDENT-CHECK.md](INDEPENDENT-CHECK.md).
-- **Goals:** define an objective, checks, permissions, and budget. Every goal keeps a versioned one-active-step plan plus bounded assumptions, observations, decisions, and verification evidence that survive restart and chat compaction. Review undo records restored file evidence. See [GOALS.md](GOALS.md) and [LEDGER.md](LEDGER.md).
+- **Goals:** choose a finite Task or an Ongoing goal that acts and coaches through your continuous chat. Reviews use fresh user messages and selected project evidence, and unchanged reviews stay quiet without model calls. Tasks need acceptance checks; advice is labelled as a recommendation. Define sources, permissions, and a budget. Every goal keeps a versioned one-active-step plan plus bounded assumptions, observations, decisions, and verification evidence that survive restart and chat compaction. Review undo records restored file evidence. See [GOALS.md](GOALS.md) and [LEDGER.md](LEDGER.md).
 - **Automations and standing intents:** repeat prompts by interval or exact PC-local time, or connect foreground events to an existing authorized goal or automation. Standing intents use one bounded in-process queue and stop with the app. See [EVENTS.md](EVENTS.md).
 - **Calendar:** a local Little Bot calendar with all-day or timed events. The UI and agent can create, edit, delete, and list events using the PC's local clock. External calendar sync is not included.
 - **Activity inbox:** a dedicated sidebar tab for Heartbeat and goal updates, with unread/error and source filters, read controls, and topic feedback.

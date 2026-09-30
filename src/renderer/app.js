@@ -733,7 +733,7 @@ function renderIndependentCheck(node, chat, message) {
 function conversationMessage(chat, message, index) {
   const key = `${chat.id}:${message.id || index}`;
   const fingerprint = [message.role, message.kind, message.status, message.phase, message.text, JSON.stringify(message.attachments || []),
-    JSON.stringify(message.independentCheck || null), chat.status, message.automationId, message.automationName];
+    JSON.stringify(message.independentCheck || null), chat.status, message.automationId, message.automationName, message.goalId, state.goalRuntime?.status, state.goalRuntime?.goalId, JSON.stringify(state.autonomy?.goals?.find(g => g.id === message.goalId)?.pendingQuestion || null)];
   const previous = renderedMessages.get(key);
   if (previous && fingerprint.every((value, position) => value === previous.fingerprint[position])) return previous.node;
   const variant = message.kind === 'compaction' ? 'compaction' : message.role === 'assistant' && message.kind === 'reasoning' ? 'reasoning'
@@ -783,7 +783,7 @@ function conversationMessage(chat, message, index) {
       if (variant === 'user' && message.automationId) node.append(element('div', 'message-label automation-label', `Scheduled · ${message.automationName || 'Automation'}`));
       if (variant === 'assistant' || variant === 'plan') {
         const label = element('div', 'message-label');
-        label.append(element('span', 'mini-mark', variant === 'plan' ? 'P' : '✳'), document.createTextNode(variant === 'plan' ? 'Plan' : message.automationId ? `Little Bot · ${message.automationName || 'Automation'}` : 'Little Bot'));
+        label.append(element('span', 'mini-mark', variant === 'plan' ? 'P' : '✳'), document.createTextNode(variant === 'plan' ? 'Plan' : message.goalId ? `Goal · ${message.goalName || 'Little Bot'}` : message.automationId ? `Little Bot · ${message.automationName || 'Automation'}` : 'Little Bot'));
         node.append(label);
       }
       node.append(element('div', 'message-content'));
@@ -799,6 +799,12 @@ function conversationMessage(chat, message, index) {
       renderAttachments(node, message.attachments);
     }
     renderIndependentCheck(node, chat, message);
+    if (message.goalId) {
+      const goal = state.autonomy?.goals?.find(g => g.id === message.goalId);
+      const existing = node.querySelector('.goal-question');
+      if (goal?.pendingQuestion?.id === message.goalQuestionId) { const form = renderGoalQuestion(goal, existing); if (form && !form.isConnected) node.append(form); }
+      else existing?.remove();
+    }
   }
   node.dataset.messageId = message.id || String(index);
   renderedMessages.set(key, { node, variant, fingerprint });
@@ -2748,11 +2754,14 @@ function renderGoals() {
     const trigger = goal.trigger?.type === 'interval' ? intervalLabel(goal.trigger.intervalMinutes) : goal.trigger?.type === 'files' ? 'On selected file changes' : 'Run manually';
     meta.append(folder, element('span', '', `Priority ${goal.priority || 3}`), element('span', '', trigger));
     if (goal.nextRunAt && goal.status === 'queued' && !autonomy.paused) meta.append(element('span', '', `Next: ${formatDate(goal.nextRunAt)}`));
+    if (goal.contractVersion === 2) meta.append(element('span', '', goal.kind === 'ongoing' ? 'Ongoing' : 'Task'));
     card.append(meta);
+    if (goal.review?.lastResult) card.append(element('p', 'goal-no-data', `Last outcome: ${goal.review.lastResult.outcome}`));
+    for (const item of goal.actionItems || []) if (['proposed', 'waiting'].includes(item.status)) card.append(element('p', 'goal-no-data', `${item.owner === 'user' ? 'Your action' : 'Bot action'} · ${item.text}`));
     if (questionSlot) card.append(questionSlot);
     const progress = element('div', `goal-progress${questionForm ? ' goal-awaiting-input' : ''}`);
     const checkpoint = element('div');
-    checkpoint.append(element('h3', '', 'Latest checkpoint'), element('p', '', goalText(goal.checkpoint) || 'No checkpoint yet.'));
+    checkpoint.append(element('h3', '', goal.contractVersion === 2 ? 'Latest result' : 'Latest checkpoint'), element('p', '', goalText(goal.review?.lastMeaningfulResult?.summary || goal.review?.lastResult?.summary || (goal.review?.lastResult?.outcome === 'no-change' ? 'No new evidence; stayed quiet.' : goal.checkpoint)) || 'No checkpoint yet.'));
     const next = element('div');
     next.append(element('h3', '', 'Next step'), element('p', '', goalText(goal.nextStep) || (goal.status === 'completed' ? 'Checks passed.' : goal.status === 'draft' ? 'Ready to run when you are.' : 'Waiting for the next step.')));
     progress.append(checkpoint);
@@ -2925,7 +2934,7 @@ function renderGoalCheckType(row) {
     row.querySelector(`.goal-check-${field}-field`).classList.toggle('hidden', !visible);
     const input = row.querySelector(`.goal-check-${field}`);
     input.disabled = !visible;
-    input.required = visible;
+    input.required = visible && $('goal-kind').value !== 'ongoing';
   }
 }
 
@@ -2935,12 +2944,22 @@ function refreshGoalCheckControls() {
   $('goal-checks').querySelectorAll('.goal-remove-check').forEach((button) => { button.disabled = rows <= 1; });
 }
 
+function renderGoalKind() {
+  const ongoing = $('goal-kind').value === 'ongoing';
+  for (const field of $('goal-checks').querySelectorAll('input,textarea')) field.required = !ongoing;
+}
+
 function editGoal(goal) {
   editingGoalId = goal?.id || null;
   goalDraftContext = { workspace: goal?.workspace || state.settings.workspace, model: goal?.model || state.settings.model, effort: goal?.effort || state.settings.effort || 'low', connection: goal ? goal.connection || 'codex' : connectionType() };
   $('goal-title').textContent = goal ? 'Edit goal' : 'New goal';
   $('goal-name').value = goal?.name || '';
   $('goal-objective').value = goal?.objective || '';
+  $('goal-kind').value = goal?.kind || 'task';
+  $('goal-source-chat').checked = goal?.sources?.chat !== false;
+  $('goal-source-calendar').checked = goal?.sources?.calendar !== false;
+  $('goal-source-files').value = (goal?.sources?.files || []).join('\n');
+  $('goal-review-policy').value = goal?.reviewPolicy || 'changes';
   $('goal-steps').value = (goal?.steps || []).join('\n');
   $('goal-workspace').textContent = `Folder: ${goalDraftContext.workspace}\nModel: ${goalDraftContext.model} · ${taskReasoningLabel(goalDraftContext.connection, goalDraftContext.effort, goalDraftContext.model)}`;
   $('goal-checks').replaceChildren();
@@ -2976,6 +2995,7 @@ function editGoal(goal) {
   $('goal-dependencies').replaceChildren(dependencies);
   renderGoalTrigger();
   renderGoalWriteScope();
+  renderGoalKind();
   showDialog('goal-dialog');
 }
 
@@ -3053,7 +3073,7 @@ async function saveGoal(event) {
     if (selectedMcp.some((input) => input.dataset.unavailable === 'true')) throw new Error('Refresh Extensions to discover the saved MCP tools, or remove their grants before saving.');
     const existing = state.autonomy?.goals?.find((goal) => goal.id === editingGoalId);
     const payload = {
-      ...(editingGoalId ? { id: editingGoalId } : {}), name: $('goal-name').value.trim(), objective: $('goal-objective').value.trim(), steps, checks,
+      ...(editingGoalId ? { id: editingGoalId } : {}), contractVersion: 2, kind: $('goal-kind').value, sources: { chat: $('goal-source-chat').checked, calendar: $('goal-source-calendar').checked, files: lines('goal-source-files') }, reviewPolicy: $('goal-review-policy').value, name: $('goal-name').value.trim(), objective: $('goal-objective').value.trim(), steps, checks: $('goal-kind').value === 'ongoing' ? checks.filter(c => c.path || c.command) : checks,
       workspace: existing?.workspace || goalDraftContext.workspace, model: existing?.model || goalDraftContext.model, effort: existing?.effort || goalDraftContext.effort,
       priority: Number($('goal-priority').value),
       permissions: { write: $('goal-permission-write').checked, writePaths: $('goal-permission-write').checked ? lines('goal-write-paths') : [], shell: $('goal-permission-shell').checked, network: $('goal-permission-network').checked, mcpTools: selectedMcp.map((input) => ({ server: input.dataset.server, tool: input.dataset.tool })) },
@@ -3608,6 +3628,7 @@ for (const key of ['user', 'soul']) $('profile-' + key).addEventListener('input'
 $('open-profile-folder').addEventListener('click', () => attempt(() => window.bot.openProfileFolder()));
 $('create-goal').addEventListener('click', () => editGoal());
 $('goal-form').addEventListener('submit', saveGoal);
+$('goal-kind').addEventListener('change', renderGoalKind);
 $('goal-add-check').addEventListener('click', () => addGoalCheck());
 $('goal-trigger').addEventListener('change', renderGoalTrigger);
 $('goal-permission-write').addEventListener('change', renderGoalWriteScope);

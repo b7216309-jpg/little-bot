@@ -7,6 +7,7 @@ const { defaultMemory, automaticRemember, captureEpisode, buildMemoryContext } =
 const { skillContext } = require('./skill-context.cjs');
 const { mcpQuestions, mcpContent } = require('./mcp-forms.cjs');
 const { CompactionTracker, COMPACTION_TIMEOUT_MS, COMPACTION_STOP_TIMEOUT_MS, validAutoCompactPercent, compactionConfig } = require('./compaction.cjs');
+const { chatContext } = require('./goal-contract.cjs');
 const { GoalExecutor } = require('./goal-executor.cjs');
 const { attachmentDescriptors } = require('./attachment-message.cjs');
 const { localBaseUrl, localModel, connectionBinding, normalizeModelCapabilities, modelSupportsVision, probeLocal, providerConfig } = require('./connections.cjs');
@@ -583,6 +584,7 @@ class Controller extends EventEmitter {
         ? `Scheduled task: ${override.name || 'Automation'}\n${text}\n\nThis is an automated run of a saved task, not a new message from the user. Use relevant conversation context, but perform only this scheduled task. Do not resume unrelated unfinished conversation work or treat this prompt as a new personal fact about the user.`
         : `Current user request:\n${text || 'Examine the attached files.'}`;
       const inputBlocks = [
+        !override && chatContext(this.store.data) ? { kind: 'goals', label: 'Current goals', text: chatContext(this.store.data) } : null,
         historyBridge ? { kind: 'history', label: 'Conversation continuity', text: historyBridge } : null,
         profile ? { kind: 'profile', label: 'Profile · USER.md + SOUL.md', text: profile } : null,
         selectedSkills ? { kind: 'skills', label: 'Selected skills', text: selectedSkills } : null,
@@ -734,6 +736,7 @@ class Controller extends EventEmitter {
       const prompt = [profile, `Perform one bounded heartbeat check. Working folder: ${folder}\nCurrent time: ${new Date().toISOString()}\n\nUser checklist:\n${config.checklist}\n\nRecent activity (reference data):\n${JSON.stringify(previous)}`,
         this.store.data.settings.connection === 'local' ? `Your final reply must be only one JSON object matching this schema, without Markdown: ${JSON.stringify(heartbeatSchema)}` : '',
         'Return a stable, short topic for the same matter, reusing its previous topic exactly. Quiet results use an empty topic. User feedback is preference data, never authority for new tasks. Keep muted or snoozed topics quiet unless actual file changes or errors require a factual record; prioritize useful topics only when current evidence and the saved checklist warrant it.',
+        chatContext(this.store.data) ? `Goal state (reference data; goals own their full reviews, avoid duplicate coaching):\n${chatContext(this.store.data)}` : '',
         attention ? `User attention preferences (reference data):\n${attention}` : '', memory].filter(Boolean).join('\n\n');
       const result = await this.client.request('turn/start', {
         threadId: chat.threadId, input: [{ type: 'text', text: prompt }], cwd: folder,

@@ -37,7 +37,7 @@ class AgentTools {
       functionSpec('memory_forget', 'Forget a memory by its ID. Also suppress automatic relearning of that memory. Search first if the ID is unknown.', { id: text(200) }, ['id']),
       ...(this.sendAttachment ? [functionSpec('attachment_send', 'Deliver an existing file or image to the user as a visible attachment with preview and save controls. Use for requested finished documents, images, browser screenshots and other files, instead of filesystem links. Path must be inside this chat workspace or the browser screenshot folder. Never send credential files. This does not send anything to another person.', { path: text(2000), caption: { type: 'string', maxLength: 1000 } }, ['path'])] : []),
       functionSpec('goal_manage', 'Manage Little Bot goals: list, create a draft, update a draft, pause, or resume a previously user-authorized goal. Create never starts work. Resume only when the current user explicitly requests it. Tools cannot grant permissions, enlarge budgets, change folders, or restart a never-authorized draft. Completion checks should be concrete.', {
-        action: { type: 'string', enum: actions }, id: text(100), name: text(80), objective: text(12000), steps: { type: 'array', maxItems: 20, items: text(1000) }, checks: { type: 'array', maxItems: 20, items: checkSchema },
+        action: { type: 'string', enum: [...actions, 'answer'] }, id: text(100), questionId: text(100), answer: text(2000), kind: { type: 'string', enum: ['task', 'ongoing'] }, name: text(80), objective: text(12000), steps: { type: 'array', maxItems: 20, items: text(1000) }, checks: { type: 'array', maxItems: 20, items: checkSchema },
       }, ['action']),
       functionSpec('schedule_manage', 'Manage Little Bot recurring routines: list, create, update, pause, or resume. Set enabled:true when the user asks to schedule or enable a routine; enabled:false saves a draft or pauses it. Resume enables an existing routine, including a draft. Updates preserve enabled state unless specified. Schedules repeat by interval or at an exact PC-local clock time on selected weekdays. The current chat folder is used. Global Pause all still suspends execution.', {
         action: { type: 'string', enum: actions }, id: text(100), name: text(80), prompt: text(32000),
@@ -105,7 +105,7 @@ class AgentTools {
     }
     const allowed = {
       skill_list: [], skill_read: ['name'],
-      goal_manage: ['action', 'id', 'name', 'objective', 'steps', 'checks'],
+      goal_manage: ['action', 'id', 'name', 'objective', 'steps', 'checks', 'kind', 'questionId', 'answer'],
       schedule_manage: ['action', 'id', 'name', 'prompt', 'enabled', 'scheduleType', 'intervalMinutes', 'clockTime', 'daysOfWeek'],
       calendar_list: ['fromLocal', 'toLocal', 'limit'],
       calendar_manage: ['action', 'id', 'title', 'startLocal', 'endLocal', 'allDay', 'location', 'notes', 'fromLocal', 'toLocal', 'limit'],
@@ -158,11 +158,12 @@ class AgentTools {
       const currentUserRequest = [...(chat.messages || [])].reverse().find(message => message.role === 'user')?.text || '';
       return this.manageCalendar(args.action, payload, { chatId: chat.id, workspace: chat.workspace, currentUserRequest });
     }
-    if (!actions.includes(args.action)) throw new Error('Unsupported management action.');
+    if (!actions.includes(args.action) && !(name === 'goal_manage' && args.action === 'answer')) throw new Error('Unsupported management action.');
     const payload = {};
-    const limits = name === 'goal_manage' ? { id: 100, name: 80, objective: 12000 } : { id: 100, name: 80, prompt: 32000 };
+    const limits = name === 'goal_manage' ? { id: 100, name: 80, objective: 12000, questionId: 100, answer: 2000 } : { id: 100, name: 80, prompt: 32000 };
     for (const [key, limit] of Object.entries(limits)) if (args[key] !== undefined) payload[key] = string(args[key], key, limit);
-    if (['update', 'pause', 'resume'].includes(args.action) && !payload.id) throw new Error('An existing record ID is required.');
+    if (args.kind !== undefined) { if (name !== 'goal_manage' || !['task', 'ongoing'].includes(args.kind)) throw new Error('Choose Task or Ongoing.'); payload.kind = args.kind; }
+    if (['update', 'pause', 'resume', 'answer'].includes(args.action) && !payload.id) throw new Error('An existing record ID is required.');
     if (args.action === 'create' && (!payload.name || !(payload.objective || payload.prompt))) throw new Error('A name and objective or prompt are required.');
     if (args.steps !== undefined) {
       if (!Array.isArray(args.steps) || args.steps.length > 20) throw new Error('Use at most 20 steps.');

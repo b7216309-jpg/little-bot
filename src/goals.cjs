@@ -3,6 +3,7 @@
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const files = require('./goal-files.cjs');
+const contract = require('./goal-contract.cjs');
 const { connectionBinding, isConnectionSelected, requireSelectedConnection } = require('./connections.cjs');
 const { questionInput, questionText, pendingQuestion, clarifications } = require('./user-questions.cjs');
 const {
@@ -42,6 +43,8 @@ function historyOf(value) {
   return (Array.isArray(value) ? value : []).filter(isObject).slice(-50).map(entry => {
     const record = { id: String(entry.id || randomUUID()).slice(0, 100), at: number(entry.at), kind: String(entry.kind || 'activity').slice(0, 40), summary: clean(entry.summary) };
     for (const key of ['runId', 'status']) if (typeof entry[key] === 'string') record[key] = entry[key].slice(0, 100);
+    if (contract.OUTCOMES.includes(entry.outcome)) record.outcome = entry.outcome;
+    if (Array.isArray(entry.evidenceRefs)) record.evidenceRefs = entry.evidenceRefs.filter(x => typeof x === 'string').slice(0, 20);
     if (isObject(entry.usage)) record.usage = usageOf(entry.usage);
     if (Array.isArray(entry.actions)) record.actions = entry.actions.slice(0, 30).map(clean);
     if (Array.isArray(entry.verification)) record.verification = entry.verification.slice(0, 20).map(check => ({ type: String(check.type || '').slice(0, 30), path: String(check.path || '').slice(0, 500), passed: check.passed === true, detail: clean(check.detail) }));
@@ -78,6 +81,7 @@ function validateGoal(input, existing = null, settings = {}) {
   if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(id)) throw new Error('Invalid goal ID.');
   const reopening = existing?.status === 'completed';
   const result = {
+    ...contract.definition(input, existing),
     id, name: text(input.name, 'Goal name', 80, true), objective: text(input.objective, 'Objective', 12000, true),
     steps: list(input.steps, 'Steps', 20, item => text(item, 'Step', 1000, true)),
     checkpoint: existing?.checkpoint || '', nextStep: existing?.nextStep || '',
@@ -89,6 +93,7 @@ function validateGoal(input, existing = null, settings = {}) {
     authorized: existing?.authorized === true, history: historyOf(existing?.history),
     createdAt: existing?.createdAt || now, updatedAt: now, nextRunAt: existing?.nextRunAt ?? null,
   };
+  if (contract.isV2(result)) contract.restore(result, result);
   if (reopening || existing?.freshRun === true) result.freshRun = true;
   if (Number.isFinite(existing?.lastCompletedAt)) result.lastCompletedAt = existing.lastCompletedAt;
   result.ledger = reconcileGoalLedger(input.ledger ?? existing?.ledger, existing, result, now);
@@ -110,6 +115,7 @@ function normalizeAutonomy(value, settings = {}, recovering = false) {
     try {
       const goal = validateGoal({ ...input, ...connectionBinding(input) }, null, settings);
       if (result.goals.some(item => item.id === goal.id)) continue;
+      contract.restore(goal, input);
       goal.status = STATUSES.includes(input.status) ? input.status : 'draft';
       goal.authorized = input.authorized === true;
       goal.usage = usageOf(input.usage); goal.history = historyOf(input.history);
@@ -185,6 +191,7 @@ class GoalRunner {
     const restarting = goal.status === 'completed';
     if (restarting) { goal.usage = usageOf(); goal.freshRun = true; }
     goal.status = 'queued';
+    if (contract.isV2(goal)) goal.freshRun = true;
     goal.ledger = restarting ? restartGoalLedger(goal, { now: Date.now(), source: 'user' }) : normalizeGoalLedger(goal.ledger, goal);
     goal.authorized = true; goal.nextRunAt = Date.now(); delete goal.pauseReason; delete goal.needsEffectReview;
     this.forceRuns.add(id); this.record(goal, 'queued', 'Queued by you.'); this.changed();
@@ -317,6 +324,27 @@ class GoalRunner {
     this.emit('goal.blocked', goal, { reason, blockedAt: Date.now() });
     this.onAlert({ title: goal.name, message: reason, goalId: goal.id });
   }
+  finishReview(goal, evidence, outcome, summary, refs, runId) {
+    const previous = structuredClone(goal), chat = this.store.data.chats?.[0];
+    const messages = chat?.messages.length, updatedAt = chat?.updatedAt;
+    try {
+    contract.consume(goal, evidence, outcome, summary, refs);
+    this.record(goal, 'review', summary || 'No new evidence; stayed quiet.', { runId, outcome, evidenceRefs: refs, usage: { ...goal.usage } });
+    const priorStatus = goal.status;
+    goal.status = priorStatus === 'paused' ? 'paused' : goal.pendingQuestion ? 'blocked' : 'queued';
+    goal.nextRunAt = goal.trigger.type === 'interval' ? Date.now() + goal.trigger.intervalMinutes * 60000 : null;
+    goal.usage = usageOf(); delete goal.freshRun;
+    if (outcome !== 'no-change') {
+      contract.deliver(goal, this.store.data, { runId, summary, question: goal.pendingQuestion });
+    }
+    this.changed();
+    } catch (error) {
+      for (const key of Object.keys(goal)) delete goal[key]; Object.assign(goal, previous);
+      if (chat) { chat.messages.length = messages; chat.updatedAt = updatedAt; }
+      throw error;
+    }
+    if (outcome !== 'no-change') this.onAlert({ title: goal.name, message: summary, goalId: goal.id });
+  }
   saveQuestion(goal, value, checkpoint, nextStep) {
     const question = questionInput(value);
     if (!goal.pendingQuestion) goal.pendingQuestion = { id: randomUUID(), ...question, createdAt: Date.now() };
@@ -359,7 +387,7 @@ class GoalRunner {
       goal.ledger = restartGoalLedger(goal, { now, source: 'system' });
       this.changed();
       this.emit('goal.completed', goal, { runId, summary, completedAt: now, recurring: true, nextRunAt: goal.nextRunAt });
-      this.onAlert({ title: goal.name, message: 'Goal cycle completed and verified.', goalId: goal.id });
+      this.onAlert({ title: goal.name, message: contract.isV2(goal) ? summary : 'Goal cycle completed and verified.', goalId: goal.id });
       return true;
     }
     goal.status = 'completed';
@@ -394,6 +422,7 @@ class GoalRunner {
   }
   async execute(goal) {
     this.activeId = goal.id; this.stopReason = null;
+    const resumeRequested = goal.continueAfterAnswer === true || goal.needsRecoveryCheck === true;
     const runId = randomUUID(), startedAt = Date.now(), before = usageOf(goal.usage), checkpointBefore = `${goal.checkpoint}\n${goal.nextStep}`;
     goal.ledger = normalizeGoalLedger(goal.ledger, goal, startedAt);
     const ledgerPlanAtStart = currentPlan(goal.ledger);
@@ -404,8 +433,9 @@ class GoalRunner {
     };
     let snapshot = null, verificationActions = 0, modelUsage = { tokens: 0, actions: 0, elapsedMs: 0 }, result = null, timer, preflightPassed = true;
     const completedBefore = goal.lastCompletedAt;
+    let evidence = null, reviewFinished = false;
     const updateUsage = () => {
-      if (isRecurringGoal(goal) && goal.lastCompletedAt !== completedBefore) return;
+      if (reviewFinished || (isRecurringGoal(goal) && goal.lastCompletedAt !== completedBefore)) return;
       goal.usage.tokens = before.tokens + Math.floor(number(modelUsage.tokens));
       for (const key of ['inputTokens', 'outputTokens']) if (Number.isFinite(modelUsage[key])) goal.usage[key] = number(before[key]) + Math.floor(number(modelUsage[key]));
       goal.usage.actions = before.actions + verificationActions + Math.floor(number(modelUsage.actions));
@@ -413,6 +443,13 @@ class GoalRunner {
     };
     goal.status = 'running'; goal.currentAction = ''; delete goal.needsRecoveryCheck; delete goal.continueAfterAnswer; this.record(goal, 'checking', 'Checking saved completion conditions before doing work.', { runId }); this.changed();
     try {
+      if (contract.isV2(goal)) {
+        evidence = await contract.collect(goal, this.store.data);
+        goal.runEvidence = evidence;
+        if (contract.ongoing(goal) && goal.review.lastResult && !evidence.changed && goal.reviewPolicy !== 'always' && !goal.freshRun && !resumeRequested) {
+          reviewFinished = true; this.finishReview(goal, evidence, 'no-change', '', [], runId); return;
+        }
+      }
       let checked = await this.verify(goal, action => { if (action) verificationActions++; updateUsage(); }); updateUsage();
       preflightPassed = checked.passed;
       recordVerificationEvidence(goal, checked.results, {
@@ -420,12 +457,12 @@ class GoalRunner {
       }); this.changed();
       if (this.stopReason || goal.status === 'paused' || this.closing) return;
       const requiresFreshWork = goal.freshRun === true || isRecurringGoal(goal);
-      if (checked.passed && !requiresFreshWork) {
+      if (checked.passed && !requiresFreshWork && !contract.ongoing(goal)) {
         const summary = 'Verified: the completion conditions already pass. No model call was needed.';
         this.finishVerified(goal, { runId, summary, verification: checked.results, ledgerContext: ledgerRunContext }); return;
       }
       const exhausted = this.budgetReason(goal); if (exhausted) { this.block(goal, exhausted, { runId, verification: checked.results }); return; }
-      if (!goal.checks.length) { this.block(goal, 'Add at least one verification check before running this goal.', { runId }); return; }
+      if (!goal.checks.length && !contract.ongoing(goal)) { this.block(goal, 'Add at least one verification check before running this goal.', { runId }); return; }
       snapshot = await files.createSnapshot(goal, this.backupRoot, runId);
       if (snapshot?.retiredRunIds) for (const entry of goal.history) if (snapshot.retiredRunIds.includes(entry.snapshot?.runId)) entry.snapshot.undoAvailable = false;
       if (this.stopReason || goal.status === 'paused' || this.closing) return;
@@ -458,6 +495,10 @@ class GoalRunner {
         if (goal.status !== 'paused') this.block(goal, this.stopReason || 'Goal stopped.', { runId }); return;
       }
       if (goal.pendingQuestion) {
+        if (contract.ongoing(goal)) {
+          reviewFinished = true; this.finishReview(goal, evidence, 'waiting', goal.pendingQuestion.question, [], runId); return;
+        }
+        if (contract.isV2(goal)) contract.deliver(goal, this.store.data, { runId, question: goal.pendingQuestion });
         this.block(goal, goal.pendingQuestion.question, { runId }); return;
       }
       checked = await this.verify(goal, action => { if (action) verificationActions++; updateUsage(); }); updateUsage();
@@ -466,7 +507,21 @@ class GoalRunner {
       });
       this.record(goal, 'verification', checked.passed ? 'All completion conditions passed.' : 'Completion conditions have not all passed.', { runId, verification: checked.results });
       if (this.stopReason || goal.status === 'paused' || this.closing) return;
-      if (result?.status === 'blocked') this.block(goal, clean(result.summary) || 'The goal needs your input.', { runId });
+      if (contract.isV2(goal)) {
+        const outcome = contract.validateResult(goal, result, evidence, { changedFiles: snapshot?.changes || 0, checksPassed: checked.passed, preflightPassed });
+        goal.actionItems = outcome.actions;
+        if (contract.ongoing(goal) && result.outcome === 'failed') this.block(goal, result.summary, { runId });
+        else if (contract.ongoing(goal)) {
+          reviewFinished = true; this.finishReview(goal, evidence, result.outcome, result.summary, outcome.refs, runId);
+        } else {
+          contract.consume(goal, evidence, result.outcome, result.summary, outcome.refs);
+          contract.deliver(goal, this.store.data, { runId, summary: result.summary });
+          if (result.outcome === 'completed') this.finishVerified(goal, { runId, summary: result.summary, verification: checked.results, ledgerContext: ledgerRunContext });
+          else if (['waiting', 'failed'].includes(result.outcome)) this.block(goal, result.summary, { runId });
+          else { goal.status = 'queued'; goal.nextRunAt = Date.now() + 1000; this.changed(); }
+        }
+      }
+      else if (result?.status === 'blocked') this.block(goal, clean(result.summary) || 'The goal needs your input.', { runId });
       else if (checked.passed && (!preflightPassed || result?.status === 'verify')) {
         const summary = 'Goal completed and verified.';
         this.finishVerified(goal, { runId, summary, verification: checked.results, ledgerContext: ledgerRunContext });
@@ -494,6 +549,7 @@ class GoalRunner {
       if (goal.status !== 'paused') this.block(goal, this.stopReason || clean(error), { runId });
       else this.record(goal, 'stopped', this.stopReason || clean(error), { runId });
     } finally {
+      delete goal.runEvidence;
       clearInterval(timer); updateUsage();
       if (this.closing && goal.pendingQuestion && (goal.permissions.network || goal.permissions.mcpTools.length)) goal.needsEffectReview = true;
       if (goal.trigger.type === 'files') try { goal.triggerFingerprint = await files.fingerprintPaths(goal); this.filePending.delete(goal.id); } catch { /* The next trigger check surfaces the changed scope. */ }

@@ -5,15 +5,17 @@ const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { parseSkill, LIMITS } = require('./extensions.cjs');
 
-const VERSION = 18;
+const VERSION = 19;
 const BUNDLES = [
   { name: 'little-bot', introduced: 1 }, { name: 'meeting-prep', introduced: 1 },
   { name: 'research-brief', introduced: 1 }, { name: 'web-tools', introduced: 2 },
 ];
 const ORIGINAL_HASHES = {
   'little-bot': [
+    '9416b284a31d501a3cc237e789a426366e3ceb5cc17e635430ac7b5de1fd2c3c', // final 0.9.2 shipped operating guide
     'dfeab748c01278be68d9b794b0271b6d5c541ebb75366f32065d093359b6dd8e', // prior installed operating guide
     'c8ebd19c60f5598ff3f8530b73eed9a4488e78c2cb1be9f367e3615590efb4ff', // prior installed operating guide
+    '112dc7402b0f435113a79ff4b45898a120fd9ca704999a77e3d120c2af2d723e', // previous app guide, before goal contracts
     '93630f6271a517d8859617f5966cce8760ef82c15e2fb3184390a18c24791c1d', // goal completion tool guide
     'ee2ea52caa25991d6413a21731e8c3c0fdd0faace2c6bf84f5e85343a47fd177', // interim goal writer guide
     'b94c97e9aa9e99faa090788d6903437d0f912c651f15486c7bcaf1ec643d5683', // interim goal usage guide

@@ -36,7 +36,7 @@ async function run({ window, controller, store, goals, output }) {
     runs++;
     await fs.writeFile(probeFile, 'Finished and verified\n');
     onProgress({ tokens: 150, actions: 1, elapsedMs: 10 });
-    return { status: 'verify', summary: 'Updated the note.', checkpoint: 'The note now contains the requested result.', nextStep: '',
+    return { ...(goal.contractVersion === 2 ? { outcome: 'completed', evidenceRefs: ['objective'], actionUpdates: [] } : {}), status: 'verify', summary: 'Updated the note.', checkpoint: 'The note now contains the requested result.', nextStep: '',
       usage: { tokens: 150, actions: 1, elapsedMs: 10 }, actions: ['Wrote goal-smoke-note.md'] };
   };
   try {

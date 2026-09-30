@@ -1,84 +1,51 @@
-# Goals and autonomous work
+# Goals: tasks and ongoing work
 
-Open **Goals → New goal**, describe the outcome, and add completion checks. Save the draft, review its access and budget, then choose **Run**. The app saves its checkpoint, usage, history, and versioned plan-and-evidence ledger between runs. A model claiming success cannot mark a goal complete: every saved check must pass.
+Goals share Little Bot's continuous conversation. A **Task** has a finite outcome and acceptance checks. An **Ongoing** goal acts when Little Bot can do useful work and coaches when the user must act. An ongoing review ending does not complete the overall goal.
 
-When information is missing, the model can use `ask_user`. Its question appears on the goal card with up to three suggested answers and a free-text field. **Answer & continue** saves your answer to that goal and queues its next step. The question and answer survive app restarts. Waiting releases the model and does not spend the execution budget; asking and continuing still count as model steps. The last five answers accompany subsequent steps.
+## Create a goal
 
-Answering preserves permissions and remaining budgets. **Pause all** still prevents execution; an individually paused goal stays paused. A depleted budget or interrupted external operation can still require review before retrying. An answer resolves a question, not an access request. Ordinary chats use the existing question dialog and resume their live turn; closing the app interrupts that chat turn as usual.
+Open **Goals → New goal**. Choose the type, describe the desired outcome, select evidence sources, and set access, schedule and limits. Save the draft and choose **Run goal**. New goals use the outcome contract; legacy goals retain their history and behavior until edited.
 
-Local Qwen may also ask a short question in plain text before taking any action; the app can save that as a free-text clarification. After tools run, a plain-text final report still has to pass the saved completion checks. Cloud goals keep their structured final-output requirement.
+The continuous chat is enabled as a source by default, together with upcoming calendar events. Optional **Evidence files** are absolute paths to regular text files, each up to 2 MiB. They may live outside the goal's working folder. The collector supplies bounded excerpts, source IDs and versions; inaccessible files are reported as coverage gaps. They do not expand writable access. Memory off disables recent chat recall and semantic memory access.
+
+Ongoing goals can provide advice without file checks. Tasks require at least one acceptance check. A **fileExists** or **fileContains** check verifies an artifact; a **command** check runs read-only with network disabled, requires terminal permission and has a 20-second timeout. Choose checks that establish the actual outcome: a heading alone cannot prove substantive progress. A recurring task cannot claim fresh completion from checks that already passed unless this run produced observable file changes.
+
+## Fresh evidence and quiet reviews
+
+Before model work, Little Bot collects a chronological page of new user messages, versions of selected evidence files, and upcoming/due calendar events. Scheduled automation prompts and goal messages are excluded from user evidence. Initial chat context includes a bounded recent page; subsequent pages use a durable message cursor. Source versions and cursors are saved with the review result.
+
+An ongoing goal defaults to **Review when evidence changes**. After the first review, unchanged evidence produces a quiet review with no model call and no state-file rewrite. **Review at every scheduled activation** requests a model review even without changes. Manually running a goal requests a fresh review. Memory retrieval supplements a specific missing fact; it does not replace new conversation evidence.
+
+Absence of a source or an empty search does not establish user failure, avoidance or an unresolved decision. Saved checkpoints are historical interpretations and may be corrected by fresh evidence.
+
+## Results and chat
+
+Runs have explicit outcomes: **update**, **progress**, **completed**, **recommendation**, **waiting**, **no-change** or **failed**. Only Tasks can be completed. Updates correct stale facts or priorities. Recommendations are advice, not proof that the user acted. The host checks source IDs and acceptance checks; unsupported progress or completion records are rejected. Source references make claims inspectable but do not mechanically prove that coaching advice is useful.
+
+Useful outcomes and questions appear as labelled goal messages in the existing chat. Quiet reviews remain in the goal's history. Cards show the latest meaningful result, last review outcome, proposed actions and upcoming activation. Agent messages cannot trigger their own review as user evidence.
+
+A pending question has an answer form in both chat and the Goals panel. Either form saves the answer against the same exact goal/question ID, then queues continuation with existing access; finite tasks retain their cycle budget. Chat tools can answer with `goal_manage` action `answer`, or `goal_control` action `answer`, using `id`, `questionId` and `answer`. An ambiguous reply must not be silently assigned to a goal.
+
+Proposed actions record an owner: bot or user. A verified user action needs a cited user confirmation; bot action verification needs passing task checks and fresh evidence. These source checks establish provenance, not an independent semantic judgment of every statement. Goal state accompanies direct chat requests, so the conversation can discuss or update goals without recovering a separate transcript.
+
+## Scheduling and interruption
+
+One goal step runs at a time and shares the engine execution lane with chat, heartbeat and automations. Chat has priority. A chat message pauses active goal work; no competing turn is submitted to the same engine thread. Questions wait for answers. Failed or malformed outcomes block for review rather than repeatedly claiming success.
+
+Manual, interval and stable file-change triggers remain available. Interval goals use their saved minute interval; an ongoing review returns to its next activation rather than declaring the lifelong goal complete. The app must be open: there is no background Windows service, closed-app backlog or wake-from-sleep scheduler. Missed intervals advance to a future occurrence on reopening. **Pause all** persists and pauses goals, heartbeat and automations.
+
+Heartbeat handles its checklist and small event-driven actions. It should not duplicate the goal's full daily review. Configure one owner for a recurring task instead of creating copies in goals and heartbeat.
+
+## Access, budgets and history
+
+Existing saved access and budget controls remain. Goals can read/write selected workspace paths, use terminal and network when enabled, and call individually granted MCP tools. Goal model threads remain internal bounded execution threads; the public conversation and evidence are shared, without injecting the entire audit history into each model request.
+
+Input + output limits count cumulative reported usage across model requests. Cards and history show generated tokens separately when available. Each activation is bounded by token, action, time and model-run limits. An ongoing review resets its activation usage after a valid result; failure preserves usage. A request already in flight can exceed the last displayed limit before cancellation settles.
+
+The existing plan/evidence audit history and scoped file snapshots are retained for compatibility and Undo. New execution receives a compact outcome/action state rather than the entire legacy ledger. Undo restores captured file contents, refuses later-edit conflicts and cannot reverse external service actions. Interrupted external operations remain subject to the existing effect review; do not blindly repeat a booking or message.
+
+See [docs/GOALS-V2-DESIGN.md](docs/GOALS-V2-DESIGN.md) for the foundation and acceptance scenarios. Unit, production renderer and isolated local-model tests cover the redesigned behavior. Actual coaching effectiveness still depends on user feedback.
 
 ## Plan and evidence ledger
 
-Each goal has a bounded ledger with a current plan, assumptions, observations, decisions, and host evidence. A non-completed goal has exactly one active step. The model may see later steps as context, but it is instructed to execute only the active step; Little Bot still runs one agent task at a time.
-
-The initial objective and suggested steps become plan version 1. Editing the objective or steps, revising the approach from new evidence, rerunning a completed goal, or repairing an exhausted malformed plan creates a new version. Unfinished work in the older version becomes superseded and remains visible under **Earlier plan versions** rather than being rewritten.
-
-Preflight and final completion checks become structured observations. Writable runs add bounded file-snapshot evidence, and **Review undo** adds restore evidence plus a user decision. The model can add concise public assumptions, observations, and decisions, but not a private reasoning or chain-of-thought transcript. Confirmed and rejected assumptions accompany later runs so disproved information is not silently forgotten.
-
-The ledger is stored on the goal itself, so it survives restart, pause, clarification, interval or file-triggered continuation, and conversation compaction. Interrupted local work keeps the same active recovery target; externally capable work retains the existing effect-review block. Expand **Plan, evidence, and history** on a goal card to inspect the current plan, evidence, decisions, activity history, and earlier versions. See [LEDGER.md](LEDGER.md) for the data model, limits, and recovery rules.
-
-## Completion and recovery
-
-- **Path exists:** the relative path must exist inside the working folder.
-- **File contains text:** a regular text file, up to 2 MiB, must contain the specified text.
-- **Command succeeds:** a PowerShell command must exit with code zero. This requires terminal permission, but verification always runs read-only with network disabled and a 20-second timeout. Use a check that does not need to build files or install dependencies. Returned detail is limited to 8,000 characters; history keeps a shorter excerpt.
-
-Checks run before work and after each successful step. A manual goal completes without a model call when its checks already pass, except **Run again** starts a fresh cycle and does real work before verifying again. Interval and file-triggered goals treat checks as per-cycle verification: a verified cycle is recorded, its work budget resets, and the goal stays active for the next trigger. Failed verification and lack of progress consume the retry allowance. Repeating the same actions three times without file progress blocks the current cycle.
-
-After interrupted local work, Little Bot checks existing results before continuing. If the interrupted goal had network or MCP access, it stays blocked so you can review possible external effects before resuming. Local file snapshots cannot reverse an external service action.
-
-## Access
-
-Goals start read-only, with terminal, network, and external tools disabled. Enable only the capabilities a goal needs. Writable paths must name existing directories relative to its working folder; `.` grants that entire folder. The engine working directory is set to a granted writable directory. Windows sandboxing restricts writes; it is not a complete restriction on reads.
-
-Snapshots refuse symbolic links, junctions, hard-linked files, and scopes containing protected data such as `.git`, `node_modules`, `.env` files, and common credential locations. Choose a small output directory instead of a whole project when that project contains these files.
-
-External MCP tools require individually saved server/tool grants. The model accesses those tools through a checked app broker; its own native MCP connections are disabled and verified before execution. MCP servers run with their own permissions, outside the goal's Windows file sandbox. Network permission governs the goal's native web and command access; an explicitly granted external tool may itself use a network connection.
-
-Autonomous goal runs cannot grant themselves more access, request escalation, or create other goals, routines, or subagents.
-
-## Budgets
-
-The default work budget is **50,000 tokens, 30 minutes, 50 actions, 10 model runs, and 2 retries**. Edit these in Advanced settings. Usage persists across pause and restart within the current cycle. **Run again** on a completed manual goal starts a fresh budget, and interval/file-triggered goals reset their budget after each verified cycle. Increasing a limit adds room without erasing usage from the current cycle.
-
-Tokens use cumulative usage reported by the engine. Actions include model tool invocations and verification commands. Time includes checks and run setup. Each model step has a maximum duration of ten minutes, within the goal's remaining time budget. Reaching a limit stops further work and records the reason.
-
-These are execution controls, not a prepaid or monetary cap. An in-flight provider request or native operation can finish before cancellation and exceed the latest reported limit. Already dispatched external tool calls may need to settle before a pause finishes.
-
-## Scheduling and proactivity
-
-Only one goal step runs at a time, sharing the engine with chat, heartbeat, and routines. A chat message pauses the active goal. Queued goals use priority 1 first and wait for their dependencies to complete; dependency cycles are rejected.
-
-- **Manual:** Run starts the goal and it continues through bounded steps until completed, blocked, or paused. **Run again** starts a new verified cycle even if the previous checks still pass.
-- **Interval:** each due time starts a new cycle. Passing the checks verifies that cycle, resets its work budget, and schedules the next one.
-- **File changes:** watched relative paths are checked every five seconds using file metadata. A stable change starts a new cycle; passing the checks verifies that cycle and returns the goal to watching. Each foreground app session starts with a fresh baseline, so changes made while Little Bot was closed do not wake the goal. The baseline is also refreshed after its own run to avoid a self-trigger loop. Quiet checks make no model calls. Stable changes publish the foreground-only `file.changed` event described in [EVENTS.md](EVENTS.md).
-
-Completed manual goals stop until you run them again. Interval and file-triggered goals remain active until paused or blocked. When Little Bot reopens, an overdue authorized interval goal advances to its next future step without running the missed step. File-triggered goals establish a new baseline instead of reacting to closed-app changes. If Little Bot remains open but busy, queued work waits for the one execution lane. There is no tray worker, Windows service, closed-app event backlog, or wake-from-sleep mechanism.
-
-Standing intents can react to foreground goal, file, calendar, automation, chat, heartbeat, and app-open events. They can start only an already authorized goal or automation and do not expand its permissions, budget, folder, model, or connection. Configure them under **Automations → Standing intents**; there is no agent management tool for them yet. See [EVENTS.md](EVENTS.md).
-
-**Pause all** persists across restarts and stops goals, heartbeat, and routines. It leaves normal chat available. Resume all preserves goals you paused individually, including goals paused by Undo.
-
-## File history and Undo
-
-Before writable goal work, Little Bot stores scoped local file copies outside the goal's writable folders. Run history and the evidence ledger record the resulting file changes. Choose **Review undo** to inspect affected paths and restore them. Undo records the restored-path evidence and leaves the goal paused. It refuses to overwrite a file changed after that run. Restore writes each file atomically; if a conflict arises during a multi-file restore, the activity log reports partial progress.
-
-Storage is bounded: at most 50 goals, 50 history entries per goal, three retained snapshots per goal, 2,000 files and 25 MiB per snapshot, and 250 MiB across backups. Old snapshots are retired only after a new snapshot is saved. A full backup budget blocks new writable work until you remove a backup. Undo covers regular file contents and created/deleted files, not external services, registry changes, file permissions, or arbitrary process side effects.
-
-## Agent management tools
-
-In a **new chat**, the agent can list, create, update, pause, and resume goals and routines, and discover/read enabled skills. New goals stay drafts and new routines stay disabled until you start or enable them in their panel. Chat can resume previously authorized work only in that chat's working folder. Editing a routine prompt through chat requires enabling the updated routine again.
-
-Older chats retain the engine tool list with which they were created. Start a new chat to use management tools. Autonomous runs get skill discovery but cannot recursively schedule new work.
-
-All goal state lives in the app's existing data directory. It adds no database, indexing service, runtime dependency, or extra memory layer. Memory remains conversation, recent work, and durable facts.
-
-## Reading goal usage
-
-The input + output token limit is cumulative across model requests, so repeated context counts again after each tool call. It is not the number of generated tokens or the context-window size. Cards and history show input and generated tokens separately when the provider reports them, and running cards show the current tool action. Goal recall uses small pages (up to five search results or three conversation chunks), with further pages available for a specific missing fact. An interrupted run cannot reuse checks that already passed before the run as evidence of fresh completion.
-
-
-Goals expose `workspace_write` for authorized UTF-8 file updates without terminal access. Blocked or unfinished results cannot reuse older passing verification to claim a completed cycle. Malformed completion records remain blocked for review.
-
-Local models can submit a concise result using `goal_finish`. Acknowledging it closes the tool gate and ends the turn; the runner still owns final verification.
+Legacy goals retain exactly one active step and their earlier plan/evidence records. New goals execute the outcome contract while retaining that audit history and Undo. See [LEDGER.md](LEDGER.md) and [EVENTS.md](EVENTS.md) for legacy records and foreground event behavior. File triggers take a fresh baseline on reopening.
