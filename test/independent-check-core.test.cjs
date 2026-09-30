@@ -86,6 +86,24 @@ test('result parsing preserves a stable answer and accepts a complete material r
   }), 'Original'), /without providing/);
 });
 
+test('a post-compaction recall review includes earlier user facts, not just ACK', () => {
+  const facts = 'Project Amber Finch, code ORCHID-731, budget 420, database SQLite; test cancellation next.';
+  const chat = { messages: [
+    { id: 'facts', role: 'user', text: facts },
+    { id: 'ack', role: 'assistant', text: 'ACK', status: 'completed' },
+    { id: 'recall', role: 'user', text: 'Recall the database choice and release code.' },
+    { id: 'answer', role: 'assistant', text: 'SQLite, ORCHID-731.', status: 'completed' },
+  ] };
+  const context = collectIndependentCheckContext(chat, { messageStart: 2 });
+  assert.deepEqual(context.priorUserMessages, [facts]);
+  assert.equal(context.historyIncomplete, false);
+  assert.match(independentCheckPrompt(context), /ORCHID-731/);
+  chat.messages[0].text = 'x'.repeat(20000);
+  const bounded = collectIndependentCheckContext(chat, { messageStart: 2 });
+  assert.equal(bounded.priorUserMessages[0].length, 12000);
+  assert.equal(bounded.historyIncomplete, true);
+});
+
 test('persisted records are bounded, normalized, and never require private reasoning', () => {
   const hash = answerHash('Corrected answer');
   const record = normalizeIndependentCheckRecord({

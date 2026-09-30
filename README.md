@@ -2,12 +2,34 @@
 
 A Windows personal assistant with one continuous conversation, durable local memory, files, terminal work, web browsing, and proactive tasks. Electron, plain JavaScript, and a pinned Codex tool runtime.
 
+## A quick look
+
+Screenshots below use the real application renderer with fictional demo data. No personal chats, profiles, credentials, or model requests are involved.
+
+### One conversation, with tools when you need them
+
+Keep a continuous timeline, attach files and images, choose reasoning effort, and expand tool activity without filling the chat with controls. Right-click a completed answer to challenge it.
+
+![Conversation with a fictional research-planning example](docs/screenshots/conversation.png)
+
+### Memory you can inspect and edit
+
+Search saved knowledge, inspect sources, pin preferences, and forget obsolete information. A bundled CPU embedding model adds offline semantic search; original conversations remain searchable after context compaction.
+
+![Memory panel with fictional preferences and project facts](docs/screenshots/memory.png)
+
+### Useful recurring work
+
+Run scheduled prompts in the same conversation, using intervals or selected days and local times. Goals add a persistent plan and verification evidence; Heartbeat checks for meaningful updates while the app is open.
+
+![Automations with fictional research and planning schedules](docs/screenshots/automations.png)
+
 ## Start
 
 1. Start your existing Qwen launcher.
-2. Choose one Windows build:
-   - **Installer:** run `dist/0.8.8/Little-Bot-0.8.8-Setup.exe`. It installs per-user under LocalAppData, adds a Start Menu shortcut, and registers an uninstaller in Apps & Features.
-   - **Portable:** unzip `dist/0.8.8/Little-Bot-0.8.8-portable.zip` and run `Little Bot.exe`. Keep the extracted folder together.
+2. Build from source with the Development commands below, then choose a generated Windows build:
+   - **Installer:** run `dist/0.9.2/Little-Bot-0.9.2-Setup.exe`. It installs per-user under LocalAppData, adds a Start Menu shortcut, and registers an uninstaller in Apps & Features.
+   - **Portable:** unzip `dist/0.9.2/Little-Bot-0.9.2-portable.zip` and run `Little Bot.exe`. Keep the extracted folder together.
    - **Development package:** open **Launch Little Bot.cmd** after `npm run package`.
 3. Choose a working folder and send a message.
 
@@ -15,7 +37,7 @@ A Windows personal assistant with one continuous conversation, durable local mem
 
 **Settings â†’ Connection** also shows read-only provider usage for Codex or transient whole-turn performance for the selected local model. Codex values come from the pinned app-server rate-limit response; local output rates use engine-reported tokens and exclude tool turns from the rolling average. The panel does not estimate prices or change goal budgets. See [USAGE.md](USAGE.md).
 
-**Thinking On/Off** beside the model picker controls Qwen reasoning for all local tasks. It remembers your choice and applies to the next run. Finish or stop running work before switching. Codex keeps its effort selector.
+**Strata reasoning** offers None, Low, Medium, and High beside the model picker. Other local servers use Thinking On/Off; Codex keeps its effort selector. Changes apply to the next run, after current work finishes.
 
 Tool calls appear in expandable groups, including progress messages between calls. Running and failed counts stay visible when collapsed.
 
@@ -33,7 +55,7 @@ The agent can return documents, screenshots, and existing images as attachments 
 
 Limits: eight files per message, 20 MiB each, 50 MiB total. See [ATTACHMENTS.md](ATTACHMENTS.md) for supported formats and extraction limits.
 
-File changes and terminal work use the existing engine and approval flow. Writes start within the selected working folder; the Windows sandbox does not restrict every read. Requests for additional access appear in chat.
+Execute mode can perform file and terminal work with the app’s local permissions; Plan mode uses read-only execution. Choose a suitable working folder. This is a personal, experimental assistant with powerful local tools.
 
 ## Browser and web services
 
@@ -62,6 +84,25 @@ Settings also controls automatic compaction: **20â€“95%**, default **80%**; **0*
 Recall and automatic learning require Memory on. Knowledge is shared across models and connections, with current-project relevance and cross-folder search. Link moved folders under Memory settings to retain project continuity. Corrections supersede earlier facts; forgotten memories are suppressed from automatic relearning. The model can use `memory_search` and `session_read` to retrieve older details after native context compaction. This searches Little Bot history, not other apps.
 
 Bundled skill updates preserve user edits, disabled state, IDs, and deletions. [Skill sources and licenses](resources/skills/SOURCES.md).
+
+## Strata cache rotation — requires PR #175
+
+Little Bot’s cache isolation is tied to **[Strata PR #175: independent conversation cache slots](https://github.com/Niko1221/Strata/pull/175)**. The app sends slot IDs; the patched Strata engine and Python server implement the actual save/restore. An ordinary upstream build must not be assumed to include this feature until that PR is merged and released.
+
+| Slot | Work |
+| --- | --- |
+| 0 | Foreground conversation and its scheduled automations |
+| 1 | Memory extraction |
+| 2 | Goals and heartbeat |
+| 3 | Independent answer checks |
+
+One model runs requests sequentially. Inactive KV data **and recurrent/checkpoint payloads** go to temporary disk files, freeing their RAM buffers while the active slot stays in memory. This is not parallel generation, permanent chat storage, or a second model copy.
+
+Cache reuse requires a matching prompt prefix. Compaction, a changed prefix, a restart, or another client using the same slot can require a cold read. Cache slots are shared by the server: **run diagnostic inference against a separate test server**, never alongside your real conversation.
+
+A local Windows / RTX 4070 Ti / NVMe test measured about **866 MiB less additional private-memory growth** across populated slots and **0.44–0.94 seconds total** for restored-slot switches. These are one-workload observations, not universal performance promises. Multi-GPU sessions currently support only slot 0.
+
+See [the Strata integration guide](integrations/strata/README.md) for the tested revision, patch, build instructions, and validation limits.
 
 ## Local data
 
@@ -93,3 +134,5 @@ Pinned dependencies: Codex 0.157.1, agent-browser 0.38.1, Mammoth 1.12.3, unpdf 
 For focused checks and remaining limitations, see [VALIDATION.md](VALIDATION.md). Smoke runs require a fresh isolated `LITTLE_BOT_DATA_DIR`.
 
 References: [Codex app-server](https://learn.chatgpt.com/docs/app-server), [agent-browser](https://agent-browser.dev/), [Firecrawl](https://docs.firecrawl.dev/), [Electron security](https://www.electronjs.org/docs/latest/tutorial/security).
+
+To regenerate the anonymous screenshots: `npx electron scripts/readme-screenshots.cjs`. This uses a temporary demo profile and never connects to your model.

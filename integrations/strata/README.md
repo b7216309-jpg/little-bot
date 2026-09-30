@@ -1,32 +1,43 @@
 # Strata cache rotation for Little Bot
 
-The app routes foreground chat to slot 0, memory extraction to 1, goals/heartbeat to 2, and independent answer checks to 3. Automations use the continuous chat and therefore slot 0. These are independent caches, not parallel model instances. There is still one execution lane.
+This integration depends on [Strata PR #175](https://github.com/Niko1221/Strata/pull/175), including its inactive-checkpoint SSD offloading update. The tested base is **Strata 0.1.27**, upstream commit `a790805`; the PR revision is `fcf93ec`. Until merged and released, use the PR branch or the bundled patch, not an unmodified upstream binary.
 
-`cache-slots.patch` updates the locally installed Strata source (reported version 0.1.19). It snapshots recurrent/PLE/index state and positional main/MTP KV storage, preserves prefix checkpoints, and invalidates streamed GPU page mappings on restore. Inactive positional caches use delete-on-close temporary files; no second model copy or full GPU KV allocation is needed. At most three inactive slots exist. They last only for the server process lifetime. A changed prompt prefix, model restart or compaction can still require prefill.
+## Slot assignments
 
-## Install from source
+Foreground chat and scheduled automations use slot 0, memory extraction uses 1, goals/heartbeat use 2, and independent checks use 3. There is one execution lane. Slots are server-global, not separate per app or client.
 
-Back up `src/program/generate.cpp`, `serve/server.py` and your engine executable first. From the Strata source directory, run `git apply --check --ignore-space-change <path-to-cache-slots.patch>`, then `git apply --ignore-space-change <path-to-cache-slots.patch>`. Do not reapply an already installed patch. Build using Strata's normal CUDA toolchain and your GPU architecture. The tested RTX 4070 Ti uses `-DCMAKE_CUDA_ARCHITECTURES=89`; do not copy that value for an unrelated GPU. Stop the server before replacing its executable, then restart the Python server as well. Keep the original model configuration and weights.
+The patch snapshots positional main/MTP KV data, recurrent GDN/PLE/index state, token/image identity and prefix checkpoints. Inactive payloads use delete-on-close temporary files; only small descriptors remain in RAM. The active slot retains its normal RAM/VRAM state. OS file caching may consume reclaimable RAM. Restarting the server clears all four slots.
 
-Example build from an MSVC developer shell with CMake and Ninja available:
+Prefix changes and compaction can still require a cold read. The feature does not remove the need to send full conversation messages. Layer-split multi-GPU sessions advertise only one slot and reject nonzero selections.
 
-```
+## Build the matching engine and server
+
+Back up your executable, source and configuration. Start from the tested upstream revision and apply `cache-slots.patch` with `git apply --check`, then `git apply`. Alternatively, check out the PR branch at the revision above. Do not apply the patch twice or assume it applies unchanged to a later release.
+
+Build with Strata's documented toolchain and your GPU architecture. For the tested RTX 4070 Ti, an MSVC developer shell with CMake, Ninja and CUDA used:
+
+```powershell
 cmake -S . -B cache-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSTRATA_ENABLE_CUDA=ON -DSTRATA_BUILD_TESTS=OFF -DCMAKE_CUDA_ARCHITECTURES=89
 cmake --build cache-build --target strata --parallel 4
 ```
 
-The engine announces `INFO cache_slots=4 cache_storage=temporary-disk`. The chat-completions request field is `strata_cache_slot` (integer 0–3, default 0). Usage now reports `prompt_tokens_details.cached_tokens`; Little Bot translates it into Responses usage.
+Use the architecture appropriate to your GPU. Stop Strata before installing the rebuilt executable and updated Python server. Preserve model weights and configuration. `/metrics` should report `cache_slots: 4` and `cache_storage: temporary-disk` for a supported single-GPU session.
 
-## Reproduce live verification
+Little Bot recognizes both older Strata health responses and Strata 0.1.27's `/props` identification, then translates Responses requests into Chat Completions. Cached token counts come from `prompt_tokens_details.cached_tokens`.
 
-Close other model clients first. Run against localhost:8080 with the Qwen model loaded. These tests make real inference requests and write their results beside the scripts:
+## Verification and limitations
 
+**Use a separate test server.** These tests replace every cache slot. A second test client on your live server can evict your conversation even if it uses a separate app profile.
+
+From the patched Strata checkout:
+
+```powershell
+python -m unittest discover -s serve
+python tools/check_cache_slots.py --url http://127.0.0.1:8081 --lines 1700
 ```
-python verify-strata-slots.py 1700
-python verify-strata-needles.py
-python verify-strata-cancel.py
-```
 
-The first requires zero cache reuse on cold requests, nonzero reuse after rotation and identical greedy output. The second retrieves two different records across a 35k-token prompt and compares restored output with independent cold inference. The third disconnects a streaming generation, rotates slots and checks restored output against cold output. They cover the installed int8 KV / MTP configuration, including context longer than the 32,768-token resident GPU window. Other KV formats and vision-context rotation have not been live-tested.
+The live check requires zero reuse on independent cold prompts, reuse after rotation, matching greedy answers, retrieval of distant records, and recovery after a streaming disconnect. For repeatable parity use `--adapt-swaps 0` in the test engine configuration. The older `verify-strata-*.py` scripts are retained as historical diagnostics; their defaults target port 8080 and must not be run against an active personal session.
 
-Observed on the RTX 4070 Ti: 35,758-token cold requests took 36–41 seconds; restored requests took 0.58–0.62 seconds, reusing 35,751 tokens. Needle retrieval matched exactly and reused 35,773 tokens. These timings are a local measurement, not a guarantee for every conversation length.
+Validation used Windows, NVIDIA RTX 4070 Ti, Qwen IQ2_XS, int8 KV, MTP, and prompts exceeding the 32k resident window. HIP, image rotation, other KV formats and multiple GPUs have not been live-validated for multi-slot operation.
+
+In one NVMe trial, long inactive slots offloaded about 451 MiB of checkpoint payload each. Peak private-memory growth above the first request fell from 900 MiB to 34 MiB; populated-slot switching took 437�938 ms. These are local measurements, not guaranteed performance.

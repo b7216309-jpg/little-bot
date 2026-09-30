@@ -110,7 +110,9 @@ async function probeLocal(settings) {
   if (!found) throw new Error('The selected model is not loaded. Choose the model ID shown by your local server.');
   const props = properties.status === 'fulfilled' ? properties.value : {};
   let adapter = null, health = null;
-  if (properties.status === 'rejected') {
+  // Strata 0.1.27 also exposes llama.cpp-compatible /props, but still needs
+  // Chat Completions translation rather than the native Responses transport.
+  if (properties.status === 'rejected' || /^Strata\b/i.test(props.build_info || '')) {
     try {
       const candidate = await readJson(`${origin}/health`);
       if (candidate?.status === 'ok' && candidate.model === selected

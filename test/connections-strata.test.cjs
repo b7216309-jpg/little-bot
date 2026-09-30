@@ -24,11 +24,13 @@ function json(res, status, body) {
   res.end(data);
 }
 
-test('probeLocal detects Strata only through its health fallback', async t => {
+for (const propsAvailable of [false, true]) test(`probeLocal detects Strata with /props ${propsAvailable ? 'available' : 'absent'}`, async t => {
   const model = 'qwen3.8-flash-next-iq2_xs';
   const fixture = await serverFor((req, res) => {
     if (req.url === '/v1/models') return json(res, 200, { object: 'list', data: [{ id: model, object: 'model' }] });
-    if (req.url === '/props') return json(res, 404, { error: { message: 'not found' } });
+    if (req.url === '/props') return propsAvailable
+      ? json(res, 200, { build_info: 'Strata 0.1.27', default_generation_settings: { n_ctx: 262144 }, modalities: { vision: true } })
+      : json(res, 404, { error: { message: 'not found' } });
     if (req.url === '/health') return json(res, 200, {
       status: 'ok', model, max_context: 262144, images: true, api_key: false,
     });

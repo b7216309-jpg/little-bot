@@ -1,14 +1,191 @@
+diff --git a/docs/CACHE_SLOTS.md b/docs/CACHE_SLOTS.md
+new file mode 100644
+index 0000000..fc8dad4
+--- /dev/null
++++ b/docs/CACHE_SLOTS.md
+@@ -0,0 +1,38 @@
++# Independent conversation cache slots
++
++An application can alternate a long foreground conversation with short background requests (summaries, memory extraction, reviews). A single positional KV arena otherwise loses the foreground branch when the background prompt diverges. Prefix checkpoints alone cannot restore overwritten positional cells.
++
++For single-GPU sessions, send `strata_cache_slot` with an integer from 0 to 3 on `/v1/chat/completions` or `/v1/messages`. Omission selects 0, preserving the existing single-cache behavior. Assign stable slots in the client; for example, chat=0, extraction=1, background work=2, review=3.
++
++```json
++{
++  "model": "your-loaded-model",
++  "messages": [{"role": "user", "content": "Continue the current task."}],
++  "strata_cache_slot": 0,
++  "max_tokens": 256
++}
++```
++
++This is cache isolation, not parallel generation. Requests still use the existing FIFO and one active session arena. Slot IDs belong to the server, not to an authenticated client; clients sharing an ID share a cache. Exact token and image-prefix checks still decide whether a saved prefix is reusable. A slot does not supply messages omitted from the next request.
++
++## What is saved
++
++On a slot switch, the outgoing cache keeps its live token/image identity, recurrent GDN/PLE/index-tail state, prefix checkpoints and control-vector setting. Main and MTP positional KV cells and pooled index data are copied to a temporary file in bounded chunks. The recurrent state, token/image identity and prefix checkpoint payloads are appended to the same file, then their RAM buffers are released. Only small size descriptors remain in RAM for inactive slots. Restoring a slot writes into the existing arena and resets streamed GPU page mappings; weights and captured graph addresses stay resident. Cancelled requests can save their latest valid checkpoint instead of an incomplete live state. The existing pinned-root/LRU checkpoint policy remains in effect within each slot.
++
++There can be three inactive files at once. All inactive cache payloads use temporary disk space. The active slot still retains its recurrent state and prefix checkpoints in RAM; its memory usage depends on `--prompt-cache`. The engine logs the checkpoint MiB offloaded and total switch time. OS filesystem caching can temporarily use reclaimable RAM for these files; offloading does not guarantee an identical increase in free RAM. This is not four copies of the model or four GPU arenas. Files are delete-on-close and are not durable conversation storage. An engine restart clears all slots. File/CUDA snapshot failures are reported as engine errors rather than returning an answer from partial state.
++
++Layer-split multi-GPU sessions advertise one slot and reject nonzero selections. Their multiple arenas would need a separate implementation; slot 0 keeps their previous behavior. The other single-GPU KV formats share the snapshot code, but the live validation below covers int8 KV on NVIDIA only. HIP, image-cache rotation and other KV formats have not been live-validated.
++
++## Verification
++
++Local SSD-offload trial (Windows, RTX 4070 Ti, WD_BLACK SN850X, Qwen IQ2_XS, int8 KV, 32k resident window): the 35k-token rotation/retrieval/cancellation check passed with identical cold/restored answers. Each long inactive slot offloaded about 450.8 MiB of checkpoint state. Peak private-memory growth above the first cold request was 899.9 MiB before versus 34.2 MiB after offloading, a reduction of 865.7 MiB in this workload. Populated-slot switches took 437–938 ms total. These are one-run local measurements, not a general latency guarantee; filesystem caching, checkpoint counts and storage pressure affect results. The installed Little Bot Responses relay also completed a streamed response against the new engine.
++
++Run server tests with `python -m unittest discover -s serve`. The slot tests cover default/range/type validation, forwarding on both APIs, rejection before SSE headers, and the layer-split restriction.
++
++For real inference, close other clients, load a model and run:
++
++```
++python tools/check_cache_slots.py --url http://127.0.0.1:8080 --lines 1700
++```
++
++The script replaces all four slots with synthetic prompts. It requires zero cached tokens for independent cold requests, reuse after rotation, identical greedy cold/restored answers, successful retrieval of two distant records, and parity after disconnecting a streaming generation. It discovers the loaded model from `/health` and prints timings and cached-token counts; it does not infer reuse from latency. For reproducible parity, use `--adapt-swaps 0` to keep expert placement fixed. With Qwen the default prompt is about 35k tokens, beyond a 32,768-token resident KV window. Existing cached-token usage fields are unchanged.
+diff --git a/docs/DETAILS.md b/docs/DETAILS.md
+index c55d13e..b62888e 100644
+--- a/docs/DETAILS.md
++++ b/docs/DETAILS.md
+@@ -423,6 +423,15 @@ from other devices, set an API key.
+ 
+ ---
+ 
++## Independent conversation caches
++
++API clients alternating chat with background requests can select `strata_cache_slot` (0–3) to preserve separate
++conversation prefixes on a single GPU. Slot 0 is the default; generation remains sequential. Inactive positional
++caches use temporary disk files and are lost on restart. See [cache slots](CACHE_SLOTS.md) for memory costs,
++limitations, API usage and a real-model correctness check.
++
++---
++
+ ## Images (vision)
+ 
+ The model has a vision encoder: [`mmproj-Qwen3.8-Flash-Next-BF16.gguf`](https://huggingface.co/ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF)
+diff --git a/serve/server.py b/serve/server.py
+index cb26176..fdbc783 100644
+--- a/serve/server.py
++++ b/serve/server.py
+@@ -144,6 +144,14 @@ def narrate_start(log_path: str, offset: int, args: list, done: threading.Event,
+             print(f"[strata] still starting ({time.time() - t0:.0f} s) - please wait ...", flush=True)
+ 
+ 
++def cache_slot(request: dict) -> int:
++    """An explicit independent conversation cache, not another execution lane."""
++    slot = request.get("strata_cache_slot", 0)
++    if not isinstance(slot, int) or isinstance(slot, bool) or not 0 <= slot <= 3:
++        raise ValueError("strata_cache_slot must be an integer from 0 through 3")
++    return slot
++
++
+ class StrataEngine:
+     """The resident engine: `strata --serve` reads `GEN <max_new> <ids>` lines and streams `T <id>` lines, then
+     `DONE ...`.  Requests are serialized by the service's FIFO, so one pipe is enough.
+@@ -251,7 +259,7 @@ class StrataEngine:
+ 
+     @staticmethod
+     def sampling_keys(sampling: dict) -> str:
+-        keys = ""
++        keys = f" cache_slot={cache_slot(sampling)}"
+         t = sampling.get("temperature")
+         if isinstance(t, (int, float)) and float(t) > 0.0:
+             keys += f" temperature={float(t)!r}"
+@@ -1354,6 +1362,10 @@ def make_handler(svc: Service):
+                 return
+             try:
+                 req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
++                if path in ("/v1/chat/completions", "/v1/messages"):
++                    slot = cache_slot(req)  # validate before opening an SSE response
++                    if slot and int(getattr(svc.engine, "info", {}).get("cache_slots", 4)) == 1:
++                        raise ValueError("cache slots require a single-GPU session")
+                 if path == "/v1/chat/completions":
+                     self._openai(req)
+                 elif path == "/v1/messages":
+diff --git a/serve/test_server.py b/serve/test_server.py
+index 4320e72..9d8e429 100644
+--- a/serve/test_server.py
++++ b/serve/test_server.py
+@@ -26,6 +26,7 @@ ANSWER = "x" * 2000                              # longer than the old 1024 fall
+ class RecordingEngine(MockEngine):
+     def generate(self, ids, max_new, sampling, cancel, embeddings=None):
+         self.last_max_new = max_new
++        self.last_sampling = sampling
+         yield from super().generate(ids, max_new, sampling, cancel, embeddings)
+ 
+ 
+@@ -64,6 +65,35 @@ class MaxTokens(unittest.TestCase):
+         u = b.get("usage", {})
+         return s, b, u.get("input_tokens"), u.get("output_tokens")
+ 
++    def test_cache_slot_validation_precedes_stream_headers(self):
++        for api in ("openai", "anthropic"):
++            for stream in (False, True):
++                for slot in (-1, 4, True, "1", 1.5, None):
++                    with self.subTest(api=api, stream=stream, slot=slot):
++                        status, body, _, _ = self.call(api, max_tokens=8, stream=stream, strata_cache_slot=slot)
++                        self.assertEqual(status, 400)
++                        self.assertIn("strata_cache_slot", body["error"]["message"])
++
++    def test_cache_slot_reaches_engine_over_both_apis(self):
++        for api in ("openai", "anthropic"):
++            status, _, _, _ = self.call(api, max_tokens=8, strata_cache_slot=3)
++            self.assertEqual(status, 200)
++            self.assertEqual(self.engine.last_sampling["strata_cache_slot"], 3)
++
++    def test_layer_split_rejects_nonzero_slot_before_streaming(self):
++        previous = getattr(self.engine, "info", None)
++        self.engine.info = {"cache_slots": "1"}
++        try:
++            status, body, _, _ = self.call("openai", max_tokens=8, stream=True, strata_cache_slot=1)
++            self.assertEqual(status, 400)
++            self.assertIn("single-GPU", body["error"]["message"])
++            self.assertEqual(self.call("openai", max_tokens=8, strata_cache_slot=0)[0], 200)
++        finally:
++            if previous is None:
++                del self.engine.info
++            else:
++                self.engine.info = previous
++
+     def test_unset_budget_is_the_rest_of_the_context(self):
+         cases = {"openai": [{"max_tokens": -1}, {"max_tokens": 0}, {}, {"max_tokens": None},
+                             {"max_completion_tokens": -1}, {"max_completion_tokens": None, "max_tokens": None}],
+@@ -842,5 +872,15 @@ class TimingsDrafts(unittest.TestCase):
+         self.assertNotIn("draft_n", request_timings(24, 20, base))
+         self.assertIsNone(request_timings(24, 20, {}))
+ 
++class CacheSlotProtocol(unittest.TestCase):
++    def test_slot_selection_and_validation(self):
++        self.assertIn("cache_slot=0", StrataEngine.sampling_keys({}))
++        for slot in range(4):
++            self.assertIn(f"cache_slot={slot}", StrataEngine.sampling_keys({"strata_cache_slot":slot}))
++        for slot in [-1,4,True,"1",1.5]:
++            with self.assertRaises(ValueError):
++                StrataEngine.sampling_keys({"strata_cache_slot":slot})
++
++
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/src/program/generate.cpp b/src/program/generate.cpp
+index 0bbc92e..e018a04 100644
 --- a/src/program/generate.cpp
 +++ b/src/program/generate.cpp
-@@ -80,6 +80,7 @@
+@@ -66,6 +66,7 @@
+ #include <cuda_runtime.h>
+ 
+ #include <array>
++#include <type_traits>
+ #include <chrono>
+ #include <algorithm>
+ #include <iostream>
+@@ -87,6 +88,7 @@
  #include <string>
  #include <set>
  #include <vector>
 +#include <memory>
  
  namespace {
- 
-@@ -679,6 +680,73 @@
+ // perf-review D-4: the lent slots are refilled with queued copies and one wait; STRATA_REFILL_BLOCKING=1 waits on each
+@@ -775,6 +777,116 @@ bool checkpoint_restore(const ConvCheckpoint& c, strata::core::SessionState& ss,
      return cudaDeviceSynchronize() == cudaSuccess;
  }
  
@@ -20,7 +197,50 @@
 +    std::vector<ConvCheckpoint> checks;
 +    bool cvec = true;
 +    int64_t cells = 0;
++    // Shapes stay in memory; all vector payloads are appended after positional KV.
++    struct Shape { size_t ids, imgs, gdn, ple, tails; uint64_t used; };
++    std::vector<Shape> shapes;
++    uint64_t state_bytes = 0;
 +};
++
++bool slot_checkpoints(CacheSlot& slot, bool reading) {
++    auto transfer = [&](auto& v, size_t count) {
++        using T = typename std::decay_t<decltype(v)>::value_type;
++        if (reading) v.resize(count);
++        if (!count) return true;
++        return reading ? std::fread(v.data(), sizeof(T), count, slot.file.get()) == count
++                       : std::fwrite(v.data(), sizeof(T), count, slot.file.get()) == count;
++    };
++    if (!reading) {
++        slot.shapes.clear(); slot.state_bytes = 0;
++        auto shape = [&](const ConvCheckpoint& c) {
++            if (!c.stage_parts.empty()) return false; // multi-GPU slots are not supported
++            slot.shapes.push_back({c.ids.size(),c.imgs.size(),c.gdn.size(),c.ple.size(),c.tails.size(),c.used});
++            slot.state_bytes += c.ids.size()*sizeof(int32_t) + c.imgs.size()*sizeof(ImgKey)
++                                + c.gdn.size() + c.ple.size() + c.tails.size();
++            return true;
++        };
++        if (!shape(slot.running)) return false;
++        for (const auto& c : slot.checks) if (!shape(c)) return false;
++    } else {
++        if (slot.shapes.empty()) return false;
++        slot.checks.resize(slot.shapes.size()-1);
++    }
++    for (size_t i=0; i<slot.shapes.size(); ++i) {
++        auto& c = i == 0 ? slot.running : slot.checks[i-1];
++        const auto& s = slot.shapes[i];
++        if (!transfer(c.ids,s.ids) || !transfer(c.imgs,s.imgs) || !transfer(c.gdn,s.gdn)
++            || !transfer(c.ple,s.ple) || !transfer(c.tails,s.tails)) return false;
++        if (reading) c.used = s.used;
++    }
++    if (!reading) {
++        if (std::fflush(slot.file.get()) != 0) return false;
++        // clear() alone retains capacity, defeating the RAM saving.
++        slot.running = ConvCheckpoint{};
++        std::vector<ConvCheckpoint>().swap(slot.checks);
++    }
++    return true;
++}
 +
 +bool slot_region(FILE* file, void* pointer, uint64_t bytes, bool host, bool reading,
 +                 std::vector<uint8_t>& buffer) {
@@ -82,24 +302,24 @@
  // --control-vector-scaled: llama.cpp's `common_control_vector_load` (every file's `direction.<l>` times its scale,
  // summed; layer 0 has none) and `llama_adapter_cvec::apply` with the projection-mode patch (project: the unit
  // direction and its norm as the scale), into the tables `cvec_upload` takes.  `summary` is what INFO reports.
-@@ -2431,6 +2499,8 @@
+@@ -3217,6 +3329,8 @@ int main(int argc, char** argv) {
          std::vector<ImgKey> live_imgs, req_imgs;
          bool live_ok = false;
          std::vector<ConvCheckpoint> checks;
 +        CacheSlot slots[4];
 +        int active_slot = 0;
+         uint64_t check_clock = 0;   // the checkpoints' LRU clock; creation and every use advance it
          bool cvec_cached = true;   // the control vector's state the live session and the checkpoints were read with
          int64_t pp_total = 0, pp_from = 0, pp_next_check = 0;
-         Clock::time_point pp_t0 = Clock::now();
-@@ -2653,6 +2723,7 @@
+@@ -3534,6 +3648,7 @@ int main(int argc, char** argv) {
                      }
                  }).detach();
          }
-+        std::printf("INFO cache_slots=4 cache_storage=temporary-disk\n");
++        std::printf("INFO cache_slots=%d cache_storage=temporary-disk\n", multi_gpu ? 1 : 4);
          std::printf("READY %lld stop\n", (long long) o.max_context);   // "stop": this engine honours STOP
          std::fflush(stdout);
          std::string line;
-@@ -2693,6 +2764,7 @@
+@@ -3574,6 +3689,7 @@ int main(int argc, char** argv) {
              unsigned long long req_seed = 0;
              float req_min_p = 0.0f, req_penalty_repeat = 1.0f, req_penalty_freq = 0.0f, req_penalty_present = 0.0f;
              int req_penalty_last_n = 0;
@@ -107,22 +327,31 @@
              int req_cvec = 1;   // cvec=0|1: a loaded control vector for this request (on when absent)
              // tuning keys (setup's calibration measures settings without restarting the engine): the PCIe share of
              // the missed experts and the draft-probability floor, for this request only
-@@ -2708,7 +2780,8 @@
+@@ -3590,7 +3706,13 @@ int main(int argc, char** argv) {
                      if (eq == std::string::npos) { endp = const_cast<char*>(start); break; }
                      const std::string key = tok.substr(0, eq);
                      const float fv = std::strtof(tok.c_str() + eq + 1, nullptr);
 -                    if (key == "cvec") req_cvec = std::atoi(tok.c_str() + eq + 1);
-+                    if (key == "cache_slot") req_slot = std::atoi(tok.c_str() + eq + 1);
++                    if (key == "cache_slot") {
++                        const char* first = tok.data() + eq + 1;
++                        const char* last = tok.data() + tok.size();
++                        const auto parsed = std::from_chars(first, last, req_slot);
++                        if (parsed.ec != std::errc{} || parsed.ptr != last) req_slot = -1;
++                    }
 +                    else if (key == "cvec") req_cvec = std::atoi(tok.c_str() + eq + 1);
-                     else if (geni) {}   // image requests decode greedily
                      else if (key == "temperature") req_temperature = fv;
                      else if (key == "top_p") req_top_p = fv;
-@@ -2838,6 +2911,51 @@
+                     else if (key == "top_k") req_top_k = std::atoi(tok.c_str() + eq + 1);
+@@ -3739,6 +3861,62 @@ int main(int argc, char** argv) {
                      if ((int32_t) ids[(size_t) i] != pre[(size_t) i]) return false;
                  return imgs_below(req_imgs, L) == pre_imgs;
              };
 +            if (req_slot < 0 || req_slot > 3) {
-+                std::printf("ERR cache_slot must be 0 through 3\n"); continue;
++                std::printf("ERR cache_slot must be 0 through 3\n"); std::fflush(stdout); continue;
++            }
++            // The slot snapshot owns one session arena; do not partially snapshot a layer split.
++            if (multi_gpu && req_slot != 0) {
++                std::printf("ERR cache slots require a single-GPU session\n"); std::fflush(stdout); continue;
 +            }
 +            if (req_slot != active_slot) {
 +                const auto switch_start = Clock::now();
@@ -134,13 +363,14 @@
 +                }
 +                if (live_ok && !live.empty()) {
 +                    auto& saved = slots[active_slot];
-+                    #if defined(_WIN32)
-+                    char temp_dir[MAX_PATH], temp_file[MAX_PATH];
-+                    if (!GetTempPathA(MAX_PATH,temp_dir) || !GetTempFileNameA(temp_dir,"stc",0,temp_file)) {
++#if defined(_WIN32)
++                    wchar_t temp_dir[MAX_PATH], temp_file[MAX_PATH];
++                    const DWORD count = GetTempPathW(MAX_PATH, temp_dir);
++                    if (!count || count >= MAX_PATH || !GetTempFileNameW(temp_dir,L"stc",0,temp_file)) {
 +                        std::printf("ERR creating cache snapshot file failed\n"); return 1;
 +                    }
-+                    saved.file.reset(std::fopen(temp_file,"w+bD"));
-+                    if (!saved.file) DeleteFileA(temp_file);
++                    saved.file.reset(_wfopen(temp_file,L"w+bD"));
++                    if (!saved.file) DeleteFileW(temp_file);
 +#else
 +                    saved.file.reset(std::tmpfile());
 +#endif
@@ -151,11 +381,17 @@
 +                        std::printf("ERR saving conversation cache slot failed\n"); return 1;
 +                    }
 +                    saved.checks = std::move(checks);
++                    if (!slot_checkpoints(saved,false)) {
++                        std::printf("ERR saving cache checkpoints to disk failed\n"); return 1;
++                    }
++                    std::fprintf(stderr,"strata cache: slot %d offloaded %.1f MiB of checkpoint state\n",
++                        active_slot,saved.state_bytes/(1024.0*1024.0));
 +                }
 +                live_ok = false; live.clear(); live_imgs.clear(); checks.clear();
 +                auto& incoming = slots[req_slot];
 +                if (incoming.file) {
-+                    if (!slot_positional(incoming,ss,g,mtp,true) || !checkpoint_restore(incoming.running,ss,g)) {
++                    if (!slot_positional(incoming,ss,g,mtp,true) || !slot_checkpoints(incoming,true)
++                        || !checkpoint_restore(incoming.running,ss,g)) {
 +                        std::printf("ERR loading conversation cache slot failed\n"); return 1;
 +                    }
 +                    live = incoming.running.ids; live_imgs = incoming.running.imgs; live_ok = true;
@@ -169,60 +405,108 @@
              // the control vector for this request.  The live session and the checkpoints were read one way, so a
              // switch reads the prompt again from the start
              if (strata::kernels::cvec().loaded()) {
---- a/serve/server.py
-+++ b/serve/server.py
-@@ -236,7 +236,10 @@
- 
-     @staticmethod
-     def sampling_keys(sampling: dict) -> str:
--        keys = ""
-+        slot = sampling.get("strata_cache_slot", 0)
-+        if not isinstance(slot, int) or isinstance(slot, bool) or not 0 <= slot <= 3:
-+            raise ValueError("strata_cache_slot must be 0 through 3")
-+        keys = f" cache_slot={slot}"
-         t = sampling.get("temperature")
-         if isinstance(t, (int, float)) and float(t) > 0.0:
-             keys += f" temperature={float(t)!r}"
-@@ -293,7 +296,7 @@
-         the HTTP layer turns it into an SSE comment, which keeps clients' watchdogs calm and notices a client that
-         has gone.  A consumer that stops early (or `cancel`) makes the engine STOP, so it does not run to max_new."""
-         self.progress = None
--        head = f"GENI {int(max_new)}{self.projection_key(sampling or {})} {embeddings}" if embeddings else \
-+        head = f"GENI {int(max_new)}{self.sampling_keys(sampling or {})} {embeddings}" if embeddings else \
-             f"GEN {int(max_new)}{self.sampling_keys(sampling or {}) if not embeddings else ''}"
-         try:
-             self.proc.stdin.write(f"{head} {','.join(str(int(t)) for t in ids)}\n")
-@@ -788,7 +791,7 @@
-                 self.status["busy"] = False
-         for ev in parser.finish():
-             yield "event", ev
--        yield "done", {"finish": finish, "completion_tokens": n}
-+        yield "done", {"finish": finish, "completion_tokens": n, "cached_tokens": last.get("reused", 0)}
- 
- 
- def _debug_req(api, req, messages, tools, max_new, thinking, prompt_tokens):
-@@ -939,7 +942,7 @@
-             last = chunk({}, finish)
-             pt = x.get("prompt_tokens", len(ids))     # after MCP rounds: the last round's prompt
-             last["usage"] = {"prompt_tokens": pt, "completion_tokens": x["completion_tokens"],
--                             "total_tokens": pt + x["completion_tokens"]}
-+                             "total_tokens": pt + x["completion_tokens"], "prompt_tokens_details": {"cached_tokens": x.get("cached_tokens", 0)}}
-             yield last
- 
- 
---- a/serve/test_server.py
-+++ b/serve/test_server.py
-@@ -528,3 +528,13 @@
- 
- if __name__ == "__main__":
-     unittest.main()
+diff --git a/tools/check_cache_slots.py b/tools/check_cache_slots.py
+new file mode 100644
+index 0000000..50f3841
+--- /dev/null
++++ b/tools/check_cache_slots.py
+@@ -0,0 +1,99 @@
++"""Live cache correctness check. Requires an idle Strata server and a loaded model.
++
++Run: python tools/check_cache_slots.py --url http://127.0.0.1:8080 --lines 1700
++The default exercises a ~35k-token prompt with Qwen, beyond a 32k resident KV window.
++All requests are synthetic; this replaces the contents of all four cache slots.
++"""
++import argparse
++import json
++import time
++import urllib.request
++import uuid
 +
 +
-+class CacheSlotProtocol(unittest.TestCase):
-+    def test_slot_selection_and_validation(self):
-+        self.assertIn("cache_slot=0", StrataEngine.sampling_keys({}))
-+        for slot in range(4):
-+            self.assertIn(f"cache_slot={slot}", StrataEngine.sampling_keys({"strata_cache_slot":slot}))
-+        for slot in [-1,4,True,"1",1.5]:
-+            with self.assertRaises(ValueError):
-+                StrataEngine.sampling_keys({"strata_cache_slot":slot})
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument('--url', default='http://127.0.0.1:8080')
++    parser.add_argument('--lines', type=int, default=1700)
++    args = parser.parse_args()
++    if args.lines < 2:
++        parser.error('--lines must be at least 2')
++    base = args.url.rstrip('/')
++    with urllib.request.urlopen(base + '/health', timeout=10) as response:
++        model = json.load(response)['model']
++    nonce = uuid.uuid4().hex
++
++    def request(body):
++        req = urllib.request.Request(
++            base + '/v1/chat/completions', data=json.dumps(body).encode(),
++            headers={'Content-Type': 'application/json'})
++        return urllib.request.urlopen(req, timeout=600)
++
++    def body(messages, slot):
++        return dict(model=model, messages=messages, strata_cache_slot=slot,
++                    temperature=0, top_k=1, max_tokens=80, stream=False,
++                    chat_template_kwargs={'enable_thinking': False})
++
++    def run(label, messages, slot, max_tokens=80):
++        payload = body(messages, slot)
++        payload['max_tokens'] = max_tokens
++        start = time.monotonic()
++        with request(payload) as response:
++            result = json.load(response)
++        usage = result['usage']
++        row = dict(label=label, slot=slot, seconds=round(time.monotonic() - start, 3),
++                   prompt_tokens=usage['prompt_tokens'],
++                   cached_tokens=usage['prompt_tokens_details']['cached_tokens'],
++                   text=result['choices'][0]['message']['content'])
++        print(json.dumps(row), flush=True)
++        return row
++
++    positions = (args.lines // 3, args.lines - 1)
++
++    def conversation(letter):
++        records = '\n'.join(
++            f'Record {i:05d}: {letter}-{(i * 7919) % 99991:05d} is an archival marker.'
++            for i in range(args.lines))
++        question = 'What are the exact markers for records ' + ' and '.join(
++            f'{i:05d}' for i in positions) + '?'
++        return [dict(role='system', content=nonce + letter + ' Return only the requested markers.'),
++                dict(role='user', content=records + '\n' + question)]
++
++    a, b = conversation('A'), conversation('B')
++    cold_a = run('A cold', a, 0)
++    cold_b = run('B cold', b, 1)
++    warm_a = run('A restored', a, 0)
++    warm_b = run('B restored', b, 1)
++    independent_a = run('A independent cold', a, 2)
++    assert cold_a['cached_tokens'] == cold_b['cached_tokens'] == independent_a['cached_tokens'] == 0
++    assert warm_a['cached_tokens'] > 0 and warm_b['cached_tokens'] > 0
++    assert cold_a['text'] == warm_a['text'] == independent_a['text'], 'A restoration changed the answer'
++    assert cold_b['text'] == warm_b['text'], 'B restoration changed the answer'
++    for letter, row in [('A', warm_a), ('B', warm_b)]:
++        for position in positions:
++            assert f'{letter}-{(position * 7919) % 99991:05d}' in row['text'], 'Record retrieval failed'
++
++    counting = [dict(role='system', content=nonce + ' Count as requested.'),
++                dict(role='user', content='List numbers 1 through 2000 separated by commas. No introduction.')]
++    payload = body(counting, 3)
++    payload.update(stream=True, max_tokens=8192)
++    with request(payload) as response:
++        for line in response:
++            if not line.startswith(b'data: ') or line.strip() == b'data: [DONE]':
++                continue
++            event = json.loads(line[6:])
++            if any(choice.get('delta', {}).get('content') for choice in event.get('choices', [])):
++                break
++        else:
++            raise AssertionError('Stream ended without content; cancellation was not tested')
++    time.sleep(1)  # allow disconnect/STOP processing before switching
++    run('B after cancellation', b, 1)
++    resumed = run('cancelled slot restored', counting, 3, max_tokens=32)
++    cold = run('cancelled prompt independent cold', counting, 0, max_tokens=32)
++    assert resumed['text'] == cold['text'], 'Interrupted cache changed the answer'
++    assert resumed['cached_tokens'] > 0 and cold['cached_tokens'] == 0
++    print('PASS: independent cache reuse, cold-output parity, record retrieval and interrupted-stream recovery')
++
++
++if __name__ == '__main__':
++    main()

@@ -4,7 +4,7 @@ Little Bot starts with **Local Qwen** at `http://127.0.0.1:8080/v1`. Start the e
 
 Local inference uses the installed llama.cpp server's native Responses API. The existing pinned Codex runtime still supplies tools, sandboxing, approval handling, streaming, and compaction. An OpenAI account is not needed for the local connection. Nothing starts, stops, downloads, or replaces the user's model server.
 
-Strata is supported without changing that native llama.cpp path. When the selected server has Strata's `/health` shape and no llama.cpp `/props`, Little Bot marks only that connection for an in-process Responses-to-Chat-Completions adapter. Codex still speaks Responses API to Little Bot; the relay translates that Strata connection to `/v1/chat/completions` and translates Strata's streamed text, reasoning, and tool calls back to Responses events. Other local servers continue through the existing native Responses relay unchanged.
+Strata is supported without changing that native llama.cpp path. When the selected server identifies itself as Strata in `/props`, or has Strata's legacy `/health` shape and no llama.cpp `/props`, Little Bot marks only that connection for an in-process Responses-to-Chat-Completions adapter. Codex still speaks Responses API to Little Bot; the relay translates that Strata connection to `/v1/chat/completions` and translates Strata's streamed text, reasoning, and tool calls back to Responses events. Other local servers continue through the existing native Responses relay unchanged.
 
 For a detected Strata connection, the composer replaces the legacy local Thinking On/Off switch with **None / Low / Medium / High** reasoning levels. None disables thinking; Low, Medium, and High enable thinking and pass that effort through to Strata. The existing On/Off control remains unchanged for non-Strata local models, and Codex keeps its existing effort selector.
 
@@ -37,3 +37,5 @@ Image-input support is normalized per model across connections. Codex model disc
 The installed server accepts images in incoming messages but rejects image-valued tool results. Little Bot disables the native `view_image` tool for the local connection using `features.view_image = false`. Attach photos to inspect them; returning image files and browser screenshots still works. MCP tools that return image content have the same server limitation. Codex keeps its normal image-viewing tool.
 
 Configuration follows [Codex custom model providers](https://learn.chatgpt.com/docs/config-file/config-advanced#custom-model-providers): a separate provider using `wire_api = "responses"` and `requires_openai_auth = false`.
+
+Cache rotation additionally requires [Strata PR #175](https://github.com/Niko1221/Strata/pull/175); see the [integration guide](integrations/strata/README.md).
