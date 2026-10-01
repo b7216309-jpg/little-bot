@@ -14,6 +14,12 @@ function normalizeMemory(value) {
     stats: Array.isArray(input.stats) ? input.stats : [],
   };
 }
+// The app's on-disk service. A memory object that lost its service (for example after being
+// replaced by a plain copy) re-attaches to it instead of writing to a throwaway in-memory database.
+let primaryService = null;
+function setPrimaryService(service) {
+  primaryService = service || null;
+}
 function attachMemoryService(memory, service) {
   Object.defineProperty(memory, "service", {
     value: service,
@@ -26,7 +32,12 @@ function attachMemoryService(memory, service) {
 function serviceOf(memory) {
   if (!memory || typeof memory !== "object")
     throw new Error("Memory is unavailable.");
-  if (!memory.service) attachMemoryService(memory, new MemoryService());
+  if (!memory.service) {
+    if (primaryService) {
+      console.warn("Memory object was detached from its database; re-attaching to the on-disk store.");
+      attachMemoryService(memory, primaryService);
+    } else attachMemoryService(memory, new MemoryService());
+  }
   memory.service.enabled = memory.enabled !== false;
   return memory.service;
 }
@@ -92,6 +103,7 @@ module.exports = {
   defaultMemory,
   normalizeMemory,
   attachMemoryService,
+  setPrimaryService,
   serviceOf,
   sync,
   saveFact,
