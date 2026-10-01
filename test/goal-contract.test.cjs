@@ -61,6 +61,42 @@ test('definition changes invalidate a quiet review and Memory off excludes user 
   assert.ok(evidence.coverage.some(x => x.includes('disabled')));
 });
 
+test('timed calendar evidence changes at useful deadlines and stays stable between them', async () => {
+  const g = goal(process.cwd()), d = data(g);
+  const startAt = Date.parse('2026-10-02T12:00:00Z');
+  d.calendar.events.push({ id: 'meeting', title: 'Prepare meeting notes', startAt, endAt: startAt + 3600000 });
+  let now = startAt - 2 * 86400000;
+  let evidence = await contract.collect(g, d, now);
+  contract.consume(g, evidence, 'no-change', '');
+  assert.equal((await contract.collect(g, d, now + 60000)).changed, false);
+  for (const minutes of [1440, 60, 15, 0]) {
+    now = startAt - minutes * 60000;
+    assert.equal((await contract.collect(g, d, now - 1)).changed, false, `Before ${minutes} minute boundary`);
+    evidence = await contract.collect(g, d, now);
+    assert.equal(evidence.changed, true, `At ${minutes} minute boundary`);
+    const meeting = JSON.parse(evidence.items.find(item => item.id === 'calendar:meeting').text);
+    assert.equal(meeting.approachingWithinMinutes, minutes);
+    assert.equal(meeting.phase, minutes === 0 ? 'due' : 'upcoming');
+    contract.consume(g, evidence, 'no-change', '');
+    assert.equal((await contract.collect(g, d, now + 60000)).changed, false, `After consuming ${minutes} minute boundary`);
+  }
+  assert.equal((await contract.collect(g, d, startAt + 3600001)).changed, true, 'Ended event leaves the evidence window');
+});
+
+test('all-day events do not generate minute-level preparation reviews', async () => {
+  const g = goal(process.cwd()), d = data(g);
+  const startAt = Date.parse('2026-10-02T00:00:00Z');
+  d.calendar.events.push({ id: 'day', title: 'Day off', allDay: true, startAt, endAt: startAt + 86400000 });
+  const first = await contract.collect(g, d, startAt - 2 * 86400000);
+  contract.consume(g, first, 'no-change', '');
+  for (const minutes of [1440, 60, 15]) {
+    const evidence = await contract.collect(g, d, startAt - minutes * 60000);
+    assert.equal(evidence.changed, false);
+    assert.equal(JSON.parse(evidence.items.find(item => item.id === 'calendar:day').text).approachingWithinMinutes, null);
+  }
+  assert.equal((await contract.collect(g, d, startAt)).changed, true);
+});
+
 test('changed selected project files supply evidence outside the writable folder', async t => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'goal-sources-')); t.after(() => fs.rm(dir, { recursive: true, force: true }));
   const filename = path.join(dir, 'model.json'); await fs.writeFile(filename, '{"model":"BGE","license":"MIT"}');
@@ -112,6 +148,32 @@ async function runnerFixture(t, run) {
   const runner = new GoalRunner({ store, backupRoot: path.join(workspace, 'backups'), run, onAlert: x => alerts.push(x) });
   return { runner, g, d, alerts };
 }
+
+test('ongoing runner reviews approaching calendar deadlines without new messages or edits', async t => {
+  let calls = 0, now = Date.parse('2026-10-01T08:00:00Z');
+  t.mock.method(Date, 'now', () => now);
+  const { runner, g, d, alerts } = await runnerFixture(t, async () => { calls++; return result('no-change'); });
+  const startAt = now + 120 * 60000;
+  d.calendar.events.push({ id: 'meeting', title: 'Meeting', startAt, endAt: startAt + 3600000 });
+  await runner.execute(g);
+  assert.equal(calls, 1);
+  now += 60000;
+  await runner.execute(g);
+  assert.equal(calls, 1, 'Ordinary ticking does not invoke the model');
+  now = startAt - 60 * 60000;
+  await runner.execute(g);
+  assert.equal(calls, 2, 'One-hour horizon invokes a review');
+  now = startAt - 15 * 60000;
+  await runner.execute(g);
+  assert.equal(calls, 3, 'Fifteen-minute horizon invokes a review');
+  now += 60000;
+  await runner.execute(g);
+  assert.equal(calls, 3, 'Consumed horizon stays quiet');
+  now = startAt;
+  await runner.execute(g);
+  assert.equal(calls, 4, 'Start time invokes a review');
+  assert.equal(alerts.length, 0, 'A fresh review does not force a notification');
+});
 
 test('ongoing recommendation persists actions and posts to chat; unchanged review makes zero calls', async t => {
   let calls = 0;

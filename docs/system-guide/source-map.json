@@ -10,6 +10,8 @@
   "examples/writing-tools/skills/writing-review/SKILL.md": "12-skills-plugins-mcp.md",
   "integrations/strata/cache-slots.patch": "03-models-strata.md",
   "integrations/strata/README.md": "03-models-strata.md",
+  "integrations/strata/ssd-conversation-cache-0.1.33.patch": "03-models-strata.md",
+  "integrations/strata/verify-conversation-cache.cjs": "03-models-strata.md",
   "integrations/strata/verify-strata-cancel.py": "03-models-strata.md",
   "integrations/strata/verify-strata-needles.py": "03-models-strata.md",
   "integrations/strata/verify-strata-slots.py": "03-models-strata.md",

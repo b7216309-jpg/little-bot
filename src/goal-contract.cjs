@@ -9,6 +9,16 @@ const clip = (value, max = 2000) => typeof value === 'string' ? value.slice(0, m
 const isV2 = goal => goal?.contractVersion === 2;
 const ongoing = goal => isV2(goal) && goal.kind === 'ongoing';
 const OUTCOMES = ['update', 'progress', 'completed', 'recommendation', 'waiting', 'no-change', 'failed'];
+// Match the calendar event runtime's useful horizons without changing the
+// evidence version every minute. A deadline approaching is fresh evidence.
+const CALENDAR_REVIEW_WINDOWS = [15, 60, 1440];
+
+function approachingWithinMinutes(event, now) {
+  if (event.allDay) return null;
+  const remaining = event.startAt - now;
+  if (remaining <= 0) return 0;
+  return CALENDAR_REVIEW_WINDOWS.find(minutes => remaining <= minutes * 60000) ?? null;
+}
 
 function definition(input, existing) {
   const version = input.contractVersion ?? existing?.contractVersion ?? (input.kind ? 2 : 1);
@@ -91,7 +101,7 @@ async function collect(goal, data, now = Date.now()) {
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const value = events.map(e => ({ id: e.id, title: clip(e.title, 120), startAt: e.startAt, endAt: e.endAt || e.startAt,
       startIso: new Date(e.startAt).toISOString(), endIso: new Date(e.endAt || e.startAt).toISOString(), timezone,
-      phase: e.startAt <= now ? 'due' : 'upcoming' }));
+      phase: e.startAt <= now ? 'due' : 'upcoming', approachingWithinMinutes: approachingWithinMinutes(e, now) }));
     versions.calendar = hash(JSON.stringify(value));
     for (const e of value.slice(0, 8)) {
       const text = JSON.stringify(e);

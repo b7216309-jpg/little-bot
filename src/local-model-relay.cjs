@@ -119,7 +119,6 @@ class LocalModelRelay {
     this.routes = new Map();
     this.upstreams = new Map();
     this.adapters = new Map();
-    this.cacheSlots = new Map();
     this.sockets = new Set();
     this.requests = new Set();
   }
@@ -168,19 +167,17 @@ class LocalModelRelay {
     }
   }
 
-  endpoint(baseUrl, adapter = null, cacheSlot = 0) {
-    if (!Number.isInteger(cacheSlot) || cacheSlot < 0 || cacheSlot > 3) throw new Error("Invalid local cache slot.");
+  endpoint(baseUrl, adapter = null) {
     if (!this.server?.listening || this.closing) throw new Error('The local model connection is not ready.');
     const base = localBaseUrl(baseUrl);
     const mode = adapter === 'strata' ? 'strata' : 'responses';
-    const key = `${mode}\0${base}\0${cacheSlot}`;
+    const key = `${mode}\0${base}`;
     let route = this.upstreams.get(key);
     if (!route) {
       route = token();
       this.upstreams.set(key, route);
       this.routes.set(route, base);
       this.adapters.set(route, mode === 'strata' ? 'strata' : null);
-      this.cacheSlots.set(route, cacheSlot);
     }
     return `${this.origin}/${this.secret}/${route}/v1`;
   }
@@ -220,7 +217,8 @@ class LocalModelRelay {
     if (adapter === 'strata') {
       const translated = responsesToChat(body, thinking);
       body = translated.body;
-      body.strata_cache_slot = this.cacheSlots.get(match[2]) || 0;
+      // Official Strata matches complete token/image prefixes automatically.
+      // Slot metadata belongs to the retired PR #175 server protocol.
       strataTools = translated.toolKinds;
       upstreamPath = 'chat/completions';
     } else if (match[3] === 'responses') {
@@ -279,7 +277,7 @@ class LocalModelRelay {
       const server = this.server;
       this.server = null;
       this.origin = null;
-      this.routes.clear(); this.upstreams.clear(); this.adapters.clear(); this.cacheSlots.clear(); this.secret = token();
+      this.routes.clear(); this.upstreams.clear(); this.adapters.clear(); this.secret = token();
       for (const request of this.requests) request.destroy();
       for (const socket of this.sockets) socket.destroy();
       if (server?.listening) await new Promise(resolve => server.close(resolve));

@@ -455,10 +455,10 @@ class Controller extends EventEmitter {
       if (saved.connection === 'local' && binding.model && !this.models.some(model => model.id === binding.model)) throw new Error('This task uses a local model that is not loaded. Load it before continuing.');
     }
   }
-  providerConfig(cacheSlot = 0) {
+  providerConfig() {
     const settings = this.store.data.settings;
     return providerConfig(settings, this.connection,
-      settings.connection === 'local' ? this.localModelRelay.endpoint(settings.localBaseUrl, this.connection?.adapter, cacheSlot) : undefined);
+      settings.connection === 'local' ? this.localModelRelay.endpoint(settings.localBaseUrl, this.connection?.adapter) : undefined);
   }
   get goalChat() { return this.goalExecutor.active; }
   async runGoal(goal, options) { if (this.memoryConsolidator) await this.memoryConsolidator.pauseForUser(); return this.goalExecutor.run(goal, options); }
@@ -767,7 +767,7 @@ class Controller extends EventEmitter {
         approvalPolicy: 'never', approvalsReviewer: 'user', sandbox: 'workspace-write',
         ...(this.agentTools ? { dynamicTools: wild ? this.agentTools.specs().filter(tool => WILD_HEARTBEAT_TOOLS.has(tool.name)) : this.agentTools.specs({ readOnly: true }) } : {}),
         developerInstructions: (wild ? wildHeartbeatInstructions : heartbeatInstructions)(this.systemPrompt()),
-        config: { ...extensionConfig, ...this.providerConfig(2), 'sandbox_workspace_write.network_access': network, 'model_reasoning_effort': effort,
+        config: { ...extensionConfig, ...this.providerConfig(), 'sandbox_workspace_write.network_access': network, 'model_reasoning_effort': effort,
           'web_search': network && this.store.data.settings.connection === 'codex' ? 'live' : 'disabled', 'features.multi_agent': false },
       }, 60000);
       chat.threadId = started.thread.id;
