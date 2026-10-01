@@ -8,6 +8,19 @@ The bundled engine was tested against an isolated deterministic fake model HTTP 
 
 Packaging checks additionally reproduced a Windows engine launch failure at a 270-character executable path. Using Windows extended paths fixes the launch. The production local model server was offline during this update; no fresh live Qwen run is claimed. Earlier live-model results below belong to their stated versions.
 
+## Live follow-up: 1 October 2026
+
+After starting the normal Strata server, the installed 0.10.1 modules passed eight live checks against local Qwen3.8-Flash-Next-IQ2_XS. All application state and file writes used a separate test workspace; the saved personal conversation was not used or modified.
+
+- Provider detection and an actual foreground reply passed.
+- Memory extraction produced schema-conforming JSON on its first attempt and saved a durable preference with its source citation.
+- A finite goal wrote the required file through workspace_write, passed the host's content check, and delivered its result into the isolated conversation.
+- An ongoing review cited complete calendar evidence, reported the correct ISO start time and Paris timezone, delivered its result, and settled its standing intent. A later event could queue another review.
+- Reviewing unchanged evidence produced zero model turns and zero new chat messages.
+- A real eight-token output limit produced a length termination; the Responses adapter retained partial text and usage while reporting failure.
+
+These checks used the real bundled engine, installed controller, goal runner, memory consolidator, event runtime and Strata adapter. Strata stayed running afterward with its existing cache-rotation/SSD patches and normal configuration. They are smoke tests of these paths, not a guarantee of all future model behavior.
+
 # Version 0.10.0 verification
 
 Goals 0.10.0: isolated real local Qwen runs verify a finite file task, fresh correction of an obsolete fact, same-chat output, restart persistence and zero model requests on an unchanged review. Production renderer tests cover goal questions and exact answer routing. Model coaching quality remains subject to user feedback.
