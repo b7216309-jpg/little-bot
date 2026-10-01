@@ -14,6 +14,8 @@ Ongoing goals can provide advice without file checks. Tasks require at least one
 
 Before model work, Little Bot collects a chronological page of new user messages, versions of selected evidence files, and upcoming/due calendar events. Scheduled automation prompts and goal messages are excluded from user evidence. Initial chat context includes a bounded recent page; subsequent pages use a durable message cursor. Source versions and cursors are saved with the review result.
 
+Timed calendar events also become fresh evidence when they enter the 24-hour, one-hour, and fifteen-minute preparation windows, or start. The excerpt reports the current window; ordinary clock ticks within the same window stay quiet. All-day events do not use minute-level preparation windows. These changes are detected at the goal's next activation, so an hourly goal can still notice a fifteen-minute window late. This does not add exact-time triggers or closed-app execution.
+
 An ongoing goal defaults to **Review when evidence changes**. After the first review, unchanged evidence produces a quiet review with no model call and no state-file rewrite. **Review at every scheduled activation** requests a model review even without changes. Manually running a goal requests a fresh review. Memory retrieval supplements a specific missing fact; it does not replace new conversation evidence.
 
 Absence of a source or an empty search does not establish user failure, avoidance or an unresolved decision. Saved checkpoints are historical interpretations and may be corrected by fresh evidence.
