@@ -17,7 +17,7 @@ test('reopening advances overdue intervals without dispatching catch-up work', (
   assert.equal(missedCount(skipped), 3);
   assert.equal(data.automations[0].nextRunAt, now + HOUR);
   assert.equal(data.heartbeat.nextRunAt, now + 30 * 60000);
-  assert.equal(data.autonomy.goals[0].nextRunAt, now + 45 * 60000);
+  assert.equal(data.autonomy.goals[0].nextRunAt, now + 2 * 60000, 'a missed goal reviews once soon instead of starving');
   assert.deepEqual(skipped.automations.map(item => item.id), ['automation-1']);
   assert.deepEqual(skipped.goals.map(item => item.id), ['goal-1']);
 });

@@ -1,3 +1,25 @@
+# Version 0.11.1 verification
+
+0.11.1 delivers proactive work into the conversation and keeps ongoing goals running:
+
+- Every heartbeat alert and goal result is posted to the chat. While a turn is busy, it is queued in an encrypted per-chat outbox and flushed afterwards.
+- The next user message carries the proactive messages the model has not seen.
+- A missed interval goal review runs once shortly after reopening.
+- Failed, unreadable or over-budget ongoing cycles retry after 15 minutes, 1 hour and 4 hours before blocking.
+- v2 goal outcomes are recovered from reasoning tags and surrounding prose.
+- The missed-run instructions match the implementation (review finding R5).
+
+The syntax check covered 170 JavaScript files. 473 Node tests ran: 462 passed. The 11 failures are the extension and plugin import suites described under 0.11.0; this machine denies their fixed `C:\Users\work` path.
+
+All 14 Electron fixtures passed on the delivery change. The goal-runner change touches no renderer code.
+
+Four existing goal tests were updated deliberately:
+- Forged progress and a failed ongoing review now retry with bounded backoff instead of blocking at once. A new test proves the retries stop after three attempts.
+- A missed interval goal now expects the two-minute catch-up.
+- Save failures still block immediately, with an alert.
+
+No live model run is claimed.
+
 # Version 0.11.0 verification
 
 0.11.0 adds Wild heartbeat initiative, presence wake-ups, in-chat proactive messages, a visible run pulse, recovery of small-model JSON output, a goal quiet limit (`maxQuietHours`), and self-planned follow-ups (`followup_manage`). Calm heartbeat behavior is unchanged and remains covered by the existing tests.

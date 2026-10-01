@@ -125,7 +125,9 @@ test('ongoing recommendation persists actions and posts to chat; unchanged revie
 
 test('runner rejects forged progress and preserves unconsumed evidence for retry', async t => {
   const { runner, g } = await runnerFixture(t, async () => result('progress'));
-  await runner.execute(g); assert.equal(g.status, 'blocked'); assert.equal(g.review.lastResult, null); assert.equal(g.review.chatCursor, '');
+  await runner.execute(g); assert.equal(g.status, 'queued'); assert.equal(g.failureStreak, 1);
+  assert.equal(g.review.lastResult, null); assert.equal(g.review.chatCursor, '');
+  assert.match(g.history.at(-1).summary, /observable progress.*Retrying in 15 minutes/);
 });
 
 test('question posts in chat and explicit answer queues precisely that goal', async t => {
@@ -138,9 +140,43 @@ test('question posts in chat and explicit answer queues precisely that goal', as
   assert.equal(g.status, 'queued'); assert.equal(g.clarifications.at(-1).answer, 'Morning');
 });
 
-test('failed review blocks rather than resetting the budget and repeating itself', async t => {
-  const { runner, g } = await runnerFixture(t, async () => result('failed', { summary: 'Source could not be checked' }));
-  await runner.execute(g); assert.equal(g.status, 'blocked'); assert.equal(g.usage.runs, 1);
+test('a failed ongoing review retries on a widening schedule, then blocks instead of repeating forever', async t => {
+  let calls = 0;
+  const { runner, g, alerts } = await runnerFixture(t, async () => { calls++; return result('failed', { summary: 'Source could not be checked' }); });
+  for (const minutes of [15, 60, 240]) {
+    const before = Date.now();
+    await runner.execute(g);
+    assert.equal(g.status, 'queued');
+    assert.ok(g.nextRunAt >= before + minutes * 60000 && g.nextRunAt <= Date.now() + minutes * 60000, `retry after ${minutes} minutes`);
+    assert.equal(alerts.length, 0, 'transient failures retry quietly');
+  }
+  await runner.execute(g);
+  assert.equal(calls, 4); assert.equal(g.status, 'blocked'); assert.equal(g.usage.runs, 1); assert.equal(g.failureStreak, undefined);
+  assert.equal(alerts.length, 1); assert.match(alerts[0].message, /Source could not be checked/);
+});
+
+test('a successful review clears the failure streak, and the streak survives a restart', async t => {
+  let fail = true;
+  const { runner, g } = await runnerFixture(t, async () => fail ? result('failed', { summary: 'Model offline' }) : result('recommendation', { evidenceRefs: ['message:first'] }));
+  await runner.execute(g);
+  assert.equal(g.failureStreak, 1);
+  const restored = normalizeAutonomy({ goals: [JSON.parse(JSON.stringify(g))] }, { workspace: g.workspace }).goals[0];
+  assert.equal(restored.failureStreak, 1);
+  fail = false; g.status = 'queued';
+  await runner.execute(g);
+  assert.equal(g.failureStreak, undefined); assert.equal(g.status, 'queued');
+});
+
+test('v2 goal outcomes are recovered from reasoning tags and prose around the JSON', async () => {
+  const { GoalExecutor } = require('../src/goal-executor.cjs');
+  assert.equal(typeof GoalExecutor, 'function');
+  const { parseModelJson } = require('../src/model-json.cjs');
+  const outcome = '{"outcome":"recommendation","summary":"Try it","checkpoint":"","nextStep":"","evidenceRefs":[],"actionUpdates":[]}';
+  for (const text of [`<think>Let me decide.</think>${outcome}`, `Here is my result:\n${outcome}\nDone.`, `\`\`\`json\n${outcome}\n\`\`\``]) {
+    assert.equal(contract.normalizeFinish(parseModelJson(text)).outcome, 'recommendation');
+  }
+  assert.equal(contract.normalizeFinish(parseModelJson('<think>x</think>{"action":"update"}')).outcome, 'update');
+  assert.throws(() => parseModelJson('I could not finish.', 'Goal did not submit a structured outcome.'), /structured outcome/);
 });
 
 test('finish aliases remain unambiguous and factual updates cannot disappear as quiet reviews', async () => {
