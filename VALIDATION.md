@@ -1,3 +1,11 @@
+# Version 0.12.1 verification
+
+0.12.1 fixes a startup failure seen on the first real launch of 0.12.0. A tool-list change makes startup migrate each saved engine thread. A conversation restored from elsewhere had no engine thread, so `migrateTools` threw "The saved engine conversation is missing." and the engine never started.
+
+Startup now logs `engine-thread-reset` and clears that chat's engine thread. The next message opens a fresh thread that carries the saved timeline through the existing history bridge.
+
+A new controller test reproduces the missing thread. It fails on 0.12.0 with the reported error and passes with the fix: startup reaches ready, the thread resets, and the next turn includes the earlier conversation. 494 Node tests ran: 483 passed. The 11 failures are the known `C:\Users\work` extension suites.
+
 # Version 0.12.0 verification
 
 0.12.0 gives the agent more ways to be proactive:
