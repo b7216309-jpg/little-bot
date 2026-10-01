@@ -190,3 +190,24 @@ test('failed review persistence does not consume source cursors or publish a res
   assert.equal(rejected, true); assert.equal(g.status, 'blocked'); assert.equal(g.review.chatCursor, ''); assert.equal(g.review.lastResult, null);
   assert.equal(d.chats[0].messages.length, 1); assert.equal(alerts.length, 1); assert.match(alerts[0].message, /Disk full/);
 });
+
+test('an ongoing goal quiet past maxQuietHours reviews without new evidence and is told why', async t => {
+  const options = [];
+  const { runner, g } = await runnerFixture(t, async (_goal, received) => { options.push(received.quietNudge); return result('no-change'); });
+  assert.throws(() => validateGoal({ ...g, maxQuietHours: 721 }, g, { workspace: g.workspace }), /quiet time/);
+  await runner.execute(g);
+  assert.equal(options.length, 1);
+  assert.equal(options[0], 0);
+  await runner.execute(g);
+  assert.equal(options.length, 1, 'without a quiet limit an unchanged goal skips the model');
+  Object.assign(g, validateGoal({ ...g, maxQuietHours: 24 }, g, { workspace: g.workspace }));
+  assert.equal(g.maxQuietHours, 24);
+  g.review.lastMeaningfulResult = { outcome: 'recommendation', summary: 'x', at: Date.now() - 25 * 3600000, evidenceRefs: [] };
+  g.status = 'queued';
+  await runner.execute(g);
+  assert.deepEqual(options, [0, 24]);
+  g.review.lastMeaningfulResult = { outcome: 'recommendation', summary: 'x', at: Date.now() - 3600000, evidenceRefs: [] };
+  g.status = 'queued';
+  await runner.execute(g);
+  assert.deepEqual(options, [0, 24], 'a recent meaningful result keeps the goal quiet');
+});

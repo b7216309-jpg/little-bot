@@ -19,6 +19,8 @@ Heartbeat has two initiative levels. **Calm** is the behavior above. **Wild** ch
 
 Turning wild on schedules a check within a minute. Presence events (`app.opened`, `user.returned` after 90 minutes away, and `chat.completed`, debounced to 10 minutes) pull the next check forward and tell the agent why it woke. New wild alerts also appear in the conversation as "Little Bot · on its own" messages, but only when the chat is idle.
 
+The agent can also plan one-time check-ins with the `followup_manage` tool, from the wild heartbeat or a direct conversation. A follow-up can be due up to 30 days ahead, and at most 20 can be pending. When one is due, the heartbeat wakes with its note as the reason. Active hours and the daily run cap still apply. Follow-ups require wild initiative to be enabled.
+
 Every finished run, including quiet ones, is kept in a bounded `pulse` log (30 entries) shown under Latest check. Small local models that wrap their JSON in `<think>` tags or Markdown fences are parsed instead of failing. Pause all, active hours and the daily run cap still apply.
 
 ## Inbox and notification delivery
