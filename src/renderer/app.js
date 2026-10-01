@@ -750,7 +750,8 @@ function renderIndependentCheck(node, chat, message) {
 function conversationMessage(chat, message, index) {
   const key = `${chat.id}:${message.id || index}`;
   const fingerprint = [message.role, message.kind, message.status, message.phase, message.text, JSON.stringify(message.attachments || []),
-    JSON.stringify(message.independentCheck || null), chat.status, message.automationId, message.automationName, message.goalId, state.goalRuntime?.status, state.goalRuntime?.goalId, JSON.stringify(state.autonomy?.goals?.find(g => g.id === message.goalId)?.pendingQuestion || null)];
+    JSON.stringify(message.independentCheck || null), chat.status, message.automationId, message.automationName, message.goalId, state.goalRuntime?.status, state.goalRuntime?.goalId, JSON.stringify(state.autonomy?.goals?.find(g => g.id === message.goalId)?.pendingQuestion || null),
+    JSON.stringify(message.actions || null), JSON.stringify(message.answer || null)];
   const previous = renderedMessages.get(key);
   if (previous && fingerprint.every((value, position) => value === previous.fingerprint[position])) return previous.node;
   const variant = message.kind === 'compaction' ? 'compaction' : message.role === 'assistant' && message.kind === 'reasoning' ? 'reasoning'
@@ -800,7 +801,7 @@ function conversationMessage(chat, message, index) {
       if (variant === 'user' && message.automationId) node.append(element('div', 'message-label automation-label', `Scheduled · ${message.automationName || 'Automation'}`));
       if (variant === 'assistant' || variant === 'plan') {
         const label = element('div', 'message-label');
-        label.append(element('span', 'mini-mark', variant === 'plan' ? 'P' : '✳'), document.createTextNode(variant === 'plan' ? 'Plan' : message.goalId ? `Goal · ${message.goalName || 'Little Bot'}` : message.kind === 'heartbeat' ? `Little Bot · on its own${message.heartbeatTopic ? ` · ${message.heartbeatTopic}` : ''}` : message.kind === 'memory' ? 'Little Bot · learned' : message.automationId ? `Little Bot · ${message.automationName || 'Automation'}` : 'Little Bot'));
+        label.append(element('span', 'mini-mark', variant === 'plan' ? 'P' : '✳'), document.createTextNode(variant === 'plan' ? 'Plan' : message.goalId ? `Goal · ${message.goalName || 'Little Bot'}` : message.kind === 'heartbeat' ? `Little Bot · on its own${message.heartbeatTopic ? ` · ${message.heartbeatTopic}` : ''}` : message.kind === 'memory' ? 'Little Bot · learned' : message.kind === 'watch' ? 'Little Bot · web watch' : message.kind === 'offer' ? 'Little Bot · offer' : message.automationId ? `Little Bot · ${message.automationName || 'Automation'}` : 'Little Bot'));
         node.append(label);
       }
       node.append(element('div', 'message-content'));
@@ -822,10 +823,31 @@ function conversationMessage(chat, message, index) {
       if (goal?.pendingQuestion?.id === message.goalQuestionId) { const form = renderGoalQuestion(goal, existing); if (form && !form.isConnected) node.append(form); }
       else existing?.remove();
     }
+    renderProactiveActions(node, message);
   }
   node.dataset.messageId = message.id || String(index);
   renderedMessages.set(key, { node, variant, fingerprint });
   return node;
+}
+
+// One-click answers on proactive suggestions; the answer is recorded once and then shown instead of the buttons.
+function renderProactiveActions(node, message) {
+  node.querySelector(':scope > .proactive-actions')?.remove();
+  if (!Array.isArray(message.actions) || !message.actions.length) return;
+  const bar = element('div', 'proactive-actions');
+  if (message.answer) {
+    const chosen = message.actions.find(action => action.id === message.answer.choice);
+    bar.append(element('span', 'field-hint', `You chose ${chosen?.label || message.answer.choice}`));
+  } else {
+    for (const choice of message.actions) {
+      bar.append(action(choice.label, async event => {
+        for (const button of bar.querySelectorAll('button')) button.disabled = true;
+        const result = await attempt(() => window.bot.answerProactive({ messageId: message.id, choice: choice.id }));
+        if (!result) for (const button of bar.querySelectorAll('button')) button.disabled = false;
+      }, choice.id === 'do' || choice.id === 'launch' ? 'button primary' : 'button secondary'));
+    }
+  }
+  node.append(bar);
 }
 
 function updateActionGroupSummary(node, messages) {
@@ -2469,6 +2491,14 @@ function renderHeartbeat() {
   $('heartbeat-pulse').classList.toggle('hidden', pulse.length === 0);
   $('heartbeat-pulse-label').textContent = `Recent checks · ${pulse.length}${heartbeat.quietStreak ? ` · quiet ${heartbeat.quietStreak} in a row` : ''}`;
   $('heartbeat-pulse-text').textContent = [...pulse].reverse().slice(0, 12).map(item => `${formatDate(item.at)} · ${item.status}${item.wakeInMinutes ? ` · next in ${item.wakeInMinutes} min` : ''}${item.note ? `\n${item.note}` : ''}`).join('\n\n');
+  $('activity-awareness').checked = state.settings?.activityAwareness === true;
+  const watches = Array.isArray(state.webWatches) ? state.webWatches : [];
+  $('web-watch-list').replaceChildren(...(watches.length ? watches.map(watch => {
+    const row = element('div', 'memory-item');
+    row.append(element('strong', '', watch.label), element('span', 'field-hint', ` every ${watch.intervalHours} h${watch.lastChangeAt ? ` · changed ${formatDate(watch.lastChangeAt)}` : ''}${watch.lastError ? ` · ${watch.lastError}` : ''}`),
+      action('Remove', () => attempt(() => window.bot.removeWebWatch({ id: watch.id }), 'Stopped watching that page.'), 'button text-button'));
+    return row;
+  }) : [element('p', 'memory-empty', 'No watched pages. Ask Little Bot to watch one, e.g. patch notes of a game you play.')]));
   $('heartbeat-error').textContent = heartbeat.lastError || '';
   $('heartbeat-error').classList.toggle('hidden', !heartbeat.lastError);
   const lastActions = Array.isArray(heartbeat.lastActions) ? heartbeat.lastActions : [];
@@ -3006,6 +3036,7 @@ function editGoal(goal) {
   $('goal-kind').value = goal?.kind || 'task';
   $('goal-source-chat').checked = goal?.sources?.chat !== false;
   $('goal-active-hours').checked = goal?.respectActiveHours !== false;
+  $('goal-source-feedback').checked = goal?.sources?.feedback === true;
   $('goal-source-calendar').checked = goal?.sources?.calendar !== false;
   $('goal-source-files').value = (goal?.sources?.files || []).join('\n');
   $('goal-review-policy').value = goal?.reviewPolicy || 'changes';
@@ -3125,7 +3156,7 @@ async function saveGoal(event) {
     if (selectedMcp.some((input) => input.dataset.unavailable === 'true')) throw new Error('Refresh Extensions to discover the saved MCP tools, or remove their grants before saving.');
     const existing = state.autonomy?.goals?.find((goal) => goal.id === editingGoalId);
     const payload = {
-      ...(editingGoalId ? { id: editingGoalId } : {}), contractVersion: 2, kind: $('goal-kind').value, sources: { chat: $('goal-source-chat').checked, calendar: $('goal-source-calendar').checked, files: lines('goal-source-files') }, reviewPolicy: $('goal-review-policy').value, respectActiveHours: $('goal-active-hours').checked, maxQuietHours: Number($('goal-max-quiet-hours').value) || 0, name: $('goal-name').value.trim(), objective: $('goal-objective').value.trim(), steps, checks: $('goal-kind').value === 'ongoing' ? checks.filter(c => c.path || c.command) : checks,
+      ...(editingGoalId ? { id: editingGoalId } : {}), contractVersion: 2, kind: $('goal-kind').value, sources: { chat: $('goal-source-chat').checked, calendar: $('goal-source-calendar').checked, files: lines('goal-source-files'), feedback: $('goal-source-feedback').checked }, reviewPolicy: $('goal-review-policy').value, respectActiveHours: $('goal-active-hours').checked, maxQuietHours: Number($('goal-max-quiet-hours').value) || 0, name: $('goal-name').value.trim(), objective: $('goal-objective').value.trim(), steps, checks: $('goal-kind').value === 'ongoing' ? checks.filter(c => c.path || c.command) : checks,
       workspace: existing?.workspace || goalDraftContext.workspace, model: existing?.model || goalDraftContext.model, effort: existing?.effort || goalDraftContext.effort,
       priority: Number($('goal-priority').value),
       permissions: { write: $('goal-permission-write').checked, writePaths: $('goal-permission-write').checked ? lines('goal-write-paths') : [], shell: $('goal-permission-shell').checked, network: $('goal-permission-network').checked, mcpTools: selectedMcp.map((input) => ({ server: input.dataset.server, tool: input.dataset.tool })) },
@@ -3896,6 +3927,11 @@ for (const id of ['heartbeat-start-hour', 'heartbeat-end-hour']) {
 $('heartbeat-form').addEventListener('input', markHeartbeatDirty);
 $('heartbeat-form').addEventListener('change', markHeartbeatDirty);
 $('heartbeat-form').addEventListener('submit', saveHeartbeat);
+$('activity-awareness').addEventListener('change', async event => {
+  const enabled = event.target.checked;
+  const result = await attempt(() => window.bot.setActivityAwareness({ enabled }), enabled ? 'Little Bot can now see which app you are using.' : 'Activity awareness is off.');
+  if (!result) event.target.checked = !enabled;
+});
 $('heartbeat-use-workspace').addEventListener('click', () => {
   heartbeatUseCurrentWorkspace = true;
   markHeartbeatDirty();

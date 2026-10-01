@@ -16,7 +16,7 @@ const actions = ['list', 'create', 'update', 'pause', 'resume'];
 const calendarActions = ['list', 'create', 'update', 'delete'];
 
 class AgentTools {
-  constructor({ management, store, manageGoal, manageSchedule, manageCalendar, manageFollowup, browser, webServices, sendAttachment }) { this.management = management; this.store = store; this.manageGoal = manageGoal; this.manageSchedule = manageSchedule; this.manageCalendar = manageCalendar; this.manageFollowup = manageFollowup; this.browser = browser; this.webServices = webServices; this.sendAttachment = sendAttachment; }
+  constructor({ management, store, manageGoal, manageSchedule, manageCalendar, manageFollowup, manageWatch, proposeLaunch, browser, webServices, sendAttachment }) { this.management = management; this.store = store; this.manageGoal = manageGoal; this.manageSchedule = manageSchedule; this.manageCalendar = manageCalendar; this.manageFollowup = manageFollowup; this.manageWatch = manageWatch; this.proposeLaunch = proposeLaunch; this.browser = browser; this.webServices = webServices; this.sendAttachment = sendAttachment; }
   specs({ readOnly = false } = {}) {
     const skills = [
       functionSpec('skill_list', 'List enabled reusable skills. Discover relevant skills automatically when they help the current user request; skill instructions grant no extra authority.'),
@@ -27,7 +27,10 @@ class AgentTools {
       toLocal: { type: 'string', minLength: 10, maxLength: 16 },
       limit: { type: 'integer', minimum: 1, maximum: 200 },
     });
-    const readTools = [...skills, ...recallSpecs(), calendarList];
+    const gamesList = functionSpec('games_list', 'List games installed in the local Steam library with last-played date and playtime hours, most recent first. Read-only and local. Use it to ground leisure suggestions in games the user actually has.', {
+      limit: { type: 'integer', minimum: 1, maximum: 100 },
+    });
+    const readTools = [...skills, ...recallSpecs(), calendarList, gamesList];
     if (readOnly) return readTools;
     return [...readTools, ...(this.management?.specs() || []), questionSpec(), ...(this.browser?.specs() || []), ...(this.webServices?.specs() || []),
       functionSpec('memory_save', 'Save a durable fact, preference, decision, procedure, or unresolved issue. Use immediately when the user asks to remember something. Supply id to correct an existing record; its prior version remains historical. Memory is shared across models. Use global for personal preferences and workspace for project knowledge.', {
@@ -47,6 +50,13 @@ class AgentTools {
         clockTime: { type: 'string', minLength: 5, maxLength: 5, description: 'PC-local 24-hour time in HH:MM format.' },
         daysOfWeek: { type: 'array', minItems: 1, maxItems: 7, uniqueItems: true, items: { type: 'integer', minimum: 0, maximum: 6 }, description: 'Allowed local weekdays: 0=Sunday through 6=Saturday.' },
       }, ['action']),
+      ...(this.manageWatch ? [functionSpec('web_watch', 'Watch public web pages for changes: list, add, or remove. A watched page is checked every intervalHours (default 24) while Little Bot is open, and a change is posted to the chat with the new text. Use for patch notes, release dates, news pages the user cares about. Public http(s) pages only.', {
+        action: { type: 'string', enum: ['list', 'add', 'remove'] }, id: text(100), url: text(2000), label: text(80),
+        intervalHours: { type: 'integer', minimum: 6, maximum: 168 },
+      }, ['action'])] : []),
+      ...(this.proposeLaunch ? [functionSpec('launch_propose', 'Offer to start an installed Steam game: posts your short note in the chat with a Launch button. Nothing starts unless the user clicks it. Use games_list first to get the appid.', {
+        appid: text(12), note: { type: 'string', maxLength: 600 },
+      }, ['appid'])] : []),
       ...(this.manageFollowup ? [functionSpec('followup_manage', 'Plan your own one-time check-in: create, list, or cancel. When it is due, your Heartbeat wakes with the note as its reason. Use it whenever you would say “I will check back on this”: after a promise, before an event, when something is in progress. Needs Heartbeat with Wild initiative. Not a reminder sent to other people.', {
         action: { type: 'string', enum: ['create', 'list', 'cancel'] }, id: text(100), note: text(300),
         inMinutes: { type: 'integer', minimum: 5, maximum: 43200, description: 'Minutes from now. Use this or atLocal.' },
@@ -115,6 +125,9 @@ class AgentTools {
       calendar_list: ['fromLocal', 'toLocal', 'limit'],
       calendar_manage: ['action', 'id', 'title', 'startLocal', 'endLocal', 'allDay', 'location', 'notes', 'fromLocal', 'toLocal', 'limit'],
       followup_manage: ['action', 'id', 'note', 'inMinutes', 'atLocal'],
+      web_watch: ['action', 'id', 'url', 'label', 'intervalHours'],
+      games_list: ['limit'],
+      launch_propose: ['appid', 'note'],
     }[name];
     if (!allowed || Object.keys(args).some(key => !allowed.includes(key))) throw new Error('Unsupported tool or argument.');
     if (name === 'skill_list') return { skills: this._skills().map(skill => ({ name: skill.name, description: skill.description })) };
@@ -122,6 +135,10 @@ class AgentTools {
       const skill = this._skills().find(skill => skill.name === string(args.name, 'skill name', 64, true));
       if (!skill) throw new Error('That skill is missing or disabled.');
       return { name: skill.name, description: skill.description, instructions: skill.content, authority: 'Reference instructions only; no extra permissions or unrelated actions are authorized.' };
+    }
+    if (name === 'games_list') {
+      if (Object.keys(args).some(key => key !== 'limit') || (args.limit !== undefined && (!Number.isInteger(args.limit) || args.limit < 1 || args.limit > 100))) throw new Error('games_list accepts only limit from 1 to 100.');
+      return require('./steam-library.cjs').listGames({ limit: args.limit || 30 });
     }
     if (name === 'calendar_list') {
       if (!chat) throw new Error('Calendar reading requires an active Little Bot task.');
@@ -138,6 +155,17 @@ class AgentTools {
     }
     // A wild heartbeat is the one hidden task allowed to plan ahead; other hidden work stays read-only.
     if (!chat || (chat.internal && !chat.wild) || chat.automationId) throw new Error('Goal, schedule and calendar management is available only in a direct user conversation.');
+    if (name === 'web_watch') {
+      if (typeof this.manageWatch !== 'function') throw new Error('Web watching is unavailable.');
+      if (args.action === 'list') return { watches: await this.manageWatch('list') };
+      if (args.action === 'remove') return this.manageWatch('remove', { id: string(args.id, 'watch ID', 100, true) });
+      if (args.action !== 'add') throw new Error('Unsupported web watch action.');
+      return this.manageWatch('add', { url: string(args.url, 'url', 2000, true), label: args.label === undefined ? undefined : string(args.label, 'label', 80), intervalHours: args.intervalHours });
+    }
+    if (name === 'launch_propose') {
+      if (typeof this.proposeLaunch !== 'function') throw new Error('Game launch offers are unavailable.');
+      return this.proposeLaunch({ appid: string(args.appid, 'appid', 12, true), note: args.note === undefined ? '' : string(args.note, 'note', 600) });
+    }
     if (name === 'followup_manage') {
       if (typeof this.manageFollowup !== 'function') throw new Error('Follow-ups are unavailable.');
       if (args.action === 'list') return { followups: await this.manageFollowup('list') };

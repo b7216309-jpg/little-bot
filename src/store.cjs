@@ -14,7 +14,8 @@ const { attachmentDescriptors } = require('./attachment-message.cjs');
 const { normalizeConnectionSettings, connectionBinding } = require('./connections.cjs');
 const { normalizeIndependentCheckMode, normalizeIndependentCheckRecord } = require('./independent-check.cjs');
 const { normalizeStandingIntents } = require('./standing-intents.cjs');
-const { normalizePending } = require('./proactive-chat.cjs');
+const { normalizePending, normalizeActions, normalizeAnswer, normalizeFeedbackLog } = require('./proactive-chat.cjs');
+const { normalizeWatches } = require('./web-watch.cjs');
 
 const INTERRUPTED = 'Interrupted because Little Bot closed before the task finished.';
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -88,6 +89,8 @@ function persistedData(data, defaultWorkspace, recovering = false) {
     extensions: normalizeExtensions(data.extensions),
     memory: normalizeMemory(data.memory),
     calendar: normalizeCalendar(data.calendar),
+    feedbackLog: normalizeFeedbackLog(data.feedbackLog),
+    webWatches: normalizeWatches(data.webWatches),
     heartbeat: normalizeHeartbeat(data.heartbeat, { ...settings, workspace: string(settings.workspace, defaultWorkspace) }, Date.now(), recovering),
     settings: {
       ...normalizeConnectionSettings(settings),
@@ -96,6 +99,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
       effort: effort(settings.effort),
       autoCompactPercent: normalizeAutoCompactPercent(settings.autoCompactPercent),
       independentCheckMode: normalizeIndependentCheckMode(settings.independentCheckMode),
+      activityAwareness: settings.activityAwareness === true,
       ...(typeof settings.systemPrompt === 'string' ? { systemPrompt: settings.systemPrompt.slice(0, 100000) } : {}),
     },
     chats: chats.filter(isObject).filter(chat => chat.private !== true).slice(0, 1).map(chat => {
@@ -131,6 +135,11 @@ function persistedData(data, defaultWorkspace, recovering = false) {
             if (Number.isFinite(message[key])) entry[key] = message[key];
           }
           if (message.modelSeen === false) entry.modelSeen = false;
+          const actions = normalizeActions(message.actions);
+          if (actions.length) entry.actions = actions;
+          const answer = normalizeAnswer(message.answer);
+          if (answer) entry.answer = answer;
+          if (typeof message.watchId === 'string') entry.watchId = message.watchId.slice(0, 100);
           const independentCheck = normalizeIndependentCheckRecord(message.independentCheck);
           if (independentCheck) {
             if (recovering && independentCheck.status === 'running') {

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, session, Notification, safeStorage, nativeImage, protocol } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, session, Notification, safeStorage, nativeImage, protocol, powerMonitor } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -10,6 +10,10 @@ const { saveFact, deleteFact, clearEpisodes } = require('./memory.cjs');
 const { MemoryConsolidator } = require('./memory-consolidator.cjs');
 const { Heartbeat, validateHeartbeat } = require('./heartbeat.cjs');
 const backups = require('./backups.cjs');
+const { ActivityMonitor } = require('./activity.cjs');
+const { WebWatcher } = require('./web-watch.cjs');
+const { installedGame } = require('./steam-library.cjs');
+const proactiveChat = require('./proactive-chat.cjs');
 const { deliverHeartbeat, flush: flushProactive } = require('./proactive-chat.cjs');
 const { ExtensionFiles, validateServer, LIMITS } = require('./extensions.cjs');
 const { ExtensionRuntime } = require('./extension-runtime.cjs');
@@ -37,7 +41,7 @@ if (process.env.LITTLE_BOT_DATA_DIR) app.setPath('userData', path.resolve(proces
 const smoke = process.argv.includes('--smoke-test');
 const launchTime = performance.now();
 if (!smoke && !app.requestSingleInstanceLock()) app.quit();
-let window, controller, scheduler, heartbeat, goals, eventRuntime, errorLog, quitting = false;
+let window, controller, scheduler, heartbeat, goals, eventRuntime, errorLog, activity, webWatcher, quitting = false;
 const rendererFile = path.join(__dirname, 'renderer', 'index.html');
 const rendererUrl = pathToFileURL(rendererFile).href;
 
@@ -195,6 +199,10 @@ app.whenReady().then(async () => {
     onError: (error, event) => logDiagnostic('event-runtime', error, { eventType: event?.type }),
   });
   controller.eventRuntime = eventRuntime;
+  activity = new ActivityMonitor({ publish: publishEvent, idleSeconds: () => powerMonitor.getSystemIdleTime() });
+  controller.activity = activity;
+  webWatcher = new WebWatcher({ store, onChange: () => controller.changed(),
+    onChanged: change => { if (proactiveChat.deliverWatch(store.data, change)) controller.changed(true); } });
   function saveCalendarRecord(payload) {
     const records = store.data.calendar.events;
     const existing = payload?.id ? records.find(event => event.id === payload.id) : null;
@@ -224,6 +232,14 @@ app.whenReady().then(async () => {
 
   controller.appManagement = new AppManagement({controller,handlers:appHandlers,filename:path.join(stateDir,'app-operations.json')});
   controller.agentTools = new AgentTools({ management:controller.appManagement, store, browser: controller.browser, webServices: controller.webServices,
+    manageWatch: async (action, payload) => action === 'list' ? webWatcher.list() : action === 'remove' ? webWatcher.remove(payload.id) : webWatcher.add(payload),
+    proposeLaunch: async ({ appid, note }) => {
+      const game = installedGame(appid);
+      if (!game) throw new Error('That game is not installed in the local Steam library. Use games_list for valid appids.');
+      proactiveChat.deliverOffer(store.data, { appid: game.appid, name: game.name, note });
+      controller.changed(true);
+      return { offered: true, game: game.name, note: 'A Launch button was posted; the game starts only if the user clicks it.' };
+    },
     manageFollowup: async (action, payload) => {
       if (action === 'list') return heartbeat.listFollowups();
       if (action === 'cancel') return heartbeat.cancelFollowup(payload.id);
@@ -510,6 +526,34 @@ app.whenReady().then(async () => {
     return { records: found.results, nextOffset: found.nextOffset };
   });
   register('getMemorySource', ({ id } = {}) => ({ sources: store.memoryService.sources(id) }));
+  register('answerProactive', async ({ messageId, choice } = {}) => {
+    const { message, action, entry } = proactiveChat.answer(store.data, { messageId, choice });
+    if (action.id === 'launch') {
+      if (!proactiveChat.LAUNCH_TARGET.test(action.target || '')) throw new Error('This launch target is not allowed.');
+      await shell.openExternal(action.target);
+    }
+    const attention = { do: 'useful', later: 'later', no: 'dismiss' }[choice];
+    if (message.heartbeatId && attention) { try { heartbeat.feedback({ id: message.heartbeatId, choice: attention }); } catch { /* The inbox item may have rotated out. */ } }
+    if (message.goalId) {
+      const goal = store.data.autonomy.goals.find(item => item.id === message.goalId);
+      if (goal) goals.record(goal, 'reaction', `You chose "${action.label}" on: ${entry.excerpt.slice(0, 160)}`);
+    }
+    store.save(); controller.changed(true);
+    const chat = store.data.chats[0];
+    if (choice === 'do' && chat?.status === 'idle') {
+      try { await controller.send({ chatId: chat.id, text: `✅ Yes, go ahead with this: "${entry.excerpt.slice(0, 280)}"` }); }
+      catch (error) { logDiagnostic('proactive-answer', error); }
+    }
+    return controller.state();
+  });
+  register('setActivityAwareness', ({ enabled } = {}) => {
+    if (typeof enabled !== 'boolean') throw new Error('Activity awareness must be true or false.');
+    store.data.settings.activityAwareness = enabled;
+    store.save();
+    if (enabled) activity.start(); else activity.stop();
+    controller.changed(); return controller.state();
+  });
+  register('removeWebWatch', ({ id } = {}) => { webWatcher.remove(id); return controller.state(); });
   register('listBackups', () => ({ backups: backups.listBackups(stateDir), keepDays: backups.KEEP_DAYS }));
   register('createBackup', () => { backupNow(true); return { backups: backups.listBackups(stateDir), keepDays: backups.KEEP_DAYS }; });
   register('restoreBackup', ({ id } = {}) => {
@@ -647,6 +691,8 @@ app.whenReady().then(async () => {
     if (store.data.chats[0]?.status === 'idle' && flushProactive(store.data.chats[0])) controller.changed(true);
     controller.changed(); eventRuntime.start(); scheduler.start(); heartbeat.start(); goals.start();
     if (!smoke) {
+      if (store.data.settings.activityAwareness === true) activity.start();
+      webWatcher.start();
       setTimeout(dailyBackup, 60000).unref?.();
       setInterval(dailyBackup, 6 * 3600000).unref?.();
     }
@@ -680,7 +726,7 @@ app.on('second-instance', () => { if (window) { if (window.isMinimized()) window
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', event => {
   if (quitting) return;
-  event.preventDefault(); quitting = true; scheduler?.stop(); heartbeat?.stop(); eventRuntime?.stop();
+  event.preventDefault(); quitting = true; scheduler?.stop(); heartbeat?.stop(); eventRuntime?.stop(); activity?.stop(); webWatcher?.stop();
   controller?.webServices?.close();
   Promise.allSettled([goals?.close(), controller?.browser?.close({ shutdown: true })]).then(() => controller?.close()).catch(error => console.error(cleanError(error))).finally(() => app.quit());
 });
