@@ -151,12 +151,37 @@ test('local stream timeout allows long prefill and is shared by engine and relay
 });
 
 
-test('chat and background routes carry separate Strata cache slots', async t => {
-  const slots=[];
-  const upstream=await listen(async(req,res)=>{const b=await readJson(req);slots.push(b.strata_cache_slot);sse(res,[{choices:[{delta:{content:'ok'},finish_reason:'stop'}]}]);});
-  t.after(upstream.close);const relay=new LocalModelRelay();await relay.start();t.after(()=>relay.close());
-  const chat=relay.endpoint(upstream.baseUrl,'strata',0),memory=relay.endpoint(upstream.baseUrl,'strata',1);
-  assert.notEqual(chat,memory);assert.equal(chat,relay.endpoint(upstream.baseUrl,'strata',0));
-  for(const endpoint of [chat,memory,chat]){const r=await fetch(`${endpoint}/responses`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({model:'test',input:'hello'})});await r.text();}
-  assert.deepEqual(slots,[0,1,0]);
+test('official Strata receives alternating full histories without custom cache metadata', async t => {
+  const requests = [];
+  const upstream = await listen(async (req, res) => {
+    const body = await readJson(req);
+    if (Object.hasOwn(body, 'strata_cache_slot')) return jsonResponse(res, 400, { error: 'unsupported cache slot' });
+    requests.push(body);
+    sse(res, [{ choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 30, completion_tokens: 1, total_tokens: 31,
+        prompt_tokens_details: { cached_tokens: requests.length === 5 ? 20 : 0 } } }]);
+  });
+  t.after(upstream.close);
+  const relay = new LocalModelRelay();
+  await relay.start();
+  t.after(() => relay.close());
+  const endpoint = relay.endpoint(upstream.baseUrl, 'strata');
+  assert.equal(endpoint, relay.endpoint(upstream.baseUrl, 'strata'));
+  const histories = [
+    [{ role: 'user', content: 'Chat A' }, { role: 'assistant', content: 'Earlier answer' }, { role: 'user', content: 'Continue A' }],
+    [{ role: 'user', content: 'Extract memory' }],
+    [{ role: 'user', content: 'Continue goal' }],
+    [{ role: 'user', content: 'Check answer' }],
+  ];
+  for (const input of [...histories, histories[0]]) {
+    const response = await fetch(`${endpoint}/responses`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'test', input: input.map(message => ({ type: 'message', ...message })), strata_cache_slot: 3 }),
+    });
+    assert.equal(response.status, 200);
+    const events = responseEvents(await response.text());
+    assert.equal(events.find(event => event.type === 'response.completed').response.usage.input_tokens_details.cached_tokens,
+      requests.length === 5 ? 20 : 0);
+  }
+  assert.deepEqual(requests.map(body => body.messages), [...histories, histories[0]]);
 });
