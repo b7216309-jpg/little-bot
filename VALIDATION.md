@@ -1,3 +1,21 @@
+# Version 0.11.2 verification
+
+0.11.2 makes ongoing goals feel present:
+
+- **Active hours.** Scheduled goal reviews wait for the Heartbeat active hours. Each goal can opt out, and an explicit Run, an answer or a recovery check is never delayed.
+- **Full conversation.** Goal evidence includes what Little Bot itself said since the last review, as reference only. It never triggers a review and never confirms a user action.
+- **Quick reaction.** A reply to a goal's post brings that goal's review forward to about ten minutes.
+
+The syntax check covered 170 JavaScript files. 477 Node tests ran: 466 passed. The 11 failures are the extension and plugin import suites described under 0.11.0; this machine denies their fixed `C:\Users\work` path.
+
+The goal form Electron fixture passed with the new active-hours option. New tests cover:
+- Active-hours gating and opt-out, with an explicit Run bypassing it
+- Reply detection, including first-reply-only, keeping an earlier schedule, and ignoring paused goals
+- Bounded bot-message evidence that cannot self-trigger or confirm user actions
+- The chat-completion hook
+
+No live model run is claimed.
+
 # Version 0.11.1 verification
 
 0.11.1 delivers proactive work into the conversation and keeps ongoing goals running:
