@@ -62,6 +62,7 @@ Guide: [05-goals.md](05-goals.md)
 
 | Source / resource | Responsibility |
 | --- | --- |
+| [src/model-json.cjs](../../src/model-json.cjs) | Production application module |
 | [src/goal-contract.cjs](../../src/goal-contract.cjs) | Production application module |
 | [src/goal-executor.cjs](../../src/goal-executor.cjs) | Production application module |
 | [src/goals.cjs](../../src/goals.cjs) | Production application module |
