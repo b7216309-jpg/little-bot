@@ -96,6 +96,7 @@ Guide: [08-heartbeat-inbox.md](08-heartbeat-inbox.md)
 | --- | --- |
 | [src/attention.cjs](../../src/attention.cjs) | Production application module |
 | [src/heartbeat.cjs](../../src/heartbeat.cjs) | Production application module |
+| [src/proactive-chat.cjs](../../src/proactive-chat.cjs) | Production application module |
 
 ## events intents calendar
 
