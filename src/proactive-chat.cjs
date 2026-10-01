@@ -7,7 +7,29 @@ const { randomUUID } = require('node:crypto');
 // and every proactive message stays unseen by the model until the user's next turn carries it.
 const MAX_PENDING = 20;
 const MAX_BRIDGE = 10;
-const PROACTIVE_KINDS = ['heartbeat', 'goal', 'memory'];
+const PROACTIVE_KINDS = ['heartbeat', 'goal', 'memory', 'watch', 'offer'];
+const MAX_FEEDBACK = 200;
+// One-click answers on proactive suggestions. Choices feed attention preferences and the reaction log.
+const DEFAULT_ACTIONS = [{ id: 'do', label: '✅ Do it' }, { id: 'later', label: '⏰ Later' }, { id: 'no', label: '✖ Not interested' }];
+const ACTION_KINDS = ['heartbeat', 'goal', 'watch'];
+const LAUNCH_TARGET = /^steam:\/\/rungameid\/\d{1,10}$/;
+
+function normalizeActions(value) {
+  return (Array.isArray(value) ? value : []).filter(item => object(item) && ['do', 'later', 'no', 'launch'].includes(item.id)).slice(0, 4).map(item => ({
+    id: item.id, label: text(item.label, 80) || item.id,
+    ...(item.id === 'launch' && LAUNCH_TARGET.test(item.target) ? { target: item.target } : {}),
+  })).filter(item => item.id !== 'launch' || item.target);
+}
+
+function normalizeAnswer(value) {
+  return object(value) && ['do', 'later', 'no', 'launch'].includes(value.choice) && Number.isFinite(value.at) ? { choice: value.choice, at: value.at } : null;
+}
+
+function normalizeFeedbackLog(value) {
+  return (Array.isArray(value) ? value : []).filter(item => object(item) && Number.isFinite(item.at) && ['do', 'later', 'no', 'launch'].includes(item.choice))
+    .slice(-MAX_FEEDBACK).map(item => ({ id: text(item.id, 100) || randomUUID(), at: item.at, choice: item.choice, source: text(item.source, 40),
+      topic: text(item.topic, 120), excerpt: text(item.excerpt, 300), ...(typeof item.goalId === 'string' ? { goalId: item.goalId.slice(0, 100) } : {}) }));
+}
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const text = (value, limit) => typeof value === 'string' ? value.slice(0, limit) : '';
 
@@ -16,7 +38,9 @@ function normalizePending(value) {
     && typeof item.text === 'string' && item.text.trim()).slice(-MAX_PENDING).map(item => {
     const entry = { id: text(item.id, 128) || randomUUID(), role: 'assistant', kind: item.kind, status: 'completed',
       text: text(item.text, 20000), createdAt: Number.isFinite(item.createdAt) ? item.createdAt : Date.now(), modelSeen: false };
-    for (const key of ['goalId', 'goalName', 'goalRunId', 'goalQuestionId', 'heartbeatId', 'heartbeatTopic']) {
+    const actions = normalizeActions(item.actions);
+    if (actions.length) entry.actions = actions;
+    for (const key of ['goalId', 'goalName', 'goalRunId', 'goalQuestionId', 'heartbeatId', 'heartbeatTopic', 'watchId']) {
       if (typeof item[key] === 'string') entry[key] = item[key].slice(0, 300);
     }
     return entry;
@@ -29,7 +53,8 @@ function post(data, fields, { duplicate = null, nowMs = Date.now() } = {}) {
   if (!chat || !Array.isArray(chat.messages)) return null;
   const pending = Array.isArray(chat.pendingProactive) ? chat.pendingProactive : [];
   if (duplicate && [...chat.messages, ...pending].some(duplicate)) return null;
-  const message = { id: randomUUID(), role: 'assistant', status: 'completed', createdAt: nowMs, modelSeen: false, ...fields };
+  const message = { id: randomUUID(), role: 'assistant', status: 'completed', createdAt: nowMs, modelSeen: false,
+    ...(ACTION_KINDS.includes(fields.kind) && !fields.goalQuestionId ? { actions: DEFAULT_ACTIONS.map(action => ({ ...action })) } : {}), ...fields };
   if (chat.status === 'idle') {
     chat.messages.push(message);
     chat.updatedAt = nowMs;
@@ -56,7 +81,8 @@ function bridgeText(messages) {
   if (!messages.length) return '';
   return 'Messages you sent on your own since the user last wrote (the user sees them in this conversation and may be replying to them):\n'
     + messages.map(message => {
-      const source = message.kind === 'goal' ? `goal "${message.goalName || 'Goal'}"` : message.kind === 'memory' ? 'memory learned' : `heartbeat${message.heartbeatTopic ? ` · ${message.heartbeatTopic}` : ''}`;
+      const source = message.kind === 'goal' ? `goal "${message.goalName || 'Goal'}"` : message.kind === 'memory' ? 'memory learned'
+        : message.kind === 'watch' ? 'web watch' : message.kind === 'offer' ? 'offer' : `heartbeat${message.heartbeatTopic ? ` · ${message.heartbeatTopic}` : ''}`;
       return `[${new Date(message.createdAt).toISOString()} · ${source}] ${message.text.slice(0, 2000)}`;
     }).join('\n\n');
 }
@@ -79,4 +105,34 @@ function deliverLearned(data, records, nowMs = Date.now()) {
   return post(data, { kind: 'memory', text: `I'll remember:\n${text}\nTell me if any of this is wrong and I'll correct or forget it.` }, { nowMs });
 }
 
-module.exports = { post, flush, deliverLearned, unseen, bridgeText, markSeen, deliverHeartbeat, normalizePending, PROACTIVE_KINDS };
+function deliverWatch(data, change, nowMs = Date.now()) {
+  if (!change?.id || !change.url) return null;
+  const added = String(change.added || '').trim();
+  return post(data, { kind: 'watch', watchId: change.id,
+    text: `🔎 ${change.label || 'A page you watch'} changed: ${change.url}${added ? `\nNew text:\n${added.slice(0, 800)}` : ''}` }, { nowMs });
+}
+
+// A game launch is only ever offered; the user's click on the button starts it.
+function deliverOffer(data, { appid, name, note = '' } = {}, nowMs = Date.now()) {
+  const target = `steam://rungameid/${appid}`;
+  if (!LAUNCH_TARGET.test(target) || !name) throw new Error('Choose an installed Steam game.');
+  return post(data, { kind: 'offer', text: `${String(note || `How about ${name}?`).trim().slice(0, 600)}`,
+    actions: [{ id: 'launch', label: `▶ Launch ${String(name).slice(0, 60)}`, target }, { id: 'no', label: '✖ Not now' }] }, { nowMs });
+}
+
+// Records the user's click. Side effects (launch, feedback, follow-up turn) belong to the caller.
+function answer(data, { messageId, choice } = {}, nowMs = Date.now()) {
+  const chat = data?.chats?.[0];
+  const message = [...(chat?.messages || []), ...(chat?.pendingProactive || [])].find(item => item.id === messageId);
+  if (!message || !Array.isArray(message.actions)) throw new Error('This suggestion is no longer available.');
+  if (message.answer) throw new Error('This suggestion was already answered.');
+  const action = message.actions.find(item => item.id === choice);
+  if (!action) throw new Error('Choose one of the offered buttons.');
+  message.answer = { choice, at: nowMs };
+  const entry = { id: randomUUID(), at: nowMs, choice, source: message.kind, topic: message.heartbeatTopic || message.goalName || '',
+    excerpt: String(message.text || '').slice(0, 300), ...(message.goalId ? { goalId: message.goalId } : {}) };
+  data.feedbackLog = normalizeFeedbackLog([...(data.feedbackLog || []), entry]);
+  return { message, action, entry };
+}
+
+module.exports = { post, flush, deliverLearned, deliverWatch, deliverOffer, answer, normalizeActions, normalizeAnswer, normalizeFeedbackLog, LAUNCH_TARGET, unseen, bridgeText, markSeen, deliverHeartbeat, normalizePending, PROACTIVE_KINDS };

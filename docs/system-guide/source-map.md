@@ -101,6 +101,9 @@ Guide: [08-heartbeat-inbox.md](08-heartbeat-inbox.md)
 | [src/attention.cjs](../../src/attention.cjs) | Production application module |
 | [src/heartbeat.cjs](../../src/heartbeat.cjs) | Production application module |
 | [src/proactive-chat.cjs](../../src/proactive-chat.cjs) | Production application module |
+| [src/activity.cjs](../../src/activity.cjs) | Production application module |
+| [src/web-watch.cjs](../../src/web-watch.cjs) | Production application module |
+| [src/steam-library.cjs](../../src/steam-library.cjs) | Production application module |
 
 ## events intents calendar
 

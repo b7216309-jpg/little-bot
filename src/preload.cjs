@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('bot', {
   configureMemory: invoke('configureMemory'), linkMemoryProject: invoke('linkMemoryProject'),
   retryMemoryLearning: invoke('retryMemoryLearning'), discardMemoryLearning: invoke('discardMemoryLearning'),
   listBackups: invoke('listBackups'), createBackup: invoke('createBackup'), restoreBackup: invoke('restoreBackup'),
+  answerProactive: invoke('answerProactive'), setActivityAwareness: invoke('setActivityAwareness'), removeWebWatch: invoke('removeWebWatch'),
   saveHeartbeat: invoke('saveHeartbeat'), runHeartbeat: invoke('runHeartbeat'), stopHeartbeat: invoke('stopHeartbeat'), readHeartbeat: invoke('readHeartbeat'),
   heartbeatFeedback: invoke('heartbeatFeedback'),
   refreshExtensions: invoke('refreshExtensions'), saveMcpServer: invoke('saveMcpServer'), deleteMcpServer: invoke('deleteMcpServer'),
