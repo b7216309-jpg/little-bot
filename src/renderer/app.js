@@ -800,7 +800,7 @@ function conversationMessage(chat, message, index) {
       if (variant === 'user' && message.automationId) node.append(element('div', 'message-label automation-label', `Scheduled · ${message.automationName || 'Automation'}`));
       if (variant === 'assistant' || variant === 'plan') {
         const label = element('div', 'message-label');
-        label.append(element('span', 'mini-mark', variant === 'plan' ? 'P' : '✳'), document.createTextNode(variant === 'plan' ? 'Plan' : message.goalId ? `Goal · ${message.goalName || 'Little Bot'}` : message.automationId ? `Little Bot · ${message.automationName || 'Automation'}` : 'Little Bot'));
+        label.append(element('span', 'mini-mark', variant === 'plan' ? 'P' : '✳'), document.createTextNode(variant === 'plan' ? 'Plan' : message.goalId ? `Goal · ${message.goalName || 'Little Bot'}` : message.kind === 'heartbeat' ? `Little Bot · on its own${message.heartbeatTopic ? ` · ${message.heartbeatTopic}` : ''}` : message.automationId ? `Little Bot · ${message.automationName || 'Automation'}` : 'Little Bot'));
         node.append(label);
       }
       node.append(element('div', 'message-content'));
@@ -2388,6 +2388,7 @@ function heartbeatConfig() {
   return {
     enabled: $('heartbeat-enabled').checked,
     mode: 'act',
+    initiative: $('heartbeat-initiative').value === 'wild' ? 'wild' : 'calm',
     checklist: $('heartbeat-checklist').value,
     intervalMinutes: Number($('heartbeat-interval').value),
     startHour: Number($('heartbeat-start-hour').value),
@@ -2406,6 +2407,7 @@ function loadHeartbeatForm() {
   const saved = state.heartbeat || {};
   $('heartbeat-enabled').checked = Boolean(saved.enabled);
   $('heartbeat-checklist').value = saved.checklist || '';
+  $('heartbeat-initiative').value = saved.initiative === 'wild' ? 'wild' : 'calm';
   $('heartbeat-interval').value = saved.intervalMinutes ?? 30;
   $('heartbeat-start-hour').value = saved.startHour ?? 8;
   $('heartbeat-end-hour').value = saved.endHour ?? 22;
@@ -2429,6 +2431,9 @@ function renderHeartbeatControls() {
   $('save-heartbeat').disabled = heartbeatSaving;
   $('save-heartbeat').textContent = heartbeatSaving ? 'Saving…' : 'Save settings';
   $('heartbeat-checklist').required = $('heartbeat-enabled').checked;
+  $('heartbeat-initiative-hint').textContent = $('heartbeat-initiative').value === 'wild'
+    ? 'Acts in the saved folder with network access, keeps agenda.md there, can save memories and manage the calendar, routines and draft goals. Pause all still stops it.'
+    : 'Can act in the saved folder. No elevated or network access.';
   $('run-heartbeat').classList.toggle('hidden', running);
   $('stop-heartbeat').classList.toggle('hidden', !running);
   $('run-heartbeat').disabled = Boolean(state.autonomy?.paused) || !isConnected() || !isReady() || !saved.checklist?.trim() || heartbeatSaving;
@@ -2453,10 +2458,15 @@ function renderHeartbeat() {
   badge.classList.toggle('running', running);
   badge.classList.toggle('error', !running && heartbeat.lastStatus === 'error');
   badge.replaceChildren(element('span', `status-dot ${running ? 'starting' : heartbeat.lastStatus === 'error' ? 'error' : ''}`), document.createTextNode(status));
-  const latest = running ? 'Working through your checklist…' : heartbeat.lastStatus === 'quiet' ? 'All quiet. Nothing needs your attention.' : heartbeat.lastStatus === 'alert' ? 'A meaningful update is waiting in Activity inbox.' : heartbeat.lastStatus === 'error' ? 'The last check needs attention.' : 'No checks yet.';
+  const pulse = Array.isArray(heartbeat.pulse) ? heartbeat.pulse : [];
+  const lastPulse = pulse[pulse.length - 1];
+  const latest = running ? 'Working through your checklist…' : heartbeat.lastStatus === 'quiet' ? `All quiet.${lastPulse?.status === 'quiet' && lastPulse.note ? ` ${lastPulse.note}` : ' Nothing needs your attention.'}` : heartbeat.lastStatus === 'alert' ? 'A meaningful update is waiting in Activity inbox.' : heartbeat.lastStatus === 'error' ? 'The last check needs attention.' : 'No checks yet.';
   $('heartbeat-last-check').textContent = `${latest}${heartbeat.lastRunAt && !running ? `\n${formatDate(heartbeat.lastRunAt)}` : ''}`;
   $('heartbeat-next-check').textContent = state.autonomy?.paused ? 'Autonomous work is paused. Resume it from Goals.' : heartbeat.enabled && heartbeat.nextRunAt ? `Next scheduled check: ${formatDate(heartbeat.nextRunAt)}` : heartbeat.enabled ? 'Next check follows your active hours and daily limit.' : 'Scheduled checks are paused.';
   $('heartbeat-run-count').textContent = `${heartbeat.runsToday || 0} of ${heartbeat.maxRunsPerDay || 12} checks used today${heartbeat.attention ? ` · ${heartbeat.attention.alertsToday || 0} of ${heartbeat.maxAlertsPerDay || 3} desktop alerts` : ''}`;
+  $('heartbeat-pulse').classList.toggle('hidden', pulse.length === 0);
+  $('heartbeat-pulse-label').textContent = `Recent checks · ${pulse.length}${heartbeat.quietStreak ? ` · quiet ${heartbeat.quietStreak} in a row` : ''}`;
+  $('heartbeat-pulse-text').textContent = [...pulse].reverse().slice(0, 12).map(item => `${formatDate(item.at)} · ${item.status}${item.wakeInMinutes ? ` · next in ${item.wakeInMinutes} min` : ''}${item.note ? `\n${item.note}` : ''}`).join('\n\n');
   $('heartbeat-error').textContent = heartbeat.lastError || '';
   $('heartbeat-error').classList.toggle('hidden', !heartbeat.lastError);
   const lastActions = Array.isArray(heartbeat.lastActions) ? heartbeat.lastActions : [];

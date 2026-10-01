@@ -130,7 +130,8 @@ class AgentTools {
       if (typeof this.manageCalendar !== 'function') throw new Error('Calendar management is unavailable.');
       return this.manageCalendar('list', payload, { chatId: chat.id, workspace: chat.workspace });
     }
-    if (!chat || chat.internal || chat.automationId) throw new Error('Goal, schedule and calendar management is available only in a direct user conversation.');
+    // A wild heartbeat is the one hidden task allowed to plan ahead; other hidden work stays read-only.
+    if (!chat || (chat.internal && !chat.wild) || chat.automationId) throw new Error('Goal, schedule and calendar management is available only in a direct user conversation.');
     if (name === 'calendar_manage') {
       if (!calendarActions.includes(args.action)) throw new Error('Unsupported calendar action.');
       const payload = {};
