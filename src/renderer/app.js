@@ -800,7 +800,7 @@ function conversationMessage(chat, message, index) {
       if (variant === 'user' && message.automationId) node.append(element('div', 'message-label automation-label', `Scheduled · ${message.automationName || 'Automation'}`));
       if (variant === 'assistant' || variant === 'plan') {
         const label = element('div', 'message-label');
-        label.append(element('span', 'mini-mark', variant === 'plan' ? 'P' : '✳'), document.createTextNode(variant === 'plan' ? 'Plan' : message.goalId ? `Goal · ${message.goalName || 'Little Bot'}` : message.kind === 'heartbeat' ? `Little Bot · on its own${message.heartbeatTopic ? ` · ${message.heartbeatTopic}` : ''}` : message.automationId ? `Little Bot · ${message.automationName || 'Automation'}` : 'Little Bot'));
+        label.append(element('span', 'mini-mark', variant === 'plan' ? 'P' : '✳'), document.createTextNode(variant === 'plan' ? 'Plan' : message.goalId ? `Goal · ${message.goalName || 'Little Bot'}` : message.kind === 'heartbeat' ? `Little Bot · on its own${message.heartbeatTopic ? ` · ${message.heartbeatTopic}` : ''}` : message.kind === 'memory' ? 'Little Bot · learned' : message.automationId ? `Little Bot · ${message.automationName || 'Automation'}` : 'Little Bot'));
         node.append(label);
       }
       node.append(element('div', 'message-content'));
@@ -3846,6 +3846,37 @@ $('memory-embedding-form').addEventListener('submit', async event => {
   if (provider === 'remote' && (!embedding.baseUrl || !embedding.model)) return notify('Enter an embedding server URL and model.', true);
   await attempt(() => window.bot.configureMemory({ embedding }), 'Memory search settings saved.');
 });
+function formatBytes(bytes) {
+  return bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+function renderBackups(result) {
+  const list = $('backup-list');
+  const items = Array.isArray(result?.backups) ? result.backups : [];
+  if (!items.length) { list.replaceChildren(element('p', 'memory-empty', 'No backups yet. The first one is made a minute after start.')); return; }
+  list.replaceChildren(...items.map(item => {
+    const row = element('div', 'memory-item');
+    const label = item.kind === 'safety' ? 'Safety copy before a restore' : 'Daily backup';
+    row.append(element('strong', '', `${label} · ${formatDate(item.createdAt)}`), element('span', 'field-hint', ` ${formatBytes(item.bytes)}`),
+      action('Restore…', async () => {
+        if (!window.confirm(`Restore memory and conversations from ${formatDate(item.createdAt)}? Little Bot will restart. Anything newer is kept only in a safety copy.`)) return;
+        await attempt(() => window.bot.restoreBackup({ id: item.id }), 'Restoring and restarting…');
+      }, 'button text-button'));
+    return row;
+  }));
+}
+
+async function refreshBackups() {
+  const result = await attempt(() => window.bot.listBackups());
+  if (result) renderBackups(result);
+}
+
+$('memory-advanced').addEventListener('toggle', () => { if ($('memory-advanced').open) void refreshBackups(); });
+$('backup-now').addEventListener('click', async () => {
+  const result = await attempt(() => window.bot.createBackup(), 'Backup saved.');
+  if (result) renderBackups(result);
+});
+
 $('memory-project-form').addEventListener('submit', async event => {
   event.preventDefault();
   const workspace = $('memory-project-workspace').value.trim();

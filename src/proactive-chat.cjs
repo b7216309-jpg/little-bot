@@ -7,7 +7,7 @@ const { randomUUID } = require('node:crypto');
 // and every proactive message stays unseen by the model until the user's next turn carries it.
 const MAX_PENDING = 20;
 const MAX_BRIDGE = 10;
-const PROACTIVE_KINDS = ['heartbeat', 'goal'];
+const PROACTIVE_KINDS = ['heartbeat', 'goal', 'memory'];
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const text = (value, limit) => typeof value === 'string' ? value.slice(0, limit) : '';
 
@@ -56,7 +56,7 @@ function bridgeText(messages) {
   if (!messages.length) return '';
   return 'Messages you sent on your own since the user last wrote (the user sees them in this conversation and may be replying to them):\n'
     + messages.map(message => {
-      const source = message.kind === 'goal' ? `goal "${message.goalName || 'Goal'}"` : `heartbeat${message.heartbeatTopic ? ` · ${message.heartbeatTopic}` : ''}`;
+      const source = message.kind === 'goal' ? `goal "${message.goalName || 'Goal'}"` : message.kind === 'memory' ? 'memory learned' : `heartbeat${message.heartbeatTopic ? ` · ${message.heartbeatTopic}` : ''}`;
       return `[${new Date(message.createdAt).toISOString()} · ${source}] ${message.text.slice(0, 2000)}`;
     }).join('\n\n');
 }
@@ -71,4 +71,12 @@ function deliverHeartbeat(data, item, nowMs = Date.now()) {
     { nowMs, duplicate: message => message.kind === 'heartbeat' && message.heartbeatId === item.id });
 }
 
-module.exports = { post, flush, unseen, bridgeText, markSeen, deliverHeartbeat, normalizePending, PROACTIVE_KINDS };
+// Shows what automatic learning just saved, so a wrong memory can be corrected right away.
+function deliverLearned(data, records, nowMs = Date.now()) {
+  const learned = (Array.isArray(records) ? records : []).filter(record => record?.id && typeof record.text === 'string' && record.text.trim());
+  if (!learned.length) return null;
+  const text = learned.map(record => `📌 ${record.text.trim().slice(0, 400)} (${record.type || 'fact'} · id ${record.id})`).join('\n');
+  return post(data, { kind: 'memory', text: `I'll remember:\n${text}\nTell me if any of this is wrong and I'll correct or forget it.` }, { nowMs });
+}
+
+module.exports = { post, flush, deliverLearned, unseen, bridgeText, markSeen, deliverHeartbeat, normalizePending, PROACTIVE_KINDS };

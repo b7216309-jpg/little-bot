@@ -1,3 +1,28 @@
+# Version 0.11.3 verification
+
+0.11.3 hardens memory after a real data reset:
+
+- Daily restore points of `memory.sqlite` and `state.json` (7 kept), with Back up now and Restore in the Memory panel.
+- Restore swaps the files at the next start and keeps a safety copy of the replaced data.
+- A one-time warning when the memory database disappeared beside an existing conversation.
+- Re-attachment instead of a silent in-memory fallback.
+- Tolerant parsing of learning output.
+- At most three learned memories per turn, under a stricter prompt.
+- "Learned" notes in the chat that the model sees on the next turn.
+- Heartbeat and goals yield to ready learning jobs.
+
+The syntax check covered 172 JavaScript files. 483 Node tests ran: 472 passed. The 11 failures are the extension and plugin import suites described under 0.11.0; this machine denies their fixed `C:\Users\work` path.
+
+All 14 Electron fixtures passed. New tests cover:
+- Backup creation, daily idempotence, rotation, restore with a safety copy, and a stale marker
+- Missing-database detection
+- Re-attachment of a detached memory object
+- Learning parsed from `<think>` output, the three-memory cap, the chat note and its model bridge
+- Backoff not blocking proactive work
+- Learned notes excluded from recall and from goal evidence
+
+No live model run is claimed.
+
 # Version 0.11.2 verification
 
 0.11.2 makes ongoing goals feel present:

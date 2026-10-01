@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
-const { normalizeMemory, attachMemoryService, sync: syncMemory } = require('./memory.cjs');
+const { normalizeMemory, attachMemoryService, setPrimaryService, sync: syncMemory } = require('./memory.cjs');
 const { MemoryService } = require('./memory-service.cjs');
 const { normalizeHeartbeat } = require('./heartbeat.cjs');
 const { normalizeExtensions } = require('./extensions.cjs');
@@ -266,8 +266,12 @@ class Store {
         this.warning = `Could not read saved app state: ${error.message} The original file is preserved.`;
       }
     }
-    this.memoryService = new MemoryService({ filename: path.join(path.dirname(this.filePath), 'memory.sqlite') });
+    const memoryFile = path.join(path.dirname(this.filePath), 'memory.sqlite');
+    // A missing database beside an existing conversation means memory was deleted or reset outside the app.
+    this.memoryWasMissing = !fs.existsSync(memoryFile) && this.data.chats.some(chat => chat.messages.length > 0);
+    this.memoryService = new MemoryService({ filename: memoryFile });
     attachMemoryService(this.data.memory, this.memoryService);
+    setPrimaryService(this.memoryService);
     for (const chat of this.data.chats) this.memoryService.indexChat(chat);
     for (const goal of this.data.autonomy.goals) this.memoryService.indexGoal(goal);
     syncMemory(this.data.memory);
@@ -311,6 +315,7 @@ class Store {
   close() {
     if (this.closed) return;
     this.closed = true;
+    setPrimaryService(null);
     this.memoryService?.close();
   }
 

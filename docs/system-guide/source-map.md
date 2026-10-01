@@ -45,6 +45,7 @@ Guide: [04-memory.md](04-memory.md)
 
 | Source / resource | Responsibility |
 | --- | --- |
+| [src/backups.cjs](../../src/backups.cjs) | Production application module |
 | [resources/embeddings/LICENSE](../../resources/embeddings/LICENSE) | Bundled defaults, instructions, model manifest or licensing |
 | [resources/embeddings/manifest.json](../../resources/embeddings/manifest.json) | Bundled defaults, instructions, model manifest or licensing |
 | [resources/embeddings/NOTICE.md](../../resources/embeddings/NOTICE.md) | Bundled defaults, instructions, model manifest or licensing |

@@ -16,6 +16,20 @@ Failures retry at most three times with backoff, then remain visible as failed l
 
 A valid response with no candidates is allowed. Candidates without valid provenance or with unusable supersession targets are skipped. Consequently, a completed job is not a guarantee that every important fact was extracted. Raw conversation recall remains available. Automated selection is a quality limit, not proof of perfect memory curation.
 
+## Learning quality and visibility
+
+Each turn saves at most three memories, and the prompt asks only for what will still matter weeks later. In real use before this change, users removed almost half of the automatically learned records. Newly learned memories appear in the conversation as a "Little Bot · learned" message showing each memory's ID. The next user turn carries that message to the model, so "that's wrong" can be corrected with memory_save or memory_forget. These notes are not recalled as history and are not goal evidence.
+
+Learning output wrapped in reasoning tags or prose is parsed through the shared [model-json](../../src/model-json.cjs) helper. Heartbeat and goal runs yield the idle lane while a learning job is ready; a job waiting in backoff does not hold them back.
+
+## Backups and resets
+
+[backups.cjs](../../src/backups.cjs) saves one restore point per local day: a `VACUUM INTO` copy of `memory.sqlite` and the encrypted `state.json`. Points are kept for seven days under `data/backups`; Memory → Search settings → Backups can make one now. Restore writes a marker and restarts the app. Before the Store opens anything, the current files are copied to a `before-restore-*` safety point, then the backup is copied in. Backups never leave the PC.
+
+If `memory.sqlite` is missing while the conversation has messages, startup warns once and logs a diagnostic. This happens, for example, when the file was deleted outside the app or a development copy reset the shared data folder. Every app copy, including development checkouts, uses `%APPDATA%\Little Bot` unless `LITTLE_BOT_DATA_DIR` points elsewhere.
+
+A memory object that loses its database link re-attaches to the on-disk database with a warning. It no longer writes silently to a throwaway in-memory database.
+
 ## Embeddings
 
 [local-embeddings.cjs](../../src/local-embeddings.cjs) manages a worker; [local-embeddings-worker.cjs](../../src/local-embeddings-worker.cjs) runs ONNX Runtime with the **CPU** execution provider, at most two intra-operation threads, and one inter-operation thread.
