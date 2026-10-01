@@ -445,6 +445,7 @@ class GoalRunner {
     let snapshot = null, verificationActions = 0, modelUsage = { tokens: 0, actions: 0, elapsedMs: 0 }, result = null, timer, preflightPassed = true;
     const completedBefore = goal.lastCompletedAt;
     let evidence = null, reviewFinished = false;
+    const quietNudge = contract.quietTooLong(goal) ? goal.maxQuietHours : 0;
     const updateUsage = () => {
       if (reviewFinished || (isRecurringGoal(goal) && goal.lastCompletedAt !== completedBefore)) return;
       goal.usage.tokens = before.tokens + Math.floor(number(modelUsage.tokens));
@@ -457,7 +458,7 @@ class GoalRunner {
       if (contract.isV2(goal)) {
         evidence = await contract.collect(goal, this.store.data);
         goal.runEvidence = evidence;
-        if (contract.ongoing(goal) && goal.review.lastResult && !evidence.changed && goal.reviewPolicy !== 'always' && !goal.freshRun && !resumeRequested) {
+        if (contract.ongoing(goal) && goal.review.lastResult && !evidence.changed && goal.reviewPolicy !== 'always' && !goal.freshRun && !resumeRequested && !quietNudge) {
           reviewFinished = true; this.finishReview(goal, evidence, 'no-change', '', [], runId); return;
         }
       }
@@ -480,7 +481,7 @@ class GoalRunner {
       goal.usage.runs++; this.record(goal, 'started', 'Started one bounded goal step.', { runId, snapshot }); this.changed();
       // The run limit bounds starts; reaching it does not cancel the last allowed run.
       timer = setInterval(() => { updateUsage(); if (goal.usage.elapsedMs >= goal.limits.maxMinutes * 60000 && !this.stopReason) { this.stopReason = 'The goal time budget was reached.'; void Promise.resolve(this.stopRun?.(this.stopReason)).catch(() => {}); } }, 1000); timer.unref?.();
-      result = await this.run(goal, { onProgress: reported => {
+      result = await this.run(goal, { quietNudge, onProgress: reported => {
         for (const key of ['tokens', 'actions', 'elapsedMs', 'inputTokens', 'outputTokens']) if (Number.isFinite(reported?.[key])) modelUsage[key] = Math.max(number(modelUsage[key]), number(reported[key]));
         if (typeof reported?.currentAction === 'string') goal.currentAction = clean(reported.currentAction);
         updateUsage();

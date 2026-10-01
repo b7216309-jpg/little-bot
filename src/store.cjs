@@ -120,7 +120,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
           };
           const attachments = attachmentDescriptors(message.attachments);
           if (attachments.length) entry.attachments = attachments;
-          for (const key of ['kind', 'status', 'phase', 'workspace', 'model', 'connection', 'automationId', 'automationName', 'goalId', 'goalName', 'goalRunId', 'goalQuestionId']) {
+          for (const key of ['kind', 'status', 'phase', 'workspace', 'model', 'connection', 'automationId', 'automationName', 'goalId', 'goalName', 'goalRunId', 'goalQuestionId', 'heartbeatId', 'heartbeatTopic']) {
             if (typeof message[key] === 'string') entry[key] = message[key];
           }
           if (recovering && ['running', 'waiting', 'inProgress'].includes(entry.status)) {

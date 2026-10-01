@@ -9,6 +9,7 @@ const { Controller, cleanError } = require('./controller.cjs');
 const { saveFact, deleteFact, clearEpisodes } = require('./memory.cjs');
 const { MemoryConsolidator } = require('./memory-consolidator.cjs');
 const { Heartbeat, validateHeartbeat } = require('./heartbeat.cjs');
+const { deliverHeartbeat } = require('./proactive-chat.cjs');
 const { ExtensionFiles, validateServer, LIMITS } = require('./extensions.cjs');
 const { ExtensionRuntime } = require('./extension-runtime.cjs');
 const goalContract = require('./goal-contract.cjs');
@@ -148,6 +149,10 @@ app.whenReady().then(async () => {
       && !store.data.autonomy.paused && !goals?.activeId && !controller.goalChat && !controller.extensionsBusy && !controller.memoryBusy && !scheduler.runningId && !controller.heartbeatChat && !store.data.chats.some(chat => chat.status !== 'idle'),
     onChange: () => controller.changed(),
     publish: publishEvent,
+    onRecord: (item, { initiative }) => {
+      if (initiative !== 'wild' || !deliverHeartbeat(store.data, item)) return;
+      controller.changed(true);
+    },
     onAlert: item => {
       if (smoke || !Notification.isSupported() || window?.isFocused()) return;
       const notice = new Notification({ title: item.status === 'error' ? 'Little Bot needs attention' : item.source === 'goal' ? 'Little Bot goals' : 'Little Bot heartbeat',
@@ -212,6 +217,11 @@ app.whenReady().then(async () => {
 
   controller.appManagement = new AppManagement({controller,handlers:appHandlers,filename:path.join(stateDir,'app-operations.json')});
   controller.agentTools = new AgentTools({ management:controller.appManagement, store, browser: controller.browser, webServices: controller.webServices,
+    manageFollowup: async (action, payload) => {
+      if (action === 'list') return heartbeat.listFollowups();
+      if (action === 'cancel') return heartbeat.cancelFollowup(payload.id);
+      return heartbeat.scheduleFollowup(payload);
+    },
     sendAttachment: async (input, chat) => {
       if (!chat || chat.internal || chat.automationId || chat.status !== 'running') throw new Error('Files can be delivered only in an active user conversation.');
       const descriptor = await controller.attachments.output(input.path, chat.workspace, { extraRoots: [path.join(stateDir, 'browser', 'screenshots')] });
@@ -597,6 +607,14 @@ app.whenReady().then(async () => {
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (safeWebUrl(url)) shell.openExternal(url).catch(() => {});
     return { action: 'deny' };
+  });
+  let awaySince = null;
+  const returnedAfter = 90 * 60000;
+  window.on('blur', () => { awaySince ??= Date.now(); });
+  window.on('focus', () => {
+    const away = awaySince === null ? 0 : Date.now() - awaySince;
+    awaySince = null;
+    if (away >= returnedAfter) eventRuntime?.publish({ type: 'user.returned', source: 'app', payload: { awayMinutes: Math.round(away / 60000) } });
   });
   window.webContents.on('will-navigate', (event, url) => { if (url !== rendererUrl) event.preventDefault(); });
   window.on('close', event => {

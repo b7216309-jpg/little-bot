@@ -58,6 +58,7 @@
   "src/goals-smoke.cjs": "17-diagnostics-distribution.md",
   "src/goals.cjs": "05-goals.md",
   "src/heartbeat.cjs": "08-heartbeat-inbox.md",
+  "src/proactive-chat.cjs": "08-heartbeat-inbox.md",
   "src/independent-check-runner.cjs": "15-questions-answer-checks.md",
   "src/independent-check.cjs": "15-questions-answer-checks.md",
   "src/local-embeddings-worker.cjs": "04-memory.md",
