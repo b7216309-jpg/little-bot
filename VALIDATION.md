@@ -1,3 +1,11 @@
+# Version 0.12.2 verification
+
+0.12.2 fixes "dynamic tools must use either canonical or legacy format consistently", reported on the first message after 0.12.1 reset a missing engine thread.
+
+App-management tools were declared without `type: "function"` while every other tool had it. The engine validates the whole list when it creates a thread, so the mix was rejected. Older chats had never shown the problem because they only resumed existing threads. `AgentTools.specs()` now normalizes every source to the canonical form.
+
+The bundled engine was started in a throwaway folder and asked to create a thread with each list. The old mixed list was rejected with the reported error; the normalized list was accepted and the thread was created. A regression test checks the full, read-only and Wild heartbeat lists. 495 Node tests ran: 484 passed. The 11 failures are the known `C:\Users\work` extension suites.
+
 # Version 0.12.1 verification
 
 0.12.1 fixes a startup failure seen on the first real launch of 0.12.0. A tool-list change makes startup migrate each saved engine thread. A conversation restored from elsewhere had no engine thread, so `migrateTools` threw "The saved engine conversation is missing." and the engine never started.

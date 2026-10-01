@@ -188,3 +188,18 @@ test('prompts mention activity only when the user enabled it, and summarize rece
   fake.store.data.feedbackLog = [];
   assert.equal(Controller.prototype.reactionContext.call(fake), '');
 });
+
+test('every dynamic tool list uses one format, because the engine rejects new threads that mix them', () => {
+  const { AppManagement } = require('../src/app-management.cjs');
+  const legacy = AppManagement.prototype.specs.call({});
+  assert.ok(legacy.some(tool => !tool.type), 'app management still declares the legacy form, so normalization is needed');
+  const tools = new AgentTools({ store: { data: { extensions: {} } }, management: { specs: () => legacy },
+    manageFollowup: () => {}, manageWatch: () => {}, proposeLaunch: () => {}, sendAttachment: () => {} });
+  const wildNames = new Set(['skill_list', 'skill_read', 'memory_search', 'session_read', 'calendar_list', 'memory_save', 'calendar_manage', 'schedule_manage', 'goal_manage', 'followup_manage', 'games_list', 'web_watch', 'launch_propose', 'standing_intent_manage']);
+  for (const [label, list] of [['full', tools.specs()], ['read-only', tools.specs({ readOnly: true })], ['wild heartbeat', tools.specs().filter(tool => wildNames.has(tool.name))]]) {
+    assert.ok(list.length > 0, label);
+    assert.deepEqual([...new Set(list.map(tool => tool.type))], ['function'], `${label} tools must all be canonical`);
+    assert.ok(list.every(tool => tool.name && tool.description && tool.inputSchema?.type === 'object'), label);
+  }
+  assert.ok(tools.specs().some(tool => tool.name === 'standing_intent_manage' && tool.type === 'function'));
+});
