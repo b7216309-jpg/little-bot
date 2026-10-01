@@ -233,6 +233,7 @@
     <label class="field-label" for="goal-name">Name</label><input id="goal-name" maxlength="80" required placeholder="Prepare the weekly project summary">
     <label class="field-label" for="goal-kind">Goal type</label><select id="goal-kind"><option value="task">Task · finish a concrete outcome</option><option value="ongoing">Ongoing · act and coach over time</option></select>
     <label><input id="goal-source-chat" type="checkbox" checked> Use the continuous chat and post useful results there</label>
+    <label><input id="goal-active-hours" type="checkbox" checked> Scheduled reviews only during Heartbeat active hours</label>
     <label><input id="goal-source-calendar" type="checkbox" checked> Include upcoming calendar events</label>
     <label class="field-label" for="goal-source-files">Evidence files</label><textarea id="goal-source-files" rows="2" placeholder="Absolute file paths, one per line" spellcheck="false"></textarea><p class="field-hint">Selected text files can be outside the working folder. They provide evidence; writes still use your access settings.</p>
     <label class="field-label" for="goal-review-policy">Ongoing reviews</label><select id="goal-review-policy"><option value="changes">Review when evidence changes; otherwise stay quiet</option><option value="always">Review at every scheduled activation</option></select>

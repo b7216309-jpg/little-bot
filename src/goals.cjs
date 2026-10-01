@@ -5,6 +5,7 @@ const { randomUUID } = require('node:crypto');
 const files = require('./goal-files.cjs');
 const contract = require('./goal-contract.cjs');
 const { connectionBinding, isConnectionSelected, requireSelectedConnection } = require('./connections.cjs');
+const { inActiveHours } = require('./heartbeat.cjs');
 const { questionInput, questionText, pendingQuestion, clarifications } = require('./user-questions.cjs');
 const {
   normalizeGoalLedger, reconcileGoalLedger, restartGoalLedger, applyGoalLedgerUpdate,
@@ -21,6 +22,7 @@ const number = value => Number.isFinite(value) && value >= 0 ? value : 0;
 const clean = value => String(value?.message || value || '').replace(/sk-[A-Za-z0-9_-]+/g, '[redacted]').replace(/(api_key|access_token|refresh_token)([\s"':=]+)[^\s,}]+/gi, '$1$2[redacted]').slice(0, 2000);
 const isRecurringGoal = goal => ['interval', 'files'].includes(goal?.trigger?.type);
 const ONGOING_RETRY_MINUTES = [15, 60, 240];
+const REPLY_REVIEW_MINUTES = 10;
 function text(value, label, max, required = false) {
   if (value == null && !required) return '';
   if (typeof value !== 'string' || value.length > max || value.includes('\0') || (required && !value.trim())) throw new Error(`${label} must contain ${required ? '1–' : 'at most '}${max} characters.`);
@@ -90,6 +92,7 @@ function validateGoal(input, existing = null, settings = {}) {
     workspace, model: text(input.model ?? existing?.model ?? settings.model, 'Model', 200), effort: ['low', 'medium', 'high'].includes(input.effort) ? input.effort : existing?.effort || settings.effort || 'low',
     ...connectionBinding(existing || { ...settings, ...input }, settings.connection || 'codex'),
     checks, permissions, limits, usage: usageOf(reopening ? null : existing?.usage), trigger,
+    respectActiveHours: (input.respectActiveHours ?? existing?.respectActiveHours) !== false,
     dependsOn: [...new Set(list(input.dependsOn, 'Dependencies', 20, value => text(value, 'Dependency', 100, true)))],
     authorized: existing?.authorized === true, history: historyOf(existing?.history),
     createdAt: existing?.createdAt || now, updatedAt: now, nextRunAt: existing?.nextRunAt ?? null,
@@ -324,10 +327,38 @@ class GoalRunner {
         } else if (!ready) ready = goal.nextRunAt != null && goal.nextRunAt <= Date.now();
         // File checks await I/O; a pause or shutdown may land while they run.
         if (!ready || this.closing || this.data.paused || goal.status !== 'queued' || !this.canRun()) continue;
+        // Scheduled reviews wait for the user's waking hours; an explicit Run, answer or recovery does not.
+        const userInitiated = this.forceRuns.has(goal.id) || goal.needsRecoveryCheck || goal.continueAfterAnswer;
+        if (!userInitiated && !this.awake(goal)) continue;
         this.forceRuns.delete(goal.id); this.execution = this.execute(goal);
         await this.execution; this.execution = null; break;
       }
     } finally { this.ticking = false; }
+  }
+  awake(goal, nowMs = Date.now()) {
+    const hours = this.store.data.heartbeat;
+    if (goal.respectActiveHours === false || !hours || !Number.isInteger(hours.startHour) || !Number.isInteger(hours.endHour)) return true;
+    return inActiveHours(hours, nowMs);
+  }
+  // A reply to a goal's message is fresh evidence for that goal; review it soon instead of at the next daily slot.
+  userReplied(chat, nowMs = Date.now()) {
+    const messages = Array.isArray(chat?.messages) ? chat.messages : [];
+    const last = messages.findLastIndex(message => message.role === 'user' && !message.automationId);
+    if (last < 0) return [];
+    const previous = messages.slice(0, last).findLastIndex(message => message.role === 'user' && !message.automationId);
+    const repliedTo = new Set(messages.slice(previous + 1, last).filter(message => message.kind === 'goal' && message.goalId).map(message => message.goalId));
+    const scheduled = [];
+    for (const id of repliedTo) {
+      const goal = this.data.goals.find(item => item.id === id);
+      if (!goal || !contract.ongoing(goal) || !goal.authorized || goal.status !== 'queued' || goal.id === this.activeId || !goal.sources?.chat) continue;
+      const at = nowMs + REPLY_REVIEW_MINUTES * 60000;
+      if (Number.isFinite(goal.nextRunAt) && goal.nextRunAt <= at) continue;
+      goal.nextRunAt = at;
+      this.record(goal, 'reply', `You replied to this goal; reviewing in ${REPLY_REVIEW_MINUTES} minutes.`);
+      scheduled.push(goal.id);
+    }
+    if (scheduled.length) this.changed();
+    return scheduled;
   }
   block(goal, reason, extra = {}) {
     goal.status = 'blocked'; goal.nextStep = reason;

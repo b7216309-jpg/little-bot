@@ -183,3 +183,22 @@ test('the followup_manage tool converts times and is offered only where planning
   await tools.call('followup_manage', { action: 'create', inMinutes: 30, note: 'From heartbeat.' }, { chat: { ...chat, internal: true, wild: true } });
   assert.deepEqual(await tools.call('followup_manage', { action: 'cancel', id: 'f1' }, { chat }), { cancelled: 'f1' });
 });
+
+test('a finished chat turn lets goals check for a reply to their messages', async () => {
+  const { EventBus } = require('../src/event-bus.cjs');
+  const { EventRuntime } = require('../src/event-runtime.cjs');
+  const chats = [{ status: 'idle', messages: [] }];
+  const replies = [];
+  const store = { data: { chats, calendar: { events: [] }, automations: [], autonomy: { goals: [] }, standingIntents: { intents: [] } }, save() {} };
+  const bus = new EventBus({ now: () => 10_000_000, dedupeWindowMs: 0 });
+  const runtime = new EventRuntime({ store, scheduler: { runningId: null }, heartbeat: { async runNow() {} },
+    goals: { goal() {}, userReplied: chat => { replies.push(chat); return []; } }, eventBus: bus, now: () => 10_000_000,
+    setIntervalFn: () => ({ unref() {} }), clearIntervalFn: () => {} });
+  runtime.start();
+  runtime.publish({ type: 'chat.completed', source: 'chat', payload: { chatId: 'c' } });
+  runtime.publish({ type: 'user.returned', source: 'app', payload: {} });
+  await bus.drain();
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0], chats[0]);
+  runtime.stop();
+});
