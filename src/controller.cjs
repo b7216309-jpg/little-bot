@@ -263,7 +263,14 @@ class Controller extends EventEmitter {
         const tools = this.agentTools.specs({ readOnly: chat.toolMode === 'readOnly' });
         const signature = fingerprint(tools);
         if (chat.toolSchema !== signature) {
-          migrateTools(this.client.homeDir, chat.threadId, tools);
+          try { migrateTools(this.client.homeDir, chat.threadId, tools); }
+          catch (error) {
+            // A missing or foreign engine history (for example after a restored session) cannot be migrated.
+            // Start a fresh engine thread instead of failing startup; Little Bot's own timeline is kept and
+            // bridged into the new thread on the next turn.
+            this.onError('engine-thread-reset', error, { threadId: chat.threadId });
+            chat.threadId = '';
+          }
           chat.toolSchema = signature;
         }
       }
