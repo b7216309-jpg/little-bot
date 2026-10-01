@@ -30,6 +30,8 @@ Guide: [03-models-strata.md](03-models-strata.md)
 | --- | --- |
 | [integrations/strata/cache-slots.patch](../../integrations/strata/cache-slots.patch) | External Strata patch / build instructions / verification |
 | [integrations/strata/README.md](../../integrations/strata/README.md) | External Strata patch / build instructions / verification |
+| [integrations/strata/ssd-conversation-cache-0.1.33.patch](../../integrations/strata/ssd-conversation-cache-0.1.33.patch) | Temporary SSD storage for Strata 0.1.33 automatic conversation parking |
+| [integrations/strata/verify-conversation-cache.cjs](../../integrations/strata/verify-conversation-cache.cjs) | Conversation-cache and cancellation verification through the Responses relay |
 | [integrations/strata/verify-strata-cancel.py](../../integrations/strata/verify-strata-cancel.py) | External Strata patch / build instructions / verification |
 | [integrations/strata/verify-strata-needles.py](../../integrations/strata/verify-strata-needles.py) | External Strata patch / build instructions / verification |
 | [integrations/strata/verify-strata-slots.py](../../integrations/strata/verify-strata-slots.py) | External Strata patch / build instructions / verification |
