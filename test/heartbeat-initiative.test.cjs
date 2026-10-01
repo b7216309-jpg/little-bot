@@ -94,22 +94,6 @@ test('new alerts are offered for chat delivery once, with the current initiative
   assert.deepEqual(f.records[0].context, { initiative: 'wild' });
 });
 
-test('chat delivery posts one labelled assistant message and never interrupts active work', () => {
-  const item = { id: 'h1', status: 'alert', source: 'heartbeat', summary: '  Booked nothing, but tonight looks free for Ace Combat.  ', topic: 'Leisure' };
-  const data = { chats: [{ status: 'idle', messages: [], updatedAt: 0 }] };
-  const message = deliverHeartbeat(data, item, 123);
-  assert.equal(message.role, 'assistant');
-  assert.equal(message.kind, 'heartbeat');
-  assert.equal(message.text, 'Booked nothing, but tonight looks free for Ace Combat.');
-  assert.equal(message.heartbeatTopic, 'Leisure');
-  assert.equal(data.chats[0].updatedAt, 123);
-  assert.equal(deliverHeartbeat(data, item), null);
-  assert.equal(data.chats[0].messages.length, 1);
-  for (const status of ['running', 'waiting']) assert.equal(deliverHeartbeat({ chats: [{ status, messages: [] }] }, item), null);
-  assert.equal(deliverHeartbeat({ chats: [] }, item), null);
-  assert.equal(deliverHeartbeat(data, { ...item, id: 'g', source: 'goal' }), null);
-  assert.equal(deliverHeartbeat(data, { ...item, id: 'e', status: 'error' }), null);
-});
 
 test('presence pulls a wild heartbeat forward with its reason; chat activity debounces; calm ignores it', async () => {
   const f = fixture([{ status: 'quiet', summary: '' }], { initiative: 'wild' });

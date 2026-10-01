@@ -20,6 +20,7 @@ const isObject = value => value && typeof value === 'object' && !Array.isArray(v
 const number = value => Number.isFinite(value) && value >= 0 ? value : 0;
 const clean = value => String(value?.message || value || '').replace(/sk-[A-Za-z0-9_-]+/g, '[redacted]').replace(/(api_key|access_token|refresh_token)([\s"':=]+)[^\s,}]+/gi, '$1$2[redacted]').slice(0, 2000);
 const isRecurringGoal = goal => ['interval', 'files'].includes(goal?.trigger?.type);
+const ONGOING_RETRY_MINUTES = [15, 60, 240];
 function text(value, label, max, required = false) {
   if (value == null && !required) return '';
   if (typeof value !== 'string' || value.length > max || value.includes('\0') || (required && !value.trim())) throw new Error(`${label} must contain ${required ? '1–' : 'at most '}${max} characters.`);
@@ -131,6 +132,7 @@ function normalizeAutonomy(value, settings = {}, recovering = false) {
       if (input.continueAfterAnswer === true) goal.continueAfterAnswer = true;
       if (input.needsEffectReview === true) goal.needsEffectReview = true;
       if (input.freshRun === true) goal.freshRun = true;
+      if (Number.isInteger(input.failureStreak) && input.failureStreak > 0) goal.failureStreak = Math.min(input.failureStreak, ONGOING_RETRY_MINUTES.length);
       if (Number.isFinite(input.lastCompletedAt)) goal.lastCompletedAt = input.lastCompletedAt;
       goal.ledger = normalizeGoalLedger(input.ledger ?? goal.ledger, goal, Date.now());
       if (recovering && goal.status === 'running') {
@@ -334,6 +336,23 @@ class GoalRunner {
     this.emit('goal.blocked', goal, { reason, blockedAt: Date.now() });
     this.onAlert({ title: goal.name, message: reason, goalId: goal.id });
   }
+  // An ongoing goal is meant to keep going: a failed, unreadable or over-budget cycle retries later
+  // instead of stopping until the user notices. Repeated failures, questions and possible external
+  // effects still block for attention.
+  retryOrBlock(goal, reason, extra = {}) {
+    const streak = goal.failureStreak || 0;
+    if (!contract.ongoing(goal) || this.closing || goal.pendingQuestion || goal.needsEffectReview || streak >= ONGOING_RETRY_MINUTES.length) {
+      delete goal.failureStreak;
+      return this.block(goal, reason, extra);
+    }
+    const minutes = ONGOING_RETRY_MINUTES[streak];
+    goal.failureStreak = streak + 1;
+    goal.status = 'queued'; goal.nextRunAt = Date.now() + minutes * 60000; goal.usage = usageOf();
+    goal.nextStep = `Retry after: ${clean(reason).slice(0, 300)}`;
+    this.record(goal, 'retry', `${clean(reason)} Retrying in ${minutes} minutes (attempt ${goal.failureStreak + 1}).`, { runId: extra.runId || '' });
+    this.changed();
+    return goal;
+  }
   finishReview(goal, evidence, outcome, summary, refs, runId) {
     const previous = structuredClone(goal), chat = this.store.data.chats?.[0];
     const messages = chat?.messages.length, updatedAt = chat?.updatedAt;
@@ -343,7 +362,7 @@ class GoalRunner {
     const priorStatus = goal.status;
     goal.status = priorStatus === 'paused' ? 'paused' : goal.pendingQuestion ? 'blocked' : 'queued';
     goal.nextRunAt = goal.trigger.type === 'interval' ? Date.now() + goal.trigger.intervalMinutes * 60000 : null;
-    goal.usage = usageOf(); delete goal.freshRun;
+    goal.usage = usageOf(); delete goal.freshRun; delete goal.failureStreak;
     if (outcome !== 'no-change') {
       contract.deliver(goal, this.store.data, { runId, summary, question: goal.pendingQuestion });
     }
@@ -351,6 +370,8 @@ class GoalRunner {
     } catch (error) {
       for (const key of Object.keys(goal)) delete goal[key]; Object.assign(goal, previous);
       if (chat) { chat.messages.length = messages; chat.updatedAt = updatedAt; }
+      // A storage failure is not a flaky model; it must block and reach the user, not retry quietly.
+      if (error && typeof error === 'object') error.persistence = true;
       throw error;
     }
     this.emit('goal.reviewed', goal, { runId, outcome, summary, reviewedAt: Date.now(), nextRunAt: goal.nextRunAt });
@@ -504,7 +525,7 @@ class GoalRunner {
       this.record(goal, 'run', clean(result?.summary) || 'Goal step ended.', { runId, usage: { ...modelUsage, actions: modelUsage.actions + verificationActions }, actions, snapshot }); this.changed();
       if (this.stopReason || goal.status === 'paused' || this.closing) {
         if (await this.completeStoppedFiles(goal, runId, this.stopReason, ledgerRunContext, preflightPassed)) return;
-        if (goal.status !== 'paused') this.block(goal, this.stopReason || 'Goal stopped.', { runId }); return;
+        if (goal.status !== 'paused') this.retryOrBlock(goal, this.stopReason || 'Goal stopped.', { runId }); return;
       }
       if (goal.pendingQuestion) {
         if (contract.ongoing(goal)) {
@@ -522,7 +543,7 @@ class GoalRunner {
       if (contract.isV2(goal)) {
         const outcome = contract.validateResult(goal, result, evidence, { changedFiles: snapshot?.changes || 0, checksPassed: checked.passed, preflightPassed });
         goal.actionItems = outcome.actions;
-        if (contract.ongoing(goal) && result.outcome === 'failed') this.block(goal, result.summary, { runId });
+        if (contract.ongoing(goal) && result.outcome === 'failed') this.retryOrBlock(goal, result.summary, { runId });
         else if (contract.ongoing(goal)) {
           reviewFinished = true; this.finishReview(goal, evidence, result.outcome, result.summary, outcome.refs, runId);
         } else {
@@ -558,7 +579,7 @@ class GoalRunner {
         this.record(goal, 'snapshot', 'Saved file evidence after an interrupted or failed step.', { runId, snapshot });
       } catch (snapshotError) { this.record(goal, 'snapshot-error', `Undo is unavailable: ${clean(snapshotError)}`, { runId }); }
       if (await this.completeStoppedFiles(goal, runId, this.stopReason || clean(error), ledgerRunContext, preflightPassed)) return;
-      if (goal.status !== 'paused') this.block(goal, this.stopReason || clean(error), { runId });
+      if (goal.status !== 'paused') (error?.persistence ? this.block : this.retryOrBlock).call(this, goal, this.stopReason || clean(error), { runId });
       else this.record(goal, 'stopped', this.stopReason || clean(error), { runId });
     } finally {
       delete goal.runEvidence;

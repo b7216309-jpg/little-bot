@@ -7,6 +7,7 @@ const { buildMemoryContext } = require('./memory.cjs');
 const { questionInput, questionSpec, clarifications } = require('./user-questions.cjs');
 const { EXECUTOR_LEDGER_SCHEMA, goalLedgerContext, normalizeExecutorLedgerUpdate } = require('./goal-ledger.cjs');
 const contract = require('./goal-contract.cjs');
+const { parseModelJson } = require('./model-json.cjs');
 const { SHELL_CONDUCT } = require('./shell-conduct.cjs');
 
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -204,8 +205,11 @@ class GoalExecutor {
       let parsed;
       try { parsed = JSON.parse(operation.final.trim().replace(/^```(?:json)?\s*|\s*```$/g, '')); }
       catch {
+        // A local model's reasoning tags or a line of prose must not discard an otherwise valid outcome.
+        if (contract.isV2(goal)) parsed = contract.normalizeFinish(parseModelJson(operation.final, 'Goal did not submit a structured outcome. No completion was accepted.'));
+      }
+      if (parsed === undefined) {
         const reply = operation.final.trim();
-        if (contract.isV2(goal)) throw new Error('Goal did not submit a structured outcome. No completion was accepted.');
         // Local models can ask plainly instead of invoking the question tool.
         // With no actions performed, keep a short question for the user rather
         // than spend more runs retrying its format or guess their answer.

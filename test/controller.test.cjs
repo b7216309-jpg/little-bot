@@ -289,3 +289,28 @@ test('stopping a scheduled conversation records an interrupted automation instea
 });
 
 module.exports = { FakeCodexClient };
+
+test('proactive messages wait for a running turn, then the next user turn carries them once', async (t) => {
+  const { deliverHeartbeat } = require('../src/proactive-chat.cjs');
+  const { controller, client, store } = await setup(t);
+  store.data.settings.independentCheckMode = 'off';
+  const chat = await begin(controller, 'What should I do tonight?');
+  deliverHeartbeat(store.data, { id: 'h1', status: 'alert', source: 'heartbeat', summary: 'Ace Combat tonight? The launch was last week.', topic: 'Leisure' });
+  assert.ok(!chat.messages.some(message => message.kind === 'heartbeat'), 'a running turn is not interrupted');
+  client.notice('item/completed', { threadId: chat.threadId, item: { id: 'answer-1', type: 'agentMessage', text: 'Rest a bit.' } });
+  const outcome = controller.waitForChat(chat.id);
+  completed(client, chat);
+  await outcome;
+  assert.deepEqual(chat.messages.map(message => message.kind || message.role), ['user', 'assistant', 'heartbeat']);
+  assert.equal(chat.messages.at(-2).text, 'Rest a bit.');
+  await controller.send({ chatId: chat.id, text: 'Yes, good idea' });
+  const turnText = client.calls.filter(call => call.method === 'turn/start').at(-1).params.input[0].text;
+  assert.match(turnText, /Messages you sent on your own since the user last wrote/);
+  assert.match(turnText, /Ace Combat tonight\? The launch was last week\./);
+  assert.ok(turnText.indexOf('Ace Combat') < turnText.indexOf('Yes, good idea'));
+  completed(client, chat, 'turn-2');
+  await controller.send({ chatId: chat.id, text: 'Thanks' });
+  const nextText = client.calls.filter(call => call.method === 'turn/start').at(-1).params.input[0].text;
+  assert.doesNotMatch(nextText, /Ace Combat/);
+  completed(client, chat, 'turn-3');
+});
