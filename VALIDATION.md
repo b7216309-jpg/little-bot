@@ -10,7 +10,7 @@
 - Standing-intent management for a Wild heartbeat.
 - A `feedback` goal source for a self-review goal.
 
-The syntax check covered 176 JavaScript files. 490 Node tests ran: 479 passed. The 11 failures are the extension and plugin import suites described under 0.11.0; this machine denies their fixed `C:\Users\work` path.
+The release includes the concurrently merged #40 (calendar preparation windows) and #41 (Strata conversation matching). On the combined code, the syntax check covered 176 JavaScript files and 493 Node tests ran: 482 passed. The 11 failures are the extension and plugin import suites described under 0.11.0; this machine denies their fixed `C:\Users\work` path.
 
 The store test that lists persisted top-level keys was updated deliberately for `feedbackLog` and `webWatches`. All 14 Electron fixtures passed. The new chat buttons have no Electron fixture yet.
 
