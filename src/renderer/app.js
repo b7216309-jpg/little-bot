@@ -3005,6 +3005,7 @@ function editGoal(goal) {
   $('goal-objective').value = goal?.objective || '';
   $('goal-kind').value = goal?.kind || 'task';
   $('goal-source-chat').checked = goal?.sources?.chat !== false;
+  $('goal-active-hours').checked = goal?.respectActiveHours !== false;
   $('goal-source-calendar').checked = goal?.sources?.calendar !== false;
   $('goal-source-files').value = (goal?.sources?.files || []).join('\n');
   $('goal-review-policy').value = goal?.reviewPolicy || 'changes';
@@ -3124,7 +3125,7 @@ async function saveGoal(event) {
     if (selectedMcp.some((input) => input.dataset.unavailable === 'true')) throw new Error('Refresh Extensions to discover the saved MCP tools, or remove their grants before saving.');
     const existing = state.autonomy?.goals?.find((goal) => goal.id === editingGoalId);
     const payload = {
-      ...(editingGoalId ? { id: editingGoalId } : {}), contractVersion: 2, kind: $('goal-kind').value, sources: { chat: $('goal-source-chat').checked, calendar: $('goal-source-calendar').checked, files: lines('goal-source-files') }, reviewPolicy: $('goal-review-policy').value, maxQuietHours: Number($('goal-max-quiet-hours').value) || 0, name: $('goal-name').value.trim(), objective: $('goal-objective').value.trim(), steps, checks: $('goal-kind').value === 'ongoing' ? checks.filter(c => c.path || c.command) : checks,
+      ...(editingGoalId ? { id: editingGoalId } : {}), contractVersion: 2, kind: $('goal-kind').value, sources: { chat: $('goal-source-chat').checked, calendar: $('goal-source-calendar').checked, files: lines('goal-source-files') }, reviewPolicy: $('goal-review-policy').value, respectActiveHours: $('goal-active-hours').checked, maxQuietHours: Number($('goal-max-quiet-hours').value) || 0, name: $('goal-name').value.trim(), objective: $('goal-objective').value.trim(), steps, checks: $('goal-kind').value === 'ongoing' ? checks.filter(c => c.path || c.command) : checks,
       workspace: existing?.workspace || goalDraftContext.workspace, model: existing?.model || goalDraftContext.model, effort: existing?.effort || goalDraftContext.effort,
       priority: Number($('goal-priority').value),
       permissions: { write: $('goal-permission-write').checked, writePaths: $('goal-permission-write').checked ? lines('goal-write-paths') : [], shell: $('goal-permission-shell').checked, network: $('goal-permission-network').checked, mcpTools: selectedMcp.map((input) => ({ server: input.dataset.server, tool: input.dataset.tool })) },

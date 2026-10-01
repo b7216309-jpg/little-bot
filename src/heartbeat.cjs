@@ -453,4 +453,4 @@ class Heartbeat {
   }
 }
 
-module.exports = { defaultHeartbeat, normalizeHeartbeat, validateHeartbeat, Heartbeat, MIN_WAKE, MAX_WAKE };
+module.exports = { defaultHeartbeat, normalizeHeartbeat, validateHeartbeat, Heartbeat, inActiveHours, MIN_WAKE, MAX_WAKE };

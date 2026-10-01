@@ -75,6 +75,16 @@ async function collect(goal, data, now = Date.now()) {
       add({ id: `message:${m.id}`, kind: 'user', at: m.createdAt || null, text: m.text || '' }, Math.min(2000, contentBudget - reserved));
     }
     if (pending.length > messages.length) coverage.push(goal.review?.lastResult ? 'More new messages remain for a later review.' : 'Initial review includes a bounded recent excerpt; older context remains searchable.');
+    // What Little Bot itself said since the last review: replies, heartbeat suggestions and goal posts.
+    // Reference only: it never marks the review as changed and never counts as user confirmation.
+    const since = Number(goal.review?.lastResult?.at) || 0;
+    const said = (chat?.messages || []).filter(m => m.role === 'assistant' && !['reasoning', 'plan', 'compaction'].includes(m.kind)
+      && m.phase !== 'commentary' && typeof m.text === 'string' && m.text.trim() && (Number(m.createdAt) || 0) > since).slice(-6);
+    for (const m of said) {
+      if (contentBudget <= reserved + 600) { coverage.push('Some recent Little Bot messages were omitted for budget.'); break; }
+      const source = m.kind === 'heartbeat' ? 'heartbeat' : m.kind === 'goal' ? (m.goalId === goal.id ? 'this goal' : 'another goal') : m.automationId ? 'automation' : 'reply';
+      add({ id: `said:${m.id}`, kind: 'assistant', source, at: m.createdAt || null, text: m.text }, Math.min(1200, contentBudget - reserved));
+    }
   } else coverage.push('Recent chat evidence is disabled (source setting or Memory toggle).');
   if (goal.sources.calendar) {
     const events = (data.calendar?.events || []).filter(e => e.startAt <= now + 7 * 86400000 && (e.endAt || e.startAt) >= now);
