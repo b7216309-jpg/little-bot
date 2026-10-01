@@ -174,6 +174,7 @@ class GoalExecutor {
       const prompt = { objective: goal.objective, checkpoint: goal.checkpoint || '', nextStep: goal.nextStep || '',
         ...(contract.isV2(goal) ? { kind: goal.kind, freshEvidence: goal.runEvidence, actions: goal.actionItems, previousResult: goal.review.lastResult } : { planLedger: goalLedgerContext(goal.ledger, goal) }), userClarifications: clarifications(goal.clarifications), checks: goal.checks || [],
         workspace: operation.workspace, shellWorkingDirectory: operation.cwd, writableFolders: writableRoots,
+        ...(this.controller.activityContext?.() ? { currentActivity: this.controller.activity?.snapshot?.() } : {}),
         permissions: goal.permissions, remainingBudget: remaining };
       operation.phase = 'turnStarting';
       const turn = await this.client.request('turn/start', {
@@ -459,7 +460,7 @@ class GoalExecutor {
         }
         else if (params.tool === 'workspace_write') result = await writeText(operation.goal, args.path, args.content);
         else if (['workspace_read', 'workspace_list'].includes(params.tool)) result = await this.workspaceTool(operation, params.tool, args);
-        else if (['skill_list', 'skill_read', 'memory_search', 'session_read', 'calendar_list'].includes(params.tool) && this.controller.agentTools) result = await this.controller.agentTools.call(params.tool, args, { chat: {
+        else if (['skill_list', 'skill_read', 'memory_search', 'session_read', 'calendar_list', 'games_list'].includes(params.tool) && this.controller.agentTools) result = await this.controller.agentTools.call(params.tool, args, { chat: {
           internal: true, workspace: operation.workspace, connection: operation.goal.connection,
           localBaseUrl: operation.goal.localBaseUrl, model: operation.goal.model,
         } });

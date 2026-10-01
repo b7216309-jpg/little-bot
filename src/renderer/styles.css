@@ -181,3 +181,5 @@
 #inbox-view .entry-summary{font-size:13px;line-height:1.7}
 .entry-source{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:11px;margin:10px 0;flex-wrap:wrap}
 .entry-source .button{margin-left:auto;min-height:28px;padding:4px 8px}
+
+.proactive-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
