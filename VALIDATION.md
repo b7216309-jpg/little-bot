@@ -1,3 +1,26 @@
+# Version 0.11.0 verification
+
+0.11.0 adds Wild heartbeat initiative, presence wake-ups, in-chat proactive messages, a visible run pulse, recovery of small-model JSON output, a goal quiet limit (`maxQuietHours`), and self-planned follow-ups (`followup_manage`). Calm heartbeat behavior is unchanged and remains covered by the existing tests.
+
+The syntax check covered 168 JavaScript files. 466 Node tests ran: 455 passed. The 11 failures come from the extension and plugin import suites. They create a fixed `C:\Users\work\extension-tests` folder, and this build machine denied that path (EPERM). These suites fail identically on the unmodified 0.10.1 source on the same machine.
+
+All 14 Electron fixtures passed.
+
+New tests cover:
+- Initiative validation and the first check within a minute
+- Bounded self-chosen wake-ups, with the fixed interval for Calm
+- Quiet streaks and the 30-entry pulse
+- One-time chat delivery that never interrupts running or waiting chats
+- Presence wake-ups and chat-activity debounce
+- The wider Wild thread configuration (schema, planning tools, network, effort)
+- Planning tools staying blocked for Calm hidden work
+- Agenda edits not forcing alerts
+- JSON recovery from `<think>` and fenced output
+- Forced goal reviews after the quiet limit
+- Follow-up limits, due wake-ups, cancellation, and tool time conversion
+
+No live model run is claimed for 0.11.0. Whether a given local model chooses useful agendas, wake times and follow-ups is unverified until real use.
+
 # Version 0.10.1 verification
 
 `npm run ci` passed: 166 JavaScript files syntax-checked, 453 Node tests, and all 14 Electron fixtures. The bundled operating guide also passed the skill validator.

@@ -56,6 +56,8 @@ class EventRuntime {
         handler: event => this._runAutomationDue(event) }),
       this.bus.subscribe({ id: 'runtime:heartbeat-due', type: 'heartbeat.due', priority: 10,
         handler: event => this._runHeartbeatDue(event) }),
+      this.bus.subscribe({ id: 'runtime:presence', type: '*', priority: 9,
+        filter: event => ['app.opened', 'user.returned', 'chat.completed'].includes(event.type), handler: event => this._wakeForPresence(event) }),
       this.bus.subscribe({ id: 'runtime:intent-action', type: 'standing_intent.action', priority: 10,
         handler: event => this._runIntentAction(event) }),
       this.bus.subscribe({ id: 'runtime:settle-goal', type: '*', priority: 8,
@@ -171,6 +173,18 @@ class EventRuntime {
     const id = event.payload?.automationId;
     if (typeof id !== 'string') return;
     try { await this.scheduler.runNow(id); }
+    catch (error) { this._error(error, event); }
+  }
+
+  // A wild heartbeat should speak when the user is around, not only on its timer.
+  _wakeForPresence(event) {
+    const wake = {
+      'app.opened': ['Little Bot was just opened, so the user is at the computer now.', 2 * MINUTE, false],
+      'user.returned': ['The user just came back to the computer after being away for a while.', MINUTE, false],
+      'chat.completed': ['The user finished a conversation with you about ten minutes ago; consider a thoughtful follow-up on it.', 10 * MINUTE, true],
+    }[event.type];
+    if (!wake || typeof this.heartbeat.wakeSoon !== 'function') return;
+    try { this.heartbeat.wakeSoon(wake[0], wake[1], { debounce: wake[2] }); }
     catch (error) { this._error(error, event); }
   }
 

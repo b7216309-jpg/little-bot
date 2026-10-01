@@ -13,6 +13,12 @@ const integer = (value, min, max, fallback) => Number.isInteger(value) && value 
 const timestamp = (value, fallback = null) => Number.isFinite(value) && value >= 0 ? value : fallback;
 const effort = value => ['low', 'medium', 'high'].includes(value) ? value : 'low';
 const string = (value, fallback = '') => typeof value === 'string' ? value : fallback;
+const initiative = value => value === 'wild' ? 'wild' : 'calm';
+const MIN_WAKE = 5;
+const MAX_WAKE = 240;
+const MAX_PULSE = 30;
+const MAX_FOLLOWUPS = 20;
+const MAX_FOLLOWUP_AHEAD = 30 * 24 * 60 * MINUTE;
 
 function localDay(nowMs) {
   const date = new Date(nowMs);
@@ -35,18 +41,40 @@ function actions(value) {
     .map(item => clean(item, 500)).filter(Boolean).slice(0, 20) : [];
 }
 
+function wakeMinutes(value) {
+  return Number.isFinite(value) ? Math.min(MAX_WAKE, Math.max(MIN_WAKE, Math.round(value))) : null;
+}
+
+// Every finished run, including quiet ones, so the user can see the bot is alive and why it stayed silent.
+function pulse(value) {
+  return (Array.isArray(value) ? value : []).filter(item => object(item) && timestamp(item.at) !== null
+    && ['quiet', 'alert', 'error'].includes(item.status)).slice(-MAX_PULSE).map(item => ({
+    at: item.at, status: item.status, note: clean(item.note, 300),
+    ...(wakeMinutes(item.wakeInMinutes) ? { wakeInMinutes: wakeMinutes(item.wakeInMinutes) } : {}),
+  }));
+}
+
+// One-shot check-ins the agent promised itself; each wakes a wild heartbeat with its note.
+function followups(value) {
+  return (Array.isArray(value) ? value : []).filter(item => object(item) && timestamp(item.at) !== null
+    && typeof item.note === 'string' && item.note.trim()).slice(0, MAX_FOLLOWUPS).map(item => ({
+    id: string(item.id).slice(0, 100) || randomUUID(), at: item.at, note: clean(item.note, 300),
+    createdAt: timestamp(item.createdAt, item.at),
+  })).sort((left, right) => left.at - right.at);
+}
+
 function retryDelay(config) {
   return Math.max(config.intervalMinutes, Math.min(240, config.intervalMinutes * (2 ** Math.max(0, config.failureCount - 1)))) * MINUTE;
 }
 
 function defaultHeartbeat(settings = {}, nowMs = Date.now()) {
   return {
-    enabled: false, mode: 'act', checklist: '', intervalMinutes: 30,
+    enabled: false, mode: 'act', initiative: 'calm', checklist: '', intervalMinutes: 30,
     startHour: 8, endHour: 22, maxRunsPerDay: 12, maxAlertsPerDay: 3, snoozeMinutes: 60,
     workspace: string(settings.workspace), model: string(settings.model), effort: effort(settings.effort),
     ...connectionBinding(settings),
     nextRunAt: nowMs + 30 * MINUTE, lastRunAt: null, lastStatus: 'never',
-    dayKey: localDay(nowMs), runsToday: 0, failureCount: 0,
+    dayKey: localDay(nowMs), runsToday: 0, failureCount: 0, quietStreak: 0, pulse: [], followups: [],
     lastFingerprint: '', lastAlertAt: null, lastActions: [], history: [], attention: attention.normalizeAttention(null),
   };
 }
@@ -56,7 +84,7 @@ function normalizeHeartbeat(value, settings = {}, nowMs = Date.now(), recovering
   if (!object(value)) return defaults;
   const checklist = string(value.checklist).trim().slice(0, MAX_CHECKLIST);
   const result = {
-    enabled: value.enabled === true && Boolean(checklist), mode: 'act', checklist,
+    enabled: value.enabled === true && Boolean(checklist), mode: 'act', initiative: initiative(value.initiative), checklist,
     intervalMinutes: integer(value.intervalMinutes, 5, 1440, 30),
     startHour: integer(value.startHour, 0, 23, 8), endHour: integer(value.endHour, 0, 23, 22),
     maxRunsPerDay: integer(value.maxRunsPerDay, 1, 100, 12),
@@ -67,6 +95,8 @@ function normalizeHeartbeat(value, settings = {}, nowMs = Date.now(), recovering
     lastStatus: ['never', 'running', 'quiet', 'alert', 'error'].includes(value.lastStatus) ? value.lastStatus : 'never',
     dayKey: typeof value.dayKey === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.dayKey) ? value.dayKey : defaults.dayKey,
     runsToday: integer(value.runsToday, 0, 100, 0), failureCount: integer(value.failureCount, 0, 10, 0),
+    quietStreak: integer(value.quietStreak, 0, 1000, 0), pulse: pulse(value.pulse), followups: followups(value.followups),
+    ...(typeof value.wakeReason === 'string' && value.wakeReason.trim() ? { wakeReason: clean(value.wakeReason, 300) } : {}),
     lastFingerprint: /^[a-f0-9]{64}$/.test(value.lastFingerprint) ? value.lastFingerprint : '',
     lastAlertAt: timestamp(value.lastAlertAt),
     lastActions: actions(value.lastActions),
@@ -101,6 +131,7 @@ function validateHeartbeat(input, existing = null, settings = {}, nowMs = Date.n
     if (input[key] !== undefined && typeof input[key] !== 'boolean') throw new TypeError(`${key === 'enabled' ? 'Enabled' : 'Use current workspace'} must be true or false.`);
   }
   if (input.mode !== undefined && input.mode !== 'act') throw new Error('Heartbeat can only act within its working folder.');
+  if (input.initiative !== undefined && !['calm', 'wild'].includes(input.initiative)) throw new Error('Initiative must be calm or wild.');
   const previous = normalizeHeartbeat(existing, settings, nowMs);
   if (input.checklist !== undefined && typeof input.checklist !== 'string') throw new TypeError('The heartbeat checklist must be text.');
   const checklist = input.checklist === undefined ? previous.checklist : input.checklist.trim();
@@ -122,11 +153,16 @@ function validateHeartbeat(input, existing = null, settings = {}, nowMs = Date.n
   const scope = capture ? { workspace: string(settings.workspace), model: string(settings.model), effort: effort(settings.effort), ...connectionBinding(settings) }
     : { workspace: previous.workspace, model: previous.model, effort: previous.effort, ...connectionBinding(previous) };
   if (checklist && !scope.workspace.trim()) throw new Error('Choose a working folder before setting up heartbeat.');
+  const level = input.initiative === undefined ? previous.initiative : input.initiative;
+  const turnedWild = level === 'wild' && previous.initiative !== 'wild';
   const resetSchedule = values.intervalMinutes !== previous.intervalMinutes || (enabled && !previous.enabled)
-    || input.useCurrentWorkspace === true || !object(existing);
+    || input.useCurrentWorkspace === true || !object(existing) || turnedWild;
+  // A wild heartbeat starts within a minute instead of waiting a whole interval to show it is alive.
+  const firstDelay = level === 'wild' ? MINUTE : values.intervalMinutes * MINUTE;
   return {
-    ...previous, ...values, ...scope, enabled, mode: 'act', checklist,
-    nextRunAt: resetSchedule ? nowMs + values.intervalMinutes * MINUTE : previous.nextRunAt,
+    ...previous, ...values, ...scope, enabled, mode: 'act', initiative: level, checklist,
+    ...(turnedWild ? { quietStreak: 0 } : {}),
+    nextRunAt: resetSchedule ? nowMs + firstDelay : previous.nextRunAt,
   };
 }
 
@@ -143,7 +179,7 @@ function fingerprint(status, summary, performedActions = [], workspace = '') {
 }
 
 class Heartbeat {
-  constructor({ store, run, canRun = () => true, canNotify = () => true, onChange = () => {}, onAlert = () => {}, now = Date.now, publish = null }) {
+  constructor({ store, run, canRun = () => true, canNotify = () => true, onChange = () => {}, onAlert = () => {}, onRecord = () => {}, now = Date.now, publish = null }) {
     if (!store || !object(store.data) || typeof store.save !== 'function') throw new TypeError('A store is required.');
     if (typeof run !== 'function') throw new TypeError('A heartbeat runner is required.');
     if (typeof canRun !== 'function' || typeof canNotify !== 'function' || typeof now !== 'function') throw new TypeError('Heartbeat availability and clock must be functions.');
@@ -154,6 +190,7 @@ class Heartbeat {
     this.canNotify = canNotify;
     this.onChange = onChange;
     this.onAlert = onAlert;
+    this.onRecord = typeof onRecord === 'function' ? onRecord : () => {};
     this.now = now;
     this.publish = publish;
     this.running = false;
@@ -209,6 +246,7 @@ class Heartbeat {
       this.flushAttention();
       const config = this.store.data.heartbeat;
       const nowMs = this.now();
+      if (!this.running) this._dueFollowups(nowMs);
       if (!isConnectionSelected(config, this.store.data.settings)) return null;
       if (this.running || !config.enabled || !config.checklist.trim() || !Number.isFinite(config.nextRunAt)
         || config.nextRunAt > nowMs || !inActiveHours(config, nowMs) || !this.canRun()) return null;
@@ -234,6 +272,7 @@ class Heartbeat {
     if (!config.checklist.trim()) throw new Error('Add a checklist before running heartbeat.');
     if (!config.workspace.trim()) throw new Error('Choose a working folder before running heartbeat.');
     const startedAt = this.now();
+    const wakeReason = config.wakeReason || '';
     const dayKey = localDay(startedAt);
     if (config.dayKey === dayKey && config.runsToday >= config.maxRunsPerDay) throw new Error('Heartbeat has reached its daily run limit.');
     this.running = true;
@@ -246,44 +285,101 @@ class Heartbeat {
           current.lastStatus = 'running';
           current.nextRunAt = startedAt + current.intervalMinutes * MINUTE;
           delete current.lastError;
+          delete current.wakeReason;
         });
       } catch (error) { throw this._storageFailure(error); }
       this.publish?.({ type: 'heartbeat.started', source: 'heartbeat',
         payload: { startedAt, workspace: config.workspace } });
 
-      let result;
+      let result, extra;
       try {
-        const returned = await this.run({ ...structuredClone(config), attentionContext: attention.context(config, this.now()) });
+        const returned = await this.run({ ...structuredClone(config), wakeReason, attentionContext: attention.context(config, this.now()) });
         if (!object(returned) || !['quiet', 'alert'].includes(returned.status) || typeof returned.summary !== 'string') {
           throw new Error('Heartbeat returned an invalid result.');
         }
         result = { status: returned.status, summary: clean(returned.summary), actions: actions(returned.actions), topic: clean(returned.topic, 120) };
+        extra = { reason: clean(returned.reason, 300), wakeInMinutes: wakeMinutes(returned.wakeInMinutes) };
         if (result.status === 'alert' && !result.summary) throw new Error('Heartbeat returned an empty alert.');
       } catch (error) {
         const message = clean(error instanceof Error ? error.message : String(error)) || 'Heartbeat could not complete.';
         try { this._finish('error', message, actions(error?.actions), 'Heartbeat failure'); } catch (saveError) { throw this._storageFailure(saveError); }
         throw new Error(message);
       }
-      try { this._finish(result.status, result.summary, result.actions, result.topic); } catch (error) { throw this._storageFailure(error); }
+      try { this._finish(result.status, result.summary, result.actions, result.topic, extra); } catch (error) { throw this._storageFailure(error); }
       return result;
     } finally {
       this.running = false;
     }
   }
 
-  _finish(status, summary, performedActions, topic = '') {
+  // Moments when the user is present pull a wild heartbeat forward. With debounce the check waits until
+  // activity has settled for the full delay; otherwise it only ever moves earlier.
+  wakeSoon(reason, delayMs, { debounce = false } = {}) {
+    const config = this.store.data.heartbeat;
+    if (config.initiative !== 'wild' || !config.enabled || !config.checklist.trim()) return false;
+    if (!Number.isFinite(delayMs) || delayMs < 0) throw new TypeError('A wake-up delay is required.');
+    const at = this.now() + delayMs;
+    if (!debounce && Number.isFinite(config.nextRunAt) && config.nextRunAt <= at) return false;
+    this._mutate(current => { current.nextRunAt = at; current.wakeReason = clean(reason, 300); });
+    return true;
+  }
+
+  scheduleFollowup({ at, note } = {}) {
+    const config = this.store.data.heartbeat;
+    if (config.initiative !== 'wild' || !config.enabled) throw new Error('Follow-ups need Heartbeat enabled with Wild initiative.');
     const nowMs = this.now();
+    if (!Number.isFinite(at) || at <= nowMs || at > nowMs + MAX_FOLLOWUP_AHEAD) throw new Error('Choose a follow-up time in the next 30 days.');
+    if (typeof note !== 'string' || !note.trim()) throw new Error('A follow-up needs a short note saying what to check.');
+    if (config.followups.length >= MAX_FOLLOWUPS) throw new Error(`At most ${MAX_FOLLOWUPS} follow-ups can be planned. Cancel one first.`);
+    const item = { id: randomUUID(), at: Math.round(at), note: clean(note, 300), createdAt: nowMs };
+    this._mutate(current => { current.followups = followups([...current.followups, item]); });
+    return structuredClone(item);
+  }
+
+  cancelFollowup(id) {
+    if (typeof id !== 'string' || !this.store.data.heartbeat.followups.some(item => item.id === id)) throw new Error('That follow-up does not exist.');
+    this._mutate(current => { current.followups = current.followups.filter(item => item.id !== id); });
+    return { cancelled: id };
+  }
+
+  listFollowups() { return structuredClone(this.store.data.heartbeat.followups); }
+
+  // Due follow-ups become an immediate wake-up carrying their notes; the regular hour and run limits still apply.
+  _dueFollowups(nowMs) {
+    const config = this.store.data.heartbeat;
+    if (config.initiative !== 'wild' || !config.enabled) return false;
+    const due = config.followups.filter(item => item.at <= nowMs);
+    if (!due.length) return false;
+    const reason = `Follow-up you planned: ${due.map(item => item.note).join(' | ')}`;
+    this._mutate(current => {
+      current.followups = current.followups.filter(item => item.at > nowMs);
+      current.nextRunAt = Math.min(Number.isFinite(current.nextRunAt) ? current.nextRunAt : nowMs, nowMs);
+      current.wakeReason = clean([current.wakeReason, reason].filter(Boolean).join(' '), 300);
+    });
+    return true;
+  }
+
+  _finish(status, summary, performedActions, topic = '', { reason = '', wakeInMinutes = null } = {}) {
+    const nowMs = this.now();
+    let recorded = null;
     const alert = this._mutate(config => {
       config.lastStatus = status;
       config.lastActions = [...performedActions];
       config.failureCount = status === 'error' ? Math.min(10, config.failureCount + 1) : 0;
+      if (status === 'quiet') config.quietStreak = Math.min(1000, config.quietStreak + 1);
+      else if (status === 'alert') config.quietStreak = 0;
+      // Only a wild heartbeat may choose its own next wake-up; calm keeps the fixed interval.
+      const wake = config.initiative === 'wild' && status !== 'error' ? wakeMinutes(wakeInMinutes) : null;
       if (status === 'error') {
         config.lastError = summary;
         config.nextRunAt = nowMs + retryDelay(config);
       } else {
         delete config.lastError;
-        if (config.nextRunAt <= nowMs) config.nextRunAt = nowMs + config.intervalMinutes * MINUTE;
+        if (wake) config.nextRunAt = nowMs + wake * MINUTE;
+        else if (config.nextRunAt <= nowMs) config.nextRunAt = nowMs + config.intervalMinutes * MINUTE;
       }
+      config.pulse = pulse([...config.pulse, { at: nowMs, status, note: status === 'quiet' ? reason : summary || reason,
+        ...(wake ? { wakeInMinutes: wake } : {}) }]);
       if (status === 'quiet') return null;
       const hash = fingerprint(status, summary, performedActions, config.workspace);
       const isRecent = at => Number.isFinite(at) && at <= nowMs && nowMs - at < DAY;
@@ -298,9 +394,14 @@ class Heartbeat {
       config.history.push(item);
       config.history = config.history.slice(-50);
       config.attention = attention.normalizeAttention(config.attention, config.history);
+      recorded = item;
       return attention.prepareDelivery(config, item, nowMs, this._notificationsAvailable(config, nowMs)) ? item : null;
     });
     if (alert) this._notify(alert);
+    if (recorded) {
+      try { this.onRecord(structuredClone(recorded), { initiative: this.store.data.heartbeat.initiative }); }
+      catch { /* Chat delivery cannot undo a persisted result. */ }
+    }
     this.publish?.({ type: `heartbeat.${status}`, source: 'heartbeat',
       payload: { status, summary, topic, actions: performedActions, workspace: this.store.data.heartbeat.workspace, finishedAt: nowMs } });
   }
@@ -352,4 +453,4 @@ class Heartbeat {
   }
 }
 
-module.exports = { defaultHeartbeat, normalizeHeartbeat, validateHeartbeat, Heartbeat };
+module.exports = { defaultHeartbeat, normalizeHeartbeat, validateHeartbeat, Heartbeat, MIN_WAKE, MAX_WAKE };

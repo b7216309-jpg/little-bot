@@ -14,7 +14,7 @@ A review collects configured chat, calendar and text-file evidence, compares ver
 
 A cycle can act through the permitted tools, deliver a finding/action/coaching summary, ask one persisted question, or report no change. The host checks citations and progress rather than accepting a repeated motivational report as completed work. Questions are answered by exact goal/question ID and can appear in the shared chat. Goal context is also supplied to ordinary foreground messages.
 
-Ongoing reviews emit goal.reviewed so waiting standing intents settle. New source changes or an authorized later run can cause another review. “No change” is an intentional result when evidence has not changed, not a promise of daily new advice.
+Ongoing reviews emit goal.reviewed so waiting standing intents settle. New source changes or an authorized later run can cause another review. “No change” is an intentional result when evidence has not changed, not a promise of daily new advice. Set **Speak up after · hours quiet** (`maxQuietHours`, 0–720, 0 = off) so that an ongoing goal with no meaningful result for that long reviews anyway, even without new evidence. That run is told to make one concrete contribution.
 
 ## Recovery and failure conditions
 

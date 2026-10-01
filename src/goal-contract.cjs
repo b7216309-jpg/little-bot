@@ -20,8 +20,10 @@ function definition(input, existing) {
     if (typeof file !== 'string' || file.length > 4000 || file.includes('\0') || !path.isAbsolute(file)) throw new Error('Evidence files need absolute paths.');
     return path.resolve(file);
   }))];
+  const maxQuietHours = input.maxQuietHours ?? existing?.maxQuietHours ?? 0;
+  if (!Number.isInteger(maxQuietHours) || maxQuietHours < 0 || maxQuietHours > 720) throw new Error('Maximum quiet time must be a whole number of hours from 0 to 720.');
   return { contractVersion: version, kind, sources: { chat: sources.chat !== false, calendar: sources.calendar !== false, files },
-    reviewPolicy: (input.reviewPolicy ?? existing?.reviewPolicy) === 'always' ? 'always' : 'changes',
+    reviewPolicy: (input.reviewPolicy ?? existing?.reviewPolicy) === 'always' ? 'always' : 'changes', maxQuietHours,
     review: existing?.review || { processedMessages: [], sourceVersions: {}, lastResult: null },
     actionItems: existing?.actionItems || [] };
 }
@@ -116,6 +118,13 @@ function consume(goal, evidence, outcome, summary, refs = []) {
   if (outcome !== 'no-change') goal.review.lastMeaningfulResult = { ...goal.review.lastResult };
 }
 
+// An ongoing goal that has said nothing meaningful for maxQuietHours must review even without new evidence.
+function quietTooLong(goal, now = Date.now()) {
+  if (!ongoing(goal) || !(goal.maxQuietHours > 0)) return false;
+  const last = Number(goal.review?.lastMeaningfulResult?.at) || 0;
+  return now - last >= goal.maxQuietHours * 3600000;
+}
+
 function normalizeFinish(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Use an object result.');
   const result = { ...value };
@@ -188,4 +197,4 @@ function chatContext(data) {
   return goals.length ? 'Current goals (saved state; advice is not user follow-through). Discuss or update through goal tools. For a reply to a question use its exact goal and question ID; do not guess an ambiguous target.\n' + JSON.stringify(goals).slice(0, 7000) : '';
 }
 
-module.exports = { isV2, ongoing, OUTCOMES, normalizeFinish, definition, restore, collect, consume, validateResult, deliver, chatContext };
+module.exports = { isV2, ongoing, quietTooLong, OUTCOMES, normalizeFinish, definition, restore, collect, consume, validateResult, deliver, chatContext };
