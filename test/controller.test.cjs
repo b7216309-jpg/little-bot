@@ -314,3 +314,31 @@ test('proactive messages wait for a running turn, then the next user turn carrie
   assert.doesNotMatch(nextText, /Ace Combat/);
   completed(client, chat, 'turn-3');
 });
+
+test('a chat whose engine thread vanished starts fresh instead of crashing startup, keeping its timeline', async (t) => {
+  const { AgentTools } = require('../src/agent-tools.cjs');
+  const { DatabaseSync } = require('node:sqlite');
+  const root = await mkdtemp(path.join(os.tmpdir(), 'little-bot-thread-reset-'));
+  const home = path.join(root, 'engine');
+  require('node:fs').mkdirSync(home, { recursive: true });
+  const engineDb = new DatabaseSync(path.join(home, 'state_5.sqlite'));
+  engineDb.exec('CREATE TABLE threads(id TEXT PRIMARY KEY, rollout_path TEXT)'); engineDb.close();
+  const store = new Store({ filePath: path.join(root, 'state.json'), defaultWorkspace: root });
+  Object.assign(store.data.settings, { connection: 'codex', model: 'gpt-6-sol', codexModel: 'gpt-6-sol', workspace: root, effort: 'low', independentCheckMode: 'off' });
+  store.data.chats.push({ id: 'restored-chat', title: 'Conversation', threadId: '01a0e9c2-62c2-7663-a95b-f24891026ad0', toolSchema: 'old-tools', workspace: root, model: 'gpt-6-sol', connection: 'codex', status: 'idle', createdAt: 1, updatedAt: 1,
+    messages: [{ id: 'u0', role: 'user', text: 'I play Ace Combat in the evening.' }, { id: 'a0', role: 'assistant', text: 'Noted.' }] });
+  const client = new FakeCodexClient(); client.homeDir = home;
+  const errors = [];
+  const controller = new Controller({ store, client, onError: (source, error) => errors.push([source, error.message]) });
+  controller.agentTools = new AgentTools({ store });
+  t.after(async () => { await controller.close(); store.close(); await rm(root, { recursive: true, force: true }); });
+  await controller.start();
+  assert.equal(controller.runtime.status, 'ready');
+  const chat = store.data.chats[0];
+  assert.equal(chat.threadId, '');
+  assert.notEqual(chat.toolSchema, 'old-tools');
+  assert.deepEqual(errors.map(([source]) => source), ['engine-thread-reset']);
+  await controller.send({ chatId: chat.id, text: 'What do I play?' });
+  assert.ok(client.calls.some(call => call.method === 'thread/start'), 'a fresh engine thread is created');
+  assert.match(client.calls.filter(call => call.method === 'turn/start').at(-1).params.input[0].text, /Recent conversation before this engine session[\s\S]*Ace Combat/);
+});
