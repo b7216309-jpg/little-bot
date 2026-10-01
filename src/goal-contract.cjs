@@ -3,6 +3,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
+const proactive = require('./proactive-chat.cjs');
 const hash = value => createHash('sha256').update(value).digest('hex');
 const clip = (value, max = 2000) => typeof value === 'string' ? value.slice(0, max) : '';
 const isV2 = goal => goal?.contractVersion === 2;
@@ -176,17 +177,14 @@ function validateResult(goal, result, evidence, { changedFiles = 0, checksPassed
   return { actions: actions.slice(-30), refs };
 }
 
+// A busy conversation queues the result instead of dropping it; see proactive-chat.cjs.
 function deliver(goal, data, { runId, summary, question } = {}) {
   if (!goal.sources.chat) return null;
-  const chat = data.chats?.[0];
-  if (!chat || chat.status !== 'idle') return null;
   const key = question ? `question:${question.id}` : runId;
-  if (chat.messages.some(m => m.goalId === goal.id && m.goalRunId === key)) return null;
-  const message = { id: randomUUID(), role: 'assistant', kind: 'goal', status: 'completed', createdAt: Date.now(),
-    goalId: goal.id, goalName: goal.name, goalRunId: key, text: summary || question?.question || '',
-    ...(question ? { goalQuestionId: question.id } : {}) };
-  chat.messages.push(message); chat.updatedAt = message.createdAt;
-  return message;
+  const body = summary || question?.question || '';
+  if (!body.trim()) return null;
+  return proactive.post(data, { kind: 'goal', goalId: goal.id, goalName: goal.name, goalRunId: key, text: body,
+    ...(question ? { goalQuestionId: question.id } : {}) }, { duplicate: m => m.goalId === goal.id && m.goalRunId === key });
 }
 
 function chatContext(data) {

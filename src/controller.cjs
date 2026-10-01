@@ -8,6 +8,7 @@ const { skillContext } = require('./skill-context.cjs');
 const { mcpQuestions, mcpContent } = require('./mcp-forms.cjs');
 const { CompactionTracker, COMPACTION_TIMEOUT_MS, COMPACTION_STOP_TIMEOUT_MS, validAutoCompactPercent, compactionConfig } = require('./compaction.cjs');
 const { chatContext } = require('./goal-contract.cjs');
+const proactive = require('./proactive-chat.cjs');
 const { GoalExecutor } = require('./goal-executor.cjs');
 const { attachmentDescriptors } = require('./attachment-message.cjs');
 const { localBaseUrl, localModel, connectionBinding, normalizeModelCapabilities, modelSupportsVision, probeLocal, providerConfig } = require('./connections.cjs');
@@ -616,8 +617,10 @@ class Controller extends EventEmitter {
       const requestBlock = override?.automationId
         ? `Scheduled task: ${override.name || 'Automation'}\n${text}\n\nThis is an automated run of a saved task, not a new message from the user. Use relevant conversation context, but perform only this scheduled task. Do not resume unrelated unfinished conversation work or treat this prompt as a new personal fact about the user.`
         : `Current user request:\n${text || 'Examine the attached files.'}`;
+      const unseenProactive = override ? [] : proactive.unseen(chat);
       const inputBlocks = [
         !override && chatContext(this.store.data) ? { kind: 'goals', label: 'Current goals', text: chatContext(this.store.data) } : null,
+        unseenProactive.length ? { kind: 'proactive', label: 'Your messages since the user last wrote', text: proactive.bridgeText(unseenProactive) } : null,
         historyBridge ? { kind: 'history', label: 'Conversation continuity', text: historyBridge } : null,
         profile ? { kind: 'profile', label: 'Profile · USER.md + SOUL.md', text: profile } : null,
         selectedSkills ? { kind: 'skills', label: 'Selected skills', text: selectedSkills } : null,
@@ -633,6 +636,7 @@ class Controller extends EventEmitter {
         approvalPolicy: 'never', approvalsReviewer: 'user',
         sandboxPolicy: turnMode === 'plan' ? { type: 'readOnly' } : { type: 'dangerFullAccess' },
       }, 60000);
+      proactive.markSeen(unseenProactive);
       const capturedAt = Date.now();
       this.contextUsed.set(chat.id, {
         chatId: chat.id,
@@ -913,6 +917,8 @@ class Controller extends EventEmitter {
       if (!chat.automationId) this.memoryConsolidator?.enqueue(chat);
     }
     delete chat.automationId; delete chat.automationName; delete chat.automationPreviousMode;
+    // After the turn's own bookkeeping, so a queued proactive message is never mistaken for this turn's answer.
+    if (!chat.internal) proactive.flush(chat, finishedAt);
     if (!chat.internal) this.persistNow();
     this.changed();
   }

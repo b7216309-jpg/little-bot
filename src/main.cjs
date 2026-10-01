@@ -9,7 +9,7 @@ const { Controller, cleanError } = require('./controller.cjs');
 const { saveFact, deleteFact, clearEpisodes } = require('./memory.cjs');
 const { MemoryConsolidator } = require('./memory-consolidator.cjs');
 const { Heartbeat, validateHeartbeat } = require('./heartbeat.cjs');
-const { deliverHeartbeat } = require('./proactive-chat.cjs');
+const { deliverHeartbeat, flush: flushProactive } = require('./proactive-chat.cjs');
 const { ExtensionFiles, validateServer, LIMITS } = require('./extensions.cjs');
 const { ExtensionRuntime } = require('./extension-runtime.cjs');
 const goalContract = require('./goal-contract.cjs');
@@ -149,8 +149,9 @@ app.whenReady().then(async () => {
       && !store.data.autonomy.paused && !goals?.activeId && !controller.goalChat && !controller.extensionsBusy && !controller.memoryBusy && !scheduler.runningId && !controller.heartbeatChat && !store.data.chats.some(chat => chat.status !== 'idle'),
     onChange: () => controller.changed(),
     publish: publishEvent,
-    onRecord: (item, { initiative }) => {
-      if (initiative !== 'wild' || !deliverHeartbeat(store.data, item)) return;
+    // Activity only tracks; every new heartbeat alert is delivered into the conversation.
+    onRecord: item => {
+      if (!deliverHeartbeat(store.data, item)) return;
       controller.changed(true);
     },
     onAlert: item => {
@@ -629,6 +630,7 @@ app.whenReady().then(async () => {
   const startup = controller.start();
   startup.then(() => {
     controller.runtime.startupMs = Math.round(performance.now() - launchTime);
+    if (store.data.chats[0]?.status === 'idle' && flushProactive(store.data.chats[0])) controller.changed(true);
     controller.changed(); eventRuntime.start(); scheduler.start(); heartbeat.start(); goals.start();
   }).catch(() => {});
   if (smoke) {

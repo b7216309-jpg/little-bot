@@ -17,11 +17,17 @@ Heartbeat has two initiative levels. **Calm** is the behavior above. **Wild** ch
 - **Its own schedule.** Each run returns a reason and `wakeInMinutes` (clamped to 5–240), which replaces the fixed interval for the next run.
 - **Pressure to act.** After two or more quiet runs in a row, the prompt asks for one concrete move.
 
-Turning wild on schedules a check within a minute. Presence events (`app.opened`, `user.returned` after 90 minutes away, and `chat.completed`, debounced to 10 minutes) pull the next check forward and tell the agent why it woke. New wild alerts also appear in the conversation as "Little Bot · on its own" messages, but only when the chat is idle.
+Turning wild on schedules a check within a minute. Presence events (`app.opened`, `user.returned` after 90 minutes away, and `chat.completed`, debounced to 10 minutes) pull the next check forward and tell the agent why it woke.
 
 The agent can also plan one-time check-ins with the `followup_manage` tool, from the wild heartbeat or a direct conversation. A follow-up can be due up to 30 days ahead, and at most 20 can be pending. When one is due, the heartbeat wakes with its note as the reason. Active hours and the daily run cap still apply. Follow-ups require wild initiative to be enabled.
 
 Every finished run, including quiet ones, is kept in a bounded `pulse` log (30 entries) shown under Latest check. Small local models that wrap their JSON in `<think>` tags or Markdown fences are parsed instead of failing. Pause all, active hours and the daily run cap still apply.
+
+## Delivery into the conversation
+
+The Activity inbox is a tracking log. Every new heartbeat alert, Calm or Wild, is delivered into the conversation as a "Little Bot · on its own" message. Goal results with the chat source arrive the same way. If a turn is running, waiting for approval, or under Independent Check, the message waits in the chat's outbox. That outbox is saved with the encrypted conversation, holds up to 20 messages, and is flushed when the turn finishes or the app starts.
+
+The engine thread never contains these messages. The next user message therefore carries, once, every proactive message the model has not yet seen, so a reply such as "yes, do that" has its context. Scheduled automation turns do not consume this bridge.
 
 ## Inbox and notification delivery
 

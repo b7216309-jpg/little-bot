@@ -14,6 +14,7 @@ const { attachmentDescriptors } = require('./attachment-message.cjs');
 const { normalizeConnectionSettings, connectionBinding } = require('./connections.cjs');
 const { normalizeIndependentCheckMode, normalizeIndependentCheckRecord } = require('./independent-check.cjs');
 const { normalizeStandingIntents } = require('./standing-intents.cjs');
+const { normalizePending } = require('./proactive-chat.cjs');
 
 const INTERRUPTED = 'Interrupted because Little Bot closed before the task finished.';
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -129,6 +130,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
           for (const key of ['createdAt', 'updatedAt']) {
             if (Number.isFinite(message[key])) entry[key] = message[key];
           }
+          if (message.modelSeen === false) entry.modelSeen = false;
           const independentCheck = normalizeIndependentCheckRecord(message.independentCheck);
           if (independentCheck) {
             if (recovering && independentCheck.status === 'running') {
@@ -142,6 +144,8 @@ function persistedData(data, defaultWorkspace, recovering = false) {
         }),
       };
       if (typeof chat.error === 'string') result.error = chat.error;
+      const pendingProactive = normalizePending(chat.pendingProactive);
+      if (pendingProactive.length) result.pendingProactive = pendingProactive;
       if (!recovering && typeof chat.automationId === 'string') {
         result.automationId = chat.automationId;
         if (typeof chat.automationName === 'string') result.automationName = chat.automationName;
