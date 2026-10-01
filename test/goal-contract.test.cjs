@@ -247,3 +247,69 @@ test('an ongoing goal quiet past maxQuietHours reviews without new evidence and 
   await runner.execute(g);
   assert.deepEqual(options, [0, 24], 'a recent meaningful result keeps the goal quiet');
 });
+
+test('scheduled goal reviews wait for Heartbeat active hours; an explicit Run does not', async t => {
+  let calls = 0;
+  const { runner, g, d } = await runnerFixture(t, async () => { calls++; return result('no-change'); });
+  const hour = new Date().getHours();
+  d.heartbeat = { startHour: (hour + 2) % 24, endHour: (hour + 3) % 24 };
+  g.nextRunAt = Date.now() - 1000;
+  await runner.tick();
+  assert.equal(calls, 0, 'outside active hours the due review waits');
+  assert.equal(runner.awake({ ...g, respectActiveHours: false }), true);
+  Object.assign(g, validateGoal({ ...g, respectActiveHours: false }, g, { workspace: g.workspace }));
+  assert.equal(g.respectActiveHours, false);
+  await runner.tick();
+  assert.equal(calls, 1, 'a goal that opts out runs at any hour');
+  Object.assign(g, validateGoal({ ...g, respectActiveHours: true }, g, { workspace: g.workspace }));
+  assert.equal(validateGoal({ name: 'x', objective: 'y', kind: 'ongoing', workspace: g.workspace }, null, { workspace: g.workspace }).respectActiveHours, true);
+  runner.runNow(g.id);
+  for (let index = 0; index < 200 && calls < 2; index++) await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(calls, 2, 'an explicit Run is not held back by active hours');
+  d.heartbeat = { startHour: hour, endHour: (hour + 1) % 24 };
+  assert.equal(runner.awake(g), true);
+});
+
+test('a reply to a goal message brings that goal review forward to about ten minutes', async t => {
+  const { runner, g, d } = await runnerFixture(t, async () => result('no-change'));
+  const later = Date.now() + 20 * 3600000;
+  g.nextRunAt = later;
+  const chat = d.chats[0];
+  chat.messages.push({ id: 'goal-msg', role: 'assistant', kind: 'goal', goalId: g.id, text: 'Try one PR description in English?' });
+  chat.messages.push({ id: 'other', role: 'assistant', text: 'Sure.' });
+  assert.deepEqual(runner.userReplied(chat), [], 'no new user message yet');
+  chat.messages.push({ id: 'reply', role: 'user', text: 'Yes, I will do it tonight' });
+  const before = Date.now();
+  assert.deepEqual(runner.userReplied(chat), [g.id]);
+  assert.ok(g.nextRunAt >= before + 10 * 60000 && g.nextRunAt <= Date.now() + 10 * 60000);
+  assert.equal(g.history.at(-1).kind, 'reply');
+  chat.messages.push({ id: 'next', role: 'user', text: 'Another topic' });
+  g.nextRunAt = later;
+  assert.deepEqual(runner.userReplied(chat), [], 'only the first message after the goal post counts as a reply');
+  chat.messages.push({ id: 'goal-msg-2', role: 'assistant', kind: 'goal', goalId: g.id, text: 'How did it go?' }, { id: 'reply-2', role: 'user', text: 'Good' });
+  g.nextRunAt = Date.now() + 60000;
+  assert.deepEqual(runner.userReplied(chat), [], 'an earlier scheduled review is kept');
+  g.status = 'paused'; g.nextRunAt = later;
+  assert.deepEqual(runner.userReplied(chat), [], 'paused goals are not woken');
+});
+
+test('goal evidence includes what Little Bot said since the last review, without self-triggering', async () => {
+  const g = goal(process.cwd());
+  const d = data(g, [user('first', 'Help me with English')]);
+  d.chats[0].messages.push(
+    { id: 'r1', role: 'assistant', text: 'Write your next PR in English.', createdAt: 10 },
+    { id: 'h1', role: 'assistant', kind: 'heartbeat', text: 'Ace Combat tonight?', createdAt: 11 },
+    { id: 'g1', role: 'assistant', kind: 'goal', goalId: g.id, text: 'Practice idea posted.', createdAt: 12 },
+    { id: 'c1', role: 'assistant', phase: 'commentary', text: 'thinking...', createdAt: 13 },
+    { id: 'k1', role: 'assistant', kind: 'reasoning', text: 'hidden', createdAt: 14 });
+  const first = await contract.collect(g, d);
+  assert.deepEqual(first.items.filter(item => item.kind === 'assistant').map(item => [item.id, item.source]),
+    [['said:r1', 'reply'], ['said:h1', 'heartbeat'], ['said:g1', 'this goal']]);
+  contract.consume(g, first, 'recommendation', 'x', ['objective']);
+  g.review.lastResult.at = 12;
+  d.chats[0].messages.push({ id: 'r2', role: 'assistant', text: 'Another reply', createdAt: 20 });
+  const second = await contract.collect(g, d);
+  assert.deepEqual(second.items.filter(item => item.kind === 'assistant').map(item => item.id), ['said:r2']);
+  assert.equal(second.changed, false, 'the bot talking does not trigger a review by itself');
+  assert.throws(() => contract.validateResult(g, result('progress', { actionUpdates: [{ text: 'English PR', owner: 'user', status: 'verified', evidenceRefs: ['said:r2'] }], evidenceRefs: ['said:r2'] }), second), /confirmation|observable progress/);
+});

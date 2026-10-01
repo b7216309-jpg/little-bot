@@ -183,6 +183,9 @@ class EventRuntime {
       'user.returned': ['The user just came back to the computer after being away for a while.', MINUTE, false],
       'chat.completed': ['The user finished a conversation with you about ten minutes ago; consider a thoughtful follow-up on it.', 10 * MINUTE, true],
     }[event.type];
+    if (event.type === 'chat.completed' && typeof this.goals.userReplied === 'function') {
+      try { this.goals.userReplied(this.store.data.chats?.[0]); } catch (error) { this._error(error, event); }
+    }
     if (!wake || typeof this.heartbeat.wakeSoon !== 'function') return;
     try { this.heartbeat.wakeSoon(wake[0], wake[1], { debounce: wake[2] }); }
     catch (error) { this._error(error, event); }
