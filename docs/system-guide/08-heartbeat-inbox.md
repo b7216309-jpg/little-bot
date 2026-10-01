@@ -29,6 +29,28 @@ The Activity inbox is a tracking log. Every new heartbeat alert, Calm or Wild, i
 
 The engine thread never contains these messages. The next user message therefore carries, once, every proactive message the model has not yet seen, so a reply such as "yes, do that" has its context. Scheduled automation turns do not consume this bridge.
 
+## Buttons, awareness, watches and offers
+
+**Buttons.** Heartbeat, goal and web-watch messages in the chat carry three buttons: ✅ Do it, ⏰ Later and ✖ Not interested. Goal questions keep their own answer form.
+- An answer is recorded once, in a bounded reaction log (`feedbackLog`, 200 entries).
+- Heartbeat answers also update the inbox attention preferences.
+- ✅ sends a follow-up user turn when the chat is idle.
+- Every heartbeat and chat prompt lists the latest reactions, and the self-review goal reads them as evidence.
+
+**Activity awareness** ([activity.cjs](../../src/activity.cjs)) is off by default. Turned on in the Heartbeat panel, it samples the foreground app name and window title every 20 seconds through one PowerShell process, and idle time through Electron.
+- Samples stay in memory. They reach prompts only while the setting is on.
+- `activity.app_started` fires when an app has stayed in the foreground for two minutes, at most once per 30 minutes per app.
+- `activity.long_session` fires after three hours, and `user.returned` after 90 minutes idle.
+- These events pull a Wild heartbeat forward, with the reason.
+
+**Web watches** ([web-watch.cjs](../../src/web-watch.cjs)) are pages that the user, the chat model or a Wild heartbeat register with `web_watch`. Each is checked every 6–168 hours while the app is open.
+- Only public http(s) addresses are allowed. Redirects are followed by hand, and every hop is rechecked.
+- The first check is a baseline. A later change posts a "web watch" message with the new text.
+
+**Games and offers.** [steam-library.cjs](../../src/steam-library.cjs) backs the read-only `games_list` tool: installed games with last-played date and playtime, available everywhere read tools are. `launch_propose` posts a message with a ▶ Launch button. Only an installed game's `steam://rungameid/<id>` target is accepted, and nothing starts without the click.
+
+A Wild heartbeat may also manage standing intents (event rules) through `standing_intent_manage`. Other hidden work stays out of app management.
+
 ## Inbox and notification delivery
 
 Heartbeat history is also the inbox backing store for goal notifications. [attention.cjs](../../src/attention.cjs) tracks stable subjects, Useful / Later / Dismiss feedback, snooze/mute state, pending deliveries and daily alert limits. Goal subjects use the goal ID; other subjects use normalized topic/workspace keys.

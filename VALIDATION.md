@@ -1,3 +1,25 @@
+# Version 0.12.0 verification
+
+0.12.0 gives the agent more ways to be proactive:
+
+- One-click ✅ / ⏰ / ✖ answers on proactive messages, recorded in a reaction log that feeds prompts and goals.
+- Opt-in activity awareness: foreground app and idle time, kept in memory only.
+- Web watches limited to public pages, with a hand-followed redirect check.
+- A read-only Steam library tool.
+- Game launch offers that start only on the user's click.
+- Standing-intent management for a Wild heartbeat.
+- A `feedback` goal source for a self-review goal.
+
+The syntax check covered 176 JavaScript files. 490 Node tests ran: 479 passed. The 11 failures are the extension and plugin import suites described under 0.11.0; this machine denies their fixed `C:\Users\work` path.
+
+The store test that lists persisted top-level keys was updated deliberately for `feedbackLog` and `webWatches`. All 14 Electron fixtures passed. The new chat buttons have no Electron fixture yet.
+
+The new tests also found two defects before release:
+- `games_list` was missing from the argument allowlist.
+- An app's first launch could be suppressed by the repeat-start window.
+
+The Steam reader and the activity probe were exercised against this PC's real Steam folder and foreground window. No live model run is claimed.
+
 # Version 0.11.3 verification
 
 0.11.3 hardens memory after a real data reset:

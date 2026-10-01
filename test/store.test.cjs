@@ -41,7 +41,7 @@ test('new state is minimal and save preserves live references without persisting
   store.save();
   assert.equal(store.data.chats[0], chat);
   const saved = JSON.parse(fs.readFileSync(f.filePath, 'utf8'));
-  assert.deepEqual(Object.keys(saved).sort(), ['automations', 'autonomy', 'calendar', 'chats', 'extensions', 'heartbeat', 'memory', 'settings', 'standingIntents']);
+  assert.deepEqual(Object.keys(saved).sort(), ['automations', 'autonomy', 'calendar', 'chats', 'extensions', 'feedbackLog', 'heartbeat', 'memory', 'settings', 'standingIntents', 'webWatches']);
   assert.equal(saved.chats[0].status, 'running');
   assert.equal(fs.readFileSync(f.filePath, 'utf8').includes('sensitive-test-value'), false);
   assert.equal(fs.readdirSync(path.dirname(f.filePath)).filter(name => !name.startsWith('memory.sqlite')).length, 1);

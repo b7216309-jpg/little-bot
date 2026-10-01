@@ -23,7 +23,7 @@ function definition(input, existing) {
   }))];
   const maxQuietHours = input.maxQuietHours ?? existing?.maxQuietHours ?? 0;
   if (!Number.isInteger(maxQuietHours) || maxQuietHours < 0 || maxQuietHours > 720) throw new Error('Maximum quiet time must be a whole number of hours from 0 to 720.');
-  return { contractVersion: version, kind, sources: { chat: sources.chat !== false, calendar: sources.calendar !== false, files },
+  return { contractVersion: version, kind, sources: { chat: sources.chat !== false, calendar: sources.calendar !== false, files, feedback: sources.feedback === true },
     reviewPolicy: (input.reviewPolicy ?? existing?.reviewPolicy) === 'always' ? 'always' : 'changes', maxQuietHours,
     review: existing?.review || { processedMessages: [], sourceVersions: {}, lastResult: null },
     actionItems: existing?.actionItems || [] };
@@ -101,6 +101,17 @@ async function collect(goal, data, now = Date.now()) {
       add({ id: `calendar:${e.id}`, kind: 'calendar', text }, text.length);
     }
     if (value.length > 8) coverage.push('Calendar excerpt limited to eight events.');
+  }
+  // Self-review evidence: the user's one-click reactions and the heartbeat's run log since the last review.
+  if (goal.sources.feedback) {
+    const since = Number(goal.review?.lastResult?.at) || 0;
+    const reactions = (data.feedbackLog || []).filter(item => item.at > since).slice(-20);
+    const pulse = (data.heartbeat?.pulse || []).filter(item => item.at > since).slice(-15);
+    // Changes only when the user reacts again, not when the review window moves.
+    versions.feedback = (data.feedbackLog || []).at(-1)?.id || '';
+    if (reactions.length) add({ id: 'feedback:reactions', kind: 'feedback', text: JSON.stringify(reactions.map(({ at, choice, source, topic, excerpt }) => ({ at: new Date(at).toISOString(), choice, source, topic, excerpt: excerpt.slice(0, 160) }))) }, 2500);
+    if (pulse.length) add({ id: 'feedback:heartbeat-log', kind: 'feedback', text: JSON.stringify(pulse.map(({ at, status, note, wakeInMinutes }) => ({ at: new Date(at).toISOString(), status, note: (note || '').slice(0, 160), wakeInMinutes }))) }, 2000);
+    if (!reactions.length && !pulse.length) coverage.push('No reactions or heartbeat runs since the last review.');
   }
   const fileBudget = Math.max(1, Math.floor(contentBudget / Math.max(1, goal.sources.files.length)));
   for (const filename of goal.sources.files) {
