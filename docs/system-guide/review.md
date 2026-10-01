@@ -71,6 +71,8 @@ Sources: [UI Edit control](../../src/renderer/app.js#L2067), [saveAutomation IPC
 
 ### R5 — missed-run policy has conflicting instructions
 
+**Status (0.11.1): resolved.** The base prompt and the bundled guide now state the implemented policy. Automation and heartbeat occurrences missed while the app was closed are skipped, and a missed interval goal review runs once shortly after reopening.
+
 Sources: [base prompt](../../src/controller.cjs#L46), [advanceMissedSchedules](../../src/missed-schedules.cjs), [bundled operating guide](../../resources/skills/little-bot/SKILL.md).
 
 **Reproduction:** inspect both supplied instructions and run the real reopen helper with an overdue exact schedule. The base prompt says “run once when available”; the bundled guide says missed occurrences are skipped, and the helper moves the schedule into the future without running it.

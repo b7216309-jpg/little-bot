@@ -3,6 +3,8 @@
 const { nextAutomationRunAt } = require('./scheduler.cjs');
 
 const MINUTE = 60000;
+// A daily goal pushed a full interval past every reopening may never run; review once soon instead.
+const GOAL_CATCH_UP_MINUTES = 2;
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 function advanceMissedSchedules(data, nowMs = Date.now()) {
@@ -31,7 +33,7 @@ function advanceMissedSchedules(data, nowMs = Date.now()) {
     const dueAt = goal.nextRunAt;
     const intervalMinutes = Number.isInteger(goal.trigger.intervalMinutes) && goal.trigger.intervalMinutes > 0
       ? goal.trigger.intervalMinutes : 30;
-    goal.nextRunAt = nowMs + intervalMinutes * MINUTE;
+    goal.nextRunAt = nowMs + Math.min(intervalMinutes, GOAL_CATCH_UP_MINUTES) * MINUTE;
     result.goals.push({ id: goal.id, dueAt, nextRunAt: goal.nextRunAt });
   }
 
@@ -45,4 +47,4 @@ function missedCount(result) {
     + (Array.isArray(result.goals) ? result.goals.length : 0);
 }
 
-module.exports = { advanceMissedSchedules, missedCount };
+module.exports = { advanceMissedSchedules, missedCount, GOAL_CATCH_UP_MINUTES };
