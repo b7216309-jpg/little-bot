@@ -146,7 +146,7 @@ class IndependentCheckRunner {
         developerInstructions: INDEPENDENT_CHECK_INSTRUCTIONS,
         config: {
           ...disabled,
-          ...controller.providerConfig(3),
+          ...controller.providerConfig(),
           'features.shell_tool': false,
           'features.unified_exec': false,
           'features.js_repl': false,

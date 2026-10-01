@@ -16,19 +16,12 @@ SSE parsing reconstructs function arguments before releasing a tool call. An out
 
 ## Cache ownership
 
-Little Bot requests separate Strata cache slots:
+Little Bot sends each workflow's full conversation through the same standard Strata relay. Chat, extraction, goals, heartbeat and Independent Check retain their own histories; the relay does not assign cache slots or add `strata_cache_slot`.
 
-| Slot | Work |
-| --- | --- |
-| 0 | Foreground conversation / shared scheduled conversation |
-| 1 | Automatic memory extraction |
-| 2 | Goals and heartbeat |
-| 3 | Independent Check |
-
-These hints do not implement a cache inside Little Bot. Strata must support the corresponding request metadata and cache rotation. The relevant upstream work is [Strata PR 175](https://github.com/Niko1221/Strata/pull/175); SSD offload of inactive cache state also depends on the matching Strata implementation/configuration. A stock or incompatible Strata build cannot gain that behavior from this UI alone. The [integration guide](../../integrations/strata/README.md) records the patch, build steps and separate-server slot/needle/cancellation checks. See also the [README](../../README.md) cache section.
+Official Strata 0.1.30 and later select compatible token/image prefixes automatically when conversation parking is enabled. Strata owns the snapshot state, count, storage budget and admission checks. The local 0.1.33 engine adds `--conversation-cache-storage ssd`, using private temporary files for inactive recurrent state, checkpoints and K/V. The normal 262K configuration has a 16 GiB disk budget, eight histories and a 1 GiB free-RAM floor. Active model state still occupies RAM/VRAM, and the operating system may cache disk reads in reclaimable RAM. Caching stays off unless configured on the server. The [integration guide](../../integrations/strata/README.md) includes the versioned patch, build and update instructions; an official engine replacement needs this addition rebuilt.
 
 Caching reuses compatible prompt prefixes. Changed tool definitions, profile, instructions, model or session context can require fresh prefill. Cached token counts are provider-reported; low RAM usage or a short delay alone does not prove a cache hit.
 
 ## Verification and limits
 
-[Strata probing](../../test/connections-strata.test.cjs), [adapter](../../test/strata-responses-adapter.test.cjs), [relay](../../test/local-model-relay-strata.test.cjs), [namespace compatibility](../../test/responses-namespace-compat.test.cjs) and [vision](../../test/provider-vision.test.cjs). The same application revision also passed the earlier installed-app live Strata checks recorded in [VALIDATION.md](../../VALIDATION.md). This review did not benchmark SSD offload or exercise a paid Codex account.
+[Strata probing](../../test/connections-strata.test.cjs), [adapter](../../test/strata-responses-adapter.test.cjs), [relay](../../test/local-model-relay-strata.test.cjs), [namespace compatibility](../../test/responses-namespace-compat.test.cjs) and [vision](../../test/provider-vision.test.cjs). Live relay and SSD engine checks are recorded in [VALIDATION.md](../../VALIDATION.md). The GPU fixtures compare RAM and SSD restores byte for byte across supported KV formats; live inference uses RTX 4070 Ti, int8 streaming KV and MTP. Image rotation and other hardware require separate live validation.

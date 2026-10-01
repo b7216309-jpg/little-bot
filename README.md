@@ -93,24 +93,15 @@ Recall and automatic learning require Memory on. Knowledge is shared across mode
 
 Bundled skill updates preserve user edits, disabled state, IDs, and deletions. [Skill sources and licenses](resources/skills/SOURCES.md).
 
-## Strata cache rotation — requires PR #175
+## Strata conversation cache
 
-Little Bot’s cache isolation is tied to **[Strata PR #175: independent conversation cache slots](https://github.com/Niko1221/Strata/pull/175)**. The app sends slot IDs; the patched Strata engine and Python server implement the actual save/restore. An ordinary upstream build must not be assumed to include this feature until that PR is merged and released.
+Little Bot works with official Strata releases. Chat, memory extraction, goals, heartbeat and independent checks send their own full histories through the standard Chat Completions API. The app no longer sends the custom slot IDs from [PR #175](https://github.com/Niko1221/Strata/pull/175).
 
-| Slot | Work |
-| --- | --- |
-| 0 | Foreground conversation and its scheduled automations |
-| 1 | Memory extraction |
-| 2 | Goals and heartbeat |
-| 3 | Independent answer checks |
+Strata 0.1.30 and later can automatically park conversations and restore a matching token/image prefix. Official releases store snapshots in RAM. The local 0.1.33 engine also supports SSD parking through the versioned patch in [the integration guide](integrations/strata/README.md). Its normal 262K launcher uses `--conversation-cache-storage ssd --conversation-cache-mib 16384 --conversation-cache-slots 8 --conversation-cache-min-free-mib 1024`: up to 16 GiB of temporary disk snapshots, eight histories and a 1 GiB free-RAM floor. Budgets are ceilings; oversized entries or insufficient memory cause ordinary prompt processing.
 
-One model runs requests sequentially. Inactive KV data **and recurrent/checkpoint payloads** go to temporary disk files, freeing their RAM buffers while the active slot stays in memory. This is not parallel generation, permanent chat storage, or a second model copy.
+Requests remain sequential. Compaction, changed instructions/tools/images/steering, eviction or restart can require a cold read. SSD files are deleted when their snapshots are evicted or the engine exits; active model state still needs RAM/VRAM. Whole-conversation parking currently requires a single GPU.
 
-Cache reuse requires a matching prompt prefix. Compaction, a changed prefix, a restart, or another client using the same slot can require a cold read. Cache slots are shared by the server: **run diagnostic inference against a separate test server**, never alongside your real conversation.
-
-A local Windows / RTX 4070 Ti / NVMe test measured about **866 MiB less additional private-memory growth** across populated slots and **0.44–0.94 seconds total** for restored-slot switches. These are one-workload observations, not universal performance promises. Multi-GPU sessions currently support only slot 0.
-
-See [the Strata integration guide](integrations/strata/README.md) for the tested revision, patch, build instructions, and validation limits.
+Run diagnostic inference against a separate test server: other requests can evict parked conversations. Engine updates require rebuilding the local SSD addition against the new release; Little Bot continues to use the standard API.
 
 ## Local data
 
