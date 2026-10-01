@@ -78,7 +78,7 @@ async function collect(goal, data, now = Date.now()) {
     // What Little Bot itself said since the last review: replies, heartbeat suggestions and goal posts.
     // Reference only: it never marks the review as changed and never counts as user confirmation.
     const since = Number(goal.review?.lastResult?.at) || 0;
-    const said = (chat?.messages || []).filter(m => m.role === 'assistant' && !['reasoning', 'plan', 'compaction'].includes(m.kind)
+    const said = (chat?.messages || []).filter(m => m.role === 'assistant' && !['reasoning', 'plan', 'compaction', 'memory'].includes(m.kind)
       && m.phase !== 'commentary' && typeof m.text === 'string' && m.text.trim() && (Number(m.createdAt) || 0) > since).slice(-6);
     for (const m of said) {
       if (contentBudget <= reserved + 600) { coverage.push('Some recent Little Bot messages were omitted for budget.'); break; }
