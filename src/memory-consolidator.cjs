@@ -1,5 +1,11 @@
 'use strict';
 
+const { parseModelJson } = require('./model-json.cjs');
+const proactive = require('./proactive-chat.cjs');
+
+// Users forgot almost half of automatically learned records; fewer, sturdier memories are worth more.
+const MAX_LEARNED_PER_TURN = 3;
+
 const EXTRACTION_SCHEMA = {
   type: 'object', properties: { memories: { type: 'array', items: {
     type: 'object', properties: {
@@ -10,7 +16,7 @@ const EXTRACTION_SCHEMA = {
   } } }, required: ['memories'], additionalProperties: false,
 };
 const INSTRUCTIONS = `Extract useful durable memory from the supplied completed turn. Return JSON matching the schema.
-Remember stable user preferences, project facts, actual decisions, successful reusable procedures and unresolved issues. Use the user's language. An empty memories array is correct when nothing durable was learned. Do not save greetings, routine tool success/failure logs, transient execution status, verbatim replies, or one-off reminders as durable memories. Prefer a concise fact about an existing subject over many overlapping records.
+Remember stable user preferences, project facts, actual decisions, successful reusable procedures and unresolved issues. Use the user's language. An empty memories array is correct when nothing durable was learned, and it is the usual result. Save at most three memories, and only what will still matter in future conversations weeks from now. Do not save greetings, routine tool success/failure logs, transient execution status, verbatim replies, one-off reminders, moods, plans for today, or things the user only mentioned in passing. Prefer a concise fact about an existing subject, superseding it, over many overlapping records.
 Each memory must cite sourceIds from the supplied messages. Distinguish a user's decision from an assistant suggestion; do not promote a suggestion or an unsupported assistant claim into a fact. Tool observations can establish facts about the observed state. Do not infer personal traits.
 Use a short stable key for the subject, for example project.package-manager. If a current record is corrected, set supersedesId to that record's exact ID and reuse its key. Global scope is for user preferences and facts; workspace scope is for the project. Existing records are provided to avoid duplicates.
 This is a text processing task. Produce the structured result without using tools.`;
@@ -37,6 +43,11 @@ class MemoryConsolidator {
     this.notBefore = Date.now() + 1500;
   }
   ownsThread(id) { return Boolean(id && this.active?.threadId === id); }
+  // Proactive heartbeat and goal runs yield the idle lane while a learning job is ready, so learning cannot starve.
+  hasReadyWork() {
+    if (this.closed || this.controller.store.data.memory?.enabled === false || Date.now() < this.notBefore) return false;
+    try { return (this.service?.pendingExtractions(1) || []).length > 0; } catch { return false; }
+  }
   available() {
     const c = this.controller;
     return !this.closed && !this.active && Date.now() >= this.notBefore && this.service
@@ -124,7 +135,7 @@ class MemoryConsolidator {
     else if (method === 'turn/completed') {
       try {
         if (['failed', 'interrupted'].includes(params.turn?.status) || params.turn?.error) throw new Error(params.turn?.error?.message || 'Memory extraction interrupted.');
-        const output = JSON.parse(op.output.replace(/^```(?:json)?\s*|\s*```$/g, '').trim());
+        const output = parseModelJson(op.output, 'Memory extraction did not return readable JSON.');
         const schema = EXTRACTION_SCHEMA.properties.memories.items;
         if (!output || typeof output !== 'object' || !Array.isArray(output.memories) || Object.keys(output).some(key => key !== 'memories')
           || output.memories.some(memory => !memory || typeof memory !== 'object' || Array.isArray(memory)
@@ -145,7 +156,10 @@ class MemoryConsolidator {
     op.cancelled = true;
     clearTimeout(op.timer);
     try {
-      if (candidates) this.service.completeExtraction(op.job.id, candidates);
+      if (candidates) {
+        const learned = this.service.completeExtraction(op.job.id, candidates.slice(0, MAX_LEARNED_PER_TURN));
+        if (proactive.deliverLearned(this.controller.store.data, learned)) this.controller.changed(true);
+      }
       else if (error) this.service.failExtraction(op.job.id, error);
       this.lastError = error || null;
     } catch (failure) {

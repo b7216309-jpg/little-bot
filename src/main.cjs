@@ -9,6 +9,7 @@ const { Controller, cleanError } = require('./controller.cjs');
 const { saveFact, deleteFact, clearEpisodes } = require('./memory.cjs');
 const { MemoryConsolidator } = require('./memory-consolidator.cjs');
 const { Heartbeat, validateHeartbeat } = require('./heartbeat.cjs');
+const backups = require('./backups.cjs');
 const { deliverHeartbeat, flush: flushProactive } = require('./proactive-chat.cjs');
 const { ExtensionFiles, validateServer, LIMITS } = require('./extensions.cjs');
 const { ExtensionRuntime } = require('./extension-runtime.cjs');
@@ -112,8 +113,12 @@ app.whenReady().then(async () => {
     'enabled = false',
     '',
   ].join('\n'));
+  let restoreResult = null;
+  try { restoreResult = backups.applyPendingRestore(stateDir); } catch (error) { logDiagnostic('backup-restore', error); }
   const store = new Store({ filePath: path.join(stateDir, 'state.json'), defaultWorkspace, protector: stateProtector() });
   if (store.locked) throw new Error(store.warning || 'Encrypted app state could not be opened.');
+  const backupNow = (force = false) => backups.createBackup({ stateDir, memoryService: store.memoryService, force });
+  const dailyBackup = () => { try { backupNow(); } catch (error) { logDiagnostic('backup', error); } };
   const client = new CodexClient({ homeDir: codexHome, cwd: defaultWorkspace });
   controller = new Controller({ store, client, onError: logDiagnostic });
   controller.memoryConsolidator = new MemoryConsolidator(controller);
@@ -146,7 +151,8 @@ app.whenReady().then(async () => {
     canNotify: () => !store.data.autonomy.paused && !window?.isFocused() && Notification.isSupported()
       && !store.data.chats.some(chat => chat.status !== 'idle'),
     canRun: () => controller.runtime.status === 'ready' && controller.account.status === 'connected'
-      && !store.data.autonomy.paused && !goals?.activeId && !controller.goalChat && !controller.extensionsBusy && !controller.memoryBusy && !scheduler.runningId && !controller.heartbeatChat && !store.data.chats.some(chat => chat.status !== 'idle'),
+      && !store.data.autonomy.paused && !goals?.activeId && !controller.goalChat && !controller.extensionsBusy && !controller.memoryBusy && !scheduler.runningId && !controller.heartbeatChat && !store.data.chats.some(chat => chat.status !== 'idle')
+      && !controller.memoryConsolidator?.hasReadyWork(),
     onChange: () => controller.changed(),
     publish: publishEvent,
     // Activity only tracks; every new heartbeat alert is delivered into the conversation.
@@ -172,7 +178,7 @@ app.whenReady().then(async () => {
     verifyCommand: (goal, check) => controller.verifyGoalCommand(goal, check),
     canRun: () => controller.runtime.status === 'ready' && controller.account.status === 'connected'
       && !controller.extensionsBusy && !controller.memoryBusy && !controller.goalChat && !controller.heartbeatChat && !heartbeat.running && !scheduler.runningId
-      && !store.data.chats.some(chat => chat.status !== 'idle'),
+      && !store.data.chats.some(chat => chat.status !== 'idle') && !controller.memoryConsolidator?.hasReadyWork(),
     onChange: () => controller.changed(),
     publish: publishEvent,
     onAlert: item => {
@@ -504,6 +510,14 @@ app.whenReady().then(async () => {
     return { records: found.results, nextOffset: found.nextOffset };
   });
   register('getMemorySource', ({ id } = {}) => ({ sources: store.memoryService.sources(id) }));
+  register('listBackups', () => ({ backups: backups.listBackups(stateDir), keepDays: backups.KEEP_DAYS }));
+  register('createBackup', () => { backupNow(true); return { backups: backups.listBackups(stateDir), keepDays: backups.KEEP_DAYS }; });
+  register('restoreBackup', ({ id } = {}) => {
+    backups.requestRestore(stateDir, id);
+    // The files are swapped on the next start, before the Store opens them.
+    setTimeout(() => { app.relaunch(); quitting = true; app.quit(); }, 200);
+    return { restarting: true };
+  });
   register('retryMemoryLearning', ({ id } = {}) => {
     store.memoryService.retryExtraction(id); controller.memoryConsolidator.lastError = null;
     controller.changed(); return controller.state();
@@ -632,6 +646,16 @@ app.whenReady().then(async () => {
     controller.runtime.startupMs = Math.round(performance.now() - launchTime);
     if (store.data.chats[0]?.status === 'idle' && flushProactive(store.data.chats[0])) controller.changed(true);
     controller.changed(); eventRuntime.start(); scheduler.start(); heartbeat.start(); goals.start();
+    if (!smoke) {
+      setTimeout(dailyBackup, 60000).unref?.();
+      setInterval(dailyBackup, 6 * 3600000).unref?.();
+    }
+    if (restoreResult?.restored) controller.emit('event', { type: 'memory', message: `Restored the ${restoreResult.restored} backup. Your previous data was kept as ${restoreResult.safety}.` });
+    else if (restoreResult?.error) controller.emit('event', { type: 'memory', error: true, message: restoreResult.error });
+    else if (store.memoryWasMissing) {
+      logDiagnostic('memory', new Error('The memory database was missing at startup and was recreated.'));
+      controller.emit('event', { type: 'memory', error: true, message: 'The memory database was missing and has been recreated, so learned memories are gone. If that was not intended, restore a backup from Memory → Search settings → Backups.' });
+    }
   }).catch(() => {});
   if (smoke) {
     try {

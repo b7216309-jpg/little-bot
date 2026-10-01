@@ -447,7 +447,7 @@ class MemoryService {
           stamp,
         );
       const recallable = ['user', 'assistant'].includes(message.role)
-        && !['reasoning', 'analysis', 'plan', 'commentary', 'automation'].includes(message.kind)
+        && !['reasoning', 'analysis', 'plan', 'commentary', 'automation', 'memory'].includes(message.kind)
         && !['analysis', 'commentary'].includes(message.phase);
       this.db.prepare('UPDATE records SET recallable=?,embedding=CASE WHEN ? THEN embedding ELSE NULL END WHERE id=?').run(Number(recallable), Number(recallable), id);
       this.indexedMessages.set(id, fingerprint);
