@@ -118,6 +118,10 @@ Data lives in `%APPDATA%/Little Bot/data`: the saved conversation, a local SQLit
 
 Prompts and attachments go to the selected model connection: local Qwen stays on this computer; Codex sends them to its provider. Web services and MCP tools have their own destinations. Provider usage and local performance samples are transient and are not added to saved chats or Memory. The renderer has no Node access or remote scripts. This is an unsigned personal build.
 
+## System guide
+
+[docs/system-guide](docs/system-guide/README.md) explains each subsystem, its call path, storage, failure conditions and relevant tests. It includes a [complete source ownership map](docs/system-guide/source-map.md) and the [second functional review](docs/system-guide/review.md), with six remaining issues and isolated reproduction evidence.
+
 ## Development
 
 Node.js 24 or newer:

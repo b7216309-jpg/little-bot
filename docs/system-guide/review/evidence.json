@@ -1,0 +1,96 @@
+{
+  "reviewedVersion": "0.10.1",
+  "results": [
+    {
+      "id": "R1",
+      "reproduced": true,
+      "queuedAfterFailure": 1,
+      "executionsAfterRecovery": 1,
+      "finalStatus": "completed"
+    },
+    {
+      "id": "R2",
+      "reproduced": true,
+      "failedCreateRemainedInMemory": true,
+      "laterUnrelatedSavePersistedIt": true,
+      "calendarNotifications": 0,
+      "failedDeleteAlsoRemovedEvent": true
+    },
+    {
+      "id": "R2-goals",
+      "reproduced": true,
+      "failedSaveRetainedGoal": true,
+      "failedRunAuthorizedAndQueuedGoal": true,
+      "forcedRunRetained": true
+    },
+    {
+      "id": "R3",
+      "reproduced": true,
+      "appStatus": "idle",
+      "engineStillActive": true,
+      "interruptSent": false,
+      "lateTurnOutputSuppressed": true
+    },
+    {
+      "id": "R2-automations",
+      "reproduced": true,
+      "failedCreateRetainedEnabledRoutine": true
+    },
+    {
+      "id": "R4",
+      "reproduced": true,
+      "urgentCalendarHandlersDuringAutomation": 0,
+      "pendingBeforeBurst": 1,
+      "droppedDuring105EventBurst": 6,
+      "handlersAfterAutomationFinished": 100
+    },
+    {
+      "id": "calendar-extra-evidence",
+      "reproduced": false,
+      "passed": true,
+      "note": "Read-only task tool can retrieve the ninth event; no missing-tool defect."
+    },
+    {
+      "id": "R5",
+      "reproduced": true,
+      "basePromptPromisesCatchUp": true,
+      "bundledGuideSaysSkip": true,
+      "implementationAdvancesToFuture": true
+    },
+    {
+      "id": "R6",
+      "reproduced": true,
+      "agentEditRefusedDuringRun": true,
+      "uiEditAcceptedDuringRun": true,
+      "executedPrompt": "Original task",
+      "savedPrompt": "Edited task",
+      "lastStatus": "completed",
+      "completionEventName": "Edited routine"
+    },
+    {
+      "id": "browser-long-path",
+      "tested": true,
+      "pathLength": 201,
+      "normalStatus": 0,
+      "normalError": null,
+      "extendedStatus": 0,
+      "extendedError": null,
+      "reproduced": false
+    }
+  ],
+  "reviewedCommit": "c6b9c1ea09a1615fd53469bbbbbd11314d68c4a9",
+  "reviewDate": "2026-10-01",
+  "freshCI": {
+    "syntaxFiles": 166,
+    "nodeTests": 453,
+    "electronFixtures": 14,
+    "exitCode": 0
+  },
+  "integrationLimits": [
+    "Disk failures injected, engine acknowledgement simulated",
+    "No personal app state touched",
+    "Browser launch check only",
+    "No paid-provider, notification, OAuth or account side-effect checks",
+    "Earlier live Strata results reused on unchanged app code; not rerun"
+  ]
+}
