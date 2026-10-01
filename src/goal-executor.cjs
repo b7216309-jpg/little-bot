@@ -119,7 +119,7 @@ class GoalExecutor {
     }
     if ([...byServer.keys()].some(name => !found.has(name))) throw new Error('A granted MCP server is unavailable.');
   }
-  async run(goal, { onProgress } = {}) {
+  async run(goal, { onProgress, quietNudge = 0 } = {}) {
     this.controller.ensureReady(goal);
     if (this.active || this.controller.heartbeatChat || this.controller.extensionsBusy || this.controller.store.data.chats.some(chat => chat.status !== 'idle')) throw new Error('Wait for the current task to finish.');
     const previous = goal.usage || {}, limits = goal.limits || {};
@@ -178,6 +178,7 @@ class GoalExecutor {
       const turn = await this.client.request('turn/start', {
         threadId: operation.threadId, input: [{ type: 'text', text: [profile, `Perform one goal step.\n${JSON.stringify(prompt)}`, contract.isV2(goal) ? 'Use freshEvidence and saved actions first. Retrieve only a specific missing fact. Do not repeat stale searches or rewrite notes when nothing changed.' : 'Start with the saved state/checkpoint. Retrieve only specific evidence missing for the active step. Prefer one focused memory search (3 results) and at most two short source reads. Stop searching when you can act or identify a necessary user question. Do not read the entire conversation or unrelated skills. The token budget counts input again on every model request, not only generated output.', memory,
           !contract.isV2(goal) && goal.connection === 'local' ? 'Use tools to do the work. When finished, call goal_finish with a short summary and checkpoint instead of writing a JSON final reply. Do not repeat the full state file or produce a separate ledger. Use workspace_write for text updates and workspace_read to check them; terminal verification is unnecessary for simple file contents.' : '',
+          quietNudge ? `This goal has produced nothing meaningful for at least ${quietNudge} hours, so this review runs even without new evidence. Make one concrete useful contribution now: an action you can do with saved access, a timely recommendation, or one good question. Return no-change only if nothing useful is possible.` : '',
         ].filter(Boolean).join('\n\n') }], cwd: operation.cwd, runtimeWorkspaceRoots,
         model: goal.model || undefined, effort: this.controller.effectiveEffort(goal.model, goal.effort || 'low'),
         approvalPolicy: 'never', approvalsReviewer: 'user', ...(goal.connection === 'local' ? {} : { outputSchema: contract.isV2(goal) ? resultSchema : schema }),

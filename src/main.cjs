@@ -217,6 +217,11 @@ app.whenReady().then(async () => {
 
   controller.appManagement = new AppManagement({controller,handlers:appHandlers,filename:path.join(stateDir,'app-operations.json')});
   controller.agentTools = new AgentTools({ management:controller.appManagement, store, browser: controller.browser, webServices: controller.webServices,
+    manageFollowup: async (action, payload) => {
+      if (action === 'list') return heartbeat.listFollowups();
+      if (action === 'cancel') return heartbeat.cancelFollowup(payload.id);
+      return heartbeat.scheduleFollowup(payload);
+    },
     sendAttachment: async (input, chat) => {
       if (!chat || chat.internal || chat.automationId || chat.status !== 'running') throw new Error('Files can be delivered only in an active user conversation.');
       const descriptor = await controller.attachments.output(input.path, chat.workspace, { extraRoots: [path.join(stateDir, 'browser', 'screenshots')] });

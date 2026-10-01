@@ -152,3 +152,50 @@ test('the event runtime turns app opening, returning and finished chats into hea
   assert.deepEqual(wakes, [['Little', 2 * MINUTE, false], ['The', MINUTE, false], ['The', 10 * MINUTE, true]]);
   runtime.stop();
 });
+
+test('planned follow-ups wake a wild heartbeat with their notes, once, and are bounded', async () => {
+  const f = fixture([{ status: 'quiet', summary: '' }], { initiative: 'wild' });
+  const config = f.store.data.heartbeat;
+  config.nextRunAt = f.now + 240 * MINUTE;
+  assert.throws(() => f.service.scheduleFollowup({ at: f.now - 1, note: 'x' }), /30 days/);
+  assert.throws(() => f.service.scheduleFollowup({ at: f.now + 31 * 24 * 60 * MINUTE, note: 'x' }), /30 days/);
+  assert.throws(() => f.service.scheduleFollowup({ at: f.now + MINUTE, note: ' ' }), /note/);
+  const late = f.service.scheduleFollowup({ at: f.now + 90 * MINUTE, note: 'Ask how the interview went.' });
+  const soon = f.service.scheduleFollowup({ at: f.now + 20 * MINUTE, note: 'Check whether the download finished.' });
+  assert.deepEqual(f.service.listFollowups().map(item => item.id), [soon.id, late.id]);
+  f.setNow(f.now + 21 * MINUTE);
+  let seen;
+  f.service.run = async received => { seen = received.wakeReason; return { status: 'quiet', summary: '' }; };
+  await f.service.tick();
+  assert.match(seen, /Follow-up you planned: Check whether the download finished\./);
+  assert.deepEqual(f.service.listFollowups().map(item => item.id), [late.id]);
+  assert.deepEqual(f.service.cancelFollowup(late.id), { cancelled: late.id });
+  assert.throws(() => f.service.cancelFollowup(late.id), /does not exist/);
+  for (let index = 0; index < 20; index++) f.service.scheduleFollowup({ at: f.now + (index + 5) * MINUTE, note: `n${index}` });
+  assert.throws(() => f.service.scheduleFollowup({ at: f.now + 60 * MINUTE, note: 'one too many' }), /At most 20/);
+  assert.equal(normalizeHeartbeat({ ...config, followups: [...config.followups, { at: 1, note: '' }] }, settings).followups.length, 20);
+
+  const calm = fixture([]);
+  assert.throws(() => calm.service.scheduleFollowup({ at: calm.now + 10 * MINUTE, note: 'x' }), /Wild initiative/);
+});
+
+test('the followup_manage tool converts times and is offered only where planning is allowed', async () => {
+  const { AgentTools } = require('../src/agent-tools.cjs');
+  const calls = [];
+  const tools = new AgentTools({ store: { data: { extensions: {} } }, manageFollowup: async (action, payload) => {
+    calls.push([action, payload]); return action === 'create' ? { id: 'f1', ...payload } : action === 'list' ? [] : { cancelled: payload.id };
+  } });
+  assert.ok(tools.specs().some(tool => tool.name === 'followup_manage'));
+  assert.ok(!tools.specs({ readOnly: true }).some(tool => tool.name === 'followup_manage'));
+  const chat = { id: 'c', workspace: 'C:\work', messages: [], status: 'running' };
+  const before = Date.now();
+  const created = await tools.call('followup_manage', { action: 'create', inMinutes: 30, note: 'Check the build.' }, { chat });
+  assert.ok(created.followup.at >= before + 30 * MINUTE && created.followup.at <= Date.now() + 30 * MINUTE);
+  await tools.call('followup_manage', { action: 'create', atLocal: '2026-10-03T19:30', note: 'Movie night?' }, { chat });
+  assert.equal(calls[1][1].at, new Date(2026, 9, 3, 19, 30).getTime());
+  await assert.rejects(tools.call('followup_manage', { action: 'create', atLocal: 'tomorrow', note: 'x' }, { chat }), /YYYY-MM-DDTHH:MM/);
+  await assert.rejects(tools.call('followup_manage', { action: 'create', inMinutes: 1, note: 'x' }, { chat }), /5 to 43200/);
+  await assert.rejects(tools.call('followup_manage', { action: 'create', inMinutes: 30, note: 'x' }, { chat: { ...chat, internal: true } }), /direct user conversation/);
+  await tools.call('followup_manage', { action: 'create', inMinutes: 30, note: 'From heartbeat.' }, { chat: { ...chat, internal: true, wild: true } });
+  assert.deepEqual(await tools.call('followup_manage', { action: 'cancel', id: 'f1' }, { chat }), { cancelled: 'f1' });
+});

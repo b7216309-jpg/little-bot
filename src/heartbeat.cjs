@@ -17,6 +17,8 @@ const initiative = value => value === 'wild' ? 'wild' : 'calm';
 const MIN_WAKE = 5;
 const MAX_WAKE = 240;
 const MAX_PULSE = 30;
+const MAX_FOLLOWUPS = 20;
+const MAX_FOLLOWUP_AHEAD = 30 * 24 * 60 * MINUTE;
 
 function localDay(nowMs) {
   const date = new Date(nowMs);
@@ -52,6 +54,15 @@ function pulse(value) {
   }));
 }
 
+// One-shot check-ins the agent promised itself; each wakes a wild heartbeat with its note.
+function followups(value) {
+  return (Array.isArray(value) ? value : []).filter(item => object(item) && timestamp(item.at) !== null
+    && typeof item.note === 'string' && item.note.trim()).slice(0, MAX_FOLLOWUPS).map(item => ({
+    id: string(item.id).slice(0, 100) || randomUUID(), at: item.at, note: clean(item.note, 300),
+    createdAt: timestamp(item.createdAt, item.at),
+  })).sort((left, right) => left.at - right.at);
+}
+
 function retryDelay(config) {
   return Math.max(config.intervalMinutes, Math.min(240, config.intervalMinutes * (2 ** Math.max(0, config.failureCount - 1)))) * MINUTE;
 }
@@ -63,7 +74,7 @@ function defaultHeartbeat(settings = {}, nowMs = Date.now()) {
     workspace: string(settings.workspace), model: string(settings.model), effort: effort(settings.effort),
     ...connectionBinding(settings),
     nextRunAt: nowMs + 30 * MINUTE, lastRunAt: null, lastStatus: 'never',
-    dayKey: localDay(nowMs), runsToday: 0, failureCount: 0, quietStreak: 0, pulse: [],
+    dayKey: localDay(nowMs), runsToday: 0, failureCount: 0, quietStreak: 0, pulse: [], followups: [],
     lastFingerprint: '', lastAlertAt: null, lastActions: [], history: [], attention: attention.normalizeAttention(null),
   };
 }
@@ -84,7 +95,7 @@ function normalizeHeartbeat(value, settings = {}, nowMs = Date.now(), recovering
     lastStatus: ['never', 'running', 'quiet', 'alert', 'error'].includes(value.lastStatus) ? value.lastStatus : 'never',
     dayKey: typeof value.dayKey === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.dayKey) ? value.dayKey : defaults.dayKey,
     runsToday: integer(value.runsToday, 0, 100, 0), failureCount: integer(value.failureCount, 0, 10, 0),
-    quietStreak: integer(value.quietStreak, 0, 1000, 0), pulse: pulse(value.pulse),
+    quietStreak: integer(value.quietStreak, 0, 1000, 0), pulse: pulse(value.pulse), followups: followups(value.followups),
     ...(typeof value.wakeReason === 'string' && value.wakeReason.trim() ? { wakeReason: clean(value.wakeReason, 300) } : {}),
     lastFingerprint: /^[a-f0-9]{64}$/.test(value.lastFingerprint) ? value.lastFingerprint : '',
     lastAlertAt: timestamp(value.lastAlertAt),
@@ -235,6 +246,7 @@ class Heartbeat {
       this.flushAttention();
       const config = this.store.data.heartbeat;
       const nowMs = this.now();
+      if (!this.running) this._dueFollowups(nowMs);
       if (!isConnectionSelected(config, this.store.data.settings)) return null;
       if (this.running || !config.enabled || !config.checklist.trim() || !Number.isFinite(config.nextRunAt)
         || config.nextRunAt > nowMs || !inActiveHours(config, nowMs) || !this.canRun()) return null;
@@ -309,6 +321,41 @@ class Heartbeat {
     const at = this.now() + delayMs;
     if (!debounce && Number.isFinite(config.nextRunAt) && config.nextRunAt <= at) return false;
     this._mutate(current => { current.nextRunAt = at; current.wakeReason = clean(reason, 300); });
+    return true;
+  }
+
+  scheduleFollowup({ at, note } = {}) {
+    const config = this.store.data.heartbeat;
+    if (config.initiative !== 'wild' || !config.enabled) throw new Error('Follow-ups need Heartbeat enabled with Wild initiative.');
+    const nowMs = this.now();
+    if (!Number.isFinite(at) || at <= nowMs || at > nowMs + MAX_FOLLOWUP_AHEAD) throw new Error('Choose a follow-up time in the next 30 days.');
+    if (typeof note !== 'string' || !note.trim()) throw new Error('A follow-up needs a short note saying what to check.');
+    if (config.followups.length >= MAX_FOLLOWUPS) throw new Error(`At most ${MAX_FOLLOWUPS} follow-ups can be planned. Cancel one first.`);
+    const item = { id: randomUUID(), at: Math.round(at), note: clean(note, 300), createdAt: nowMs };
+    this._mutate(current => { current.followups = followups([...current.followups, item]); });
+    return structuredClone(item);
+  }
+
+  cancelFollowup(id) {
+    if (typeof id !== 'string' || !this.store.data.heartbeat.followups.some(item => item.id === id)) throw new Error('That follow-up does not exist.');
+    this._mutate(current => { current.followups = current.followups.filter(item => item.id !== id); });
+    return { cancelled: id };
+  }
+
+  listFollowups() { return structuredClone(this.store.data.heartbeat.followups); }
+
+  // Due follow-ups become an immediate wake-up carrying their notes; the regular hour and run limits still apply.
+  _dueFollowups(nowMs) {
+    const config = this.store.data.heartbeat;
+    if (config.initiative !== 'wild' || !config.enabled) return false;
+    const due = config.followups.filter(item => item.at <= nowMs);
+    if (!due.length) return false;
+    const reason = `Follow-up you planned: ${due.map(item => item.note).join(' | ')}`;
+    this._mutate(current => {
+      current.followups = current.followups.filter(item => item.at > nowMs);
+      current.nextRunAt = Math.min(Number.isFinite(current.nextRunAt) ? current.nextRunAt : nowMs, nowMs);
+      current.wakeReason = clean([current.wakeReason, reason].filter(Boolean).join(' '), 300);
+    });
     return true;
   }
 
