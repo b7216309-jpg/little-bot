@@ -8,6 +8,19 @@
 
 The final result is parsed as quiet or alert with summary/topic. A quiet result stays quiet. Actual recorded file changes force an alert so the app does not hide work performed before the final response. Parsing/provider failures preserve recorded actions and enter a bounded retry/backoff path.
 
+## Wild initiative
+
+Heartbeat has two initiative levels. **Calm** is the behavior above. **Wild** changes four things:
+
+- **Agenda.** The agent keeps `agenda.md` in the working folder as its own backlog. Edits to that file do not force an alert.
+- **Wider access.** It runs at medium effort or higher with network access. It can save memories and manage the calendar, routines and draft goals.
+- **Its own schedule.** Each run returns a reason and `wakeInMinutes` (clamped to 5–240), which replaces the fixed interval for the next run.
+- **Pressure to act.** After two or more quiet runs in a row, the prompt asks for one concrete move.
+
+Turning wild on schedules a check within a minute. Presence events (`app.opened`, `user.returned` after 90 minutes away, and `chat.completed`, debounced to 10 minutes) pull the next check forward and tell the agent why it woke. New wild alerts also appear in the conversation as "Little Bot · on its own" messages, but only when the chat is idle.
+
+Every finished run, including quiet ones, is kept in a bounded `pulse` log (30 entries) shown under Latest check. Small local models that wrap their JSON in `<think>` tags or Markdown fences are parsed instead of failing. Pause all, active hours and the daily run cap still apply.
+
 ## Inbox and notification delivery
 
 Heartbeat history is also the inbox backing store for goal notifications. [attention.cjs](../../src/attention.cjs) tracks stable subjects, Useful / Later / Dismiss feedback, snooze/mute state, pending deliveries and daily alert limits. Goal subjects use the goal ID; other subjects use normalized topic/workspace keys.

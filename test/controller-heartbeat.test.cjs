@@ -340,3 +340,50 @@ test('engine crashes reject hidden work and clear its bookkeeping', async (t) =>
   assert.equal(f.controller.outcomes.size, 0);
   assert.equal(f.store.data.chats.length, 0);
 });
+
+test('wild initiative widens the heartbeat: own schema, planning tools, network, medium effort and the quiet-streak nudge', async (t) => {
+  const f = await setup(t);
+  const { AgentTools } = require('../src/agent-tools.cjs');
+  f.controller.agentTools = new AgentTools({ store: f.store });
+  Object.assign(f.config, { initiative: 'wild', quietStreak: 3, pulse: [{ at: Date.now(), status: 'quiet', note: 'Nothing new.' }] });
+  const active = await startHeartbeat(f);
+  const thread = f.client.calls.find(call => call.method === 'thread/start').params;
+  const turn = f.client.calls.find(call => call.method === 'turn/start').params;
+  assert.equal(turn.sandboxPolicy.networkAccess, true);
+  assert.equal(thread.config['sandbox_workspace_write.network_access'], true);
+  assert.equal(thread.config.web_search, 'live');
+  assert.equal(thread.config.model_reasoning_effort, 'medium');
+  assert.deepEqual(turn.outputSchema.required, ['status', 'summary', 'topic', 'reason', 'wakeInMinutes']);
+  const tools = thread.dynamicTools.map(tool => tool.name);
+  for (const name of ['memory_save', 'calendar_manage', 'schedule_manage', 'goal_manage', 'memory_search']) assert.ok(tools.includes(name), name);
+  for (const name of ['ask_user', 'browser', 'attachment_send']) assert.ok(!tools.includes(name), name);
+  assert.match(thread.developerInstructions, /agenda\.md/);
+  assert.match(turn.input[0].text, /stayed quiet 3 checks in a row/);
+  assert.match(turn.input[0].text, /Nothing new\./);
+  item(f, active.chat, { id: 'agenda', type: 'fileChange', status: 'completed', changes: [{ path: path.join(f.root, 'agenda.md'), diff: '+idea' }] });
+  finish(f, active.chat, '{"status":"quiet","summary":"","topic":"","reason":"Only tidied my agenda.","wakeInMinutes":45}');
+  assert.deepEqual(await active.promise, { status: 'quiet', summary: '', topic: '', actions: [active.chat.actions.get('agenda')], reason: 'Only tidied my agenda.', wakeInMinutes: 45 });
+});
+
+test('a wild heartbeat may call planning tools that stay blocked for calm hidden work', async (t) => {
+  const f = await setup(t);
+  for (const wild of [false, true]) {
+    f.client.responses = []; f.client.rejections = [];
+    Object.assign(f.config, { initiative: wild ? 'wild' : 'calm' });
+    const active = await startHeartbeat(f);
+    await f.controller.serverRequest({ id: `tool-${wild}`, method: 'item/tool/call', params: { threadId: active.chat.threadId, turnId: f.controller.turns.get(active.chat.id), callId: 'c', tool: 'schedule_manage', arguments: { action: 'list' } } });
+    if (wild) assert.equal(f.client.rejections.length, 0);
+    else assert.equal(f.client.rejections[0]?.id, 'tool-false');
+    finish(f, active.chat, wild ? '{"status":"quiet","summary":"","topic":"","reason":"x","wakeInMinutes":30}' : undefined);
+    await active.promise;
+  }
+});
+
+test('heartbeat recovers JSON wrapped in reasoning tags or Markdown fences from small local models', async (t) => {
+  const f = await setup(t);
+  for (const output of ['<think>Let me see.</think>\n{"status":"quiet","summary":""}', 'Here you go:\n```json\n{"status":"alert","summary":"Done.","topic":"x"}\n```', 'Result: {"status":"quiet","summary":""} hope that helps']) {
+    const active = await startHeartbeat(f);
+    finish(f, active.chat, output);
+    assert.ok(['quiet', 'alert'].includes((await active.promise).status), output);
+  }
+});
