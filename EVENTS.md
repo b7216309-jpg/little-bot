@@ -88,6 +88,7 @@ The Standing Intents editor exposes these foreground events.
 | `calendar.event_approaching` | `calendar` | calendar fields plus `horizonMinutes`, `minutesUntil` |
 | `goal.queued` | `goal.runner` | `goalId`, `name`, `workspace`, `queuedAt` |
 | `goal.completed` | `goal.runner` | `goalId`, `name`, `workspace`, `runId`, `summary`, `completedAt` |
+| `goal.reviewed` | `goal.runner` | `goalId`, `name`, `workspace`, `runId`, `outcome`, `summary`, `reviewedAt`, `nextRunAt` (one ongoing review finished; the goal remains ongoing) |
 | `goal.blocked` | `goal.runner` | `goalId`, `name`, `workspace`, `reason`, `blockedAt` |
 | `goal.question_answered` | `goal.runner` | `goalId`, `name`, `workspace`, `questionId`, `answeredAt` |
 | `automation.started` | `scheduler` | `automationId`, `name`, `workspace`, `startedAt` |

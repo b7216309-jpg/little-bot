@@ -65,7 +65,7 @@ async function collect(goal, data, now = Date.now()) {
     const cursor = goal.review?.chatCursor ? user.findIndex(m => m.id === goal.review.chatCursor) : -1;
     const pending = goal.review?.chatCursor && cursor >= 0 ? user.slice(cursor + 1) : user.filter(m => !processed.has(m.id));
     const selected = goal.review?.lastResult ? pending.slice(0, 12) : pending.slice(-12);
-    const reserved = (goal.sources.files.length ? 3000 : 0) + (goal.sources.calendar ? 1000 : 0);
+    const reserved = (goal.sources.files.length ? 3000 : 0) + (goal.sources.calendar ? 3600 : 0);
     for (const m of selected) {
       if (contentBudget <= reserved) break;
       messages.push(m.id);
@@ -75,9 +75,18 @@ async function collect(goal, data, now = Date.now()) {
   } else coverage.push('Recent chat evidence is disabled (source setting or Memory toggle).');
   if (goal.sources.calendar) {
     const events = (data.calendar?.events || []).filter(e => e.startAt <= now + 7 * 86400000 && (e.endAt || e.startAt) >= now);
-    const value = events.map(e => ({ id: e.id, title: e.title, startAt: e.startAt, endAt: e.endAt, phase: e.startAt <= now ? 'due' : 'upcoming' }));
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const value = events.map(e => ({ id: e.id, title: clip(e.title, 120), startAt: e.startAt, endAt: e.endAt || e.startAt,
+      startIso: new Date(e.startAt).toISOString(), endIso: new Date(e.endAt || e.startAt).toISOString(), timezone,
+      phase: e.startAt <= now ? 'due' : 'upcoming' }));
     versions.calendar = hash(JSON.stringify(value));
-    for (const e of value.slice(0, 8)) add({ id: `calendar:${e.id}`, kind: 'calendar', text: JSON.stringify(e) }, 125);
+    for (const e of value.slice(0, 8)) {
+      const text = JSON.stringify(e);
+      if (text.length > contentBudget - (goal.sources.files.length ? 3000 : 0)) {
+        coverage.push('Calendar excerpt limited by evidence budget; retrieve additional events with calendar tools.'); break;
+      }
+      add({ id: `calendar:${e.id}`, kind: 'calendar', text }, text.length);
+    }
     if (value.length > 8) coverage.push('Calendar excerpt limited to eight events.');
   }
   const fileBudget = Math.max(1, Math.floor(contentBudget / Math.max(1, goal.sources.files.length)));

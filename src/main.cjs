@@ -118,7 +118,11 @@ app.whenReady().then(async () => {
   controller.memoryConsolidator = new MemoryConsolidator(controller);
   controller.browser = new AgentBrowser({ root: path.join(stateDir, 'browser'), headed: !smoke, onChange: () => controller.changed() });
   controller.webServices = new WebServices({ root: path.join(stateDir, 'services'), safeStorage });
-  controller.attachments = new Attachments({ root: path.join(stateDir, 'attachments'), nativeImage });
+  const attachmentReferences = () => store.data.chats.flatMap(chat => chat.messages.flatMap(message => (message.attachments || []).map(item => item.id)));
+  controller.attachments = new Attachments({ root: path.join(stateDir, 'attachments'), nativeImage, references: attachmentReferences });
+  // Drafts are not restored across app launches. Keep every saved timeline file.
+  await controller.attachments.prune();
+  controller.attachmentStorage = await controller.attachments.storage();
   protocol.handle('little-bot-attachment', async request => {
     try {
       const url = new URL(request.url);
@@ -211,9 +215,11 @@ app.whenReady().then(async () => {
     sendAttachment: async (input, chat) => {
       if (!chat || chat.internal || chat.automationId || chat.status !== 'running') throw new Error('Files can be delivered only in an active user conversation.');
       const descriptor = await controller.attachments.output(input.path, chat.workspace, { extraRoots: [path.join(stateDir, 'browser', 'screenshots')] });
-      if (chat.status !== 'running') throw new Error('The conversation stopped before the file could be delivered.');
+      if (chat.status !== 'running') { await controller.attachments.release(descriptor.id); throw new Error('The conversation stopped before the file could be delivered.'); }
       chat.messages.push({ id: randomUUID(), role: 'assistant', text: input.caption || '', attachments: attachmentDescriptors([descriptor]), status: 'completed' });
       controller.changed(true);
+      await controller.attachments.release(descriptor.id);
+      await refreshAttachmentStorage();
       return { delivered: true, name: descriptor.name, attachmentId: descriptor.id };
     },
     manageGoal: async (action, payload, context) => {
@@ -324,10 +330,35 @@ app.whenReady().then(async () => {
   register('refreshProviderUsage', () => controller.refreshProviderUsage());
   register('chooseAttachments', async () => {
     const selected = await dialog.showOpenDialog(window, { title: 'Attach files', properties: ['openFile', 'multiSelections'] });
-    return selected.canceled ? [] : controller.attachments.importPaths(selected.filePaths);
+    return selected.canceled ? [] : importAttachments(() => controller.attachments.importPaths(selected.filePaths));
   });
-  register('attachFiles', paths => controller.attachments.importPaths(paths));
-  register('importAttachment', payload => controller.attachments.importBytes(payload));
+  async function refreshAttachmentStorage() {
+    controller.attachmentStorage = await controller.attachments.storage(); controller.changed();
+  }
+  async function importAttachments(operation) { const result = await operation(); await refreshAttachmentStorage(); return result; }
+  register('attachFiles', paths => importAttachments(() => controller.attachments.importPaths(paths)));
+  register('importAttachment', payload => importAttachments(() => controller.attachments.importBytes(payload)));
+  register('releaseAttachment', async ({ id } = {}) => {
+    const result = await controller.attachments.release(id); await refreshAttachmentStorage(); return result;
+  });
+  register('attachmentStorage', async () => { await refreshAttachmentStorage(); return controller.attachmentStorage; });
+  register('cleanupAttachments', async () => {
+    const result = await controller.attachments.prune(); await refreshAttachmentStorage();
+    return { ...result, ...controller.state() };
+  });
+  register('deleteAttachment', async ({ id } = {}) => {
+    ensureExtensionsIdle();
+    await controller.attachments.get(id);
+    const previous = [];
+    for (const chat of store.data.chats) for (const message of chat.messages) {
+      if (!message.attachments?.some(item => item.id === id)) continue;
+      previous.push([message, message.attachments]);
+      message.attachments = message.attachments.filter(item => item.id !== id);
+    }
+    try { store.save(); }
+    catch (error) { for (const [message, attachments] of previous) message.attachments = attachments; throw error; }
+    await controller.attachments.release(id); await refreshAttachmentStorage(); return controller.state();
+  });
   register('openAttachment', async ({ id } = {}) => {
     const item = await controller.attachments.get(id);
     await controller.attachments.read(id);
@@ -462,6 +493,14 @@ app.whenReady().then(async () => {
     return { records: found.results, nextOffset: found.nextOffset };
   });
   register('getMemorySource', ({ id } = {}) => ({ sources: store.memoryService.sources(id) }));
+  register('retryMemoryLearning', ({ id } = {}) => {
+    store.memoryService.retryExtraction(id); controller.memoryConsolidator.lastError = null;
+    controller.changed(); return controller.state();
+  });
+  register('discardMemoryLearning', ({ id } = {}) => {
+    store.memoryService.discardExtraction(id); controller.memoryConsolidator.lastError = null;
+    controller.changed(); return controller.state();
+  });
   register('configureMemory', ({ embedding } = {}) => {
     store.memoryService.configureEmbedding(embedding);
     controller.changed(); return controller.state();

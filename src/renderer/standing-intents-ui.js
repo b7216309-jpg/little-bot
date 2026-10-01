@@ -13,6 +13,7 @@
     ['calendar.event_approaching', 'Calendar event approaching'],
     ['goal.queued', 'Goal queued'],
     ['goal.completed', 'Goal completed'],
+    ['goal.reviewed', 'Ongoing goal review finished'],
     ['goal.blocked', 'Goal blocked'],
     ['goal.question_answered', 'Goal question answered'],
     ['automation.started', 'Automation started'],

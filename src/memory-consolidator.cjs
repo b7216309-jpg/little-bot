@@ -29,7 +29,8 @@ class MemoryConsolidator {
     }
   }
   get service() { return this.controller.store.memoryService; }
-  get state() { return { status: this.active ? 'learning' : 'idle', lastError: this.lastError }; }
+  get state() { return { status: this.active ? 'learning' : 'idle', lastError: this.lastError,
+    failedJobs: this.service?.failedExtractions?.() || [] }; }
   enqueue(chat) {
     if (this.closed || this.controller.store.data.memory?.enabled === false) return;
     this.service?.enqueueExtraction(chat);
@@ -124,7 +125,16 @@ class MemoryConsolidator {
       try {
         if (['failed', 'interrupted'].includes(params.turn?.status) || params.turn?.error) throw new Error(params.turn?.error?.message || 'Memory extraction interrupted.');
         const output = JSON.parse(op.output.replace(/^```(?:json)?\s*|\s*```$/g, '').trim());
-        if (!Array.isArray(output.memories)) throw new Error('Memory extraction returned invalid JSON.');
+        const schema = EXTRACTION_SCHEMA.properties.memories.items;
+        if (!output || typeof output !== 'object' || !Array.isArray(output.memories) || Object.keys(output).some(key => key !== 'memories')
+          || output.memories.some(memory => !memory || typeof memory !== 'object' || Array.isArray(memory)
+            || schema.required.some(key => !Object.hasOwn(memory, key)) || Object.keys(memory).some(key => !Object.hasOwn(schema.properties, key))
+            || !['text', 'key'].every(key => typeof memory[key] === 'string')
+            || !schema.properties.type.enum.includes(memory.type) || !schema.properties.scope.enum.includes(memory.scope)
+            || !(memory.supersedesId === null || typeof memory.supersedesId === 'string')
+            || !Array.isArray(memory.sourceIds) || memory.sourceIds.some(id => typeof id !== 'string'))) {
+          throw new Error('Memory extraction did not match the required JSON schema.');
+        }
         this.finish(op, output.memories);
       } catch (error) { this.finish(op, null, error.message); }
     }

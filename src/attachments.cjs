@@ -150,10 +150,12 @@ function extractInWorker(mime, buffer) {
 }
 
 class Attachments {
-  constructor({ root, nativeImage }) {
+  constructor({ root, nativeImage, references = () => [] }) {
     this.root = path.resolve(root);
     this.nativeImage = nativeImage;
     this.queue = Promise.resolve();
+    this.references = references;
+    this.pending = new Set();
   }
 
   async _root() {
@@ -187,6 +189,61 @@ class Attachments {
     return result;
   }
 
+  async release(id) {
+    return this._serial(async () => {
+      await this._root();
+      const directory = this._directory(id);
+      const wasPending = this.pending.delete(id);
+      if (new Set(this.references()).has(id)) return { removed: false, referenced: true };
+      try {
+        const stat = await fs.lstat(directory);
+        if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('Invalid attachment folder.');
+        await fs.rm(directory, { recursive: true, force: true });
+      } catch (error) {
+        if (error.code !== 'ENOENT') {
+          if (wasPending) this.pending.add(id);
+          throw error;
+        }
+      }
+      return { removed: true };
+    });
+  }
+
+  async prune() {
+    return this._serial(async () => {
+      await this._root();
+      const referenced = new Set(this.references());
+      for (const id of referenced) this.pending.delete(id);
+      let removed = 0;
+      for (const entry of await fs.readdir(this.root, { withFileTypes: true })) {
+        if (!ID.test(entry.name) || !entry.isDirectory() || entry.isSymbolicLink() || referenced.has(entry.name) || this.pending.has(entry.name)) continue;
+        await fs.rm(this._directory(entry.name), { recursive: true, force: true }); removed++;
+      }
+      return { removed };
+    });
+  }
+
+  async storage() {
+    return this._serial(async () => {
+      await this._root();
+      const referenced = new Set(this.references()), items = [];
+      let unusedBytes = 0;
+      for (const entry of await fs.readdir(this.root, { withFileTypes: true })) {
+        if (!ID.test(entry.name) || !entry.isDirectory() || entry.isSymbolicLink()) continue;
+        let size = 0;
+        for (const file of await fs.readdir(this._directory(entry.name), { withFileTypes: true })) {
+          if (file.isFile()) size += (await fs.stat(path.join(this._directory(entry.name), file.name))).size;
+        }
+        const saved = referenced.has(entry.name), pending = this.pending.has(entry.name);
+        if (!saved && !pending) unusedBytes += size;
+        let name = 'Unavailable attachment';
+        try { name = (await this.get(entry.name)).name; } catch { /* Cleanup can still remove unused corrupt imports. */ }
+        items.push({ id: entry.name, name, size, saved, pending });
+      }
+      return { usedBytes: await this._usage(), maxBytes: MAX_STORE_BYTES, unusedBytes, items };
+    });
+  }
+
   async importPaths(paths) {
     if (!Array.isArray(paths) || !paths.length || paths.length > MAX_FILES) throw new Error(`Attach up to ${MAX_FILES} files at once.`);
     return this._serial(async () => {
@@ -208,7 +265,10 @@ class Attachments {
         for (const file of files) imported.push(await this._import(file));
         return imported;
       } catch (error) {
-        for (const item of imported) await fs.rm(this._directory(item.id), { recursive: true, force: true });
+        for (const item of imported) {
+          await fs.rm(this._directory(item.id), { recursive: true, force: true });
+          this.pending.delete(item.id);
+        }
         throw error;
       }
     });
@@ -261,6 +321,7 @@ class Attachments {
       await fs.rm(directory, { recursive: true, force: true });
       throw error;
     }
+    this.pending.add(id);
     return this._describe(metadata);
   }
 

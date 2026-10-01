@@ -60,7 +60,7 @@ function unprotectState(parsed, protector) {
   const envelope = parsed.protected;
   if (!protector) throw new Error('Saved conversations are encrypted and secure storage is unavailable.');
   if (!isObject(envelope) || envelope.version !== PROTECTED_STATE_VERSION || envelope.format !== 'safeStorage'
-    || typeof envelope.data !== 'string' || !envelope.data || envelope.data.length > 50 * 1024 * 1024
+    || typeof envelope.data !== 'string' || !envelope.data
     || !/^[A-Za-z0-9+/]+={0,2}$/.test(envelope.data)) throw new Error('Encrypted app state has an invalid format.');
   let sensitive;
   try {

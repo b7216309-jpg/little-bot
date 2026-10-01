@@ -24,7 +24,9 @@ function defaultLaunch() {
   // The CLI wrapper spawns another process without windowsHide, leaving a
   // console that Windows can interrupt independently of the desktop app.
   // Own the native process directly so piped I/O + windowsHide apply to it.
-  return { command, args: ['app-server'] };
+  // CreateProcess otherwise rejects executable paths longer than MAX_PATH,
+  // even when Node can read the packaged file successfully.
+  return { command: path.toNamespacedPath(command), args: ['app-server'] };
 }
 
 /** A local, version-pinned Codex app-server JSONL transport. No credentials are read. */

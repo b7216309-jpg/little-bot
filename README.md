@@ -2,6 +2,14 @@
 
 A Windows personal assistant with one continuous conversation, durable local memory, files, terminal work, web browsing, and proactive tasks. Electron, plain JavaScript, and a pinned Codex tool runtime.
 
+## Reliability update (0.10.1)
+
+- Large saved chats reopen without the former encrypted-envelope size mismatch.
+- The bundled Windows engine starts from long build/portable paths.
+- Strata receives JSON schemas in its prompts; memory learning validates results, stops after three failed attempts and offers Retry/Discard in Memory. Output-token cutoffs report failure and keep partial text.
+- Ongoing reviews settle standing intents, calendar evidence keeps dates/times, and completion dependencies accept tasks only. Deferred operations recover from save failures without repeating applied actions.
+- Removed drafts release attachment storage. Settings shows usage and unused-file cleanup; saved attachments offer Remove while preserving message text and original source files.
+
 ## A quick look
 
 Screenshots below use the real application renderer with fictional demo data. No personal chats, profiles, credentials, or model requests are involved.
@@ -28,8 +36,8 @@ Run scheduled prompts in the same conversation, using intervals or selected days
 
 1. Start your existing Qwen launcher.
 2. Build from source with the Development commands below, then choose a generated Windows build:
-   - **Installer:** run `dist/0.10.0/Little-Bot-0.10.0-Setup.exe`. It installs per-user under LocalAppData, adds a Start Menu shortcut, and registers an uninstaller in Apps & Features.
-   - **Portable:** unzip `dist/0.10.0/Little-Bot-0.10.0-portable.zip` and run `Little Bot.exe`. Keep the extracted folder together.
+   - **Installer:** run `dist/0.10.1/Little-Bot-0.10.1-Setup.exe`. It installs per-user under LocalAppData, adds a Start Menu shortcut, and registers an uninstaller in Apps & Features.
+   - **Portable:** unzip `dist/0.10.1/Little-Bot-0.10.1-portable.zip` and run `Little Bot.exe`. Keep the extracted folder together.
    - **Development package:** open **Launch Little Bot.cmd** after `npm run package`.
 3. Choose a working folder and send a message.
 

@@ -514,10 +514,14 @@ function renderAttachments(parent, attachments, { draft = false, key = draftKey(
     copy.append(name, element('span', '', fileSize(attachment.size)));
     card.append(copy);
     if (draft) {
-      const remove = action('', () => {
-        if (sending) return;
-        attachmentDrafts.set(key, (attachmentDrafts.get(key) || []).filter((item) => item.id !== attachment.id));
-        updateComposer();
+      const remove = action('', async () => {
+        if (sending || attachmentImportPending) return;
+        attachmentImportPending = true; updateComposer();
+        try {
+          await window.bot.releaseAttachment?.({ id: attachment.id });
+          attachmentDrafts.set(key, (attachmentDrafts.get(key) || []).filter((item) => item.id !== attachment.id));
+        } catch (error) { notify(error.message || String(error), true); }
+        finally { attachmentImportPending = false; updateComposer(); }
       }, 'icon-button attachment-remove', 'x');
       remove.title = `Remove ${attachment.name || 'file'}`;
       remove.setAttribute('aria-label', remove.title);
@@ -527,6 +531,11 @@ function renderAttachments(parent, attachments, { draft = false, key = draftKey(
       const controls = element('div', 'attachment-actions');
       controls.append(action('Open', () => attempt(() => window.bot.openAttachment({ id: attachment.id })), 'button text-button'));
       controls.append(action('Save', () => attempt(() => window.bot.saveAttachment({ id: attachment.id })), 'button text-button', 'import'));
+      controls.append(action('Remove', async () => {
+        if (await confirmAction('Remove this saved attachment?', 'Its saved copy will be removed from this conversation. Message text and the original source file will stay.', 'Remove')) {
+          await attempt(() => window.bot.deleteAttachment({ id: attachment.id }), 'Saved attachment removed.');
+        }
+      }, 'button text-button', 'trash'));
       card.append(controls);
     }
     list.append(card);
@@ -563,7 +572,9 @@ async function addAttachments(files = null) {
     const existing = attachmentDrafts.get(key) || [];
     const unique = [...existing, ...additions.filter((item) => !existing.some((saved) => saved.id === item.id))];
     if (unique.length > 8) notify('Only the first 8 files were added.', true);
-    attachmentDrafts.set(key, unique.slice(0, 8));
+    const retained = unique.slice(0, 8);
+    attachmentDrafts.set(key, retained);
+    await releaseAttachments((Array.isArray(imported) ? imported : imported?.attachments || []).filter(item => !retained.some(saved => saved.id === item.id)));
   } catch (error) {
     notify(error?.message || String(error), true);
   } finally {
@@ -584,10 +595,16 @@ async function pasteAttachments(files) {
       const imported = await window.bot.importAttachment({ name: file.name || 'pasted-image.png', bytes: await file.arrayBuffer() });
       const additions = Array.isArray(imported) ? imported : imported?.attachments || [imported];
       const existing = attachmentDrafts.get(key) || [];
-      attachmentDrafts.set(key, [...existing, ...additions.filter((item) => attachmentSource(item) && !existing.some((saved) => saved.id === item.id))].slice(0, 8));
+      const retained = [...existing, ...additions.filter((item) => attachmentSource(item) && !existing.some((saved) => saved.id === item.id))].slice(0, 8);
+      attachmentDrafts.set(key, retained);
+      await releaseAttachments(additions.filter(item => !retained.some(saved => saved.id === item.id)));
     }
   } catch (error) { notify(error?.message || String(error), true); }
   finally { attachmentImportPending = false; updateComposer(); }
+}
+
+async function releaseAttachments(items) {
+  await Promise.all(items.map(item => window.bot.releaseAttachment?.({ id: item.id })));
 }
 
 function renderReasoning(message, key, existing) {
@@ -1315,7 +1332,10 @@ function clearComposerDraft({ attachments = false } = {}) {
   const key = draftKey();
   $('message-input').value = '';
   chatDrafts.delete(key);
-  if (attachments) attachmentDrafts.delete(key);
+  if (attachments) {
+    void releaseAttachments(attachmentDrafts.get(key) || []).catch(error => notify(error.message || String(error), true));
+    attachmentDrafts.delete(key);
+  }
   sizeComposer();
   updateComposer();
 }
@@ -1421,6 +1441,8 @@ async function sendMessage(event) {
     const remainingAttachments = (attachmentDrafts.get(originDraftKey) || []).filter((attachment) => !attachmentIds.includes(attachment.id));
     if (remainingAttachments.length) attachmentDrafts.set(originDraftKey, remainingAttachments);
     else attachmentDrafts.delete(originDraftKey);
+    // The backend now owns these saved references; clear only pending leases.
+    void releaseAttachments(attachmentIds.map(id => ({ id }))).catch(error => notify(error.message || String(error), true));
     // The user can visit another panel or chat while send is starting.
     // Clear only this submitted draft, including when they return before the RPC ends.
     if (selectedChatId === originChatId && $('message-input').value === submittedDraft) $('message-input').value = '';
@@ -1508,6 +1530,9 @@ function renderSettings() {
   $('settings-open-workspace').disabled = !state.settings.workspace;
   $('settings-engine').textContent = isReady() ? 'Running locally' : state.runtime?.status === 'error' ? 'Needs attention' : 'Starting up';
   $('settings-version').textContent = `v${state.appVersion || '0.1.0'}`;
+  const storage = state.attachmentStorage;
+  $('settings-attachment-usage').textContent = storage ? `${fileSize(storage.usedBytes)} of ${fileSize(storage.maxBytes)} · ${storage.fileCount} saved or pending files · ${fileSize(storage.unusedBytes)} unused` : 'Attachment storage unavailable.';
+  $('settings-clean-attachments').disabled = !storage || !storage.unusedBytes;
   $('settings-engine-detail').textContent = connectionType() === 'local' ? 'Your local model. No OpenAI account needed.' : 'Codex connection';
   $('settings-data-detail').textContent = connectionType() === 'local'
     ? 'Conversation and memory are stored on this PC. Web services connect only when used.'
@@ -2198,6 +2223,17 @@ function renderMemory() {
   refreshMemoryResults();
   renderMemoryContext();
   renderMemorySettings();
+  const failures = state.memory?.learning?.failedJobs || [];
+  const host = $('memory-learning-failures');
+  host.classList.toggle('hidden', !failures.length);
+  host.replaceChildren(...failures.map(job => {
+    const row = element('article', 'memory-item');
+    row.append(element('p', 'memory-item-copy', `Memory learning stopped after ${job.attempts} failed attempts. ${job.error || ''}`));
+    const controls = element('div', 'memory-item-actions');
+    controls.append(action('Retry', () => attempt(() => window.bot.retryMemoryLearning({ id: job.id }), 'Memory learning queued again.'), 'button secondary'),
+      action('Discard', () => attempt(() => window.bot.discardMemoryLearning({ id: job.id }), 'Failed learning job discarded.'), 'button text-button'));
+    row.append(controls); return row;
+  }));
 }
 
 function renderMemorySettings() {
@@ -2987,8 +3023,10 @@ function editGoal(goal) {
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.value = other.id;
-    input.checked = Boolean(goal?.dependsOn?.includes(other.id));
-    label.append(input, element('span', '', `${other.name} · ${humanStatus(other.status)}`));
+    const ongoing = other.contractVersion === 2 && other.kind === 'ongoing';
+    input.disabled = ongoing;
+    input.checked = !ongoing && Boolean(goal?.dependsOn?.includes(other.id));
+    label.append(input, element('span', '', `${other.name} · ${ongoing ? 'Ongoing — cannot be a completion dependency' : humanStatus(other.status)}`));
     dependencies.append(label);
   }
   if (!dependencies.childNodes.length) dependencies.append(element('p', 'field-hint', 'No other goals to depend on yet.'));
@@ -3687,6 +3725,7 @@ $('settings-dialog').addEventListener('close', () => {
 $('choose-workspace').addEventListener('click', chooseWorkspace);
 $('settings-choose-workspace').addEventListener('click', chooseWorkspace);
 $('settings-open-workspace').addEventListener('click', () => attempt(() => window.bot.openWorkspace()));
+$('settings-clean-attachments').addEventListener('click', () => attempt(() => window.bot.cleanupAttachments(), 'Unused attachment files cleaned.'));
 $('settings-open-logs').addEventListener('click', () => attempt(() => window.bot.openLogs(), 'Opened diagnostic logs.'));
 $('settings-login').addEventListener('click', () => {
   closeDialog('settings-dialog');

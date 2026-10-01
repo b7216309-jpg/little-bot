@@ -49,3 +49,5 @@ See [docs/GOALS-V2-DESIGN.md](docs/GOALS-V2-DESIGN.md) for the foundation and ac
 ## Plan and evidence ledger
 
 Legacy goals retain exactly one active step and their earlier plan/evidence records. New goals execute the outcome contract while retaining that audit history and Undo. See [LEDGER.md](LEDGER.md) and [EVENTS.md](EVENTS.md) for legacy records and foreground event behavior. File triggers take a fresh baseline on reopening.
+
+Ongoing reviews emit `goal.reviewed`, which finishes the standing intent’s run while the ongoing goal remains scheduled. A later event can request another review; duplicate active launches are skipped. Completion dependencies accept tasks only. Existing impossible dependencies block with an edit instruction instead of waiting forever. Calendar evidence retains complete timestamps and timezone information.

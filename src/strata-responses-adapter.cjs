@@ -140,6 +140,18 @@ function responsesToChat(body, thinking) {
   }
 
   const out = { model: body.model, messages, stream: true };
+  const format = body.text?.format;
+  if (format?.type === 'json_schema' && object(format.schema)) {
+    // Strata currently ignores response_format. Supply the same schema in the
+    // prompt as a fallback; callers must still validate the generated result.
+    out.response_format = { type: 'json_schema', json_schema: {
+      name: format.name || 'result', strict: format.strict === true, schema: format.schema,
+    } };
+    messages.unshift({ role: 'developer', content: 'Return the final answer as JSON matching this schema. Do not wrap it in Markdown.\n' + JSON.stringify(format.schema) });
+  } else if (format?.type === 'json_object') {
+    out.response_format = { type: 'json_object' };
+    messages.unshift({ role: 'developer', content: 'Return the final answer as a valid JSON object. Do not wrap it in Markdown.' });
+  }
   if (tools.length) out.tools = tools;
   const max = [body.max_output_tokens, body.max_completion_tokens, body.max_tokens].find(value => Number.isSafeInteger(value) && value > 0);
   if (max) out.max_completion_tokens = max;
@@ -256,7 +268,7 @@ class StrataStreamAdapter extends Transform {
     return { type: 'function_call', call_id: call.id, name: call.name, arguments: call.arguments || '{}' };
   }
 
-  _complete() {
+  _complete(finishReason = 'stop') {
     if (this.completed) return;
     this.completed = true;
     this._created();
@@ -277,15 +289,20 @@ class StrataStreamAdapter extends Transform {
       this._event({ type: 'response.output_item.done', output_index: outputIndex, item });
       output.push(item); outputIndex += 1;
     }
-    for (const index of [...this.calls.keys()].sort((a, b) => a - b)) {
+    const limited = ['length', 'max_tokens', 'max_output_tokens'].includes(finishReason);
+    // A cutoff may leave incomplete arguments. Never release those calls to the
+    // engine as executable tools; preserve partial text and report the failure.
+    for (const index of (limited ? [] : [...this.calls.keys()].sort((a, b) => a - b))) {
       const item = this._toolItem(this.calls.get(index));
       this._event({ type: 'response.output_item.done', output_index: outputIndex++, item });
       output.push(item);
     }
     const inputTokens = Number(this.usage?.prompt_tokens) || 0;
     const outputTokens = Number(this.usage?.completion_tokens) || 0;
-    this._event({ type: 'response.completed', response: {
-      id: this.responseId, object: 'response', status: 'completed', model: this.model, output,
+    this._event({ type: limited ? 'response.failed' : 'response.completed', response: {
+      id: this.responseId, object: 'response', status: limited ? 'failed' : 'completed', model: this.model, output,
+      ...(limited ? { incomplete_details: { reason: 'max_output_tokens' }, error: { code: 'max_output_tokens',
+        message: 'The local model reached its output token limit before finishing. Partial text was kept; ask it to continue.' } } : {}),
       usage: { input_tokens: inputTokens, input_tokens_details: this.usage?.prompt_tokens_details ? { cached_tokens: Math.min(inputTokens, Math.max(0, Number(this.usage.prompt_tokens_details.cached_tokens) || 0)) } : null, output_tokens: outputTokens,
         output_tokens_details: null, total_tokens: Number(this.usage?.total_tokens) || inputTokens + outputTokens },
     } });
@@ -314,7 +331,7 @@ class StrataStreamAdapter extends Transform {
     if (typeof delta.content === 'string') this._textDelta(delta.content);
     for (const tool of Array.isArray(delta.tool_calls) ? delta.tool_calls : []) this._toolDelta(tool);
     if (object(chunk.usage)) this.usage = chunk.usage;
-    if (choice.finish_reason != null) this._complete();
+    if (choice.finish_reason != null) this._complete(choice.finish_reason);
   }
 
   _transform(chunk, encoding, callback) {

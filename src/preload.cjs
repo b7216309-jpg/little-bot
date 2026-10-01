@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('bot', {
     return ipcRenderer.invoke('bot:attachFiles', paths);
   },
   openAttachment: invoke('openAttachment'), saveAttachment: invoke('saveAttachment'),
+  releaseAttachment: invoke('releaseAttachment'), deleteAttachment: invoke('deleteAttachment'),
+  attachmentStorage: invoke('attachmentStorage'), cleanupAttachments: invoke('cleanupAttachments'),
   saveServiceKey: invoke('saveServiceKey'), openServicePage: invoke('openServicePage'),
   openAgentBrowser: invoke('openAgentBrowser'), closeAgentBrowser: invoke('closeAgentBrowser'), installAgentBrowser: invoke('installAgentBrowser'),
   stop: invoke('stop'), challengeIndependentCheck: invoke('challengeIndependentCheck'), compact: invoke('compact'), deleteChat: invoke('deleteChat'), respondApproval: invoke('respondApproval'),
@@ -26,6 +28,7 @@ contextBridge.exposeInMainWorld('bot', {
   saveMemory: invoke('saveMemory'), saveFact: invoke('saveFact'), deleteFact: invoke('deleteFact'), clearEpisodes: invoke('clearEpisodes'),
   searchMemory: invoke('searchMemory'), getMemorySource: invoke('getMemorySource'),
   configureMemory: invoke('configureMemory'), linkMemoryProject: invoke('linkMemoryProject'),
+  retryMemoryLearning: invoke('retryMemoryLearning'), discardMemoryLearning: invoke('discardMemoryLearning'),
   saveHeartbeat: invoke('saveHeartbeat'), runHeartbeat: invoke('runHeartbeat'), stopHeartbeat: invoke('stopHeartbeat'), readHeartbeat: invoke('readHeartbeat'),
   heartbeatFeedback: invoke('heartbeatFeedback'),
   refreshExtensions: invoke('refreshExtensions'), saveMcpServer: invoke('saveMcpServer'), deleteMcpServer: invoke('deleteMcpServer'),

@@ -3,6 +3,7 @@
 const { EventBus } = require('./event-bus.cjs');
 const { StandingIntentStore } = require('./standing-intents.cjs');
 const { advanceMissedSchedules, missedCount } = require('./missed-schedules.cjs');
+const { ongoing } = require('./goal-contract.cjs');
 
 const MINUTE = 60000;
 const CALENDAR_HORIZONS = Object.freeze([1440, 60, 15]);
@@ -58,7 +59,7 @@ class EventRuntime {
       this.bus.subscribe({ id: 'runtime:intent-action', type: 'standing_intent.action', priority: 10,
         handler: event => this._runIntentAction(event) }),
       this.bus.subscribe({ id: 'runtime:settle-goal', type: '*', priority: 8,
-        filter: event => ['goal.completed', 'goal.blocked', 'goal.paused', 'goal.removed'].includes(event.type), handler: event => this._settleGoal(event) }),
+        filter: event => ['goal.completed', 'goal.reviewed', 'goal.blocked', 'goal.paused', 'goal.removed'].includes(event.type), handler: event => this._settleGoal(event) }),
       this.bus.subscribe({ id: 'runtime:settle-automation', type: '*', priority: 8,
         filter: event => ['automation.completed', 'automation.error'].includes(event.type), handler: event => this._settleAutomation(event) }),
       this.bus.subscribe({ id: 'runtime:standing-intents', type: '*', priority: -10,
@@ -214,7 +215,10 @@ class EventRuntime {
       if (action.type === 'goal.run') {
         const goal = this.goals.goal(action.goalId);
         if (!goal.authorized) throw new Error('Run this goal once from Goals before a standing intent can start it.');
-        if (['queued', 'running'].includes(goal.status)) {
+        const awaitingReview = goal.status === 'queued' && ongoing(goal) && goal.review?.lastResult
+          && !this.goals.forceRuns?.has(goal.id) && !goal.needsRecoveryCheck && !goal.continueAfterAnswer
+          && this.goals.activeId !== goal.id && !this.pendingGoals.has(goal.id);
+        if (goal.status === 'running' || (goal.status === 'queued' && !awaitingReview)) {
           this.intents.record(id, { status: 'skipped', event, error: 'The target goal is already queued or running.' });
           return;
         }
@@ -294,7 +298,7 @@ class EventRuntime {
     if (!pending) return;
     const skipped = ['goal.paused', 'goal.removed'].includes(event.type);
     for (const [intentId] of pending) this.intents.record(intentId, {
-      status: event.type === 'goal.completed' ? 'completed' : skipped ? 'skipped' : 'error', event,
+      status: ['goal.completed', 'goal.reviewed'].includes(event.type) ? 'completed' : skipped ? 'skipped' : 'error', event,
       error: event.type === 'goal.blocked'
         ? String(event.payload?.reason || 'The target goal was blocked.')
         : event.type === 'goal.paused'

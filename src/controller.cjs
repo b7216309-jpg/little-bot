@@ -143,6 +143,9 @@ class Controller extends EventEmitter {
     return {
       appVersion: require('../package.json').version, ...this.store.data,
       memory: { ...(this.store.memoryService?.snapshot() || this.store.data.memory), learning: this.memoryConsolidator?.state || { status: 'idle' } },
+      attachmentStorage: this.attachmentStorage ? { usedBytes: this.attachmentStorage.usedBytes,
+        maxBytes: this.attachmentStorage.maxBytes, unusedBytes: this.attachmentStorage.unusedBytes,
+        fileCount: this.attachmentStorage.items.length } : null,
       settings: {
         ...this.store.data.settings,
         systemPrompt: this.systemPrompt(),

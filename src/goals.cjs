@@ -170,7 +170,14 @@ class GoalRunner {
     if (existing?.id === this.activeId) throw new Error('Pause the active goal and wait for it to stop before editing.');
     if (!existing && this.data.goals.length >= 50) throw new Error('Keep at most 50 goals. Remove an old goal first.');
     const goal = validateGoal(input, existing, this.store.data.settings);
-    for (const id of goal.dependsOn) if (!this.data.goals.some(item => item.id === id)) throw new Error('A selected dependency no longer exists.');
+    for (const id of goal.dependsOn) {
+      const dependency = this.data.goals.find(item => item.id === id);
+      if (!dependency) throw new Error('A selected dependency no longer exists.');
+      if (contract.ongoing(dependency)) throw new Error('Ongoing goals cannot be completion dependencies. Choose a task instead.');
+    }
+    if (contract.ongoing(goal) && this.data.goals.some(item => item.id !== goal.id && item.dependsOn.includes(goal.id))) {
+      throw new Error('Remove this goal from other tasks’ dependencies before changing it to Ongoing.');
+    }
     const all = [...this.data.goals.filter(item => item.id !== goal.id), goal];
     const visit = (id, trail = new Set()) => { if (trail.has(id)) throw new Error('Goal dependencies cannot form a cycle.'); const next = new Set(trail).add(id); for (const child of all.find(item => item.id === id)?.dependsOn || []) visit(child, next); };
     visit(goal.id);
@@ -284,6 +291,9 @@ class GoalRunner {
       for (const goal of [...this.data.goals].sort((a, b) => a.priority - b.priority || a.createdAt - b.createdAt)) {
         if (goal.status !== 'queued' || !goal.authorized || goal.pendingQuestion) continue;
         if (!isConnectionSelected(goal, this.store.data.settings)) continue;
+        if (goal.dependsOn.some(id => contract.ongoing(this.data.goals.find(item => item.id === id)))) {
+          this.block(goal, 'This task depends on an ongoing goal, which cannot complete. Edit its dependencies to choose a task.'); continue;
+        }
         if (goal.dependsOn.some(id => {
           const dependency = this.data.goals.find(item => item.id === id);
           return !dependency || (dependency.status !== 'completed' && !(isRecurringGoal(dependency) && Number.isFinite(dependency.lastCompletedAt)));
@@ -343,6 +353,7 @@ class GoalRunner {
       if (chat) { chat.messages.length = messages; chat.updatedAt = updatedAt; }
       throw error;
     }
+    this.emit('goal.reviewed', goal, { runId, outcome, summary, reviewedAt: Date.now(), nextRunAt: goal.nextRunAt });
     if (outcome !== 'no-change') this.onAlert({ title: goal.name, message: summary, goalId: goal.id });
   }
   saveQuestion(goal, value, checkpoint, nextStep) {

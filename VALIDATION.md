@@ -1,3 +1,13 @@
+# Version 0.10.1 verification
+
+`npm run ci` passed: 166 JavaScript files syntax-checked, 453 Node tests, and all 14 Electron fixtures. The bundled operating guide also passed the skill validator.
+
+Regression coverage verifies chat histories above the former encrypted-envelope limit; schema delivery through the actual bundled engine and Strata adapter; bounded memory retries and recovery controls; ongoing-review event settlement; complete calendar dates; deferred-operation recovery before and after handler execution; partial answers and failed status on token cutoff; impossible-dependency rejection; attachment disk cleanup; and guide migration preserving personal edits and deletions. The new Electron fixture executes production attachment and memory IPC registrations with the real preload and renderer.
+
+The bundled engine was tested against an isolated deterministic fake model HTTP server. It completed a schema-conforming response and failed a length-limited response while retaining its partial text, with exactly two HTTP requests and no hidden retry. This proves transport compatibility, not model compliance with a prompted schema. Strata does not enforce JSON grammar; structured-result consumers still validate model output.
+
+Packaging checks additionally reproduced a Windows engine launch failure at a 270-character executable path. Using Windows extended paths fixes the launch. The production local model server was offline during this update; no fresh live Qwen run is claimed. Earlier live-model results below belong to their stated versions.
+
 # Version 0.10.0 verification
 
 Goals 0.10.0: isolated real local Qwen runs verify a finite file task, fresh correction of an obsolete fact, same-chat output, restart persistence and zero model requests on an unchanged review. Production renderer tests cover goal questions and exact answer routing. Model coaching quality remains subject to user feedback.

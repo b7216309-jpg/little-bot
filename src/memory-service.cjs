@@ -10,6 +10,7 @@ const clean = (value) =>
 const key = (value) =>
   clean(value).normalize("NFKC").toLowerCase().replace(/\s+/g, " ");
 const hash = (value) => createHash("sha256").update(value).digest("hex");
+const MAX_EXTRACTION_ATTEMPTS = 3;
 function workspaceKey(value) {
   const folder = clean(value);
   return /^(?:[a-z]:[\\/]|\\\\)/i.test(folder)
@@ -56,6 +57,8 @@ class MemoryService {
     if (!this.db.prepare('PRAGMA table_info(records)').all().some(column => column.name === 'recallable')) {
       this.db.exec("BEGIN; ALTER TABLE records ADD COLUMN recallable INTEGER NOT NULL DEFAULT 1; UPDATE records SET recallable=0,embedding=NULL,embedding_model=NULL WHERE type='history' AND (COALESCE(json_extract(source,'$.role'),'tool') NOT IN ('user','assistant') OR COALESCE(json_extract(source,'$.kind'),'') IN ('reasoning','analysis','plan','commentary') OR COALESCE(json_extract(source,'$.phase'),'') IN ('analysis','commentary')); COMMIT;");
     }
+    // Quarantine exhausted jobs from older releases without replaying them.
+    this.db.prepare("UPDATE extraction_jobs SET status='failed' WHERE status='pending' AND attempts>=?").run(MAX_EXTRACTION_ATTEMPTS);
     const savedEmbedding = this.db.prepare("SELECT value FROM settings WHERE key='embedding'").get();
     this.embedding = embedding || (savedEmbedding ? parse(savedEmbedding.value, null) : { ...BUNDLED_EMBEDDING });
     if (this.embedding?.provider === 'bundled') this.embedding = { ...BUNDLED_EMBEDDING };
@@ -919,9 +922,9 @@ class MemoryService {
   pendingExtractions(limit = 1) {
     return this.db
       .prepare(
-        "SELECT * FROM extraction_jobs WHERE status='pending' AND next_attempt<=? ORDER BY rowid LIMIT ?",
+        "SELECT * FROM extraction_jobs WHERE status='pending' AND attempts<? AND next_attempt<=? ORDER BY rowid LIMIT ?",
       )
-      .all(Date.now(), limit)
+      .all(MAX_EXTRACTION_ATTEMPTS, Date.now(), limit)
       .map((row) => ({
         ...parse(row.payload),
         attempts: row.attempts,
@@ -965,11 +968,27 @@ class MemoryService {
     return records;
   }
   failExtraction(id, error) {
+    const row = this.db.prepare("SELECT attempts,status FROM extraction_jobs WHERE id=?").get(id);
+    if (!row || row.status !== 'pending') return;
+    const attempts = row.attempts + 1;
     this.db
       .prepare(
-        "UPDATE extraction_jobs SET attempts=attempts+1,next_attempt=?,error=? WHERE id=?",
+        "UPDATE extraction_jobs SET attempts=?,status=?,next_attempt=?,error=? WHERE id=?",
       )
-      .run(Date.now() + 60000, String(error?.message || error), id);
+      .run(attempts, attempts >= MAX_EXTRACTION_ATTEMPTS ? 'failed' : 'pending',
+        Date.now() + 60000 * 2 ** (attempts - 1), String(error?.message || error).slice(0, 2000), id);
+  }
+  failedExtractions() {
+    return this.db.prepare("SELECT id,chat_id AS chatId,attempts,error FROM extraction_jobs WHERE status='failed' ORDER BY rowid LIMIT 100").all();
+  }
+  retryExtraction(id) {
+    const result = this.db.prepare("UPDATE extraction_jobs SET status='pending',attempts=0,next_attempt=0,error=NULL WHERE id=? AND status='failed'").run(id);
+    if (!result.changes) throw new Error('Choose a failed memory learning job.');
+  }
+  discardExtraction(id) {
+    // Keep the identifier so indexing the same completed turn cannot resurrect it.
+    const result = this.db.prepare("UPDATE extraction_jobs SET status='discarded' WHERE id=? AND status='failed'").run(id);
+    if (!result.changes) throw new Error('Choose a failed memory learning job.');
   }
   applyExtraction(candidates, source = {}) {
     return (Array.isArray(candidates) ? candidates : [])
@@ -977,4 +996,4 @@ class MemoryService {
       .filter(Boolean);
   }
 }
-module.exports = { MemoryService, workspaceKey };
+module.exports = { MemoryService, workspaceKey, MAX_EXTRACTION_ATTEMPTS };
