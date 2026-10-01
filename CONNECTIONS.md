@@ -38,4 +38,4 @@ The installed server accepts images in incoming messages but rejects image-value
 
 Configuration follows [Codex custom model providers](https://learn.chatgpt.com/docs/config-file/config-advanced#custom-model-providers): a separate provider using `wire_api = "responses"` and `requires_openai_auth = false`.
 
-Cache rotation additionally requires [Strata PR #175](https://github.com/Niko1221/Strata/pull/175); see the [integration guide](integrations/strata/README.md).
+Official Strata 0.1.30 and later provide optional automatic conversation parking in RAM. The local 0.1.33 engine adds temporary SSD storage using its current snapshot implementation. Little Bot sends standard requests with full histories and needs no custom slot metadata in either mode. See the [integration guide](integrations/strata/README.md) for configuration, the versioned SSD patch and update instructions.

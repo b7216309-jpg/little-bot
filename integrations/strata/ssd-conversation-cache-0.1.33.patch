@@ -1,0 +1,762 @@
+diff --git a/include/strata/core/conversation_temp.hpp b/include/strata/core/conversation_temp.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/strata/core/conversation_temp.hpp
+@@ -0,0 +1,177 @@
++#pragma once
++
++#include <algorithm>
++#include <array>
++#include <atomic>
++#include <cstdio>
++#include <cstring>
++#include <memory>
++#include <optional>
++#include <filesystem>
++#include <stdexcept>
++#include <vector>
++#include <cstdint>
++#if defined(_WIN32)
++#ifndef NOMINMAX
++#define NOMINMAX
++#endif
++#include <windows.h>
++#include <io.h>
++#include <fcntl.h>
++#else
++#include <unistd.h>
++#endif
++
++namespace strata::core {
++
++// Private, process-lifetime files. No serialized state is reused after restart.
++// Payload hashes are kept in memory and checked before any GPU restore.
++class ConversationTempFile {
++public:
++    static constexpr size_t chunk_bytes = 1024 * 1024;
++    static constexpr uint64_t free_floor = 512ull * 1024 * 1024;
++    static std::optional<uint64_t> available_bytes() {
++#if defined(_WIN32)
++        wchar_t directory[MAX_PATH + 1];
++        const DWORD length = GetTempPathW(MAX_PATH, directory);
++        ULARGE_INTEGER available;
++        if (!length || length >= MAX_PATH || !GetDiskFreeSpaceExW(directory, &available, nullptr, nullptr))
++            return std::nullopt;
++        return available.QuadPart;
++#else
++        std::error_code error;
++        const auto space = std::filesystem::space(P_tmpdir, error);
++        if (error) return std::nullopt;
++        return space.available;
++#endif
++    }
++    static bool space_admit(std::optional<uint64_t> available, uint64_t allocation) {
++        return available && *available >= free_floor && allocation <= *available - free_floor;
++    }
++    ConversationTempFile() {
++#if defined(_WIN32)
++        wchar_t directory[MAX_PATH + 1], name[MAX_PATH + 1];
++        const DWORD length = GetTempPathW(MAX_PATH, directory);
++        if (!length || length >= MAX_PATH || !GetTempFileNameW(directory, L"stc", 0, name))
++            throw std::runtime_error("SSD cache: cannot create temporary file");
++        HANDLE handle = CreateFileW(name, GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
++                                   FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
++        if (handle == INVALID_HANDLE_VALUE) {
++            DeleteFileW(name);
++            throw std::runtime_error("SSD cache: cannot open temporary file");
++        }
++        const int fd = _open_osfhandle(reinterpret_cast<intptr_t>(handle), _O_BINARY | _O_RDWR);
++        if (fd < 0) { CloseHandle(handle); throw std::runtime_error("SSD cache: file descriptor failed"); }
++        file_ = _fdopen(fd, "w+b");
++        if (!file_) { _close(fd); throw std::runtime_error("SSD cache: file stream failed"); }
++#else
++        file_ = std::tmpfile();
++        if (!file_) throw std::runtime_error("SSD cache: cannot create temporary file");
++#endif
++        // The explicit staging chunk owns buffering; avoid another CRT buffer.
++        std::setvbuf(file_, nullptr, _IONBF, 0);
++        ++files_;
++    }
++    ~ConversationTempFile() { if (file_) { std::fclose(file_); --files_; } }
++    static size_t active_files() { return files_.load(); }
++    ConversationTempFile(const ConversationTempFile&) = delete;
++    ConversationTempFile& operator=(const ConversationTempFile&) = delete;
++    size_t size() const { return size_; }
++    size_t ram_bytes() const { return hashes_.capacity() * sizeof(uint64_t); }
++    void read(void* destination, size_t at, size_t count) const {
++        if (at > size_ || count > size_ - at) throw std::runtime_error("SSD cache: invalid read extent");
++        seek(at);
++        if (count && std::fread(destination, 1, count, file_) != count)
++            throw std::runtime_error("SSD cache: incomplete read");
++    }
++    void write(const void* source, size_t at, size_t count) {
++        if (count > SIZE_MAX - at || at > size_) throw std::runtime_error("SSD cache: invalid write extent");
++        seek(at);
++        if (count && std::fwrite(source, 1, count, file_) != count)
++            throw std::runtime_error("SSD cache: incomplete write");
++        size_ = std::max(size_, at + count);
++        sealed_ = false;
++    }
++    void resize(size_t n, uint8_t value = 0) {
++        if (n > size_) {
++            std::vector<uint8_t> buffer(std::min(chunk_bytes, n - size_), value);
++            while (size_ < n) write(buffer.data(), size_, std::min(buffer.size(), n - size_));
++        } else if (n < size_) {
++            if (std::fflush(file_)) throw std::runtime_error("SSD cache: flush failed");
++#if defined(_WIN32)
++            if (_chsize_s(_fileno(file_), n)) throw std::runtime_error("SSD cache: truncate failed");
++#else
++            if (ftruncate(fileno(file_), n)) throw std::runtime_error("SSD cache: truncate failed");
++#endif
++            size_ = n;
++            sealed_ = false;
++        }
++    }
++    void seal() {
++        if (std::fflush(file_)) throw std::runtime_error("SSD cache: flush failed");
++        hashes_.clear();
++        std::vector<uint8_t> buffer(std::min(size_, chunk_bytes));
++        for (size_t at = 0; at < size_;) {
++            const size_t n = std::min(buffer.size(), size_ - at);
++            read(buffer.data(), at, n);
++            hashes_.push_back(hash(buffer.data(), n));
++            at += n;
++        }
++        sealed_ = true;
++    }
++    bool verify() const {
++        if (!sealed_) return false;
++        try {
++            seek(0);
++#if defined(_WIN32)
++            if (_fseeki64(file_, 0, SEEK_END) || _ftelli64(file_) != static_cast<int64_t>(size_)) return false;
++#else
++            if (fseeko(file_, 0, SEEK_END) || ftello(file_) != static_cast<int64_t>(size_)) return false;
++#endif
++            std::vector<uint8_t> buffer(std::min(size_, chunk_bytes));
++            size_t index = 0;
++            for (size_t at = 0; at < size_;) {
++                const size_t n = std::min(buffer.size(), size_ - at);
++                read(buffer.data(), at, n);
++                if (index >= hashes_.size() || hash(buffer.data(), n) != hashes_[index++]) return false;
++                at += n;
++            }
++            return index == hashes_.size();
++        } catch (const std::runtime_error&) { return false; }
++    }
++private:
++    inline static std::atomic<size_t> files_{0};
++    void seek(size_t at) const {
++        if (at > INT64_MAX) throw std::runtime_error("SSD cache: file offset overflow");
++#if defined(_WIN32)
++        if (_fseeki64(file_, static_cast<int64_t>(at), SEEK_SET))
++#else
++        if (fseeko(file_, static_cast<off_t>(at), SEEK_SET))
++#endif
++            throw std::runtime_error("SSD cache: seek failed");
++    }
++    static uint64_t hash(const uint8_t* p, size_t n) {
++        uint64_t h = 1469598103934665603ull;
++        while (n >= sizeof(uint64_t)) {
++            uint64_t word;
++            std::memcpy(&word, p, sizeof(word));
++            h = (h ^ word) * 1099511628211ull;
++            p += sizeof(word); n -= sizeof(word);
++        }
++        while (n--) h = (h ^ *p++) * 1099511628211ull;
++        return h;
++    }
++    FILE* file_ = nullptr;
++    size_t size_ = 0;
++    std::vector<uint64_t> hashes_;
++    bool sealed_ = false;
++};
++
++inline thread_local bool conversation_capture_to_ssd = false;
++struct ConversationStorageScope {
++    bool previous;
++    explicit ConversationStorageScope(bool disk) : previous(conversation_capture_to_ssd) { conversation_capture_to_ssd = disk; }
++    ~ConversationStorageScope() { conversation_capture_to_ssd = previous; }
++};
++
++} // namespace strata::core
+diff --git a/include/strata/core/conversation_buffer.hpp b/include/strata/core/conversation_buffer.hpp
+--- a/include/strata/core/conversation_buffer.hpp
++++ b/include/strata/core/conversation_buffer.hpp
+@@ -7,6 +7,8 @@
+ #include <initializer_list>
+ #include <utility>
+ #include <vector>
++#include <type_traits>
++#include "strata/core/conversation_temp.hpp"
+ 
+ namespace strata::core {
+ 
+@@ -24,20 +26,33 @@
+             return true;
+         });
+     }
+-    ConversationBuffer(const ConversationBuffer&) = default;
+-    ConversationBuffer& operator=(const ConversationBuffer&) = default;
++    ConversationBuffer(const ConversationBuffer& other) {
++        if (!other.disk_) { segments_ = other.segments_; size_ = other.size_; return; }
++        disk_ = std::make_shared<ConversationTempFile>();
++        other.visit(0, other.size(), [&](const uint8_t* p, size_t n, size_t at) {
++            disk_->write(p, at, n); return true;
++        });
++        size_ = other.size_;
++        disk_->seal();
++    }
++    ConversationBuffer& operator=(const ConversationBuffer& other) {
++        if (this != &other) { ConversationBuffer copy(other); *this = std::move(copy); }
++        return *this;
++    }
+     ConversationBuffer(ConversationBuffer&& other) noexcept
+-        : segments_(std::move(other.segments_)), size_(std::exchange(other.size_, 0)) {}
++        : segments_(std::move(other.segments_)), size_(std::exchange(other.size_, 0)), disk_(std::move(other.disk_)) {}
+     ConversationBuffer& operator=(ConversationBuffer&& other) noexcept {
+         if (this == &other) return *this;
+         segments_ = std::move(other.segments_);
+         size_ = std::exchange(other.size_, 0);
++        disk_ = std::move(other.disk_);
+         return *this;
+     }
+ 
+     size_t size() const { return size_; }
+     bool empty() const { return size_ == 0; }
+     size_t bytes() const {
++        if (disk_) return disk_->size() + disk_->ram_bytes();
+         size_t n = segments_.capacity() * sizeof(Segment);
+         for (const auto& segment : segments_) n += segment.capacity();
+         return n;
+@@ -60,6 +75,10 @@
+         return total;
+     }
+     void resize(size_t n, uint8_t value = 0) {
++        if (disk_ || (conversation_capture_to_ssd && n && size_ == 0)) {
++            if (!disk_) disk_ = std::make_shared<ConversationTempFile>();
++            disk_->resize(n, value); size_ = n; return;
++        }
+         if (n > size_) {
+             const bool growing = size_ != 0;
+             const size_t spare = segments_.empty() ? 0 : segments_.back().capacity() - segments_.back().size();
+@@ -105,6 +124,15 @@
+     }
+     bool operator==(const ConversationBuffer& other) const {
+         if (size_ != other.size_) return false;
++        if (disk_ || other.disk_) {
++            std::vector<uint8_t> a(std::min(size_, ConversationTempFile::chunk_bytes)), b(a.size());
++            for (size_t at = 0; at < size_;) {
++                const size_t n = std::min(a.size(), size_ - at);
++                if (!read(a.data(), at, n) || !other.read(b.data(), at, n) || std::memcmp(a.data(), b.data(), n)) return false;
++                at += n;
++            }
++            return true;
++        }
+         size_t a = 0, b = 0, x = 0, y = 0;
+         while (a < segments_.size() && b < other.segments_.size()) {
+             const auto& left = segments_[a];
+@@ -117,6 +145,10 @@
+         }
+         return true;
+     }
++    bool disk_backed() const { return bool(disk_); }
++    void seal_disk() { if (disk_) disk_->seal(); }
++    bool verify_disk() const { return !disk_ || disk_->verify(); }
++    size_t ram_bytes() const { return disk_ ? disk_->ram_bytes() : bytes(); }
+ 
+ private:
+     using Segment = std::vector<uint8_t>;
+@@ -134,6 +166,21 @@
+     }
+     template<class Self, class Fn> static bool visit_impl(Self& self, size_t offset, size_t count, Fn fn) {
+         if (offset > self.size_ || count > self.size_ - offset) return false;
++        if (self.disk_) {
++            std::vector<uint8_t> buffer(std::min(count, ConversationTempFile::chunk_bytes));
++            while (count) {
++                const size_t n = std::min(count, buffer.size());
++                self.disk_->read(buffer.data(), offset, n);
++                if constexpr (std::is_const_v<Self>) {
++                    if (!fn(static_cast<const uint8_t*>(buffer.data()), n, offset)) return false;
++                } else {
++                    if (!fn(buffer.data(), n, offset)) return false;
++                    self.disk_->write(buffer.data(), offset, n);
++                }
++                offset += n; count -= n;
++            }
++            return true;
++        }
+         size_t begin = 0;
+         for (auto& segment : self.segments_) {
+             if (!count) break;
+@@ -149,6 +196,7 @@
+     }
+     std::vector<Segment> segments_;
+     size_t size_ = 0;
++    std::shared_ptr<ConversationTempFile> disk_;
+ };
+ 
+ } // namespace strata::core
+diff --git a/include/strata/core/conversation_cache.hpp b/include/strata/core/conversation_cache.hpp
+--- a/include/strata/core/conversation_cache.hpp
++++ b/include/strata/core/conversation_cache.hpp
+@@ -28,12 +28,52 @@
+     // Ordinary layer-split checkpoints retain each device's running state.
+     // Whole-session parking is currently single-GPU and rejects these parts.
+     std::vector<ConversationCheckpoint> stage_parts;
++    std::shared_ptr<ConversationTempFile> disk_state;
++    std::array<size_t, 5> disk_sizes{};
++
++    void offload_state() {
++        if (disk_state) return;
++        const std::array<std::vector<uint8_t>*, 5> buffers = {&gdn, &ple, &tails, &dead, &block_pos};
++        auto file = std::make_shared<ConversationTempFile>();
++        std::array<size_t, 5> sizes{};
++        for (size_t i = 0; i < buffers.size(); ++i) {
++            sizes[i] = buffers[i]->size();
++            file->write(buffers[i]->data(), file->size(), sizes[i]);
++        }
++        file->seal();
++        disk_state = std::move(file); disk_sizes = sizes;
++        for (auto* buffer : buffers) std::vector<uint8_t>().swap(*buffer);
++    }
++    bool load_state() {
++        if (!disk_state) return true;
++        if (!disk_state->verify()) return false;
++        std::array<std::vector<uint8_t>, 5> loaded;
++        size_t at = 0;
++        for (size_t i = 0; i < loaded.size(); ++i) {
++            if (disk_sizes[i] > disk_state->size() - at) return false;
++            loaded[i].resize(disk_sizes[i]);
++            disk_state->read(loaded[i].data(), at, loaded[i].size());
++            at += loaded[i].size();
++        }
++        if (at != disk_state->size()) return false;
++        gdn = std::move(loaded[0]); ple = std::move(loaded[1]); tails = std::move(loaded[2]);
++        dead = std::move(loaded[3]); block_pos = std::move(loaded[4]);
++        return true;
++    }
+ 
+     size_t bytes() const {
+         size_t n = ids.capacity() * sizeof(int32_t) + imgs.capacity() * sizeof(ConversationImageKey) +
+-               gdn.capacity() + ple.capacity() + tails.capacity() + dead.capacity() + block_pos.capacity() +
++               (disk_state ? disk_state->size() + disk_state->ram_bytes() :
++                gdn.capacity() + ple.capacity() + tails.capacity() + dead.capacity() + block_pos.capacity()) +
+                stage_parts.capacity() * sizeof(ConversationCheckpoint);
+         for (const auto& part : stage_parts) n += part.bytes();
++        return n;
++    }
++    size_t ram_bytes() const {
++        size_t n = ids.capacity() * sizeof(int32_t) + imgs.capacity() * sizeof(ConversationImageKey) +
++                   gdn.capacity() + ple.capacity() + tails.capacity() + dead.capacity() + block_pos.capacity() +
++                   stage_parts.capacity() * sizeof(ConversationCheckpoint) + (disk_state ? disk_state->ram_bytes() : 0);
++        for (const auto& part : stage_parts) n += part.ram_bytes();
+         return n;
+     }
+ };
+@@ -46,6 +86,17 @@
+     ConversationBuffer k, v, k_scale, v_scale, pooled;
+     size_t bytes() const {
+         return k.bytes() + v.bytes() + k_scale.bytes() + v_scale.bytes() + pooled.bytes();
++    }
++    size_t ram_bytes() const {
++        return k.ram_bytes() + v.ram_bytes() + k_scale.ram_bytes() + v_scale.ram_bytes() + pooled.ram_bytes();
++    }
++    void seal_disk() {
++        for (auto* buffer : {&k, &v, &k_scale, &v_scale, &pooled}) buffer->seal_disk();
++    }
++    bool verify_disk() const {
++        for (const auto* buffer : {&k, &v, &k_scale, &v_scale, &pooled})
++            if (!buffer->verify_disk()) return false;
++        return true;
+     }
+ };
+ 
+@@ -70,11 +121,30 @@
+     std::vector<ConversationKv> kv; // main layers followed by the draft layer
+     bool cvec = true;
+ 
++    void offload_state() {
++        live.offload_state();
++        for (auto& c : checkpoints) c.offload_state();
++        for (auto& layer : kv) layer.seal_disk();
++    }
++    bool prepare_restore() {
++        if (!live.load_state()) return false;
++        for (auto& c : checkpoints) if (!c.load_state()) return false;
++        for (const auto& layer : kv) if (!layer.verify_disk()) return false;
++        return true;
++    }
++
+     size_t bytes() const {
+         size_t n = live.bytes() + checkpoints.capacity() * sizeof(ConversationCheckpoint) +
+                    kv.capacity() * sizeof(ConversationKv);
+         for (const auto& c : checkpoints) n += c.bytes();
+         for (const auto& k : kv) n += k.bytes();
++        return n;
++    }
++    size_t ram_bytes() const {
++        size_t n = live.ram_bytes() + checkpoints.capacity() * sizeof(ConversationCheckpoint) +
++                   kv.capacity() * sizeof(ConversationKv);
++        for (const auto& c : checkpoints) n += c.ram_bytes();
++        for (const auto& layer : kv) n += layer.ram_bytes();
+         return n;
+     }
+ };
+@@ -107,6 +177,18 @@
+     size_t bytes() const { return bytes_ + reuse_.bytes(); }
+     size_t size() const { return entries_.size(); }
+     size_t evictions() const { return evictions_; }
++    bool evict_oldest() {
++        if (entries_.empty()) return false;
++        bytes_ -= entries_.front().bytes();
++        entries_.pop_front();
++        ++evictions_;
++        return true;
++    }
++    size_t ram_bytes() const {
++        size_t n = reuse_.bytes();
++        for (const auto& e : entries_) n += e.ram_bytes();
++        return n;
++    }
+ 
+     // Retain only the restored K/V buffers, not duplicate running checkpoints.
+     // This optimization never evicts a parked conversation to make itself fit.
+@@ -157,9 +239,7 @@
+         if (!enabled() || held > budget_ || incoming > budget_ - held) return false;
+         if (bytes() > budget_ - held - incoming) reuse_ = {};
+         while (!entries_.empty() && (entries_.size() >= slots_ || bytes_ > budget_ - held - incoming)) {
+-            bytes_ -= entries_.front().bytes();
+-            entries_.pop_front();
+-            ++evictions_;
++            evict_oldest();
+         }
+         return true;
+     }
+diff --git a/src/core/conversation_state.cpp b/src/core/conversation_state.cpp
+--- a/src/core/conversation_state.cpp
++++ b/src/core/conversation_state.cpp
+@@ -255,12 +255,22 @@
+     captured.geometry = geometry_key(g);
+     captured.layer_lo = ss.layer_lo; captured.layer_hi = ss.layer_hi;
+     captured.live.ids = view.ids; captured.live.imgs = view.images;
+-    captured.cvec = view.cvec; captured.checkpoints = view.checkpoints;
++    captured.cvec = view.cvec;
++    if (conversation_capture_to_ssd) {
++        // Offload one checkpoint at a time so a switch never duplicates the
++        // complete active checkpoint chain in physical RAM.
++        captured.checkpoints.reserve(view.checkpoints.size());
++        for (const auto& checkpoint : view.checkpoints) {
++            captured.checkpoints.push_back(checkpoint);
++            captured.checkpoints.back().offload_state();
++        }
++    } else captured.checkpoints = view.checkpoints;
+     const int64_t unchanged = reuse.kv.empty() ? 0 : reuse.unchanged_tokens;
+     captured.kv = std::move(reuse.kv);
+     const size_t layers = owned_qsa(ss);
+     captured.kv.resize(layers + 1);
+     if (!conversation_checkpoint_save(captured.live, ss, g, error)) return false;
++    if (conversation_capture_to_ssd) captured.live.offload_state();
+     const int64_t upto = (int64_t) view.ids.size();
+     for (size_t j = 0; j < layers; ++j)
+         if (!conversation_kv_save(captured.kv[j], owned(ss, j), g, upto, true, error,
+diff --git a/src/core/conversation_cache_test.cpp b/src/core/conversation_cache_test.cpp
+--- a/src/core/conversation_cache_test.cpp
++++ b/src/core/conversation_cache_test.cpp
+@@ -209,5 +209,53 @@
+         check(!disabled.put(image({1,2,3})) && !no_slots.put(image({1,2,3})), "disabled cache stores nothing");
+         check(disabled.best(a,{},true).tokens == 0, "disabled cache has no matches");
+     }
++    const size_t files_before = ConversationTempFile::active_files();
++    {
++        check(!ConversationTempFile::space_admit(std::nullopt,1),"unknown disk space skips parking");
++        check(!ConversationTempFile::space_admit(ConversationTempFile::free_floor-1,0),"disk floor is preserved");
++        check(ConversationTempFile::space_admit(ConversationTempFile::free_floor+100,100),"exact disk admission boundary");
++        check(!ConversationTempFile::space_admit(ConversationTempFile::free_floor+100,101),"oversized disk snapshot rejected before allocation");
++        ConversationStorageScope disk(true);
++        ConversationBuffer bytes;
++        bytes.resize(ConversationTempFile::chunk_bytes + 17, 7);
++        check(bytes.disk_backed(), "SSD capture allocates no K/V payload in RAM");
++        bytes.seal_disk();
++        check(bytes.verify_disk(), "sealed temporary payload verifies");
++        check(bytes.ram_bytes() < 1024, "large disk buffer retains only checksum metadata");
++        auto copy = bytes;
++        bytes.visit(0, 1, [](uint8_t* p, size_t, size_t) { *p = 9; return true; });
++        check(!bytes.verify_disk(), "mutation invalidates the sealed checksum");
++        uint8_t value = 0;
++        check(copy.read(&value, 0, 1) && value == 7, "copy owns independent disk data");
++        bytes.seal_disk();
++        check(bytes.verify_disk() && !(bytes == copy), "resealed mutation differs from its copy");
++        bytes.resize(19); bytes.resize(31, 4);
++        std::vector<uint8_t> values(31);
++        check(bytes.read(values.data(), 0, values.size()) && values[18] == 7 && values[19] == 4,
++              "disk rewind/growth preserves existing bytes and initializes the suffix");
++        ConversationBuffer moved = std::move(bytes);
++        check(bytes.empty() && moved.size() == 31, "disk move transfers file ownership");
++        auto saved = image({1,2,3});
++        saved.live.gdn.resize(2 * ConversationTempFile::chunk_bytes, 13);
++        saved.checkpoints.push_back(saved.live);
++        saved.kv.resize(1); saved.kv[0].k.resize(32, 11);
++        const size_t resident = saved.ram_bytes();
++        saved.offload_state();
++        check(saved.ram_bytes() < 4096 && saved.ram_bytes() < resident, "inactive recurrent/checkpoint state is released from RAM");
++        ConversationCache cache(saved.bytes() + 4096, 2);
++        check(cache.put(std::move(saved)), "disk snapshot obeys the bounded cache policy");
++        check(cache.best(std::vector<int32_t>{1,2,3,4},{},true).tokens == 3, "prefix matching works while checkpoint payloads are on disk");
++        auto incoming = cache.take(0);
++        check(incoming.prepare_restore() && incoming.live.gdn[0] == 7 && incoming.live.gdn[64] == 13 && incoming.checkpoints[0].gdn[64] == 13,
++              "restore loads running state and checkpoint bytes exactly");
++        const uint8_t changed = 0;
++        incoming.live.disk_state->write(&changed, 0, 1);
++        check(!incoming.prepare_restore(), "corrupted file is rejected before GPU restore");
++        check(cache.put(image({5,6,7})),"store an eviction fixture");
++        check(cache.evict_oldest() && cache.size()==0 && cache.bytes()==0 && cache.evictions()==1,
++              "disk-space eviction releases and accounts for the oldest entry");
++        check(!cache.evict_oldest(),"empty cache cannot evict");
++    }
++    check(ConversationTempFile::active_files()==files_before,"snapshot and eviction temporary files close");
+     std::printf("conversation_cache_test: %d checks passed\n", checks);
+ }
+diff --git a/src/core/conversation_snapshot_test.cpp b/src/core/conversation_snapshot_test.cpp
+--- a/src/core/conversation_snapshot_test.cpp
++++ b/src/core/conversation_snapshot_test.cpp
+@@ -192,6 +192,23 @@
+     cuda_check(cudaMemcpy(spare.data(),main.state.idx_pooled,sizes.dead,cudaMemcpyDeviceToHost));
+     check(spare==a.checkpoints[0].dead,"checkpoint rebuilds spare row over a later completed block");
+     check(ss.ple_prev[0]==2 && ss.ple_prev[1]==3,"checkpoint PLE token window");
++    fill(13);
++    SavedConversation disk, reference, disk_readback;
++    check(conversation_snapshot_save(reference,view,ss,g,draft.state,err),"RAM reference for full SSD capture");
++    {
++        ConversationStorageScope scope(true);
++        check(conversation_snapshot_save(disk,view,ss,g,draft.state,err),"full SSD session capture");
++        disk.offload_state();
++    }
++    check(disk.live.gdn.empty() && disk.checkpoints[0].gdn.empty(),"SSD capture releases each recurrent payload");
++    check(disk.prepare_restore(),"verify and load full SSD state");
++    fill(177);
++    check(conversation_snapshot_restore(disk,ss,g,draft.state,err)==ConversationRestore::restored,"restore complete SSD session");
++    check(conversation_snapshot_save(disk_readback,view,ss,g,draft.state,err),"read back complete SSD session");
++    check(disk_readback.live.gdn==reference.live.gdn && disk_readback.live.ple==reference.live.ple &&
++          disk_readback.live.tails==reference.live.tails && disk_readback.live.dead==reference.live.dead &&
++          disk_readback.live.block_pos==reference.live.block_pos && equal(disk_readback.kv[0],reference.kv[0]) &&
++          equal(disk_readback.kv[1],reference.kv[1]),"SSD full session equals RAM reference byte for byte");
+ }
+ }
+ 
+@@ -276,6 +293,26 @@
+             }
+         }
+     }
++    const size_t files_before = ConversationTempFile::active_files();
++    for (int fmt : std::array<int,4>{kKvF16,kKvInt8,kKvQ4,3}) for (int mode : {0,1,2}) {
++        if (fmt==3 && mode!=0) continue;
++        Fixture f(fmt,mode);
++        f.fill(13);
++        ConversationKv disk, readback;
++        std::string err;
++        {
++            ConversationStorageScope scope(true);
++            check(conversation_kv_save(disk,f.state,f.g,65,mode!=2,err),"capture SSD KV");
++        }
++        disk.seal_disk();
++        check(disk.verify_disk() && disk.k.disk_backed(),"sealed SSD KV verifies");
++        f.fill(177);
++        check(conversation_kv_restore(disk,f.state,f.g,65,mode!=2,err),"restore SSD KV");
++        cuda_check(cudaDeviceSynchronize());
++        check(conversation_kv_save(readback,f.state,f.g,65,mode!=2,err),"read back SSD restore");
++        check(equal(disk,readback),"SSD restore is byte-exact across KV formats and layouts");
++    }
++    check(ConversationTempFile::active_files()==files_before,"SSD files close after snapshot destruction");
+     for (int fmt : {kKvF16,kKvInt8,kKvQ4}) for (int mode : {0,1}) for (int experts : {256,512})
+         full_session(fmt,mode,experts);
+     for (int experts : {256,512}) full_session(3,0,experts);
+diff --git a/src/program/generate.cpp b/src/program/generate.cpp
+--- a/src/program/generate.cpp
++++ b/src/program/generate.cpp
+@@ -383,9 +383,10 @@
+     /// prompt again, the v0.1.2 behaviour).  One is the GDN recurrence of the 36 layers, the QSA indexer tails and
+     /// the PLE history (~118 MB of host RAM); the KV cache itself is positional and stays where it is.
+     int prompt_cache = 6;
+-    int64_t conversation_cache_mib = 0; // opt-in host RAM for independent conversations
++    int64_t conversation_cache_mib = 0; // opt-in snapshot budget for independent conversations
+     int conversation_cache_slots = 4;
+     int64_t conversation_cache_min_free_mib = 2560;
++    bool conversation_cache_ssd = false; // process-lifetime temporary snapshots, standard prefix matching
+     /// --serve: also keep a checkpoint every N freshly read prompt tokens (0 = only at the last turn boundary)
+     int64_t prompt_cache_every = 16384;
+     /// --serve: a prompt read from token 0 is also checkpointed at its first turn boundary - the end of the system
+@@ -493,9 +494,10 @@
+                  "  --vision             --serve takes images too (GENI requests; embeddings from strata-vision)\n"
+                  "  --prompt-cache N     --serve: keep N conversation checkpoints between requests (default 6, ~118 MB\n"
+                  "                       of RAM each; 0 = read every prompt from the start)\n"
+-                 "  --conversation-cache-mib N  --serve: RAM budget for parked conversations (default 0 = off)\n"
++                 "  --conversation-cache-mib N  --serve: storage budget for parked conversations (default 0 = off)\n"
+                  "  --conversation-cache-slots N  --serve: at most N parked conversations (default 4)\n"
+                  "  --conversation-cache-min-free-mib N  --serve: physical RAM floor when parking (default 2560)\n"
++                 "  --conversation-cache-storage ram|ssd  parked payload storage (default ram); SSD files clear on exit\n"
+                  "  --prompt-cache-every N  --serve: also checkpoint every N fresh prompt tokens (default 16384, 0 = off)\n"
+                  "  --turn-token ID      --serve: the token that opens a chat turn (default 248045, <|im_start|>)\n"
+                  "  --short-read N       --serve: read at most N fresh text tokens through the decode windows instead\n"
+@@ -1147,6 +1149,13 @@
+         else if (a == "--serve") o.serve = true;
+         else if (a == "--vision") o.vision = true;
+         else if (a == "--prompt-cache") o.prompt_cache = std::max(0, std::atoi(next("--prompt-cache")));
++        else if (a == "--conversation-cache-storage") {
++            const std::string storage = next("--conversation-cache-storage");
++            if (storage != "ram" && storage != "ssd") {
++                std::fprintf(stderr, "--conversation-cache-storage: ram or ssd\n"); return 2;
++            }
++            o.conversation_cache_ssd = storage == "ssd";
++        }
+         else if (a == "--conversation-cache-mib" || a == "--conversation-cache-slots" ||
+                  a == "--conversation-cache-min-free-mib") {
+             const std::string value = next(a.c_str());
+@@ -4243,7 +4252,7 @@
+             o.prompt_cache > 0 ? (size_t) o.conversation_cache_mib * 1024 * 1024 : 0,
+             (size_t) o.conversation_cache_slots);
+         // Save only on a switch/rewind, not on each continuing request. No graph
+-        // addresses change: all parked images live in ordinary host vectors.
++        // addresses change: parked images use host buffers or temporary files.
+         auto park_current = [&](size_t held) -> bool {
+             if (!conversations.enabled() || !live_ok || live.empty()) return true;
+             const strata::core::ConversationView view{live, live_imgs, checks, cvec_cached};
+@@ -4277,10 +4286,37 @@
+                              estimate >> 20);
+                 return true;
+             }
++            if (o.conversation_cache_ssd) {
++                // Leave room for other desktop writes. Filesystem telemetry is
++                // checked again after each oldest-first eviction; I/O failures
++                // caused by concurrent writers still fall back safely below.
++                const uint64_t disk_estimate = uint64_t(estimate) + strata::core::ConversationTempFile::chunk_bytes;
++                while (!strata::core::ConversationTempFile::space_admit(
++                           strata::core::ConversationTempFile::available_bytes(), disk_estimate)) {
++                    if (!conversations.evict_oldest()) {
++                        std::fprintf(stderr, "strata serve: SSD cache: skip parking (need %zu MiB plus 512 MiB free disk floor, or telemetry unavailable)\n",
++                                     estimate >> 20);
++                        return true;
++                    }
++                }
++            }
+             const auto t0 = Clock::now();
+             try {
+                 const uint64_t floor = (uint64_t) o.conversation_cache_min_free_mib * 1024 * 1024;
+-                const size_t additional = estimate - reuse.bytes();
++                size_t additional = estimate - reuse.bytes();
++                if (o.conversation_cache_ssd) {
++                    // K/V transfers stream through one 1 MiB chunk. Only the
++                    // one recurrent state/checkpoint copy requires transient RAM.
++                    strata::core::ConversationStateSizes state;
++                    if (!strata::core::conversation_session_sizes(g, ss, state, err)) return false;
++                    additional = state.gdn + state.ple + (size_t) ss.qsa_alloc *
++                        (state.tail + state.dead + state.block_pos) + strata::core::ConversationTempFile::chunk_bytes * 2;
++                    size_t largest = additional;
++                    for (const auto& c : checks) largest = std::max(largest, c.ram_bytes());
++                    additional = largest + view.ids.size() * sizeof(int32_t) + view.images.size() * sizeof(ImgKey);
++                    for (const auto& c : checks)
++                        additional += c.ids.size() * sizeof(int32_t) + c.imgs.size() * sizeof(ImgKey);
++                }
+                 if (!strata::core::conversation_memory_admit(strata::core::conversation_available_memory(),
+                         additional, floor)) {
+                     std::fprintf(stderr, "strata serve: conversation cache: skip parking (physical RAM admission; need %zu MiB plus %lld MiB floor, or telemetry unavailable)\n",
+@@ -4289,14 +4325,19 @@
+                 }
+                 strata::core::SavedConversation image;
+                 size_t reused_bytes = 0;
++                const strata::core::ConversationStorageScope storage(o.conversation_cache_ssd);
+                 if (!strata::core::conversation_snapshot_save(image, view, ss, g, mtp.kv_state(), err,
+                         std::move(reuse), &reused_bytes)) return false;
++                if (o.conversation_cache_ssd) image.offload_state();
+                 if (!strata::core::conversation_memory_admit(strata::core::conversation_available_memory(), 0, floor)) {
+                     std::fprintf(stderr, "strata serve: conversation cache: skip parking (physical RAM floor after capture, or telemetry unavailable)\n");
+                     return true;
+                 }
+                 const size_t snapshot_bytes = image.bytes();
+                 const bool stored = conversations.put(std::move(image), held);
++                if (o.conversation_cache_ssd)
++                    std::fprintf(stderr, "strata serve: SSD cache: parked RAM %zu KiB; disk budget %lld MiB\n",
++                                 conversations.ram_bytes() >> 10, (long long) o.conversation_cache_mib);
+                 std::fprintf(stderr, "strata serve: conversation cache: %s %zu tokens in %.1f ms; parked=%zu bytes=%zu evictions=%zu snapshot_bytes=%zu reused_kv_bytes=%zu\n",
+                              stored ? "parked" : "skipped", live.size(),
+                              std::chrono::duration<double, std::milli>(Clock::now() - t0).count(),
+@@ -4305,6 +4346,10 @@
+                 // The active state has not been touched. Continue with normal
+                 // prompt processing rather than killing a serving process.
+                 std::fprintf(stderr, "strata serve: conversation cache: allocation failed; skip parking\n");
++            } catch (const std::runtime_error& failure) {
++                // Disk capture never changes active GPU state; a full disk or
++                // failed file write falls back to ordinary prompt processing.
++                std::fprintf(stderr, "strata serve: SSD cache: skip parking (%s)\n", failure.what());
+             }
+             return true;
+         };
+@@ -4614,7 +4659,7 @@
+                         "expert_slots_primary=%lld expert_cache_primary_mib=%lld spec=%d "
+                         "mtp_max=%d lookup=%d vram_free_mib=%lld cvec=%s arena_mib=%lld pool_workers=%d pcie_frac=%.2f "
+                         "spec_min_p=%.2f conversation_cache_mib=%lld conversation_cache_slots=%d "
+-                        "conversation_cache_min_free_mib=%lld engine=" STRATA_VERSION "\n",
++                        "conversation_cache_min_free_mib=%lld conversation_cache_storage=%s engine=" STRATA_VERSION "\n",
+                         (long long) o.max_context, o.kv.c_str(),
+                         (long long) (g.n_qsa_layers() > 0 && ss.qsa_states[ss.qsa_primary()].kv_mode == 1
+                                          ? ss.qsa_states[ss.qsa_primary()].n_slots * 4 : 0),
+@@ -4625,7 +4670,7 @@
+                         (long long) ((o.mmap_experts ? src.resident_bytes() : strata::kernels::cpu::expert_layout().total) >> 20),
+                         pool.workers(), o.pcie_frac,
+                         o.spec_min_p, (long long) o.conversation_cache_mib, o.conversation_cache_slots,
+-                        (long long) o.conversation_cache_min_free_mib);
++                        (long long) o.conversation_cache_min_free_mib, o.conversation_cache_ssd ? "ssd" : "ram");
+         }
+         // issue #29: a request whose heartbeat (tokens, prompt chunks, verify windows) stops for this long is stuck on
+         // a flag nobody will raise - end the engine with where it was, so the server starts it again instead of the
+@@ -4889,7 +4934,13 @@
+             if (parked.tokens > resume) incoming.emplace(conversations.take(parked.index));
+             // Reject the entire image before parking/overwriting the outgoing
+             // state. Invalid entries can safely fall back to its existing prefix.
+-            if (incoming && !strata::core::conversation_snapshot_validate(*incoming, ss, g, mtp.kv_state(), err)) {
++            bool disk_valid = true;
++            if (incoming && o.conversation_cache_ssd) {
++                try { disk_valid = incoming->prepare_restore(); }
++                catch (const std::exception& failure) { disk_valid = false; err = failure.what(); }
++                if (!disk_valid && err.empty()) err = "SSD snapshot payload failed its integrity check";
++            }
++            if (incoming && (!disk_valid || !strata::core::conversation_snapshot_validate(*incoming, ss, g, mtp.kv_state(), err))) {
+                 std::fprintf(stderr, "strata serve: conversation cache: discard invalid snapshot (%s)\n", err.c_str());
+                 incoming.reset();
+                 err.clear();
+@@ -4902,8 +4953,10 @@
+             }
+             if (incoming) {
+                 const auto t0 = Clock::now();
+-                if (strata::core::conversation_snapshot_restore(*incoming, ss, g, mtp.kv_state(), err) !=
+-                    strata::core::ConversationRestore::restored) {
++                strata::core::ConversationRestore restore = strata::core::ConversationRestore::transfer_failed;
++                try { restore = strata::core::conversation_snapshot_restore(*incoming, ss, g, mtp.kv_state(), err); }
++                catch (const std::exception& failure) { err = failure.what(); }
++                if (restore != strata::core::ConversationRestore::restored) {
+                     // Already prevalidated above: a failure here is fatal, never
+                     // permission to decode from a partially restored session.
+                     std::printf("ERR restoring parked conversation: %s\n", err.c_str());
+@@ -4918,16 +4971,20 @@
+                     }
+                     std::fprintf(stderr, "strata serve: SNAPSHOT_VERIFY draft=%016llx cells=%lld mode=%d source=%s resident=%lld\n",
+                                  (unsigned long long) draft_hash, (long long) incoming->kv.back().cells,
+-                                 mtp.kv_state().kv_mode, "ram",
++                                 mtp.kv_state().kv_mode, o.conversation_cache_ssd ? "ssd" : "ram",
+                                  (long long) (mtp.kv_state().n_slots * strata::kernels::qsa_real_shapes().page_size));
+                 }
+                 live = std::move(incoming->live.ids);
+                 live_imgs = std::move(incoming->live.imgs);
++                if (o.conversation_cache_ssd)
++                    for (auto& checkpoint : incoming->checkpoints) {
++                        checkpoint.disk_state.reset(); checkpoint.disk_sizes = {};
++                    }
+                 checks = std::move(incoming->checkpoints);
+                 cvec_cached = incoming->cvec;
+                 resume = parked.tokens;
+                 from_live = parked.live;
+-                if (std::getenv("STRATA_SNAPSHOT_FULL_CAPTURE") == nullptr)
++                if (!o.conversation_cache_ssd && std::getenv("STRATA_SNAPSHOT_FULL_CAPTURE") == nullptr)
+                     conversations.retain(std::move(incoming->kv), int64_t(live.size()));
+                 incoming.reset(); // Running-state/checkpoint copies are no longer needed.
+                 std::fprintf(stderr, "strata serve: conversation cache: restored %lld tokens (%s) in %.1f ms; parked=%zu bytes=%zu\n",
