@@ -46,3 +46,14 @@ The Android app lives in its own repository, [little-bot-android](https://github
 - **Location.** It is off until enabled in the app menu. The app first asks for while-in-use permission, then for "Allow all the time". It sends the location (at most every 5 minutes or 100 m) and the battery level to `/api/context`, and refreshes every 30 minutes. [phone-context.cjs](../../src/phone-context.cjs) validates the data and keeps only the latest context, in memory. "Set this place as home" stores one home point (200 m radius) in the encrypted relay file. Prompts for chat, heartbeat and goals get a short line: at home or how far away, coordinates rounded to about 100 m, accuracy, and battery. Leaving or reaching home publishes `phone.left_home` / `phone.arrived_home`, which can wake a wild heartbeat.
 - **Thinking.** The model's reasoning and commentary are folded into the collapsed "Thinking" group on the phone, as on the desktop. They never trigger a "replied" notification.
 
+## Photos, voice and phone actions (0.16.0, app 1.1.0)
+
+- **Attachments.** The phone's 📎 button uses Android's picker; in a browser it is a normal file input. Share → Little Bot works from any app. Large photos are shrunk on the phone. Each file goes to `POST /api/attach` (base64, up to 20 MB) and is imported by the same importer as desktop attachments, which resizes images and makes thumbnails. The `send` action then carries the attachment IDs. Files appear as chips in the composer until sent.
+- **Voice.** The 🎤 button opens Android's own speech recognizer. The app needs no microphone permission, and the recognized text is placed in the composer.
+- **Phone actions.** The `phone_action` agent tool can set an alarm (hour:minute, phone time), start a timer, ring the phone (alarm stream, even in silent mode, for up to two minutes) or prepare a navigation route. It works only in the user's direct conversation, never in a heartbeat, goal or automation. [relay.cjs](../../src/relay.cjs) sends the action to the app's background connection; when no app is connected, the tool reports that. The app schedules alarms and timers with exact alarms (`USE_EXACT_ALARM`) and rings until Stop is pressed. A route is a notification that opens Maps.
+- **Notification buttons.** Notes carry what the app needs to add buttons:
+  - Proactive suggestions get ✅ / ⏰ / ✖ (`/api/proactive`).
+  - Questions get up to two choices plus Answer (`/api/answer`).
+  - Everything else gets Reply (`/api/send`).
+  After a button is used, the notification turns into a short confirmation.
+

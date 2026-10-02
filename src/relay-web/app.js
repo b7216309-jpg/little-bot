@@ -20,6 +20,8 @@ let streamAbort = null;
 let retryDelay = 1000;
 let retryTimer = null;
 let busy = false;
+let pending = [];             // attachments uploaded to the PC, waiting to be sent: {id, name, kind, thumbnail}
+let uploading = 0;
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -282,7 +284,7 @@ function render() {
   renderApprovals();
   $('send').classList.toggle('hidden', running);
   $('stop').classList.toggle('hidden', !running);
-  $('send').disabled = busy || !connected || !snap?.ready || !$('input').value.trim();
+  $('send').disabled = busy || uploading > 0 || !connected || !snap?.ready || (!$('input').value.trim() && !pending.length);
   if (stick) $('chat').scrollTop = $('chat').scrollHeight;
   if ($('goals-sheet').open) renderGoals();
 }
@@ -349,13 +351,79 @@ $('input').addEventListener('input', () => { sizeInput(); render(); });
 $('composer').addEventListener('submit', async event => {
   event.preventDefault();
   const text = $('input').value.trim();
-  if (!text || busy) return;
+  if ((!text && !pending.length) || busy || uploading) return;
   busy = true; render();
-  const ok = await attempt(() => api('send', { text }));
+  const ok = await attempt(() => api('send', { text, attachmentIds: pending.map(item => item.id) }));
   busy = false;
-  if (ok) { $('input').value = ''; sizeInput(); $('chat').scrollTop = $('chat').scrollHeight; }
+  if (ok) { $('input').value = ''; pending = []; renderPending(); sizeInput(); $('chat').scrollTop = $('chat').scrollHeight; }
   render();
 });
+// Attachments: photos are shrunk on the phone before upload (the PC resizes images again anyway).
+function renderPending() {
+  const box = $('pending');
+  box.classList.toggle('hidden', !pending.length && !uploading);
+  box.replaceChildren(...pending.map(item => {
+    const chip = el('div', 'chip-file');
+    if (item.thumbnail) { const img = el('img'); img.src = item.thumbnail; img.alt = ''; chip.append(img); }
+    else chip.append(el('span', 'file-icon', '📄'));
+    chip.append(el('span', 'file-name', item.name));
+    const remove = el('button', 'file-remove', '✕'); remove.type = 'button'; remove.setAttribute('aria-label', `Remove ${item.name}`);
+    remove.onclick = () => { pending = pending.filter(entry => entry !== item); renderPending(); render(); };
+    chip.append(remove);
+    return chip;
+  }), ...(uploading ? [el('div', 'chip-file uploading', `Uploading ${uploading}…`)] : []));
+}
+function readAsBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = () => reject(new Error('Could not read this file.'));
+    reader.readAsDataURL(blob);
+  });
+}
+async function shrinkImage(file) {
+  if (!/^image\/(jpeg|png|webp|heic|heif)$/i.test(file.type) || file.size < 1500000) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 2048 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.width * scale); canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+    return blob ? new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' }) : file;
+  } catch { return file; }
+}
+async function uploadFiles(files) {
+  for (const original of [...files].slice(0, 8 - pending.length)) {
+    uploading++; renderPending(); render();
+    try {
+      const file = await shrinkImage(original);
+      if (file.size > 20 * 1024 * 1024) throw new Error(`${original.name} is over 20 MB.`);
+      const { attachment } = await api('attach', { name: file.name || 'Photo.jpg', data: await readAsBase64(file) });
+      pending.push(attachment);
+    } catch (error) { toast(error.message || 'Upload failed.', true); }
+    finally { uploading--; renderPending(); render(); }
+  }
+}
+$('attach').addEventListener('click', () => $('file-input').click());
+$('file-input').addEventListener('change', event => { const files = event.target.files; if (files?.length) uploadFiles(files); event.target.value = ''; });
+// The Android app hands over things shared from other apps (already uploaded) and dictated text.
+function takeShared(json) {
+  let shared = {};
+  try { shared = JSON.parse(json || '{}'); } catch { return; }
+  for (const item of shared.attachments || []) if (pending.length < 8) pending.push(item);
+  if (shared.text) { $('input').value = [$('input').value.trim(), shared.text].filter(Boolean).join('\n'); sizeInput(); }
+  if (shared.error) toast(shared.error, true);
+  renderPending(); render();
+}
+window.littleBotShared = takeShared;
+window.littleBotDictated = text => {
+  if (!text) return;
+  const input = $('input');
+  input.value = input.value.trim() ? `${input.value.trim()} ${text}` : text;
+  sizeInput(); render(); input.focus();
+};
+$('mic').addEventListener('click', () => native?.dictate?.());
 $('stop').addEventListener('click', () => attempt(() => api('stop', {})));
 
 // Goals
@@ -493,6 +561,8 @@ function boot() {
   if (pair) { startPairing(pair[1]); return; }
   if (!token) { unpaired(); return; }
   showScreen('chat');
+  $('mic').classList.toggle('hidden', !native?.dictate);
+  if (native?.takeShared) takeShared(native.takeShared());
   render();
   connect();
   if (!native) registration().catch(() => {});

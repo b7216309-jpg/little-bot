@@ -72,13 +72,14 @@ function notifications(previous, next) {
   const known = new Set(previous.messages.map(message => message.id));
   for (const message of next.messages) {
     if (known.has(message.id) || !message.proactive || message.thinking) continue;
-    result.push({ title: message.label, body: excerpt(message.text) || 'New message', tag: `message-${message.id}`, kind: message.kind || '' });
+    result.push({ title: message.label, body: excerpt(message.text) || 'New message', tag: `message-${message.id}`, kind: message.kind || '',
+      messageId: message.id, ...(message.actions && !message.answer ? { actions: message.actions.filter(item => ['do', 'later', 'no'].includes(item.id)) } : {}) });
   }
   const before = new Set(previous.approvals.map(item => item.requestId));
   for (const approval of next.approvals) {
     if (before.has(approval.requestId)) continue;
     result.push(approval.ask
-      ? { title: 'Little Bot has a question', body: excerpt(approval.question), tag: `approval-${approval.requestId}` }
+      ? { title: 'Little Bot has a question', body: excerpt(approval.question), tag: `approval-${approval.requestId}`, requestId: approval.requestId, options: (approval.options || []).slice(0, 3) }
       : { title: 'Little Bot needs your approval', body: excerpt(approval.title), tag: `approval-${approval.requestId}` });
   }
   if (previous.chat?.status === 'running' && next.chat?.status === 'idle') {
