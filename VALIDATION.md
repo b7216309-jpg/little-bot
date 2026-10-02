@@ -1,3 +1,21 @@
+# Version 0.13.2 verification
+
+0.13.2 is a polish release based on a screen-by-screen review of the app with sample data and on the real error log.
+
+- **Proactive ✅ no longer fails while a goal runs.** Choosing ✅ on a proactive message now uses the same send path as a typed message, so an active goal or heartbeat yields first. The error log showed "The goal is still stopping" for one real click.
+- **Memory learning keeps what it can.** A small model's near-miss output is repaired: a bare array, a missing scope or key, a capitalized type, extra fields, or missing source IDs (the user's messages in the turn are cited). Only broken items are dropped, instead of failing the whole turn.
+- **Chat Markdown.** Replies render headings, bullet and numbered lists, quotes, rules and *italics*, all built as DOM nodes.
+- **Look and navigation.**
+  - Little Bot's messages carry the Wink mark.
+  - Proactive messages (on its own, goal, learned, web watch, offer) appear as tinted cards.
+  - Hovering a message shows its time.
+  - Opening a tool page expands the Tools group so you can see where you are.
+  - Restyled: the Heartbeat initiative menu, the Awareness card, and the inbox spacing and source filter.
+
+New checks: a unit test for memory repair, and a renderer test for Markdown in qol-electron, which also checks that HTML in a reply stays text. The full Node suite ran (the only failures are the 11 known `C:\Users\work` extension suites), and `npm run test:electron` passes.
+
+The remaining `local-model-relay` "aborted" errors are the local server closing connections mid-reply (502). They are outside the app.
+
 # Version 0.13.1 verification
 
 0.13.1 fixes memory learning, the heartbeat and Independent Check with the local model. The local server started rejecting any request that combined a structured response format with the engine's tools ("structured response_format with tools/MCP is not supported"). As a result, every memory-learning job failed three times and every local heartbeat failed. Goals already avoided this. For a local connection, these three runs now ask for the JSON in the prompt, which the heartbeat and Independent Check prompts already did for local models. They no longer send `outputSchema`. Their tolerant parsing handles `<think>` blocks and fences, and Independent Check now falls back to the same tolerant parser.
