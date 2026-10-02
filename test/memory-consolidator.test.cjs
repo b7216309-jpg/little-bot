@@ -117,3 +117,19 @@ test('learning jobs that failed on the rejected response format are retried; oth
   assert.equal(worker.retryFormatFailures(), 0);
   assert.equal(service.failedExtractions().length, 1);
 });
+
+test('a small model\'s near-miss memories are repaired, and only broken ones are dropped', () => {
+  const { normalizeCandidates } = require('../src/memory-consolidator.cjs');
+  const job = { messages: [{ id: 'u1', role: 'user', text: 'I use pnpm' }, { id: 'a1', role: 'assistant', text: 'ok' }] };
+  assert.deepEqual(normalizeCandidates({ memories: [
+    { text: ' Prefers short morning answers ', type: 'Preference' },
+    { text: 'The project uses pnpm.', type: 'fact', scope: 'workspace', key: 'project.pm', sourceIds: ['u1'], supersedesId: null, confidence: 0.9 },
+    { text: '', type: 'fact' }, { text: 'mood is good', type: 'mood' }, 'junk', null,
+  ], note: 'extra' }, job), [
+    { text: 'Prefers short morning answers', type: 'preference', scope: 'global', key: 'prefers-short-morning-answers', supersedesId: null, sourceIds: ['u1'] },
+    { text: 'The project uses pnpm.', type: 'fact', scope: 'workspace', key: 'project.pm', supersedesId: null, sourceIds: ['u1'] },
+  ]);
+  assert.deepEqual(normalizeCandidates([{ text: 'Uses Windows', type: 'fact' }], job)[0].scope, 'workspace');
+  assert.deepEqual(normalizeCandidates({ memories: [] }, job), []);
+  assert.throws(() => normalizeCandidates({ answer: 'none' }, job), /required JSON schema/);
+});
