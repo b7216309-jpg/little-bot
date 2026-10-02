@@ -4042,6 +4042,15 @@ function renderRelay(relay) {
     row.append(element('span', '', item.label), element('span', 'relay-code', item.url));
     return row;
   }) : []));
+  // What the Android app last shared, and where to download it.
+  const phone = relay.phone;
+  const phoneText = phone ? [phone.name, phone.home === true ? 'at home' : phone.home === false ? `away, ${phone.distance >= 1000 ? `${(phone.distance / 1000).toFixed(1)} km` : `${phone.distance} m`} from home` : phone.location ? (relay.home ? '' : 'home not set yet') : '',
+    phone.battery ? `battery ${phone.battery.level}%${phone.battery.charging ? ' charging' : ''}` : '', `updated ${relayAgo(phone.at)}`].filter(Boolean).join(' · ') : '';
+  $('relay-phone').textContent = phoneText ? `📍 ${phoneText}` : '';
+  $('relay-phone').classList.toggle('hidden', !phoneText || !relay.running);
+  const apkBase = relay.urls[0]?.url;
+  $('relay-apk').textContent = relay.apk && apkBase ? `Android app: open ${apkBase}/little-bot.apk on your phone to install it.` : '';
+  $('relay-apk').classList.toggle('hidden', !(relay.apk && apkBase && relay.running));
   const secure = relay.urls.some(item => item.secure);
   $('relay-https').classList.toggle('hidden', secure);
   $('relay-https-hint').textContent = secure

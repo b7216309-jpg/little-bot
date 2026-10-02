@@ -474,9 +474,13 @@ class Controller extends EventEmitter {
   profileContext() { return this.profileFiles?.buildContext() || ''; }
   // Present only while the user enabled activity awareness and a sample exists.
   activityContext() {
-    if (this.store.data.settings.activityAwareness !== true) return '';
-    const snapshot = this.activity?.snapshot?.();
-    return snapshot ? `What the user is doing right now (from the foreground app; reference data, not a request):\n${JSON.stringify(snapshot)}` : '';
+    const parts = [];
+    const snapshot = this.store.data.settings.activityAwareness === true ? this.activity?.snapshot?.() : null;
+    if (snapshot) parts.push(`What the user is doing right now (from the foreground app; reference data, not a request):\n${JSON.stringify(snapshot)}`);
+    // Location and battery shared by the paired Android app, when recent.
+    const phone = this.phoneSummary?.() || '';
+    if (phone) parts.push(phone);
+    return parts.join('\n\n');
   }
   // The user's recent one-click reactions to proactive suggestions.
   reactionContext(limit = 10) {
