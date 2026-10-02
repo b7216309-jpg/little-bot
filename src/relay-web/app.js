@@ -23,6 +23,36 @@ let busy = false;
 let pending = [];             // attachments uploaded to the PC, waiting to be sent: {id, name, kind, thumbnail}
 let uploading = 0;
 
+// Line icons in the desktop app's style (24px grid, rounded 1.8 strokes, currentColor). Built as DOM, never HTML.
+const ICONS = {
+  clip: [['path', { d: 'm21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l8.6-8.6a4 4 0 0 1 5.7 5.7l-8.6 8.6a2 2 0 0 1-2.8-2.8l8.5-8.5' }]],
+  mic: [['rect', { x: 9, y: 3, width: 6, height: 11, rx: 3 }], ['path', { d: 'M18.5 10.5a6.5 6.5 0 0 1-13 0' }], ['path', { d: 'M12 17v4M9 21h6' }]],
+  send: [['path', { d: 'M12 19V5' }], ['path', { d: 'm6 11 6-6 6 6' }]],
+  stop: [['rect', { x: 7, y: 7, width: 10, height: 10, rx: 2, fill: 'currentColor' }]],
+  goal: [['circle', { cx: 12, cy: 12, r: 9 }], ['circle', { cx: 12, cy: 12, r: 5 }], ['circle', { cx: 12, cy: 12, r: 1.4, fill: 'currentColor' }]],
+  more: [['circle', { cx: 5.5, cy: 12, r: 1.4, fill: 'currentColor' }], ['circle', { cx: 12, cy: 12, r: 1.4, fill: 'currentColor' }], ['circle', { cx: 18.5, cy: 12, r: 1.4, fill: 'currentColor' }]],
+  x: [['path', { d: 'M18 6 6 18M6 6l12 12' }]],
+  file: [['path', { d: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z' }], ['path', { d: 'M14 3v5h5' }]],
+  tools: [['path', { d: 'M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z' }]],
+  thinking: [['path', { d: 'M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1 2V17h5.2v-1.2c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z' }], ['path', { d: 'M9.8 20.5h4.4' }]],
+};
+function svgIcon(name) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  for (const [tag, attributes] of ICONS[name] || []) {
+    const shape = document.createElementNS(ns, tag);
+    for (const [key, value] of Object.entries(attributes)) shape.setAttribute(key, String(value));
+    svg.append(shape);
+  }
+  const span = document.createElement('span');
+  span.className = 'i';
+  span.append(svg);
+  return span;
+}
+for (const slot of document.querySelectorAll('[data-icon]')) slot.replaceWith(svgIcon(slot.dataset.icon));
+
 function el(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -207,7 +237,7 @@ function messageNode(message) {
     const thumbs = el('div', 'thumbs');
     for (const file of message.attachments) {
       if (file.thumbnail) { const img = el('img'); img.src = file.thumbnail; img.alt = file.name; thumbs.append(img); }
-      else thumbs.append(el('span', 'file', `📎 ${file.name}`));
+      else { const chip = el('span', 'file'); chip.append(svgIcon('file'), document.createTextNode(file.name)); thumbs.append(chip); }
     }
     node.append(thumbs);
   }
@@ -241,7 +271,9 @@ function toolsNode(group) {
   const running = group.some(item => ['running', 'inProgress'].includes(item.status));
   const actions = group.filter(item => !item.thinking).length, thoughts = group.length - actions;
   const parts = [thoughts ? 'Thinking' : '', actions ? `${actions} action${actions === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
-  details.append(el('summary', '', `${parts}${running ? ' · running' : failed ? ' · some failed' : ''}`));
+  const summary = el('summary');
+  summary.append(svgIcon(actions ? 'tools' : 'thinking'), document.createTextNode(`${parts}${running ? ' · running' : failed ? ' · some failed' : ''}`));
+  details.append(summary);
   const body = el('div');
   for (const item of group.slice(-30)) body.append(el('p', item.thinking ? 'thought' : item.status === 'failed' ? 'failed' : '', (item.text || item.kind || 'Action').slice(0, item.thinking ? 2000 : 600)));
   details.append(body);
@@ -365,9 +397,9 @@ function renderPending() {
   box.replaceChildren(...pending.map(item => {
     const chip = el('div', 'chip-file');
     if (item.thumbnail) { const img = el('img'); img.src = item.thumbnail; img.alt = ''; chip.append(img); }
-    else chip.append(el('span', 'file-icon', '📄'));
+    else { const icon = el('span', 'file-icon'); icon.append(svgIcon('file')); chip.append(icon); }
     chip.append(el('span', 'file-name', item.name));
-    const remove = el('button', 'file-remove', '✕'); remove.type = 'button'; remove.setAttribute('aria-label', `Remove ${item.name}`);
+    const remove = el('button', 'file-remove'); remove.append(svgIcon('x')); remove.type = 'button'; remove.setAttribute('aria-label', `Remove ${item.name}`);
     remove.onclick = () => { pending = pending.filter(entry => entry !== item); renderPending(); render(); };
     chip.append(remove);
     return chip;
