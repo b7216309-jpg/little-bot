@@ -8,6 +8,8 @@ const MAX_TEXT = 20000;
 const cut = (value, max) => String(value ?? '').slice(0, max);
 
 function messageLabel(message) {
+  // A scheduled task's prompt is not something the user typed; label it like the desktop does.
+  if (message.role === 'user' && message.automationId) return `Scheduled · ${message.automationName || 'Automation'}`;
   if (message.role === 'user') return message.kind === 'clarification' ? 'You · answer' : 'You';
   if (message.role === 'tool') return 'Action';
   if (message.goalId) return `Goal · ${message.goalName || 'Little Bot'}`;
@@ -24,6 +26,7 @@ function slimMessage(message) {
   for (const key of ['kind', 'status', 'phase']) if (typeof message[key] === 'string') entry[key] = cut(message[key], 40);
   for (const key of ['createdAt', 'updatedAt']) if (Number.isFinite(message[key])) entry[key] = message[key];
   if (PROACTIVE_KINDS.includes(message.kind)) entry.proactive = true;
+  if (message.role === 'user' && message.automationId) entry.scheduled = true;
   // The model's reasoning and commentary are folded away like on the desktop, never shown as a reply.
   if (message.role === 'assistant' && (message.kind === 'reasoning' || ['commentary', 'analysis'].includes(message.phase))) { entry.thinking = true; entry.label = 'Thinking'; }
   if (Array.isArray(message.actions) && message.actions.length) entry.actions = message.actions.map(({ id, label }) => ({ id, label }));
