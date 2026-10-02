@@ -64,7 +64,7 @@ test('goal results use the same outbox and are not lost when the chat is busy', 
   proactive.flush(chat);
   contract.deliver(goal, data, { runId: 'r1', summary: 'Duplicate after delivery' });
   assert.deepEqual(chat.messages.map(item => [item.kind, item.goalName, item.text]), [['goal', 'Growth', 'Try one PR description in English this week.']]);
-  assert.equal(contract.deliver({ ...goal, sources: { ...goal.sources, chat: false } }, data, { runId: 'r3', summary: 'x' }), null);
+  assert.equal(contract.deliver({ ...goal, delivery: 'silent' }, data, { runId: 'r3', summary: 'x' }), null);
 });
 
 test('the next user turn sees unseen proactive messages exactly once', () => {

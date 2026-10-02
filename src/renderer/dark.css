@@ -349,6 +349,7 @@ html[data-theme=dark] }
 html[data-theme=dark] .browser-empty .icon{color:#5b624e}
 html[data-theme=dark] .agent-browser-button.browser-active{border-color:#49513f;background:#272b21;color:#93aa97}
 html[data-theme=dark] .goal-context-meta .goal-waiting{color:#b6853f}
+html[data-theme=dark] .goal-context-meta .goal-silent{color:#93aa97}
 html[data-theme=dark] .goal-ledger-current{border:1px solid #393d30;background:#21231b}
 html[data-theme=dark] .goal-ledger-plan-title h4{color:#a6b19d}
 html[data-theme=dark] .goal-ledger-version{border:1px solid #3c4234;background:#1a1a1a;color:#8d9786}
