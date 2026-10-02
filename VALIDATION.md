@@ -1,3 +1,12 @@
+# Version 0.18.1 verification
+
+0.18.1 fixes the phone chat silently stopping updating. Sends from the phone still reached the PC, but replies never appeared on the phone.
+
+- **Cause:** the phone page read its live stream with no watchdog. When a stream dies without closing (here after Tailscale was restarted during the DNS fix), the page waited forever and still showed "Connected". The relay's 25 s pings went unchecked. The Android background service already had a 70 s read timeout.
+- **Fix (relay-web/app.js):** a stream silent for 65 s is aborted and reconnected; each reconnect starts with a full snapshot. Coming back to the foreground after more than 15 s in the background, or with a stream silent for more than 30 s, also restarts the stream, and so does the `online` event.
+
+Checked live: a visible Electron window was paired to a relay with pings disabled. The page dropped the dead stream after about 70 s and reconnected within a second. The demo relay running the installed 0.18.0 code delivered a reply live. The relay tests pass. The Node suite shows only the 11 known `C:Userswork` failures.
+
 # Version 0.18.0 verification
 
 0.18.0 makes goal and heartbeat messages less noisy. The user found every goal result posted in chat, each with Do it / Later / Not interested buttons, and said that made no sense for most of them.
