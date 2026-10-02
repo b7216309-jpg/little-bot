@@ -131,6 +131,11 @@ async function run() {
     const toolMemory = await controller.agentTools.call('memory_save', { text: 'Use short answers for this project.', type: 'preference', scope: 'workspace', key: 'project.answer-style' }, { chat: store.data.chats[0] });
     assert.equal((await controller.agentTools.call('memory_search', { query: 'short answers', source: 'facts' }, { chat: store.data.chats[0] })).results.some(item => item.id === toolMemory.record.id), true);
     await evaluate(`window.bot.deleteFact({id:${JSON.stringify(toolMemory.record.id)}})`);
+    // A small model's call with stray fields still saves (seen live: an action copied from other tools and an empty id).
+    const strayMemory = await controller.agentTools.call('memory_save', { action: 'save', id: '', key: 'user.promise', pinned: true, scope: 'global', text: 'The user promised to always be there.', type: 'decision' }, { chat: store.data.chats[0] });
+    assert.deepEqual(strayMemory.ignoredFields, ['action']);
+    assert.equal(store.memoryService.get(strayMemory.record.id).text, 'The user promised to always be there.');
+    await evaluate(`window.bot.deleteFact({id:${JSON.stringify(strayMemory.record.id)}})`);
     assert.equal(store.memoryService.get(toolMemory.record.id).status, 'forgotten');
 
     await evaluate(`window.bot.configureMemory({embedding:{baseUrl:'http://127.0.0.1:12345/v1',model:'test-embedding',apiKey:'test-only-key'}})`);
