@@ -1,3 +1,7 @@
+# Version 0.15.2 verification
+
+0.15.2 gives a scheduled task's prompt its own look on the desktop too. It was a normal "you" bubble with only a small label above it. It is now a dashed, italic bubble with a green "Scheduled · <name>" label, matching the phone. `automation-session-electron` now also checks that only the scheduled prompt gets this look. The full Node suite and `npm run test:electron` ran; the only failures are the 11 known `C:\Users\work` extension suites.
+
 # Version 0.15.1 verification
 
 0.15.1 fixes how a scheduled task's prompt appears on the phone. It was labeled "You", as if the user had typed it; the desktop already showed "Scheduled · <name>". Phones now show the same label, in a dashed bubble.

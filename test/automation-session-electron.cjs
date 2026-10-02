@@ -21,8 +21,10 @@ async function run() {
       { id: 'u2', role: 'user', kind: 'automation', text: 'Read the notes.', automationId: 'daily', automationName: 'Daily review' },
       { id: 'a2', role: 'assistant', text: 'No changes in the notes.', automationId: 'daily', automationName: 'Daily review' },
     ] }];
-    const result = await window.webContents.executeJavaScript(`window.bot = {}; applyState(${JSON.stringify(state)}); ({ labels: [...document.querySelectorAll('.message-label')].map(n => n.textContent), text: document.body.textContent });`);
+    const result = await window.webContents.executeJavaScript(`window.bot = {}; applyState(${JSON.stringify(state)}); ({ labels: [...document.querySelectorAll('.message-label')].map(n => n.textContent), text: document.body.textContent, scheduled: [...document.querySelectorAll('.message.user.scheduled')].map(n => n.dataset.messageId) });`);
     assert.ok(result.labels.includes('Scheduled · Daily review'));
+    // A scheduled prompt is not shown as something the user typed.
+    assert.deepEqual(result.scheduled, ['u2']);
     assert.ok(result.labels.some(label => label.endsWith('Little Bot · Daily review')));
     assert.match(result.text, /Plan my project/);
     assert.match(result.text, /No changes in the notes/);

@@ -199,3 +199,4 @@
 .settings-jump{display:flex;flex-wrap:wrap;gap:6px;margin:-6px 0 4px}.settings-jump-chip{font-size:10.5px;padding:4px 10px;border:1px solid var(--line);border-radius:99px;background:#fffefa;color:#5d6a57}.settings-jump-chip:hover{border-color:#cad7bb;background:#f2f5ec;color:var(--ink)}.settings-dialog .settings-section{scroll-margin-top:12px}
 .theme-select{width:auto;min-width:120px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:8px 10px;font-size:12px;color:var(--ink);max-width:none}
 .relay-phone{color:var(--ink);margin-top:8px}
+.message.user.scheduled .message-content{background:transparent;border:1px dashed #c9d3bc;color:#5d6a57;font-style:italic}.message.user.scheduled .automation-label{color:#58705c;font-weight:600}
