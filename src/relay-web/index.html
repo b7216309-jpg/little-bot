@@ -15,8 +15,8 @@
   <header class="top">
     <img class="logo" src="/icon-192.png" alt="">
     <div class="title"><strong>Little Bot</strong><span id="status" class="status">Connecting…</span></div>
-    <button id="goals-button" class="icon-button hidden" type="button" aria-label="Goals">◎</button>
-    <button id="menu-button" class="icon-button hidden" type="button" aria-label="Menu">⋯</button>
+    <button id="goals-button" class="icon-button hidden" type="button" aria-label="Goals"><span class="i" data-icon="goal" aria-hidden="true"></span></button>
+    <button id="menu-button" class="icon-button hidden" type="button" aria-label="Menu"><span class="i" data-icon="more" aria-hidden="true"></span></button>
   </header>
 
   <main id="chat" class="chat hidden">
@@ -39,21 +39,21 @@
 
   <div id="pending" class="pending hidden" aria-label="Attachments to send"></div>
   <form id="composer" class="composer hidden">
-    <button id="attach" class="tool-button" type="button" aria-label="Attach photos or files">📎</button>
+    <button id="attach" class="tool-button" type="button" aria-label="Attach photos or files"><span class="i" data-icon="clip" aria-hidden="true"></span></button>
     <input id="file-input" type="file" multiple hidden>
     <textarea id="input" rows="1" maxlength="32000" placeholder="Message Little Bot…" aria-label="Message"></textarea>
-    <button id="mic" class="tool-button hidden" type="button" aria-label="Dictate">🎤</button>
-    <button id="send" class="send" type="submit" aria-label="Send">↑</button>
-    <button id="stop" class="send stop hidden" type="button" aria-label="Stop">■</button>
+    <button id="mic" class="tool-button hidden" type="button" aria-label="Dictate"><span class="i" data-icon="mic" aria-hidden="true"></span></button>
+    <button id="send" class="send" type="submit" aria-label="Send"><span class="i" data-icon="send" aria-hidden="true"></span></button>
+    <button id="stop" class="send stop hidden" type="button" aria-label="Stop"><span class="i" data-icon="stop" aria-hidden="true"></span></button>
   </form>
 
   <dialog id="goals-sheet" class="sheet">
-    <div class="sheet-head"><h2>Goals</h2><button class="icon-button" type="button" data-close aria-label="Close">✕</button></div>
+    <div class="sheet-head"><h2>Goals</h2><button class="icon-button" type="button" data-close aria-label="Close"><span class="i" data-icon="x" aria-hidden="true"></span></button></div>
     <div id="goal-list" class="goal-list"></div>
   </dialog>
 
   <dialog id="menu-sheet" class="sheet">
-    <div class="sheet-head"><h2>This phone</h2><button class="icon-button" type="button" data-close aria-label="Close">✕</button></div>
+    <div class="sheet-head"><h2>This phone</h2><button class="icon-button" type="button" data-close aria-label="Close"><span class="i" data-icon="x" aria-hidden="true"></span></button></div>
     <div class="menu">
       <div id="native-section" class="menu hidden">
         <p id="location-state" class="hint"></p>

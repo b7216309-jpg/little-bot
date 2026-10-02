@@ -1,3 +1,7 @@
+# Version 0.16.1 verification
+
+0.16.1 replaces the emoji in the phone app with line icons in the desktop's style: 24 px grid, rounded 1.8 strokes, theme colors. This covers attach, microphone, send, stop, goals, menu, close, file, tools and thinking. The icons are built as SVG DOM nodes. They were checked at phone size with a demo relay. The full Node suite ran; the only failures are the 11 known `C:\Users\work` extension suites.
+
 # Version 0.16.0 verification
 
 0.16.0 lets the phone send photos and files, dictate, and lets Little Bot act on the phone. It pairs with Little Bot for Android 1.1.0, which the PC serves at `/little-bot.apk`.
