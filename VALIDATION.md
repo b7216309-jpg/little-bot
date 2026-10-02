@@ -1,3 +1,7 @@
+# Version 0.16.2 verification
+
+0.16.2 fixes web scraping errors. Firecrawl answers HTTP 403 for sites it refuses to scrape (Reddit, Instagram), and Little Bot reported that as a rejected API key. It now says the site is unsupported and points to the browser tool; real 401/403 key rejections keep the old message. The public-address DNS check before a scrape now allows 20 s instead of 5 s, because lookups through a slow resolver (Tailscale DNS here) took 10 s. Checked live with the real Firecrawl key (search, Wikipedia scrape, Reddit 403) and with a new unit test.
+
 # Version 0.16.1 verification
 
 0.16.1 replaces the emoji in the phone app with line icons in the desktop's style: 24 px grid, rounded 1.8 strokes, theme colors. This covers attach, microphone, send, stop, goals, menu, close, file, tools and thinking. The icons are built as SVG DOM nodes. They were checked at phone size with a demo relay. The full Node suite ran; the only failures are the 11 known `C:\Users\work` extension suites.
