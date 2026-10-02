@@ -154,9 +154,11 @@ function normalizeAutonomy(value, settings = {}, recovering = false) {
 }
 
 class GoalRunner {
-  constructor({ store, run, stopRun, verifyCommand, backupRoot, canRun = () => true, onChange = () => {}, onAlert = () => {}, publish = null }) {
+  constructor({ store, run, stopRun, verifyCommand, backupRoot, canRun = () => true, waitReason = () => '', onChange = () => {}, onAlert = () => {}, publish = null }) {
     if (publish !== null && typeof publish !== 'function') throw new TypeError('Goal publish must be a function.');
-    Object.assign(this, { store, run, stopRun, verifyCommand, backupRoot, canRun, onChange, onAlert, publish });
+    Object.assign(this, { store, run, stopRun, verifyCommand, backupRoot, canRun, waitReason, onChange, onAlert, publish });
+    // Why each due goal has not started yet (model offline, a busy conversation, outside active hours). Shown on its card.
+    this.waiting = new Map();
     store.data.autonomy ||= normalizeAutonomy(null, store.data.settings);
     this.activeId = null; this.execution = null; this.timer = null; this.closing = false; this.ticking = false;
     this.forceRuns = new Set(); this.filePending = new Map(); this.fileSessionBaselines = new Set(); this.stopReason = null;
@@ -294,8 +296,9 @@ class GoalRunner {
     this.ticking = true;
     try {
       for (const goal of [...this.data.goals].sort((a, b) => a.priority - b.priority || a.createdAt - b.createdAt)) {
-        if (goal.status !== 'queued' || !goal.authorized || goal.pendingQuestion) continue;
-        if (!isConnectionSelected(goal, this.store.data.settings)) continue;
+        if (goal.status !== 'queued' || !goal.authorized || goal.pendingQuestion) { this.setWaiting(goal.id, ''); continue; }
+        const due = Number.isFinite(goal.nextRunAt) && goal.nextRunAt <= Date.now();
+        if (!isConnectionSelected(goal, this.store.data.settings)) { this.setWaiting(goal.id, due ? 'Set to a different model connection than the one selected in Settings' : ''); continue; }
         if (goal.dependsOn.some(id => contract.ongoing(this.data.goals.find(item => item.id === id)))) {
           this.block(goal, 'This task depends on an ongoing goal, which cannot complete. Edit its dependencies to choose a task.'); continue;
         }
@@ -326,14 +329,25 @@ class GoalRunner {
           } catch (error) { this.block(goal, `File trigger could not be checked: ${clean(error)}`); }
         } else if (!ready) ready = goal.nextRunAt != null && goal.nextRunAt <= Date.now();
         // File checks await I/O; a pause or shutdown may land while they run.
-        if (!ready || this.closing || this.data.paused || goal.status !== 'queued' || !this.canRun()) continue;
+        if (!ready || this.closing || this.data.paused || goal.status !== 'queued') { this.setWaiting(goal.id, ''); continue; }
+        if (!this.canRun()) { this.setWaiting(goal.id, this.waitReason() || 'Little Bot is busy with other work'); continue; }
         // Scheduled reviews wait for the user's waking hours; an explicit Run, answer or recovery does not.
         const userInitiated = this.forceRuns.has(goal.id) || goal.needsRecoveryCheck || goal.continueAfterAnswer;
-        if (!userInitiated && !this.awake(goal)) continue;
+        if (!userInitiated && !this.awake(goal)) {
+          const hours = this.store.data.heartbeat;
+          this.setWaiting(goal.id, `Outside active hours (${String(hours.startHour).padStart(2, '0')}:00–${String(hours.endHour).padStart(2, '0')}:00)`);
+          continue;
+        }
+        this.setWaiting(goal.id, '');
         this.forceRuns.delete(goal.id); this.execution = this.execute(goal);
         await this.execution; this.execution = null; break;
       }
     } finally { this.ticking = false; }
+  }
+  setWaiting(id, reason) {
+    if ((this.waiting.get(id) || '') === reason) return;
+    if (reason) this.waiting.set(id, reason); else this.waiting.delete(id);
+    this.onChange();
   }
   awake(goal, nowMs = Date.now()) {
     const hours = this.store.data.heartbeat;

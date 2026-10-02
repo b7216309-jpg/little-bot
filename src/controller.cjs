@@ -163,6 +163,7 @@ class Controller extends EventEmitter {
   state() {
     return {
       appVersion: require('../package.json').version, ...this.store.data,
+      goalWaiting: this.goalWaiting?.() || {},
       memory: { ...(this.store.memoryService?.snapshot() || this.store.data.memory), learning: this.memoryConsolidator?.state || { status: 'idle' } },
       attachmentStorage: this.attachmentStorage ? { usedBytes: this.attachmentStorage.usedBytes,
         maxBytes: this.attachmentStorage.maxBytes, unusedBytes: this.attachmentStorage.unusedBytes,

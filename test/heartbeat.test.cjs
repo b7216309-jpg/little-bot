@@ -202,7 +202,7 @@ test('errors are scrubbed, deduplicated and exponentially backed off; success re
   assert.ok(!JSON.stringify(f.config).includes('private-secret'));
   assert.ok(!JSON.stringify(f.config).includes('private-token'));
   assert.ok(!JSON.stringify(f.config).includes('sk-abc123'));
-  assert.equal(f.config.runsToday, 8);
+  assert.equal(f.config.runsToday, 0, 'Failed runs do not use up the daily limit.');
   failure = false;
   await f.service.runNow();
   assert.equal(f.config.failureCount, 0);
@@ -332,4 +332,18 @@ test('start is idempotent and stop clears the unreferenced timer', () => {
   f.service.stop();
   assert.equal(f.service.timer, null);
   f.service.stop();
+});
+
+test('failed runs give their daily slot back, so a broken morning cannot silence the rest of the day', async () => {
+  let fail = true;
+  const f = fixture(async () => { if (fail) throw new Error('local model offline'); return { status: 'quiet', summary: 'Nothing needed.' }; });
+  f.setNow(localTime(27, 10));
+  await f.service.runNow().catch(() => {});
+  assert.equal(f.config.lastStatus, 'error');
+  assert.equal(f.config.runsToday, 0);
+  fail = false;
+  f.setNow(localTime(27, 11));
+  await f.service.runNow();
+  assert.equal(f.config.lastStatus, 'quiet');
+  assert.equal(f.config.runsToday, 1);
 });
