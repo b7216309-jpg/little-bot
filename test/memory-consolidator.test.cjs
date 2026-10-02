@@ -88,3 +88,32 @@ test('memory tools immediately save, correct, recall and forget across model con
   await tools.call('memory_forget', { id: next.record.id }, { chat });
   assert.equal(service.search({ query: 'pnpm', source: 'facts', scope: 'all' }).results.length, 0);
 });
+
+test('with a local model, extraction asks for JSON in the prompt instead of a structured response format', async t => {
+  // Local servers reject "structured response_format with tools/MCP"; every learning job failed three times.
+  const { service, worker, calls, c } = fixture(t);
+  c.store.data.settings.connection = 'local';
+  await worker.tick();
+  const turn = calls.find(call => call.method === 'turn/start').params;
+  assert.equal(turn.outputSchema, undefined);
+  assert.match(turn.input[0].text, /Return only one JSON object matching this schema/);
+  worker.notification('item/completed', { threadId: 'extract', item: { type: 'agentMessage', text: '<think>pnpm is durable</think>\n```json\n' + JSON.stringify({ memories: [
+    { text: 'This project uses pnpm.', type: 'decision', scope: 'workspace', key: 'project.package-manager', sourceIds: ['u1'], supersedesId: null },
+  ] }) + '\n```' } });
+  worker.notification('turn/completed', { threadId: 'extract', turn: { id: 'turn', status: 'completed' } });
+  assert.equal(service.pendingExtractions().length, 0);
+  assert.deepEqual(service.snapshot().records.map(record => record.text), ['This project uses pnpm.']);
+});
+
+test('learning jobs that failed on the rejected response format are retried; other failures stay put', t => {
+  const { service, worker } = fixture(t);
+  const [job] = service.pendingExtractions();
+  for (let i = 0; i < 3; i++) service.failExtraction(job.id, '{"error": {"type": "invalid_request_error", "message": "structured response_format with tools/MCP is not supported"}}');
+  assert.equal(service.failedExtractions().length, 1);
+  assert.equal(worker.retryFormatFailures(), 1);
+  assert.equal(service.failedExtractions().length, 0);
+  assert.equal(service.pendingExtractions().length, 1);
+  for (let i = 0; i < 3; i++) service.failExtraction(job.id, 'Memory extraction did not return readable JSON.');
+  assert.equal(worker.retryFormatFailures(), 0);
+  assert.equal(service.failedExtractions().length, 1);
+});

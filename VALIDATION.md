@@ -1,3 +1,11 @@
+# Version 0.13.1 verification
+
+0.13.1 fixes memory learning, the heartbeat and Independent Check with the local model. The local server started rejecting any request that combined a structured response format with the engine's tools ("structured response_format with tools/MCP is not supported"). As a result, every memory-learning job failed three times and every local heartbeat failed. Goals already avoided this. For a local connection, these three runs now ask for the JSON in the prompt, which the heartbeat and Independent Check prompts already did for local models. They no longer send `outputSchema`. Their tolerant parsing handles `<think>` blocks and fences, and Independent Check now falls back to the same tolerant parser.
+
+At startup, learning jobs that failed with exactly this error are queued again, so the conversation turns they missed are still learned. Other failures stay failed for review.
+
+New tests cover the local memory extraction (prompt schema, no `outputSchema`, a fenced reply with `<think>` saved), the local heartbeat turn and the startup retry. Both local tests fail on 0.13.0. The full Node suite ran: the only failures are the 11 known `C:\Users\work` extension suites.
+
 # Version 0.13.0 verification
 
 0.13.0 adds the phone relay: Little Bot's one conversation, live on a paired phone. It is off by default and turned on in Settings › Phone relay.

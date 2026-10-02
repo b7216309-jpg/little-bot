@@ -387,3 +387,18 @@ test('heartbeat recovers JSON wrapped in reasoning tags or Markdown fences from 
     assert.ok(['quiet', 'alert'].includes((await active.promise).status), output);
   }
 });
+
+test('with a local model, the heartbeat asks for JSON in the prompt instead of a structured response format', async (t) => {
+  // Local servers reject "structured response_format with tools/MCP", which failed every local heartbeat.
+  const f = await setup(t);
+  f.store.data.settings.connection = 'local';
+  f.config.connection = 'local';
+  f.store.data.settings.localModel = f.config.model;
+  f.controller.providerConfig = () => ({}); // No local relay server in this unit test.
+  const active = await startHeartbeat(f);
+  const turn = f.client.calls.find(call => call.method === 'turn/start').params;
+  assert.equal(turn.outputSchema, undefined);
+  assert.match(turn.input[0].text, /Your final reply must be only one JSON object matching this schema/);
+  finish(f, active.chat);
+  await active.promise;
+});
