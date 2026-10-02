@@ -556,7 +556,9 @@ class GoalRunner {
       this.record(goal, 'run', clean(result?.summary) || 'Goal step ended.', { runId, usage: { ...modelUsage, actions: modelUsage.actions + verificationActions }, actions, snapshot }); this.changed();
       if (this.stopReason || goal.status === 'paused' || this.closing) {
         if (await this.completeStoppedFiles(goal, runId, this.stopReason, ledgerRunContext, preflightPassed)) return;
-        if (goal.status !== 'paused') this.retryOrBlock(goal, this.stopReason || 'Goal stopped.', { runId }); return;
+        // A scheduled retry starts a fresh cycle budget; stop usage tracking so the final tally cannot restore the old count.
+        if (goal.status !== 'paused') { this.retryOrBlock(goal, this.stopReason || 'Goal stopped.', { runId }); if (goal.status === 'queued') reviewFinished = true; }
+        return;
       }
       if (goal.pendingQuestion) {
         if (contract.ongoing(goal)) {
@@ -574,7 +576,7 @@ class GoalRunner {
       if (contract.isV2(goal)) {
         const outcome = contract.validateResult(goal, result, evidence, { changedFiles: snapshot?.changes || 0, checksPassed: checked.passed, preflightPassed });
         goal.actionItems = outcome.actions;
-        if (contract.ongoing(goal) && result.outcome === 'failed') this.retryOrBlock(goal, result.summary, { runId });
+        if (contract.ongoing(goal) && result.outcome === 'failed') { this.retryOrBlock(goal, result.summary, { runId }); if (goal.status === 'queued') reviewFinished = true; }
         else if (contract.ongoing(goal)) {
           reviewFinished = true; this.finishReview(goal, evidence, result.outcome, result.summary, outcome.refs, runId);
         } else {
@@ -610,7 +612,10 @@ class GoalRunner {
         this.record(goal, 'snapshot', 'Saved file evidence after an interrupted or failed step.', { runId, snapshot });
       } catch (snapshotError) { this.record(goal, 'snapshot-error', `Undo is unavailable: ${clean(snapshotError)}`, { runId }); }
       if (await this.completeStoppedFiles(goal, runId, this.stopReason || clean(error), ledgerRunContext, preflightPassed)) return;
-      if (goal.status !== 'paused') (error?.persistence ? this.block : this.retryOrBlock).call(this, goal, this.stopReason || clean(error), { runId });
+      if (goal.status !== 'paused') {
+        (error?.persistence ? this.block : this.retryOrBlock).call(this, goal, this.stopReason || clean(error), { runId });
+        if (goal.status === 'queued') reviewFinished = true;
+      }
       else this.record(goal, 'stopped', this.stopReason || clean(error), { runId });
     } finally {
       delete goal.runEvidence;
