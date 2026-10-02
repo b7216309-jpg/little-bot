@@ -33,7 +33,11 @@ function definition(input, existing) {
   }))];
   const maxQuietHours = input.maxQuietHours ?? existing?.maxQuietHours ?? 0;
   if (!Number.isInteger(maxQuietHours) || maxQuietHours < 0 || maxQuietHours > 720) throw new Error('Maximum quiet time must be a whole number of hours from 0 to 720.');
-  return { contractVersion: version, kind, sources: { chat: sources.chat !== false, calendar: sources.calendar !== false, files, feedback: sources.feedback === true },
+  // Where results go: 'chat' posts them in the conversation; 'silent' keeps them on the goal card and in the Activity inbox.
+  // Older goals that did not read the chat never posted there, so they start silent.
+  const delivery = input.delivery ?? existing?.delivery ?? (sources.chat === false ? 'silent' : 'chat');
+  if (!['chat', 'silent'].includes(delivery)) throw new Error('Choose whether results go to the chat or stay silent.');
+  return { contractVersion: version, kind, delivery, sources: { chat: sources.chat !== false, calendar: sources.calendar !== false, files, feedback: sources.feedback === true },
     reviewPolicy: (input.reviewPolicy ?? existing?.reviewPolicy) === 'always' ? 'always' : 'changes', maxQuietHours,
     review: existing?.review || { processedMessages: [], sourceVersions: {}, lastResult: null },
     actionItems: existing?.actionItems || [] };
@@ -210,7 +214,8 @@ function validateResult(goal, result, evidence, { changedFiles = 0, checksPassed
 
 // A busy conversation queues the result instead of dropping it; see proactive-chat.cjs.
 function deliver(goal, data, { runId, summary, question, actions = true } = {}) {
-  if (!goal.sources.chat) return null;
+  // A silent goal still asks its questions in the chat: those need the user.
+  if (goal.delivery === 'silent' && !question) return null;
   const key = question ? `question:${question.id}` : runId;
   const body = summary || question?.question || '';
   if (!body.trim()) return null;

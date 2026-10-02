@@ -172,6 +172,7 @@ class GoalExecutor {
       const memory = buildMemoryContext(this.controller.store.data.memory, { workspace: operation.workspace, query: goal.objective, budget: contract.isV2(goal) ? 2500 : 10000, sessions: this.controller.store.data.chats, settings: this.controller.store.data.settings });
       const profile = this.controller.profileContext?.() || '';
       const prompt = { objective: goal.objective, checkpoint: goal.checkpoint || '', nextStep: goal.nextStep || '',
+        ...(contract.isV2(goal) && goal.delivery === 'silent' ? { delivery: 'silent: results are not shown in the chat. Write the summary as a short work log for the goal card, not as a message to the user. Use a question only when the user truly must decide something.' } : {}),
         ...(contract.isV2(goal) ? { kind: goal.kind, freshEvidence: goal.runEvidence, actions: goal.actionItems, previousResult: goal.review.lastResult } : { planLedger: goalLedgerContext(goal.ledger, goal) }), userClarifications: clarifications(goal.clarifications), checks: goal.checks || [],
         workspace: operation.workspace, shellWorkingDirectory: operation.cwd, writableFolders: writableRoots,
         ...(this.controller.store.data.settings.activityAwareness === true && this.controller.activity?.snapshot?.() ? { currentActivity: this.controller.activity.snapshot() } : {}),

@@ -2926,8 +2926,11 @@ function renderGoals() {
     if (waiting) meta.append(element('span', 'goal-waiting', `Waiting: ${waiting}`));
     else if (goal.nextRunAt && goal.status === 'queued' && !autonomy.paused) meta.append(element('span', '', `Next: ${formatDate(goal.nextRunAt)}`));
     if (goal.contractVersion === 2) meta.append(element('span', '', goal.kind === 'ongoing' ? 'Ongoing' : 'Task'));
+    if (goal.delivery === 'silent') meta.append(element('span', 'goal-silent', 'Silent'));
     card.append(meta);
-    if (goal.review?.lastResult) card.append(element('p', 'goal-no-data', `Last outcome: ${goal.review.lastResult.outcome}`));
+    // Silent goals report here instead of in the chat, so show what they last did.
+    if (goal.review?.lastResult) card.append(element('p', 'goal-no-data', goal.delivery === 'silent' && goal.review.lastResult.summary
+      ? `Last result (${goal.review.lastResult.outcome}): ${goal.review.lastResult.summary.slice(0, 400)}` : `Last outcome: ${goal.review.lastResult.outcome}`));
     for (const item of goal.actionItems || []) if (['proposed', 'waiting'].includes(item.status)) card.append(element('p', 'goal-no-data', `${item.owner === 'user' ? 'Your action' : 'Bot action'} · ${item.text}`));
     if (questionSlot) card.append(questionSlot);
     const progress = element('div', `goal-progress${questionForm ? ' goal-awaiting-input' : ''}`);
@@ -3128,6 +3131,7 @@ function editGoal(goal) {
   $('goal-objective').value = goal?.objective || '';
   $('goal-kind').value = goal?.kind || 'task';
   $('goal-source-chat').checked = goal?.sources?.chat !== false;
+  $('goal-delivery-chat').checked = goal ? goal.delivery !== 'silent' : true;
   $('goal-active-hours').checked = goal?.respectActiveHours !== false;
   $('goal-source-feedback').checked = goal?.sources?.feedback === true;
   $('goal-source-calendar').checked = goal?.sources?.calendar !== false;
@@ -3249,7 +3253,7 @@ async function saveGoal(event) {
     if (selectedMcp.some((input) => input.dataset.unavailable === 'true')) throw new Error('Refresh Extensions to discover the saved MCP tools, or remove their grants before saving.');
     const existing = state.autonomy?.goals?.find((goal) => goal.id === editingGoalId);
     const payload = {
-      ...(editingGoalId ? { id: editingGoalId } : {}), contractVersion: 2, kind: $('goal-kind').value, sources: { chat: $('goal-source-chat').checked, calendar: $('goal-source-calendar').checked, files: lines('goal-source-files'), feedback: $('goal-source-feedback').checked }, reviewPolicy: $('goal-review-policy').value, respectActiveHours: $('goal-active-hours').checked, maxQuietHours: Number($('goal-max-quiet-hours').value) || 0, name: $('goal-name').value.trim(), objective: $('goal-objective').value.trim(), steps, checks: $('goal-kind').value === 'ongoing' ? checks.filter(c => c.path || c.command) : checks,
+      ...(editingGoalId ? { id: editingGoalId } : {}), contractVersion: 2, kind: $('goal-kind').value, delivery: $('goal-delivery-chat').checked ? 'chat' : 'silent', sources: { chat: $('goal-source-chat').checked, calendar: $('goal-source-calendar').checked, files: lines('goal-source-files'), feedback: $('goal-source-feedback').checked }, reviewPolicy: $('goal-review-policy').value, respectActiveHours: $('goal-active-hours').checked, maxQuietHours: Number($('goal-max-quiet-hours').value) || 0, name: $('goal-name').value.trim(), objective: $('goal-objective').value.trim(), steps, checks: $('goal-kind').value === 'ongoing' ? checks.filter(c => c.path || c.command) : checks,
       workspace: existing?.workspace || goalDraftContext.workspace, model: existing?.model || goalDraftContext.model, effort: existing?.effort || goalDraftContext.effort,
       priority: Number($('goal-priority').value),
       permissions: { write: $('goal-permission-write').checked, writePaths: $('goal-permission-write').checked ? lines('goal-write-paths') : [], shell: $('goal-permission-shell').checked, network: $('goal-permission-network').checked, mcpTools: selectedMcp.map((input) => ({ server: input.dataset.server, tool: input.dataset.tool })) },

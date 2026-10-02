@@ -115,10 +115,13 @@ test('web watches accept only public pages, keep a baseline, then report the new
   assert.equal(watcher.list().length, 1);
 });
 
-test('proactive suggestions carry one-click answers that are recorded once', () => {
+test('proactive notes carry no generic buttons; saved older buttons still answer once; offers keep their launch button', () => {
   const chat = { status: 'idle', messages: [] };
   const data = { chats: [chat] };
-  const suggestion = proactive.deliverHeartbeat(data, { id: 'h1', status: 'alert', source: 'heartbeat', summary: 'Try the new Ace Combat mission tonight?', topic: 'Leisure' });
+  assert.equal(proactive.deliverHeartbeat(data, { id: 'h0', status: 'alert', source: 'heartbeat', summary: 'Water break?', topic: 'Health' }).actions, undefined);
+  // A message saved by an older version keeps its buttons, and answering it still feeds the reaction log.
+  const suggestion = proactive.post(data, { kind: 'heartbeat', heartbeatId: 'h1', heartbeatTopic: 'Leisure', text: 'Try the new Ace Combat mission tonight?',
+    actions: [{ id: 'do', label: '✅ Do it' }, { id: 'later', label: '⏰ Later' }, { id: 'no', label: '✖ Not interested' }] });
   assert.deepEqual(suggestion.actions.map(action => action.id), ['do', 'later', 'no']);
   assert.equal(proactive.post(data, { kind: 'goal', goalId: 'g', goalRunId: 'q', goalQuestionId: 'q1', text: 'Which day?' }).actions, undefined, 'goal questions keep their own answer form');
   assert.equal(proactive.deliverLearned(data, [{ id: 'm', text: 'x', type: 'fact' }]).actions, undefined);
@@ -134,7 +137,7 @@ test('proactive suggestions carry one-click answers that are recorded once', () 
   assert.deepEqual(proactive.normalizeActions([{ id: 'launch', label: 'x', target: 'file:///C:/evil.exe' }]), [], 'only Steam launch targets survive');
   const watch = proactive.deliverWatch(data, { id: 'w', label: 'Patch notes', url: 'https://example.com', added: 'Patch 1.2' });
   assert.match(watch.text, /🔎 Patch notes changed: https:\/\/example.com\nNew text:\nPatch 1.2/);
-  assert.equal(watch.actions.length, 3);
+  assert.equal(watch.actions, undefined);
 });
 
 test('a self-review goal reads reactions and the heartbeat log, and re-reviews only after a new reaction', async () => {

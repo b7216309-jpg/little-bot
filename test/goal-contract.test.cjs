@@ -398,9 +398,20 @@ test('a retry after the token budget runs with a fresh budget instead of re-bloc
   assert.notEqual(g.status, 'blocked');
 });
 
-test('blocked notices in the chat carry no Do it / Later / Not interested buttons', () => {
+test('goal messages carry no Do it / Later / Not interested buttons; the user just replies', () => {
   const g = goal(process.cwd()), d = data(g);
   const notice = contract.deliver(g, d, { runId: 'blocked:1', summary: 'The goal token budget was reached.', actions: false });
   assert.equal(notice.actions, undefined);
-  assert.deepEqual(contract.deliver(g, d, { runId: 'r2', summary: 'A real suggestion.' }).actions.map(action => action.id), ['do', 'later', 'no']);
+  assert.equal(contract.deliver(g, d, { runId: 'r2', summary: 'A real suggestion.' }).actions, undefined);
+});
+
+test('a silent goal keeps its results out of the chat but still asks its questions there', () => {
+  const g = validateGoal({ ...goal(process.cwd()), delivery: 'silent' }, null, { workspace: process.cwd() }), d = data(g);
+  assert.equal(g.delivery, 'silent');
+  assert.equal(contract.deliver(g, d, { runId: 'r1', summary: 'Updated the backlog file.' }), null);
+  const question = { id: 'q1', question: 'Which day suits you?' };
+  assert.equal(contract.deliver(g, d, { runId: 'r2', question }).text, 'Which day suits you?');
+  assert.equal(validateGoal({ name: 'Old', objective: 'x', kind: 'ongoing', workspace: process.cwd(), sources: { chat: false, calendar: true, files: [] } }, null, { workspace: process.cwd() }).delivery, 'silent', 'a goal that never read the chat starts silent');
+  assert.equal(validateGoal({ name: 'New', objective: 'x', kind: 'ongoing', workspace: process.cwd() }, null, { workspace: process.cwd() }).delivery, 'chat');
+  assert.throws(() => validateGoal({ name: 'Bad', objective: 'x', kind: 'ongoing', workspace: process.cwd(), delivery: 'loud' }, null, { workspace: process.cwd() }), /chat or stay silent/);
 });
