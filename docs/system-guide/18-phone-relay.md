@@ -38,7 +38,7 @@ App icons come from the Wink icon build ([build-icons.cjs](../../scripts/build-i
 
 ## Android app
 
-The Android app is plain Java with no third-party libraries; the source is in [android](../../android/AndroidManifest.xml). [build-android.cjs](../../scripts/build-android.cjs) builds it with the SDK build tools (aapt2, javac, d8, zipalign and apksigner), without Gradle. The signing key is created once next to the SDK and is never committed. The relay serves the signed APK at `/little-bot.apk`, and Chrome on an Android phone offers it in the phone web app's menu.
+The Android app lives in its own repository, [little-bot-android](https://github.com/b7216309-jpg/little-bot-android). It is plain Java with no third-party libraries, built with the SDK build tools without Gradle. Its `npm run build -- --to <this project>` copies the signed APK to `resources/android/little-bot.apk`. The relay serves that file at `/little-bot.apk`, and Chrome on an Android phone offers it in the phone web app's menu. The signing key stays next to the Android SDK and is never committed.
 
 - **Pairing.** The desktop QR code opens the pairing page in Chrome. "Pair the Android app instead" hands the code to the app through an `intent://` link. Pasting the pairing link also works. The token is encrypted with an Android Keystore key.
 - **Chat.** A WebView loads the PC's own phone web app and passes it the token through a small JavaScript bridge. Only the PC's origin stays in the WebView; other links open outside it. Chat, questions, buttons and goals behave exactly as on the web.

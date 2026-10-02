@@ -261,5 +261,4 @@ Guide: [18-phone-relay.md](18-phone-relay.md)
 | [resources/icons/little-bot-192.png](../../resources/icons/little-bot-192.png) | Phone app icon |
 | [resources/icons/little-bot-maskable.png](../../resources/icons/little-bot-maskable.png) | Android launcher icon |
 | [src/phone-context.cjs](../../src/phone-context.cjs) | Phone location, home/away and battery for prompts |
-| [scripts/build-android.cjs](../../scripts/build-android.cjs) | Builds and signs the Android app without Gradle |
-| [resources/android/little-bot.apk](../../resources/android/little-bot.apk) | Built Android app, served at /little-bot.apk |
+| [resources/android/little-bot.apk](../../resources/android/little-bot.apk) | Built Android app from [little-bot-android](https://github.com/b7216309-jpg/little-bot-android), served at /little-bot.apk |
