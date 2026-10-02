@@ -432,16 +432,19 @@ function showFeature(view) {
   currentView = view;
   $('chat-view').classList.add('hidden');
   for (const feature of ['goals', 'automations', 'calendar', 'memory', 'profile', 'heartbeat', 'inbox', 'extensions']) $(feature + '-view').classList.toggle('hidden', feature !== view);
+  // Show where you are: a tool page opens the Tools group so its item is visible and highlighted.
+  if (view !== 'inbox' && !sidebarTools.open) sidebarTools.open = true;
   render();
 }
 
 function appendInline(parent, source) {
-  const expression = /(\*\*([^*\n]+)\*\*|`([^`\n]+)`|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\))/g;
+  const expression = /(\*\*([^*\n]+)\*\*|`([^`\n]+)`|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(?<![\w*])\*([^*\s][^*\n]*?)\*(?![\w*]))/g;
   let last = 0;
   for (const match of source.matchAll(expression)) {
     parent.append(document.createTextNode(source.slice(last, match.index)));
     if (match[2]) parent.append(element('strong', '', match[2]));
     else if (match[3]) parent.append(element('code', '', match[3]));
+    else if (match[6]) parent.append(element('em', '', match[6]));
     else {
       const link = element('a', '', match[4]);
       link.href = match[5];
@@ -454,25 +457,59 @@ function appendInline(parent, source) {
   parent.append(document.createTextNode(source.slice(last)));
 }
 
-function renderMessageText(parent, text) {
-  const pieces = String(text || '').split(/```[^\n]*\n/);
-  if (pieces.length === 1) {
-    appendInline(parent, text || '');
-    return;
+// Lightweight Markdown for model replies, built as DOM nodes (never HTML strings):
+// fenced code, headings, bullet and numbered lists, quotes, rules, and inline bold/italic/code/links.
+function appendBlocks(parent, source) {
+  const lines = source.split('\n');
+  let text = [], list = null;
+  const flushText = () => {
+    if (!text.length) return;
+    const value = text.join('\n').replace(/^\n+|\n+$/g, '');
+    if (value) appendInline(parent, value);
+    text = [];
+  };
+  for (const line of lines) {
+    const bullet = /^\s{0,3}[-*•]\s+(.*)$/.exec(line);
+    const numbered = /^\s{0,3}(\d{1,3})[.)]\s+(.*)$/.exec(line);
+    if (bullet || numbered) {
+      flushText();
+      const tag = bullet ? 'ul' : 'ol';
+      if (!list || list.tagName.toLowerCase() !== tag) {
+        list = element(tag, 'md-list');
+        if (numbered && numbered[1] !== '1') list.start = Number(numbered[1]);
+        parent.append(list);
+      }
+      const item = element('li');
+      appendInline(item, bullet ? bullet[1] : numbered[2]);
+      list.append(item);
+      continue;
+    }
+    if (list && !line.trim()) continue;
+    list = null;
+    const heading = /^\s{0,3}#{1,4}\s+(.*?)\s*#*$/.exec(line);
+    const quote = /^\s{0,3}>\s?(.*)$/.exec(line);
+    if (heading) { flushText(); const node = element('span', 'md-heading'); appendInline(node, heading[1]); parent.append(node); }
+    else if (quote) { flushText(); const node = element('blockquote', 'md-quote'); appendInline(node, quote[1]); parent.append(node); }
+    else if (/^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { flushText(); parent.append(element('hr', 'md-rule')); }
+    else text.push(line);
   }
-  // Parse only complete, fenced code blocks; all other model content remains text.
+  flushText();
+}
+
+function renderMessageText(parent, text) {
   const source = String(text || '');
+  // Parse only complete, fenced code blocks; all other model content remains text.
   const fences = /```([^\n]*)\n([\s\S]*?)(?:```|$)/g;
   let last = 0;
   for (const match of source.matchAll(fences)) {
-    appendInline(parent, source.slice(last, match.index));
+    appendBlocks(parent, source.slice(last, match.index));
     const pre = element('pre');
     const code = element('code', '', match[2].replace(/\n$/, ''));
     pre.append(code);
     parent.append(pre);
     last = match.index + match[0].length;
   }
-  appendInline(parent, source.slice(last));
+  appendBlocks(parent, source.slice(last));
 }
 
 function attachmentSource(attachment) {
@@ -799,10 +836,14 @@ function conversationMessage(chat, message, index) {
   } else {
     if (!node) {
       node = element('article', `message ${variant}`);
+      if (variant === 'assistant' && (message.goalId || ['heartbeat', 'memory', 'watch', 'offer', 'goal'].includes(message.kind))) node.classList.add('proactive');
+      if (Number.isFinite(message.createdAt)) node.title = new Date(message.createdAt).toLocaleString();
       if (variant === 'user' && message.automationId) node.append(element('div', 'message-label automation-label', `Scheduled · ${message.automationName || 'Automation'}`));
       if (variant === 'assistant' || variant === 'plan') {
         const label = element('div', 'message-label');
-        label.append(element('span', 'mini-mark', variant === 'plan' ? 'P' : '✳'), document.createTextNode(variant === 'plan' ? 'Plan' : message.goalId ? `Goal · ${message.goalName || 'Little Bot'}` : message.kind === 'heartbeat' ? `Little Bot · on its own${message.heartbeatTopic ? ` · ${message.heartbeatTopic}` : ''}` : message.kind === 'memory' ? 'Little Bot · learned' : message.kind === 'watch' ? 'Little Bot · web watch' : message.kind === 'offer' ? 'Little Bot · offer' : message.automationId ? `Little Bot · ${message.automationName || 'Automation'}` : 'Little Bot'));
+        let mark = element('span', 'mini-mark', 'P');
+        if (variant !== 'plan') { mark = element('img', 'mini-mark wink-mark'); mark.src = './assets/wink.svg'; mark.alt = ''; }
+        label.append(mark, document.createTextNode(variant === 'plan' ? 'Plan' : message.goalId ? `Goal · ${message.goalName || 'Little Bot'}` : message.kind === 'heartbeat' ? `Little Bot · on its own${message.heartbeatTopic ? ` · ${message.heartbeatTopic}` : ''}` : message.kind === 'memory' ? 'Little Bot · learned' : message.kind === 'watch' ? 'Little Bot · web watch' : message.kind === 'offer' ? 'Little Bot · offer' : message.automationId ? `Little Bot · ${message.automationName || 'Automation'}` : 'Little Bot'));
         node.append(label);
       }
       node.append(element('div', 'message-content'));

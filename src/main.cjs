@@ -553,7 +553,8 @@ app.whenReady().then(async () => {
     store.save(); controller.changed(true);
     const chat = store.data.chats[0];
     if (choice === 'do' && chat?.status === 'idle') {
-      try { await controller.send({ chatId: chat.id, text: `✅ Yes, go ahead with this: "${entry.excerpt.slice(0, 280)}"` }); }
+      // Same path as a typed message: an active goal or heartbeat yields first instead of failing the send.
+      try { await appHandlers.get('send')({ chatId: chat.id, text: `✅ Yes, go ahead with this: "${entry.excerpt.slice(0, 280)}"` }); }
       catch (error) { logDiagnostic('proactive-answer', error); }
     }
     return controller.state();
