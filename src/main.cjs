@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, session, Notification, safeStorage, nativeImage, protocol, powerMonitor } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, session, Notification, safeStorage, nativeImage, protocol, powerMonitor, nativeTheme } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -690,7 +690,7 @@ app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
   window = new BrowserWindow({ width: 1240, height: 860, minWidth: 900, minHeight: 620,
-    title: 'Little Bot', backgroundColor: '#f7f5f0', show: false, icon: appIconFile,
+    title: 'Little Bot', backgroundColor: nativeTheme.shouldUseDarkColors ? '#21201a' : '#f7f5f0', show: false, icon: appIconFile,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true,
       nodeIntegration: false, sandbox: true, spellcheck: false, webviewTag: false, backgroundThrottling: !smoke },
   });

@@ -1,3 +1,17 @@
+# Version 0.14.0 verification
+
+0.14.0 adds a dark theme. Settings › Appearance chooses System (follows Windows, the default), Light or Dark. The choice is kept per PC. The window background also follows Windows at startup, so there is no white flash.
+
+The dark theme is generated, not hand-written. `scripts/build-dark-theme.cjs` reads every renderer stylesheet and, for each rule that sets a color, writes a dark twin under `html[data-theme=dark]`:
+- Lightness is mirrored (paper becomes charcoal, ink becomes paper) while the hue is kept.
+- Strong accents keep their weight.
+- Shadows and CSS variable names are left alone.
+- CSS variables such as `--paper` and `--ink` get the same treatment, so later style changes stay covered.
+
+`test/dark-theme.test.cjs` checks the color mapping and fails when `dark.css` no longer matches the light stylesheets.
+
+Every main screen (conversation, goals, heartbeat, automations, profile, settings, extensions, memory) was checked in dark screenshots of the real renderer. The full Node suite ran (the only failures are the 11 known `C:\Users\work` extension suites), and `npm run test:electron` passes.
+
 # Version 0.13.3 verification
 
 0.13.3 continues the polish pass.
