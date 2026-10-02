@@ -128,6 +128,7 @@ app.whenReady().then(async () => {
   const client = new CodexClient({ homeDir: codexHome, cwd: defaultWorkspace });
   controller = new Controller({ store, client, onError: logDiagnostic });
   controller.memoryConsolidator = new MemoryConsolidator(controller);
+  try { controller.memoryConsolidator.retryFormatFailures(); } catch (error) { logDiagnostic('memory-retry', error); }
   controller.browser = new AgentBrowser({ root: path.join(stateDir, 'browser'), headed: !smoke, onChange: () => controller.changed() });
   controller.webServices = new WebServices({ root: path.join(stateDir, 'services'), safeStorage });
   const attachmentReferences = () => store.data.chats.flatMap(chat => chat.messages.flatMap(message => (message.attachments || []).map(item => item.id)));
