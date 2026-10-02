@@ -159,3 +159,16 @@ test('Brave calls are not held behind the Firecrawl concurrency gate', async t =
   await Promise.all(busy);
   services.close();
 });
+
+test('Firecrawl unsupported-site 403s are not reported as a rejected key', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'little-bot-firecrawl-403-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  let body = { success: false, error: 'We apologize for the inconvenience but we do not support this site.' };
+  const fetchImpl = async () => new Response(JSON.stringify(body), { status: 403, headers: { 'content-type': 'application/json' } });
+  const lookupImpl = async () => [{ address: '93.184.215.14', family: 4 }];
+  const services = new WebServices({ root, safeStorage: safeStorage(), fetchImpl, lookupImpl });
+  services.save({ service: 'firecrawl', apiKey: 'firecrawl-test-key' });
+  await assert.rejects(services.call('web_scrape', { url: 'https://www.reddit.com/r/test/' }), /does not scrape this site.*browser/);
+  body = { success: false, error: 'Unauthorized: invalid token' };
+  await assert.rejects(services.call('web_scrape', { url: 'https://www.reddit.com/r/test/' }), /API key was rejected/);
+});
