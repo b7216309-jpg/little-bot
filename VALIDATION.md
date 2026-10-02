@@ -19,7 +19,7 @@ Checked against the live model: the failed job's exact prompt, sent three times,
 - **Screenshots:** they need the window on screen; minimized, the agent is told to use snapshot or read.
 - **Removed:** the agent-browser npm dependency and the Install browser step.
 
-New test `test/embedded-browser-electron.cjs` drives navigate, snapshot, fill, select, check/uncheck, click, read, scroll, Enter-submit, back, a target=_blank link, screenshot, dialog step-aside, the user address bar, hide and close against a local page. It passed with the window visible, never shown, and minimized. The full Electron suite passed. The Node suite shows only the 11 known `C:Userswork` failures. Screenshots of the real app checked the empty panel, a live Wikipedia page in dark mode, and the Settings dialog over the panel.
+New test `test/embedded-browser-electron.cjs` drives navigate, snapshot, fill, select, check/uncheck, click, read, scroll, Enter-submit, back, a target=_blank link, screenshot, dialog step-aside, the user address bar, hide and close against a local page. It passed with the window visible, never shown, and minimized. The full Electron suite passed. The Node suite shows only the 11 known `C:\Users\work` failures. Screenshots of the real app checked the empty panel, a live Wikipedia page in dark mode, and the Settings dialog over the panel.
 
 # Version 0.16.2 verification
 
