@@ -187,6 +187,14 @@ app.whenReady().then(async () => {
     canRun: () => controller.runtime.status === 'ready' && controller.account.status === 'connected'
       && !controller.extensionsBusy && !controller.memoryBusy && !controller.goalChat && !controller.heartbeatChat && !heartbeat.running && !scheduler.runningId
       && !store.data.chats.some(chat => chat.status !== 'idle') && !controller.memoryConsolidator?.hasReadyWork(),
+    waitReason: () => controller.runtime.status !== 'ready' ? 'The engine is starting'
+      : controller.account.status !== 'connected' ? 'Waiting for the model (it is offline or not loaded)'
+      : store.data.chats.some(chat => chat.status !== 'idle') ? 'A conversation reply is in progress'
+      : controller.memoryBusy || controller.memoryConsolidator?.hasReadyWork() ? 'Memory is learning from the conversation'
+      : controller.goalChat || goals?.activeId ? 'Another goal is running'
+      : heartbeat.running || controller.heartbeatChat ? 'The heartbeat check is running'
+      : scheduler.runningId ? 'A scheduled task is running'
+      : controller.extensionsBusy ? 'Extensions are updating' : '',
     onChange: () => controller.changed(),
     publish: publishEvent,
     onAlert: item => {
@@ -198,6 +206,7 @@ app.whenReady().then(async () => {
         workspace: goal?.workspace || store.data.settings.workspace });
     },
   });
+  controller.goalWaiting = () => Object.fromEntries(goals.waiting);
   eventRuntime = new EventRuntime({ store, scheduler, heartbeat, goals, controller,
     onChange: ({ persisted }) => controller.changed(persisted === true),
     onError: (error, event) => logDiagnostic('event-runtime', error, { eventType: event?.type }),

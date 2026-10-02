@@ -318,6 +318,11 @@ test('scheduled goal reviews wait for Heartbeat active hours; an explicit Run do
   g.nextRunAt = Date.now() - 1000;
   await runner.tick();
   assert.equal(calls, 0, 'outside active hours the due review waits');
+  assert.match(runner.waiting.get(g.id), /^Outside active hours \(\d\d:00–\d\d:00\)$/, 'the card says why it waits');
+  runner.canRun = () => false; runner.waitReason = () => 'Waiting for the model (it is offline or not loaded)';
+  await runner.tick();
+  assert.equal(runner.waiting.get(g.id), 'Waiting for the model (it is offline or not loaded)');
+  runner.canRun = () => true;
   assert.equal(runner.awake({ ...g, respectActiveHours: false }), true);
   Object.assign(g, validateGoal({ ...g, respectActiveHours: false }, g, { workspace: g.workspace }));
   assert.equal(g.respectActiveHours, false);
