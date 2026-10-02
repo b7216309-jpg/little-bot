@@ -1,3 +1,11 @@
+# Version 0.12.3 verification
+
+0.12.3 fixes ongoing-goal retries after a budget failure. In real use, two goals hit their 60k-token budget, scheduled a retry, and then blocked again on the next attempt without calling the model. The retry reset the cycle's usage, but the run's final usage tally ran afterwards and restored the old count. Usage tracking now stops once a retry is scheduled.
+
+Blocked-goal notices in the chat no longer carry ✅ / ⏰ / ✖ buttons, which made no sense on an error.
+
+A new runner test reproduces the budget failure followed by a retry. It fails on 0.12.2 ("the retry starts with a fresh cycle budget") and passes with the fix, which also checks that the retry reaches the model. A second test checks that blocked notices have no buttons. The full Node suite ran: the only failures are the 11 known `C:\Users\work` extension suites.
+
 # Version 0.12.2 verification
 
 0.12.2 fixes "dynamic tools must use either canonical or legacy format consistently", reported on the first message after 0.12.1 reset a missing engine thread.

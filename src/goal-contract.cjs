@@ -209,13 +209,13 @@ function validateResult(goal, result, evidence, { changedFiles = 0, checksPassed
 }
 
 // A busy conversation queues the result instead of dropping it; see proactive-chat.cjs.
-function deliver(goal, data, { runId, summary, question } = {}) {
+function deliver(goal, data, { runId, summary, question, actions = true } = {}) {
   if (!goal.sources.chat) return null;
   const key = question ? `question:${question.id}` : runId;
   const body = summary || question?.question || '';
   if (!body.trim()) return null;
   return proactive.post(data, { kind: 'goal', goalId: goal.id, goalName: goal.name, goalRunId: key, text: body,
-    ...(question ? { goalQuestionId: question.id } : {}) }, { duplicate: m => m.goalId === goal.id && m.goalRunId === key });
+    ...(question ? { goalQuestionId: question.id } : {}), ...(actions ? {} : { actions: undefined }) }, { duplicate: m => m.goalId === goal.id && m.goalRunId === key });
 }
 
 function chatContext(data) {

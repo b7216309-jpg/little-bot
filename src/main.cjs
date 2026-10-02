@@ -187,7 +187,7 @@ app.whenReady().then(async () => {
     publish: publishEvent,
     onAlert: item => {
       const goal = store.data.autonomy.goals.find(goal => goal.id === item.goalId);
-      if (goalContract.isV2(goal) && goal?.status === 'blocked') goalContract.deliver(goal, store.data, { runId: goal.pendingQuestion ? undefined : 'blocked:' + goal.updatedAt, summary: item.summary || item.message, question: goal.pendingQuestion });
+      if (goalContract.isV2(goal) && goal?.status === 'blocked') goalContract.deliver(goal, store.data, { runId: goal.pendingQuestion ? undefined : 'blocked:' + goal.updatedAt, summary: item.summary || item.message, question: goal.pendingQuestion, actions: false });
       heartbeat.recordActivity({ status: goal?.status === 'blocked' ? 'error' : 'alert',
         summary: `${item.title || 'Goal'}: ${item.summary || item.message || 'A goal needs your attention.'}`,
         topic: item.title || 'Goal runner', source: 'goal', goalId: item.goalId,

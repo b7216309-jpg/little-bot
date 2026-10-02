@@ -375,3 +375,27 @@ test('goal evidence includes what Little Bot said since the last review, without
   assert.equal(second.changed, false, 'the bot talking does not trigger a review by itself');
   assert.throws(() => contract.validateResult(g, result('progress', { actionUpdates: [{ text: 'English PR', owner: 'user', status: 'verified', evidenceRefs: ['said:r2'] }], evidenceRefs: ['said:r2'] }), second), /confirmation|observable progress/);
 });
+
+test('a retry after the token budget runs with a fresh budget instead of re-blocking on the old count', async t => {
+  let calls = 0;
+  const { runner, g } = await runnerFixture(t, async (_goal, { onProgress }) => {
+    calls++;
+    if (calls === 1) onProgress({ tokens: 5000 });
+    return result('no-change');
+  });
+  g.limits.maxTokens = 1000;
+  await runner.execute(g);
+  assert.equal(calls, 1);
+  assert.equal(g.status, 'queued', 'the over-budget cycle schedules a retry');
+  assert.equal(g.usage.tokens, 0, 'the retry starts with a fresh cycle budget');
+  await runner.execute(g);
+  assert.equal(calls, 2, 'the retry reaches the model instead of blocking on the old count');
+  assert.notEqual(g.status, 'blocked');
+});
+
+test('blocked notices in the chat carry no Do it / Later / Not interested buttons', () => {
+  const g = goal(process.cwd()), d = data(g);
+  const notice = contract.deliver(g, d, { runId: 'blocked:1', summary: 'The goal token budget was reached.', actions: false });
+  assert.equal(notice.actions, undefined);
+  assert.deepEqual(contract.deliver(g, d, { runId: 'r2', summary: 'A real suggestion.' }).actions.map(action => action.id), ['do', 'later', 'no']);
+});
