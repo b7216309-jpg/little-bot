@@ -2922,7 +2922,9 @@ function renderGoals() {
     folder.append(icon('folder'), document.createTextNode(basename(goal.workspace)));
     const trigger = goal.trigger?.type === 'interval' ? intervalLabel(goal.trigger.intervalMinutes) : goal.trigger?.type === 'files' ? 'On selected file changes' : 'Run manually';
     meta.append(folder, element('span', '', `Priority ${goal.priority || 3}`), element('span', '', trigger));
-    if (goal.nextRunAt && goal.status === 'queued' && !autonomy.paused) meta.append(element('span', '', `Next: ${formatDate(goal.nextRunAt)}`));
+    const waiting = goal.status === 'queued' && !autonomy.paused ? state.goalWaiting?.[goal.id] : '';
+    if (waiting) meta.append(element('span', 'goal-waiting', `Waiting: ${waiting}`));
+    else if (goal.nextRunAt && goal.status === 'queued' && !autonomy.paused) meta.append(element('span', '', `Next: ${formatDate(goal.nextRunAt)}`));
     if (goal.contractVersion === 2) meta.append(element('span', '', goal.kind === 'ongoing' ? 'Ongoing' : 'Task'));
     card.append(meta);
     if (goal.review?.lastResult) card.append(element('p', 'goal-no-data', `Last outcome: ${goal.review.lastResult.outcome}`));
