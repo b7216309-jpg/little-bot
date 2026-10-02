@@ -93,6 +93,12 @@ Recall and automatic learning require Memory on. Knowledge is shared across mode
 
 Bundled skill updates preserve user edits, disabled state, IDs, and deletions. [Skill sources and licenses](resources/skills/SOURCES.md).
 
+## On your phone
+
+Turn on Settings › Phone relay to use the same live conversation from your phone. Pair it by scanning a QR code. Over [Tailscale](https://tailscale.com) HTTPS it works away from home and can send notifications.
+
+The Android companion app adds notifications without Google push and opt-in location sharing, so Little Bot knows when you are home or out. It lives in [little-bot-android](https://github.com/b7216309-jpg/little-bot-android). The PC serves the built APK at `/little-bot.apk`.
+
 ## Strata conversation cache
 
 Little Bot works with official Strata releases. Chat, memory extraction, goals, heartbeat and independent checks send their own full histories through the standard Chat Completions API. The app no longer sends the custom slot IDs from [PR #175](https://github.com/Niko1221/Strata/pull/175).
