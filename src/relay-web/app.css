@@ -96,3 +96,5 @@ hr{border:0;border-top:1px solid var(--line);width:100%;margin:6px 0}
 .toast{position:fixed;left:50%;bottom:calc(84px + var(--safe-b));transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:9px 15px;border-radius:12px;font-size:13.5px;max-width:90vw;z-index:10;box-shadow:0 6px 20px rgba(0,0,0,.2)}
 .toast.bad{background:var(--danger);color:#fff}
 .empty{color:var(--muted);text-align:center;margin-top:30vh}
+.link-button{display:block;text-align:center;text-decoration:none;color:inherit}
+.tools div p.thought{font-family:inherit;font-size:12.5px;font-style:italic;white-space:pre-wrap}

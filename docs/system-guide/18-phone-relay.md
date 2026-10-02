@@ -35,3 +35,14 @@ App icons come from the Wink icon build ([build-icons.cjs](../../scripts/build-i
 ## Tests
 
 [relay.test.cjs](../../test/relay.test.cjs) decrypts pushes the way a browser does and verifies the VAPID signature. It also checks the trimmed view for leaks and the notification rules, then runs a real server to cover pairing, tokens, lockouts, live updates, deltas, handlers, approvals, push gating, static files and restart persistence.
+
+## Android app
+
+The Android app is plain Java with no third-party libraries; the source is in [android](../../android/AndroidManifest.xml). [build-android.cjs](../../scripts/build-android.cjs) builds it with the SDK build tools (aapt2, javac, d8, zipalign and apksigner), without Gradle. The signing key is created once next to the SDK and is never committed. The relay serves the signed APK at `/little-bot.apk`, and Chrome on an Android phone offers it in the phone web app's menu.
+
+- **Pairing.** The desktop QR code opens the pairing page in Chrome. "Pair the Android app instead" hands the code to the app through an `intent://` link. Pasting the pairing link also works. The token is encrypted with an Android Keystore key.
+- **Chat.** A WebView loads the PC's own phone web app and passes it the token through a small JavaScript bridge. Only the PC's origin stays in the WebView; other links open outside it. Chat, questions, buttons and goals behave exactly as on the web.
+- **Notifications.** A foreground service of type remoteMessaging keeps one background event stream open (`/api/events?background=1`). A background stream never counts as someone looking at the chat. When nobody is looking, the relay sends `notify` events, and the service shows them as notifications. No Google push account is involved. The service restarts after a reboot or an app update.
+- **Location.** It is off until enabled in the app menu. The app first asks for while-in-use permission, then for "Allow all the time". It sends the location (at most every 5 minutes or 100 m) and the battery level to `/api/context`, and refreshes every 30 minutes. [phone-context.cjs](../../src/phone-context.cjs) validates the data and keeps only the latest context, in memory. "Set this place as home" stores one home point (200 m radius) in the encrypted relay file. Prompts for chat, heartbeat and goals get a short line: at home or how far away, coordinates rounded to about 100 m, accuracy, and battery. Leaving or reaching home publishes `phone.left_home` / `phone.arrived_home`, which can wake a wild heartbeat.
+- **Thinking.** The model's reasoning and commentary are folded into the collapsed "Thinking" group on the phone, as on the desktop. They never trigger a "replied" notification.
+

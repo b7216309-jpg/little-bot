@@ -7,7 +7,10 @@ const store = {
   set(value) { try { if (value) localStorage.setItem(TOKEN_KEY, value); else localStorage.removeItem(TOKEN_KEY); } catch {} },
 };
 
-let token = store.get();
+// Inside the Little Bot Android app, the app owns pairing, notifications and location.
+const native = window.LittleBotNative || null;
+const isAndroid = /Android/i.test(navigator.userAgent);
+let token = native ? String(native.token() || '') : store.get();
 let snap = null;               // Everything except messages, from the last state event.
 const messages = new Map();    // id -> message
 let order = [];
@@ -51,6 +54,7 @@ function showScreen(name) {
   for (const id of ['chat', 'composer', 'goals-button', 'menu-button']) $(id).classList.toggle('hidden', name !== 'chat');
 }
 function unpaired() {
+  if (native) { native.unpaired(); return; }
   token = ''; store.set('');
   streamAbort?.abort(); streamAbort = null; connected = false;
   setStatus('Not paired', 'offline');
@@ -61,6 +65,12 @@ function startPairing(code) {
   $('pair-form').classList.remove('hidden');
   $('pair-hint').textContent = 'Little Bot on your PC is ready to pair with this phone.';
   setStatus('Ready to pair', '');
+  // Hand the pairing to the installed Android app (Chrome opens it through an intent link).
+  if (isAndroid && !native) {
+    const link = $('pair-native');
+    link.href = `intent://pair?base=${encodeURIComponent(location.origin)}&code=${encodeURIComponent(code)}#Intent;scheme=littlebot;package=com.littlebot.app;S.browser_fallback_url=${encodeURIComponent(location.origin + '/little-bot.apk')};end`;
+    link.classList.remove('hidden');
+  }
   $('pair-form').onsubmit = async event => {
     event.preventDefault();
     $('pair-error').classList.add('hidden');
@@ -226,9 +236,11 @@ function toolsNode(group) {
   const details = el('details', 'tools');
   const failed = group.some(item => item.status === 'failed');
   const running = group.some(item => ['running', 'inProgress'].includes(item.status));
-  details.append(el('summary', '', `${group.length} action${group.length === 1 ? '' : 's'}${running ? ' · running' : failed ? ' · some failed' : ''}`));
+  const actions = group.filter(item => !item.thinking).length, thoughts = group.length - actions;
+  const parts = [thoughts ? 'Thinking' : '', actions ? `${actions} action${actions === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
+  details.append(el('summary', '', `${parts}${running ? ' · running' : failed ? ' · some failed' : ''}`));
   const body = el('div');
-  for (const item of group.slice(-30)) body.append(el('p', item.status === 'failed' ? 'failed' : '', (item.text || item.kind || 'Action').slice(0, 600)));
+  for (const item of group.slice(-30)) body.append(el('p', item.thinking ? 'thought' : item.status === 'failed' ? 'failed' : '', (item.text || item.kind || 'Action').slice(0, item.thinking ? 2000 : 600)));
   details.append(body);
   return details;
 }
@@ -254,7 +266,7 @@ function render() {
   for (const id of order) {
     const message = messages.get(id);
     if (!message) continue;
-    if (message.role === 'tool') { tools.push(message); continue; }
+    if (message.role === 'tool' || message.thinking) { tools.push(message); continue; }
     flush();
     items.push(messageNode(message));
   }
@@ -385,9 +397,24 @@ async function registration() {
   if (!pushSupported()) return null;
   return navigator.serviceWorker.register('/sw.js', { scope: '/' });
 }
+function renderNative() {
+  $('native-section').classList.remove('hidden');
+  const sharing = native.locationEnabled();
+  $('location-state').textContent = String(native.locationStatus() || '');
+  $('location-toggle').textContent = sharing ? 'Stop sharing my location' : 'Share my location';
+  $('location-toggle').className = sharing ? 'secondary' : 'primary';
+  $('home-set').classList.toggle('hidden', !sharing);
+}
 async function renderMenu() {
   $('version').textContent = snap?.version ? `Little Bot ${snap.version} on your PC` : '';
   const enable = $('push-enable'), test = $('push-test'), disable = $('push-disable');
+  $('get-apk').classList.toggle('hidden', !isAndroid || Boolean(native));
+  if (native) {
+    renderNative();
+    $('push-state').textContent = '';
+    enable.classList.add('hidden'); test.classList.add('hidden'); disable.classList.add('hidden');
+    return;
+  }
   if (!pushSupported()) {
     $('push-state').textContent = window.isSecureContext
       ? 'This browser cannot show notifications. Use Chrome on Android.'
@@ -435,6 +462,20 @@ $('unpair').addEventListener('click', () => attempt(async () => {
   $('menu-sheet').close();
   unpaired();
 }));
+$('location-toggle').addEventListener('click', () => {
+  if (!native) return;
+  native.setLocationEnabled(!native.locationEnabled());
+  setTimeout(renderNative, 400);
+});
+$('home-set').addEventListener('click', () => attempt(async () => {
+  native?.shareNow?.();
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  await api('home', {});
+  toast('Home saved. Little Bot will know when you leave or get back.');
+  renderNative();
+}));
+// The app calls this after it gains or loses location permission.
+window.littleBotNativeChanged = () => { if ($('menu-sheet').open) renderNative(); };
 $('menu-button').addEventListener('click', () => { renderMenu(); $('menu-sheet').showModal(); });
 for (const button of document.querySelectorAll('[data-close]')) button.addEventListener('click', () => button.closest('dialog').close());
 for (const dialog of document.querySelectorAll('dialog')) dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); });
@@ -453,6 +494,6 @@ function boot() {
   showScreen('chat');
   render();
   connect();
-  registration().catch(() => {});
+  if (!native) registration().catch(() => {});
 }
 boot();

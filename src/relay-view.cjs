@@ -24,6 +24,8 @@ function slimMessage(message) {
   for (const key of ['kind', 'status', 'phase']) if (typeof message[key] === 'string') entry[key] = cut(message[key], 40);
   for (const key of ['createdAt', 'updatedAt']) if (Number.isFinite(message[key])) entry[key] = message[key];
   if (PROACTIVE_KINDS.includes(message.kind)) entry.proactive = true;
+  // The model's reasoning and commentary are folded away like on the desktop, never shown as a reply.
+  if (message.role === 'assistant' && (message.kind === 'reasoning' || ['commentary', 'analysis'].includes(message.phase))) { entry.thinking = true; entry.label = 'Thinking'; }
   if (Array.isArray(message.actions) && message.actions.length) entry.actions = message.actions.map(({ id, label }) => ({ id, label }));
   if (message.answer?.choice) entry.answer = { choice: message.answer.choice };
   if (Array.isArray(message.attachments) && message.attachments.length) entry.attachments = message.attachments.map(item => ({
@@ -66,7 +68,7 @@ function notifications(previous, next) {
   const result = [];
   const known = new Set(previous.messages.map(message => message.id));
   for (const message of next.messages) {
-    if (known.has(message.id) || !message.proactive) continue;
+    if (known.has(message.id) || !message.proactive || message.thinking) continue;
     result.push({ title: message.label, body: excerpt(message.text) || 'New message', tag: `message-${message.id}`, kind: message.kind || '' });
   }
   const before = new Set(previous.approvals.map(item => item.requestId));
@@ -77,7 +79,7 @@ function notifications(previous, next) {
       : { title: 'Little Bot needs your approval', body: excerpt(approval.title), tag: `approval-${approval.requestId}` });
   }
   if (previous.chat?.status === 'running' && next.chat?.status === 'idle') {
-    const latest = [...next.messages].reverse().find(message => message.role === 'user' || (message.role === 'assistant' && !message.proactive && message.kind !== 'question'));
+    const latest = [...next.messages].reverse().find(message => message.role === 'user' || (message.role === 'assistant' && !message.proactive && !message.thinking && message.kind !== 'question'));
     const reply = latest?.role === 'assistant' ? latest : null;
     if (reply) result.push({ title: 'Little Bot replied', body: excerpt(reply.text) || 'Your reply is ready.', tag: 'reply' });
   }

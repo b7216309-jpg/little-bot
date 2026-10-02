@@ -320,6 +320,11 @@ app.whenReady().then(async () => {
     handlers: new Proxy({}, { get: (_target, name) => payload => appHandlers.get(name)(payload) }) });
   const relayChanged = () => { if (window && !window.isDestroyed()) window.webContents.send('bot:event', { type: 'relay', relay: relay.publicState() }); };
   relay.onClients = relayChanged;
+  controller.phoneSummary = () => relay.phoneSummary();
+  relay.onContext = ({ before, after }) => {
+    relayChanged();
+    if (before && after && before.home !== after.home) eventRuntime?.publish({ type: after.home ? 'phone.arrived_home' : 'phone.left_home', source: 'phone', payload: { meters: after.meters } });
+  };
   relay.onPaired = device => { relayChanged(); controller.emit('event', { type: 'memory', message: `Paired ${device.name} with the phone relay.` }); };
   controller.on('event', event => relay.onEvent(event));
   // Desktop notifications while the window is in the background: replies, questions, approvals, web watches and offers.

@@ -57,7 +57,7 @@ class EventRuntime {
       this.bus.subscribe({ id: 'runtime:heartbeat-due', type: 'heartbeat.due', priority: 10,
         handler: event => this._runHeartbeatDue(event) }),
       this.bus.subscribe({ id: 'runtime:presence', type: '*', priority: 9,
-        filter: event => ['app.opened', 'user.returned', 'chat.completed', 'activity.app_started', 'activity.long_session'].includes(event.type), handler: event => this._wakeForPresence(event) }),
+        filter: event => ['app.opened', 'user.returned', 'chat.completed', 'activity.app_started', 'activity.long_session', 'phone.left_home', 'phone.arrived_home'].includes(event.type), handler: event => this._wakeForPresence(event) }),
       this.bus.subscribe({ id: 'runtime:intent-action', type: 'standing_intent.action', priority: 10,
         handler: event => this._runIntentAction(event) }),
       this.bus.subscribe({ id: 'runtime:settle-goal', type: '*', priority: 8,
@@ -184,6 +184,8 @@ class EventRuntime {
       'chat.completed': ['The user finished a conversation with you about ten minutes ago; consider a thoughtful follow-up on it.', 10 * MINUTE, true],
       'activity.app_started': [`The user just started using ${String(event.payload?.app || 'an app').slice(0, 60)} (open for a couple of minutes). Consider whether a short, well-timed note would help; usually stay out of the way.`, MINUTE, false],
       'activity.long_session': [`The user has been in ${String(event.payload?.app || 'the same app').slice(0, 60)} for about ${event.payload?.hours || 3} hours.`, MINUTE, false],
+      'phone.left_home': ['The user just left home (from their phone). A short, useful note for the road may help; usually stay quiet.', 2 * MINUTE, false],
+      'phone.arrived_home': ['The user just got home (from their phone). A good moment for a short welcome-back note if something useful is waiting.', 2 * MINUTE, false],
     }[event.type];
     if (event.type === 'chat.completed' && typeof this.goals.userReplied === 'function') {
       try { this.goals.userReplied(this.store.data.chats?.[0]); } catch (error) { this._error(error, event); }
