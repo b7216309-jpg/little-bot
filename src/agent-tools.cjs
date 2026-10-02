@@ -109,11 +109,17 @@ class AgentTools {
         const forgotten = service.forget(string(args.id, 'memory ID', 200, true));
         this.store.save(); return { forgotten };
       }
-      if (Object.keys(args).some(key => !['id', 'text', 'type', 'scope', 'key', 'pinned'].includes(key))) throw new Error('Unsupported memory field.');
+      // Small models add stray fields (an "action" copied from other tools, an empty id). Keep the save; drop the extras.
+      const fields = {};
+      const ignored = [];
+      for (const [key, value] of Object.entries(args)) {
+        if (!['id', 'text', 'type', 'scope', 'key', 'pinned'].includes(key)) ignored.push(key);
+        else if (value !== null && value !== '' && !(key === 'pinned' && typeof value !== 'boolean')) fields[key] = value;
+      }
       const message = [...(chat.messages || [])].reverse().find(item => item.role === 'user');
-      const record = service.save({ ...args, text: string(args.text, 'memory text', 20000, true),
+      const record = service.save({ ...fields, text: string(args.text, 'memory text', 20000, true),
         workspace: chat.workspace, source: { sessionId: chat.id, messageId: message?.id, messageIds: message?.id ? [message.id] : [], origin: 'remember' } });
-      this.store.save(); return { record };
+      this.store.save(); return ignored.length ? { record, ignoredFields: ignored } : { record };
     }
     if (name === 'attachment_send') {
       if (!this.sendAttachment || !chat || chat.internal || chat.automationId || chat.status !== 'running') throw new Error('Attachments can be sent only in an active user conversation.');

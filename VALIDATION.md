@@ -1,3 +1,13 @@
+# Version 0.17.1 verification
+
+0.17.1 makes memory tolerant of the local 2-bit model's output.
+
+- **memory_save:** live, every save failed with "Unsupported memory field" because the model sent `"action":"save"` and `"id":""`. Unknown fields are now ignored and reported as `ignoredFields`. Empty or null values count as absent.
+- **Background learning:** a bare memory object, a list under another name, or `{}` / `{"memories":null}` (nothing learned) are accepted instead of failing on the schema. Schema-failed jobs are retried at startup; unreadable JSON is not, so a broken job cannot loop.
+- **parseModelJson:** closes brackets left open by a cut-off reply. A value cut off mid-string still fails.
+
+Checked against the live model: the failed job's exact prompt, sent three times, parsed into one preference each time. New `test/model-json.test.cjs`; the consolidator and memory-runtime Electron tests cover the new shapes and a stray-field save. The Node suite shows only the 11 known `C:\Users\work` failures.
+
 # Version 0.17.0 verification
 
 0.17.0 replaces the external agent-browser (a separate Chrome or Edge window) with a browser built into Little Bot.
@@ -9,7 +19,7 @@
 - **Screenshots:** they need the window on screen; minimized, the agent is told to use snapshot or read.
 - **Removed:** the agent-browser npm dependency and the Install browser step.
 
-New test `test/embedded-browser-electron.cjs` drives navigate, snapshot, fill, select, check/uncheck, click, read, scroll, Enter-submit, back, a target=_blank link, screenshot, dialog step-aside, the user address bar, hide and close against a local page. It passed with the window visible, never shown, and minimized. The full Electron suite passed. The Node suite shows only the 11 known `C:Userswork` failures. Screenshots of the real app checked the empty panel, a live Wikipedia page in dark mode, and the Settings dialog over the panel.
+New test `test/embedded-browser-electron.cjs` drives navigate, snapshot, fill, select, check/uncheck, click, read, scroll, Enter-submit, back, a target=_blank link, screenshot, dialog step-aside, the user address bar, hide and close against a local page. It passed with the window visible, never shown, and minimized. The full Electron suite passed. The Node suite shows only the 11 known `C:\Users\work` failures. Screenshots of the real app checked the empty panel, a live Wikipedia page in dark mode, and the Settings dialog over the panel.
 
 # Version 0.16.2 verification
 
