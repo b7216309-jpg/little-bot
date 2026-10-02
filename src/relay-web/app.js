@@ -134,6 +134,20 @@ function scheduleReconnect() {
   retryTimer = setTimeout(connect, retryDelay);
   retryDelay = Math.min(retryDelay * 2, 15000);
 }
+// The PC pings every 25 s. A stream that stays silent longer is dead even if it never closed (a VPN restart,
+// a network switch), so drop it and reconnect; the reconnect starts with a full snapshot.
+const STREAM_SILENCE_MS = 65000;
+let lastStreamByte = 0;
+let hiddenSince = 0;
+setInterval(() => {
+  if (connected && streamAbort && Date.now() - lastStreamByte > STREAM_SILENCE_MS) streamAbort.abort();
+}, 10000);
+function restartStream() {
+  if (!token) return;
+  retryDelay = 1000;
+  connected = false;
+  connect();
+}
 async function connect() {
   if (!token) return;
   clearTimeout(retryTimer);
@@ -147,9 +161,11 @@ async function connect() {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    lastStreamByte = Date.now();
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
+      lastStreamByte = Date.now();
       buffer += decoder.decode(value, { stream: true });
       let index;
       while ((index = buffer.indexOf('\n\n')) >= 0) {
@@ -160,6 +176,7 @@ async function connect() {
     }
     if (streamAbort === controller) scheduleReconnect();
   } catch (error) {
+    // Aborted by a newer connect(): that one owns the stream. Aborted by the silence watchdog: reconnect.
     if (controller.signal.aborted && streamAbort !== controller) return;
     if (streamAbort === controller) scheduleReconnect();
   }
@@ -582,11 +599,14 @@ for (const button of document.querySelectorAll('[data-close]')) button.addEventL
 for (const dialog of document.querySelectorAll('dialog')) dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); });
 
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && token && !connected) { retryDelay = 1000; connect(); }
+  if (document.visibilityState === 'hidden') hiddenSince = Date.now();
+  // Back in front: a background tab's stream is often stale, so refresh it unless it just spoke.
+  else if (token && (!connected || (hiddenSince && Date.now() - hiddenSince > 15000) || Date.now() - lastStreamByte > 30000)) restartStream();
   reportPresence();
 });
 window.addEventListener('hashchange', () => { if (location.hash.startsWith('#pair=')) { streamAbort?.abort(); streamAbort = null; connected = false; boot(); } });
-window.addEventListener('online', () => { if (token && !connected) { retryDelay = 1000; connect(); } });
+// A network change (Wi-Fi to mobile data) can leave the old stream hanging: always start a fresh one.
+window.addEventListener('online', () => restartStream());
 
 function boot() {
   const pair = /^#pair=([A-Za-z0-9_-]{8,64})$/.exec(location.hash);
