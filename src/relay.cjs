@@ -17,6 +17,8 @@ const MAX_DEVICES = 5;
 const PAIR_MS = 10 * 60 * 1000;
 const PAIR_ATTEMPTS = 5;
 const MAX_BODY = 64 * 1024;
+const MAX_UPLOAD_BODY = 28 * 1024 * 1024; // a 20 MB attachment, base64-encoded
+const PHONE_ACTIONS = ['alarm', 'timer', 'ring', 'navigate'];
 const PING_MS = 25000;
 const PUSH_SUBJECT = 'https://github.com/b7216309-jpg/little-bot';
 const STATIC = {
@@ -216,6 +218,33 @@ class Relay {
     this.broadcast({ type: 'state', ...rest, ids, upsert });
     if (notes.length) this.notify(notes).catch(error => this.onError('relay-push', error));
   }
+  // Little Bot's phone tool: alarms, timers, ringing and routes run on the phone through its background connection.
+  phoneAction(input = {}) {
+    if (!PHONE_ACTIONS.includes(input.action)) throw new Error('Choose alarm, timer, ring or navigate.');
+    const action = { id: crypto.randomUUID(), kind: input.action, at: Date.now() };
+    const label = typeof input.label === 'string' ? input.label.replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 80) : '';
+    if (label) action.label = label;
+    if (input.action === 'alarm') {
+      if (!Number.isInteger(input.hour) || input.hour < 0 || input.hour > 23 || !Number.isInteger(input.minute) || input.minute < 0 || input.minute > 59) throw new Error('An alarm needs hour 0-23 and minute 0-59 (phone local time).');
+      Object.assign(action, { hour: input.hour, minute: input.minute });
+    } else if (input.action === 'timer') {
+      if (!Number.isInteger(input.minutes) || input.minutes < 1 || input.minutes > 1440) throw new Error('A timer needs minutes from 1 to 1440.');
+      action.minutes = input.minutes;
+    } else if (input.action === 'navigate') {
+      const destination = typeof input.destination === 'string' ? input.destination.replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 200) : '';
+      if (!destination) throw new Error('Say where to go.');
+      action.destination = destination;
+    }
+    const data = `data: ${JSON.stringify({ type: 'action', action })}\n\n`;
+    const devices = new Set();
+    for (const client of this.clients.values()) {
+      if (!client.background) continue;
+      client.response.write(data);
+      devices.add(this.config.devices.find(device => device.id === client.deviceId)?.name || 'phone');
+    }
+    if (!devices.size) throw new Error('No phone with the Little Bot app is connected right now.');
+    return { sent: true, kind: action.kind, phones: [...devices] };
+  }
   remember(messages) { for (const message of messages) this.sent.set(message.id, JSON.stringify(message)); }
   broadcastMessages(event) {
     if (event.chatId !== this.lastSnapshot?.chat?.id) return;
@@ -251,9 +280,9 @@ class Relay {
     response.writeHead(status, { ...SECURITY_HEADERS, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
     response.end(JSON.stringify(body));
   }
-  async body(request) {
+  async body(request, max = MAX_BODY) {
     let size = 0; const chunks = [];
-    for await (const chunk of request) { size += chunk.length; if (size > MAX_BODY) throw Object.assign(new Error('Too large.'), { status: 413 }); chunks.push(chunk); }
+    for await (const chunk of request) { size += chunk.length; if (size > max) throw Object.assign(new Error('Too large.'), { status: 413 }); chunks.push(chunk); }
     try { const value = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
     catch { throw Object.assign(new Error('Send JSON.'), { status: 400 }); }
   }
@@ -300,7 +329,7 @@ class Relay {
       if (url.pathname === '/api/state' && request.method === 'GET') return this.json(response, 200, this.snapshot());
       if (url.pathname === '/api/push-key' && request.method === 'GET') return this.json(response, 200, { key: webPush.vapidPublicKey(this.config.vapid) });
       if (request.method !== 'POST') return this.json(response, 404, { error: 'Not found.' });
-      const input = await this.body(request);
+      const input = await this.body(request, url.pathname === '/api/attach' ? MAX_UPLOAD_BODY : MAX_BODY);
       const result = await this.action(url.pathname.slice(5), input, device);
       return this.json(response, 200, result || { ok: true });
     } catch (error) {
@@ -355,9 +384,19 @@ class Relay {
       }
       case 'send': {
         const text = String(input.text || '').trim();
-        if (!text || text.length > 32000) throw new Error('Write a message first.');
-        await this.handlers.send({ ...(chatId ? { chatId } : {}), text });
+        const attachmentIds = Array.isArray(input.attachmentIds) ? input.attachmentIds.filter(id => typeof id === 'string').slice(0, 8) : [];
+        if ((!text && !attachmentIds.length) || text.length > 32000) throw new Error('Write a message first.');
+        await this.handlers.send({ ...(chatId ? { chatId } : {}), text, ...(attachmentIds.length ? { attachmentIds } : {}) });
         return { ok: true };
+      }
+      case 'attach': {
+        // A photo or file from the phone, imported exactly like a desktop attachment (images are resized there).
+        const name = String(input.name || '').replace(/[\\/\u0000-\u001f]/g, '').trim().slice(0, 180) || 'Phone file';
+        if (typeof input.data !== 'string' || !input.data) throw new Error('Choose a file first.');
+        const bytes = Buffer.from(input.data, 'base64');
+        if (!bytes.length) throw new Error('This file is empty.');
+        const attachment = await this.handlers.importAttachment({ name, bytes });
+        return { attachment: { id: attachment.id, name: attachment.name, kind: attachment.kind, size: attachment.size, ...(attachment.thumbnail ? { thumbnail: attachment.thumbnail } : {}) } };
       }
       case 'stop': if (chatId) await this.handlers.stop({ chatId }); return { ok: true };
       case 'proactive': await this.handlers.answerProactive({ messageId: String(input.messageId || ''), choice: String(input.choice || '') }); return { ok: true };
