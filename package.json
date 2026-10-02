@@ -14,6 +14,7 @@
     "package": "node scripts/package.cjs",
     "smoke": "electron . --smoke-test",
     "package:portable": "node scripts/package.cjs --portable-only",
+    "build:icons": "electron scripts/build-icons.cjs",
     "prepare:embeddings": "node scripts/prepare-embeddings.cjs",
     "pretest": "npm run prepare:embeddings",
     "prestart": "npm run prepare:embeddings"
