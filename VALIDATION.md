@@ -1,3 +1,22 @@
+# Version 0.13.0 verification
+
+0.13.0 adds the phone relay: Little Bot's one conversation, live on a paired phone. It is off by default and turned on in Settings › Phone relay.
+
+- **Pairing.** A QR code holds a one-time code that expires after 10 minutes. Each phone gets its own token; only its hash is stored, encrypted with Windows secure storage.
+- **Live sync.** Every desktop update is mirrored to the phone as a trimmed view: the conversation, questions, approvals and goal status. Settings, prompt, profile, memory and keys are never sent. Streaming replies type out on both devices at once. Phones send the same actions as the desktop (send, stop, proactive buttons, answers, goal run/pause/resume). Approving tool actions from a phone is a separate opt-in.
+- **Phone app.** It is a web app served by Little Bot, using the new Wink icons (192 px, 512 px and maskable).
+- **Notifications.** With Tailscale HTTPS (one button in Settings), the phone can be installed as an app and receive Web Push notifications when Little Bot reaches out, replies, or needs an answer while you are away. The encryption is RFC 8291 and the signing is VAPID, with no new dependency besides `qrcode-generator` for the QR code.
+
+The new `relay.test.cjs` covers several things:
+- Push messages decrypt the way a browser decrypts them, and the VAPID signature verifies.
+- The phone view leaks nothing private.
+- The notification rules behave as intended.
+- A real server handles pairing, tokens and lockouts, live updates sent as deltas, the action handlers, the approvals opt-in, push gating, static files and restart persistence.
+
+A demo relay was also driven in a phone-sized browser: pairing, live streaming, the proactive buttons, the question card, the goals sheet, and automatic reconnect after the PC went away. Separately, the real app with throwaway data paired a phone over HTTP. Its message reached the controller's send path, and the snapshot carried no private fields.
+
+Codex's Wink icon commit is merged. The docs now map its icon files, and the icon build also emits the phone icons.
+
 # Version 0.12.3 verification
 
 0.12.3 fixes ongoing-goal retries after a budget failure. In real use, two goals hit their 60k-token budget, scheduled a retry, and then blocked again on the next attempt without calling the model. The retry reset the cycle's usage, but the run's final usage tally ran afterwards and restored the old count. Usage tracking now stops once a retry is scheduled.

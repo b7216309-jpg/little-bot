@@ -12,6 +12,7 @@ const { Heartbeat, validateHeartbeat } = require('./heartbeat.cjs');
 const backups = require('./backups.cjs');
 const { ActivityMonitor } = require('./activity.cjs');
 const { WebWatcher } = require('./web-watch.cjs');
+const { Relay } = require('./relay.cjs');
 const { installedGame } = require('./steam-library.cjs');
 const proactiveChat = require('./proactive-chat.cjs');
 const { deliverHeartbeat, flush: flushProactive } = require('./proactive-chat.cjs');
@@ -41,7 +42,7 @@ if (process.env.LITTLE_BOT_DATA_DIR) app.setPath('userData', path.resolve(proces
 const smoke = process.argv.includes('--smoke-test');
 const launchTime = performance.now();
 if (!smoke && !app.requestSingleInstanceLock()) app.quit();
-let window, controller, scheduler, heartbeat, goals, eventRuntime, errorLog, activity, webWatcher, quitting = false;
+let window, controller, scheduler, heartbeat, goals, eventRuntime, errorLog, activity, webWatcher, relay, quitting = false;
 const rendererFile = path.join(__dirname, 'renderer', 'index.html');
 const appIconFile = path.join(__dirname, '..', 'resources', 'icons', 'little-bot.png');
 const rendererUrl = pathToFileURL(rendererFile).href;
@@ -310,6 +311,15 @@ app.whenReady().then(async () => {
     },
   });
   controller.on('event', event => { if (window && !window.isDestroyed()) window.webContents.send('bot:event', event); });
+  // Phones get the same conversation through the relay, using the same handlers as this window.
+  relay = new Relay({ file: path.join(stateDir, 'relay.json'), protector: stateProtector(), onError: logDiagnostic,
+    ...(process.env.LITTLE_BOT_RELAY_HOST ? { host: process.env.LITTLE_BOT_RELAY_HOST } : {}),
+    getState: () => controller.state(), isDesktopFocused: () => Boolean(window && !window.isDestroyed() && window.isFocused() && window.isVisible()),
+    handlers: new Proxy({}, { get: (_target, name) => payload => appHandlers.get(name)(payload) }) });
+  const relayChanged = () => { if (window && !window.isDestroyed()) window.webContents.send('bot:event', { type: 'relay', relay: relay.publicState() }); };
+  relay.onClients = relayChanged;
+  relay.onPaired = device => { relayChanged(); controller.emit('event', { type: 'memory', message: `Paired ${device.name} with the phone relay.` }); };
+  controller.on('event', event => relay.onEvent(event));
 
   function ensureExtensionsIdle() {
     if (controller.extensionsBusy || goals.activeId || controller.goalChat || heartbeat.running || scheduler.runningId || controller.heartbeatChat || store.data.chats.some(chat => chat.status !== 'idle')) {
@@ -645,6 +655,14 @@ app.whenReady().then(async () => {
   });
   register('togglePlugin', payload => updateExtensions(() => extensionFiles.setPluginEnabled(payload)));
   register('deletePlugin', ({ id } = {}) => updateExtensions(() => extensionFiles.removePlugin(id)));
+  register('relayState', async ({ refresh } = {}) => { if (refresh && relay.server) await relay.refreshTailscale().catch(() => {}); return relay.publicState(); });
+  register('relaySetEnabled', ({ enabled } = {}) => relay.setEnabled(enabled === true));
+  register('relaySetPort', ({ port } = {}) => relay.setPort(Number(port)));
+  register('relaySetApprovals', ({ allow } = {}) => relay.setAllowApprovals(allow === true));
+  register('relayPair', () => relay.startPairing());
+  register('relayCancelPair', () => { relay.pairing = null; return relay.publicState(); });
+  register('relayRemoveDevice', ({ id } = {}) => relay.removeDevice(String(id || '')));
+  register('relayTailscaleHttps', () => relay.enableTailscaleHttps());
 
   Menu.setApplicationMenu(null);
   session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
@@ -694,6 +712,7 @@ app.whenReady().then(async () => {
     if (!smoke) {
       if (store.data.settings.activityAwareness === true) activity.start();
       webWatcher.start();
+      relay.start().then(relayChanged).catch(error => logDiagnostic('relay-start', error));
       setTimeout(dailyBackup, 60000).unref?.();
       setInterval(dailyBackup, 6 * 3600000).unref?.();
     }
@@ -727,7 +746,7 @@ app.on('second-instance', () => { if (window) { if (window.isMinimized()) window
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', event => {
   if (quitting) return;
-  event.preventDefault(); quitting = true; scheduler?.stop(); heartbeat?.stop(); eventRuntime?.stop(); activity?.stop(); webWatcher?.stop();
+  event.preventDefault(); quitting = true; scheduler?.stop(); heartbeat?.stop(); eventRuntime?.stop(); activity?.stop(); webWatcher?.stop(); relay?.stop().catch(() => {});
   controller?.webServices?.close();
   Promise.allSettled([goals?.close(), controller?.browser?.close({ shutdown: true })]).then(() => controller?.close()).catch(error => console.error(cleanError(error))).finally(() => app.quit());
 });
