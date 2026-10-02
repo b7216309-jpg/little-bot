@@ -18,7 +18,7 @@ async function run({ window, controller, store, stateDir }) {
   const chat = { id: 'web-smoke', status: 'running' };
   const call = args => controller.agentTools.call('browser', args, { chat });
   try {
-    assert.equal(browser.getState().available, true, 'An installed Chromium browser must be available for this smoke.');
+    assert.equal(browser.getState().available, true, 'The built-in browser must be available.');
     await call({ action: 'navigate', url: `http://127.0.0.1:${server.address().port}/` });
     const snapshot = await call({ action: 'snapshot' });
     const data = JSON.parse(snapshot.content);
@@ -31,7 +31,7 @@ async function run({ window, controller, store, stateDir }) {
     assert.match(read.content, /Hello Little Bot/);
     const shot = await call({ action: 'screenshot' });
     assert.ok(fs.statSync(shot.screenshotPath).size > 100);
-    fs.copyFileSync(shot.screenshotPath, path.join(output, 'agent-browser.png'));
+    fs.copyFileSync(shot.screenshotPath, path.join(output, 'embedded-browser.png'));
     await assert.rejects(call({ action: 'navigate', url: 'file:///C:/Windows/win.ini' }), /http/);
     await assert.rejects(call({ action: 'eval', text: '1+1' }), /Invalid/);
     await assert.rejects(controller.agentTools.call('browser', { action: 'snapshot' }, { chat: { internal: true } }), /user conversation/);
@@ -39,7 +39,7 @@ async function run({ window, controller, store, stateDir }) {
     const specThread = await controller.client.request('thread/start', { cwd: store.data.settings.workspace, ephemeral: true, approvalPolicy: 'never', sandbox: 'read-only', dynamicTools: controller.agentTools.specs() });
     assert.ok(specThread.thread?.id, 'The pinned engine must accept the browser/service schemas.');
     await controller.client.request('thread/unsubscribe', { threadId: specThread.thread.id });
-    console.log(JSON.stringify({ web: true, settings, browser: 'agent-browser 0.38.1', navigateSnapshotFillClickReadScreenshot: true, dynamicSchemasAccepted: true, livePaidServices: false }));
+    console.log(JSON.stringify({ web: true, settings, browser: 'built-in', navigateSnapshotFillClickReadScreenshot: true, dynamicSchemasAccepted: true, livePaidServices: false }));
   } finally {
     await browser.close();
     await new Promise(resolve => server.close(resolve));

@@ -137,7 +137,7 @@ Guide: [11-browser-web.md](11-browser-web.md)
 
 | Source / resource | Responsibility |
 | --- | --- |
-| [src/agent-browser.cjs](../../src/agent-browser.cjs) | Production application module |
+| [src/embedded-browser.cjs](../../src/embedded-browser.cjs) | Production application module |
 | [src/web-services.cjs](../../src/web-services.cjs) | Production application module |
 
 ## skills plugins mcp
