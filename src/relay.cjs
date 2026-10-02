@@ -1,0 +1,377 @@
+'use strict';
+// Phone relay: a small local web server that mirrors the one Little Bot conversation to paired phones.
+// The PC stays the single source of truth; phones read a trimmed view and send the same actions as the desktop window.
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const http = require('node:http');
+const os = require('node:os');
+const path = require('node:path');
+const { execFile } = require('node:child_process');
+const qrcode = require('qrcode-generator');
+const view = require('./relay-view.cjs');
+const webPush = require('./web-push.cjs');
+
+const DEFAULT_PORT = 8787;
+const MAX_DEVICES = 5;
+const PAIR_MS = 10 * 60 * 1000;
+const PAIR_ATTEMPTS = 5;
+const MAX_BODY = 64 * 1024;
+const PING_MS = 25000;
+const PUSH_SUBJECT = 'https://github.com/b7216309-jpg/little-bot';
+const STATIC = {
+  '/': ['index.html', 'text/html; charset=utf-8'], '/index.html': ['index.html', 'text/html; charset=utf-8'],
+  '/app.js': ['app.js', 'text/javascript; charset=utf-8'], '/app.css': ['app.css', 'text/css; charset=utf-8'],
+  '/sw.js': ['sw.js', 'text/javascript; charset=utf-8'], '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json'],
+};
+// The Wink app icon, built by scripts/build-icons.cjs.
+const ICONS = { '/icon-192.png': 'little-bot-192.png', '/icon-512.png': 'little-bot.png', '/icon-maskable.png': 'little-bot-maskable.png' };
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY',
+  'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+};
+
+const hash = token => crypto.createHash('sha256').update(String(token)).digest();
+const cleanName = value => String(value || '').replace(/[\u0000-\u001f]/g, '').trim().slice(0, 60) || 'Phone';
+const errorText = error => String(error?.message || error || 'Something went wrong.').replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '').slice(0, 300);
+
+function lanAddresses(interfaces = os.networkInterfaces()) {
+  const result = [];
+  for (const [name, entries] of Object.entries(interfaces)) for (const entry of entries || []) {
+    if (entry.family !== 'IPv4' && entry.family !== 4) continue;
+    if (entry.internal || entry.address.startsWith('169.254.')) continue;
+    result.push({ name, address: entry.address, tailscale: /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(entry.address) || /tailscale/i.test(name) });
+  }
+  return result;
+}
+
+function tailscaleCli() {
+  const candidates = [path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Tailscale', 'tailscale.exe')];
+  return candidates.find(file => fs.existsSync(file)) || 'tailscale';
+}
+function runTailscale(args, timeout = 8000) {
+  return new Promise(resolve => execFile(tailscaleCli(), args, { timeout, windowsHide: true }, (error, stdout, stderr) =>
+    resolve({ ok: !error, stdout: String(stdout || ''), stderr: String(stderr || error?.message || '') })));
+}
+
+class Relay {
+  constructor({ file, protector, handlers, getState, isDesktopFocused = () => false, onError = () => {}, webRoot = path.join(__dirname, 'relay-web'), iconRoot = path.join(__dirname, '..', 'resources', 'icons'), tailscale = runTailscale, push = webPush.send, host = '0.0.0.0' }) {
+    Object.assign(this, { file, protector, handlers, getState, isDesktopFocused, onError, webRoot, iconRoot, tailscale, push, host });
+    this.server = null; this.clients = new Map(); this.pairing = null; this.error = ''; this.https = '';
+    this.lastSnapshot = null; this.sent = new Map(); this.failures = new Map(); this.seenSaveAt = 0;
+    this.config = this.load();
+  }
+
+  load() {
+    let data = {};
+    try { if (fs.existsSync(this.file)) data = JSON.parse(this.protector.decryptString(Buffer.from(fs.readFileSync(this.file, 'utf8'), 'base64'))); }
+    catch (error) { this.onError('relay-load', error); }
+    const devices = (Array.isArray(data.devices) ? data.devices : []).filter(item => item && typeof item.id === 'string' && typeof item.tokenHash === 'string').slice(0, MAX_DEVICES)
+      .map(item => ({ id: item.id, name: cleanName(item.name), tokenHash: item.tokenHash, createdAt: Number(item.createdAt) || Date.now(),
+        lastSeenAt: Number(item.lastSeenAt) || 0, ...(item.push?.endpoint ? { push: item.push } : {}) }));
+    const port = Number.isInteger(data.port) && data.port >= 1024 && data.port <= 65535 ? data.port : DEFAULT_PORT;
+    return { enabled: data.enabled === true, port, allowApprovals: data.allowApprovals === true, devices,
+      vapid: data.vapid?.privateJwk ? data.vapid : webPush.createVapidKeys() };
+  }
+  save() {
+    const encrypted = Buffer.from(this.protector.encryptString(JSON.stringify(this.config))).toString('base64');
+    fs.mkdirSync(path.dirname(this.file), { recursive: true });
+    const temp = `${this.file}.${process.pid}.tmp`;
+    fs.writeFileSync(temp, encrypted); fs.renameSync(temp, this.file);
+  }
+
+  publicState() {
+    const addresses = lanAddresses();
+    const urls = addresses.map(item => ({ url: `http://${item.address}:${this.config.port}`, label: item.tailscale ? 'Tailscale' : 'Wi-Fi' }));
+    if (this.https) urls.unshift({ url: this.https, label: 'Tailscale HTTPS', secure: true });
+    const pairing = this.pairing && this.pairing.expiresAt > Date.now() ? this.pairing : null;
+    return {
+      enabled: this.config.enabled, running: Boolean(this.server?.listening), port: this.config.port, error: this.error,
+      allowApprovals: this.config.allowApprovals, urls, connected: [...this.clients.values()].filter(client => client.visible).length,
+      devices: this.config.devices.map(({ id, name, createdAt, lastSeenAt, push }) => ({ id, name, createdAt, lastSeenAt, push: Boolean(push),
+        online: [...this.clients.values()].some(client => client.deviceId === id) })),
+      pairing: pairing ? { code: pairing.code, expiresAt: pairing.expiresAt, url: pairing.url, qr: pairing.qr } : null,
+    };
+  }
+
+  async start() {
+    if (this.server || !this.config.enabled) return;
+    this.error = '';
+    const server = http.createServer((request, response) => this.route(request, response).catch(error => {
+      this.onError('relay-request', error);
+      if (!response.headersSent) this.json(response, 500, { error: 'The relay hit an error.' });
+      else response.end();
+    }));
+    server.headersTimeout = 15000; server.requestTimeout = 0;
+    await new Promise(resolve => {
+      server.once('error', error => { this.error = error.code === 'EADDRINUSE' ? `Port ${this.config.port} is already in use.` : errorText(error); resolve(); });
+      server.listen(this.config.port, this.host, () => { this.server = server; resolve(); });
+    });
+    if (this.server) {
+      this.pingTimer = setInterval(() => { for (const client of this.clients.values()) client.response.write(': ping\n\n'); }, PING_MS);
+      this.lastSnapshot = this.snapshot();
+      this.sent.clear(); this.remember(this.lastSnapshot.messages);
+      this.refreshTailscale().catch(() => {});
+    }
+  }
+  async stop() {
+    clearInterval(this.pingTimer); this.pingTimer = null;
+    for (const client of this.clients.values()) client.response.end();
+    this.clients.clear();
+    const server = this.server; this.server = null;
+    if (server) await new Promise(resolve => { server.close(() => resolve()); server.closeAllConnections?.(); });
+  }
+  async setEnabled(enabled) {
+    this.config.enabled = enabled === true; this.save();
+    if (this.config.enabled) await this.start(); else { this.pairing = null; await this.stop(); }
+    return this.publicState();
+  }
+  async setPort(port) {
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Choose a port between 1024 and 65535.');
+    this.config.port = port; this.save();
+    if (this.server) { await this.stop(); await this.start(); }
+    return this.publicState();
+  }
+  setAllowApprovals(allow) { this.config.allowApprovals = allow === true; this.save(); this.broadcastState(); return this.publicState(); }
+  removeDevice(id) {
+    this.config.devices = this.config.devices.filter(device => device.id !== id); this.save();
+    for (const [key, client] of this.clients) if (client.deviceId === id) { client.response.end(); this.clients.delete(key); }
+    return this.publicState();
+  }
+  startPairing() {
+    if (!this.server) throw new Error('Turn on the phone relay first.');
+    if (this.config.devices.length >= MAX_DEVICES) throw new Error(`Remove a phone first; up to ${MAX_DEVICES} can be paired.`);
+    const code = crypto.randomBytes(9).toString('base64url');
+    const base = this.publicState().urls[0]?.url;
+    if (!base) throw new Error('This PC has no network address a phone can reach.');
+    const url = `${base}/#pair=${code}`;
+    const qr = qrcode(0, 'M'); qr.addData(url); qr.make();
+    this.pairing = { code, url, expiresAt: Date.now() + PAIR_MS, attempts: 0,
+      qr: `data:image/svg+xml;base64,${Buffer.from(qr.createSvgTag({ cellSize: 6, margin: 3, scalable: true })).toString('base64')}` };
+    return this.publicState();
+  }
+  async refreshTailscale() {
+    const status = await this.tailscale(['status', '--json']);
+    let dns = '';
+    try { dns = String(JSON.parse(status.stdout).Self?.DNSName || '').replace(/\.$/, ''); } catch { dns = ''; }
+    const serve = dns ? await this.tailscale(['serve', 'status', '--json']) : { stdout: '' };
+    this.https = dns && serve.stdout.includes(`:${this.config.port}`) ? `https://${dns}` : '';
+    return { installed: status.ok, dns, https: this.https };
+  }
+  async enableTailscaleHttps() {
+    const result = await this.tailscale(['serve', '--bg', `http://127.0.0.1:${this.config.port}`], 20000);
+    if (!result.ok) throw new Error(/not found|ENOENT/i.test(result.stderr) ? 'Tailscale is not installed on this PC.' : (result.stderr || result.stdout).trim().slice(0, 400));
+    await this.refreshTailscale();
+    return this.publicState();
+  }
+
+  snapshot() { return view.snapshot(this.getState(), { allowApprovals: this.config.allowApprovals }); }
+
+  // Controller events, mirrored to every connected phone.
+  onEvent(event) {
+    if (!this.server) return;
+    try {
+      if (event?.type === 'state') this.broadcastState(event.state);
+      else if (event?.type === 'chatUpdate') this.broadcastMessages(event);
+    } catch (error) { this.onError('relay-event', error); }
+  }
+  broadcastState(state = null) {
+    if (!this.server) return;
+    const next = state ? view.snapshot(state, { allowApprovals: this.config.allowApprovals }) : this.snapshot();
+    const notes = view.notifications(this.lastSnapshot, next);
+    this.lastSnapshot = next;
+    const upsert = [];
+    const ids = next.messages.map(message => message.id);
+    for (const message of next.messages) {
+      const json = JSON.stringify(message);
+      if (this.sent.get(message.id) !== json) { this.sent.set(message.id, json); upsert.push(message); }
+    }
+    const keep = new Set(ids);
+    for (const id of this.sent.keys()) if (!keep.has(id)) this.sent.delete(id);
+    const { messages, ...rest } = next;
+    this.broadcast({ type: 'state', ...rest, ids, upsert });
+    if (notes.length) this.notify(notes).catch(error => this.onError('relay-push', error));
+  }
+  remember(messages) { for (const message of messages) this.sent.set(message.id, JSON.stringify(message)); }
+  broadcastMessages(event) {
+    if (event.chatId !== this.lastSnapshot?.chat?.id) return;
+    const upsert = (event.messages || []).map(view.slimMessage);
+    this.remember(upsert);
+    if (upsert.length) this.broadcast({ type: 'messages', upsert });
+  }
+  broadcast(payload) {
+    const data = `data: ${JSON.stringify(payload)}\n\n`;
+    for (const client of this.clients.values()) client.response.write(data);
+  }
+  async notify(notes) {
+    if (this.isDesktopFocused() || [...this.clients.values()].some(client => client.visible)) return;
+    const targets = this.config.devices.filter(device => device.push);
+    if (!targets.length) return;
+    let changed = false;
+    for (const device of targets) for (const note of notes.slice(0, 3)) {
+      try {
+        const result = await this.push(device.push, { ...note, url: '/' }, { keys: this.config.vapid, subject: PUSH_SUBJECT });
+        if (result.gone) { delete device.push; changed = true; break; }
+      } catch (error) { this.onError('relay-push', error); break; }
+    }
+    if (changed) this.save();
+  }
+
+  // HTTP
+  json(response, status, body) {
+    response.writeHead(status, { ...SECURITY_HEADERS, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    response.end(JSON.stringify(body));
+  }
+  async body(request) {
+    let size = 0; const chunks = [];
+    for await (const chunk of request) { size += chunk.length; if (size > MAX_BODY) throw Object.assign(new Error('Too large.'), { status: 413 }); chunks.push(chunk); }
+    try { const value = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
+    catch { throw Object.assign(new Error('Send JSON.'), { status: 400 }); }
+  }
+  limited(request) {
+    const key = request.socket.remoteAddress || '';
+    const entry = this.failures.get(key);
+    if (entry && entry.until > Date.now() && entry.count >= 20) return true;
+    return false;
+  }
+  failed(request) {
+    const key = request.socket.remoteAddress || '';
+    const entry = this.failures.get(key);
+    if (!entry || entry.until < Date.now()) this.failures.set(key, { count: 1, until: Date.now() + 10 * 60 * 1000 });
+    else entry.count++;
+  }
+  device(request) {
+    const match = /^Bearer ([A-Za-z0-9_-]{20,100})$/.exec(request.headers.authorization || '');
+    if (!match) return null;
+    const digest = hash(match[1]);
+    const device = this.config.devices.find(item => { const stored = Buffer.from(item.tokenHash, 'base64'); return stored.length === digest.length && crypto.timingSafeEqual(stored, digest); });
+    if (device && Date.now() - device.lastSeenAt > 60000) {
+      device.lastSeenAt = Date.now();
+      if (Date.now() - this.seenSaveAt > 5 * 60000) { this.seenSaveAt = Date.now(); try { this.save(); } catch (error) { this.onError('relay-save', error); } }
+    }
+    return device || null;
+  }
+
+  async route(request, response) {
+    const url = new URL(request.url, 'http://relay.local');
+    if (request.method === 'GET' && STATIC[url.pathname]) return this.serveFile(response, ...STATIC[url.pathname]);
+    if (request.method === 'GET' && ICONS[url.pathname]) return this.serveFile(response, ICONS[url.pathname], 'image/png', this.iconRoot);
+    if (!url.pathname.startsWith('/api/')) return this.json(response, 404, { error: 'Not found.' });
+    if (this.limited(request)) return this.json(response, 429, { error: 'Too many failed attempts. Wait ten minutes.' });
+    try {
+      if (url.pathname === '/api/pair' && request.method === 'POST') return this.json(response, 200, this.pair(await this.body(request), request));
+      const device = this.device(request);
+      if (!device) { this.failed(request); return this.json(response, 401, { error: 'This phone is not paired. Pair it again from Little Bot settings.' }); }
+      if (url.pathname === '/api/events' && request.method === 'GET') return this.stream(request, response, device);
+      if (url.pathname === '/api/state' && request.method === 'GET') return this.json(response, 200, this.snapshot());
+      if (url.pathname === '/api/push-key' && request.method === 'GET') return this.json(response, 200, { key: webPush.vapidPublicKey(this.config.vapid) });
+      if (request.method !== 'POST') return this.json(response, 404, { error: 'Not found.' });
+      const input = await this.body(request);
+      const result = await this.action(url.pathname.slice(5), input, device);
+      return this.json(response, 200, result || { ok: true });
+    } catch (error) {
+      return this.json(response, error.status || 400, { error: errorText(error) });
+    }
+  }
+  serveFile(response, name, type, root = this.webRoot) {
+    const file = path.join(root, name);
+    let content;
+    try { content = fs.readFileSync(file); } catch { return this.json(response, 404, { error: 'Not found.' }); }
+    response.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': type, 'Cache-Control': 'no-cache',
+      ...(name === 'sw.js' ? { 'Service-Worker-Allowed': '/' } : {}) });
+    response.end(content);
+  }
+  pair(input, request) {
+    const pairing = this.pairing;
+    if (!pairing || pairing.expiresAt < Date.now()) { this.failed(request); throw Object.assign(new Error('This pairing code expired. Show a new one in Little Bot settings.'), { status: 403 }); }
+    const given = Buffer.from(String(input.code || '')), expected = Buffer.from(pairing.code);
+    if (given.length !== expected.length || !crypto.timingSafeEqual(given, expected)) {
+      this.failed(request);
+      if (++pairing.attempts >= PAIR_ATTEMPTS) this.pairing = null;
+      throw Object.assign(new Error('Wrong pairing code.'), { status: 403 });
+    }
+    if (this.config.devices.length >= MAX_DEVICES) throw new Error(`Up to ${MAX_DEVICES} phones can be paired.`);
+    const token = crypto.randomBytes(32).toString('base64url');
+    const device = { id: crypto.randomUUID(), name: cleanName(input.name), tokenHash: hash(token).toString('base64'), createdAt: Date.now(), lastSeenAt: Date.now() };
+    this.config.devices.push(device); this.pairing = null; this.save();
+    this.onPaired?.(device);
+    return { token, deviceId: device.id, name: device.name };
+  }
+  stream(request, response, device) {
+    response.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+    const id = crypto.randomUUID();
+    const client = { id, deviceId: device.id, response, visible: true };
+    this.clients.set(id, client);
+    const snap = this.snapshot();
+    this.remember(snap.messages);
+    response.write(`data: ${JSON.stringify({ type: 'hello', clientId: id, ...snap, ids: snap.messages.map(item => item.id), upsert: snap.messages, messages: undefined })}\n\n`);
+    request.on('close', () => { this.clients.delete(id); this.onClients?.(); });
+    this.onClients?.();
+  }
+  async action(name, input, device) {
+    const snap = this.snapshot();
+    const chatId = snap.chat?.id;
+    switch (name) {
+      case 'presence': {
+        const client = this.clients.get(String(input.clientId || ''));
+        if (client && client.deviceId === device.id) client.visible = input.visible === true;
+        this.onClients?.();
+        return { ok: true };
+      }
+      case 'send': {
+        const text = String(input.text || '').trim();
+        if (!text || text.length > 32000) throw new Error('Write a message first.');
+        await this.handlers.send({ ...(chatId ? { chatId } : {}), text });
+        return { ok: true };
+      }
+      case 'stop': if (chatId) await this.handlers.stop({ chatId }); return { ok: true };
+      case 'proactive': await this.handlers.answerProactive({ messageId: String(input.messageId || ''), choice: String(input.choice || '') }); return { ok: true };
+      case 'answer': {
+        const approval = snap.approvals.find(item => item.requestId === input.requestId && item.ask);
+        if (!approval) throw new Error('This question is no longer waiting for an answer.');
+        if (input.skip === true) await this.handlers.respondApproval({ requestId: approval.requestId, decision: 'decline' });
+        else {
+          const text = String(input.text || '').trim();
+          if (!text || text.length > 2000) throw new Error('Write an answer of up to 2,000 characters.');
+          await this.handlers.respondApproval({ requestId: approval.requestId, decision: 'accept', answers: { answer: { answers: [text] } } });
+        }
+        return { ok: true };
+      }
+      case 'approval': {
+        if (!this.config.allowApprovals) throw Object.assign(new Error('Approvals from the phone are turned off in Little Bot settings.'), { status: 403 });
+        const approval = snap.approvals.find(item => item.requestId === input.requestId && !item.ask);
+        if (!approval) throw new Error('This request is no longer waiting.');
+        const pending = (this.getState().approvals || []).find(item => item.requestId === approval.requestId);
+        if (pending?.questions?.length || approval.kind === 'mcp') throw new Error('This request needs a form. Answer it on the PC.');
+        if (!['accept', 'decline'].includes(input.decision)) throw new Error('Choose Allow or Decline.');
+        await this.handlers.respondApproval({ requestId: approval.requestId, decision: input.decision });
+        return { ok: true };
+      }
+      case 'goal': {
+        const goal = snap.goals.find(item => item.id === input.id);
+        if (!goal) throw new Error('This goal no longer exists.');
+        const handler = { run: 'runGoal', pause: 'pauseGoal', resume: 'resumeGoal' }[input.action];
+        if (!handler) throw new Error('Choose Run, Pause or Resume.');
+        await this.handlers[handler]({ id: goal.id });
+        return { ok: true };
+      }
+      case 'push': {
+        const subscription = input.subscription;
+        if (subscription === null) { delete device.push; this.save(); return { ok: true }; }
+        if (!webPush.allowedEndpoint(subscription?.endpoint) || typeof subscription?.keys?.p256dh !== 'string' || typeof subscription?.keys?.auth !== 'string') throw new Error('This push subscription is not supported.');
+        device.push = { endpoint: subscription.endpoint.slice(0, 2000), keys: { p256dh: subscription.keys.p256dh.slice(0, 200), auth: subscription.keys.auth.slice(0, 100) } };
+        this.save();
+        return { ok: true };
+      }
+      case 'push-test': {
+        if (!device.push) throw new Error('Notifications are not set up on this phone yet.');
+        const result = await this.push(device.push, { title: 'Little Bot', body: 'Notifications work.', tag: 'test', url: '/' }, { keys: this.config.vapid, subject: PUSH_SUBJECT });
+        if (result.status >= 400) throw new Error(`The push service answered ${result.status}.`);
+        return { ok: true };
+      }
+      case 'unpair': this.removeDevice(device.id); this.onClients?.(); return { ok: true };
+      default: throw Object.assign(new Error('Not found.'), { status: 404 });
+    }
+  }
+}
+
+module.exports = { Relay, lanAddresses, DEFAULT_PORT, MAX_DEVICES };
