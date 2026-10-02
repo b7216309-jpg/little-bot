@@ -174,7 +174,8 @@ class GoalExecutor {
       const prompt = { objective: goal.objective, checkpoint: goal.checkpoint || '', nextStep: goal.nextStep || '',
         ...(contract.isV2(goal) ? { kind: goal.kind, freshEvidence: goal.runEvidence, actions: goal.actionItems, previousResult: goal.review.lastResult } : { planLedger: goalLedgerContext(goal.ledger, goal) }), userClarifications: clarifications(goal.clarifications), checks: goal.checks || [],
         workspace: operation.workspace, shellWorkingDirectory: operation.cwd, writableFolders: writableRoots,
-        ...(this.controller.activityContext?.() ? { currentActivity: this.controller.activity?.snapshot?.() } : {}),
+        ...(this.controller.store.data.settings.activityAwareness === true && this.controller.activity?.snapshot?.() ? { currentActivity: this.controller.activity.snapshot() } : {}),
+        ...(this.controller.phoneSummary?.() ? { phone: this.controller.phoneSummary() } : {}),
         permissions: goal.permissions, remainingBudget: remaining };
       operation.phase = 'turnStarting';
       const turn = await this.client.request('turn/start', {

@@ -211,6 +211,8 @@
       <p class="field-hint">Your phone shows the same live conversation, gets notified when Little Bot reaches out, and can reply, answer questions and run goals. Everything stays on this PC; phones only connect to it directly over Wi-Fi or Tailscale.</p>
       <div id="relay-body" class="hidden">
         <div id="relay-urls" class="relay-urls"></div>
+        <p id="relay-phone" class="field-hint relay-phone hidden"></p>
+        <p id="relay-apk" class="field-hint hidden"></p>
         <div id="relay-pairing" class="relay-pairing hidden"><img id="relay-qr" alt="Pairing QR code"><div><strong>Scan with your phone's camera</strong><p class="field-hint">Or open <span id="relay-pair-url" class="relay-code"></span> on the phone. The code works once and expires <span id="relay-pair-expiry"></span>.</p><button id="relay-cancel-pair" class="button text-button" type="button">Cancel</button></div></div>
         <div class="settings-actions"><button id="relay-pair" class="button primary" type="button">Pair a phone</button><button id="relay-https" class="button secondary" type="button">Turn on Tailscale HTTPS</button></div>
         <p id="relay-https-hint" class="field-hint">Notifications and installing as an app need https. Install Tailscale on this PC and your phone (same account), then use Turn on Tailscale HTTPS. Over plain Wi-Fi the chat works, but without notifications.</p>

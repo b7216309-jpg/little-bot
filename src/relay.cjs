@@ -10,6 +10,7 @@ const { execFile } = require('node:child_process');
 const qrcode = require('qrcode-generator');
 const view = require('./relay-view.cjs');
 const webPush = require('./web-push.cjs');
+const phoneContext = require('./phone-context.cjs');
 
 const DEFAULT_PORT = 8787;
 const MAX_DEVICES = 5;
@@ -54,8 +55,9 @@ function runTailscale(args, timeout = 8000) {
 }
 
 class Relay {
-  constructor({ file, protector, handlers, getState, isDesktopFocused = () => false, onError = () => {}, webRoot = path.join(__dirname, 'relay-web'), iconRoot = path.join(__dirname, '..', 'resources', 'icons'), tailscale = runTailscale, push = webPush.send, host = '0.0.0.0' }) {
-    Object.assign(this, { file, protector, handlers, getState, isDesktopFocused, onError, webRoot, iconRoot, tailscale, push, host });
+  constructor({ file, protector, handlers, getState, isDesktopFocused = () => false, onError = () => {}, webRoot = path.join(__dirname, 'relay-web'), iconRoot = path.join(__dirname, '..', 'resources', 'icons'), apkFile = path.join(__dirname, '..', 'resources', 'android', 'little-bot.apk'), tailscale = runTailscale, push = webPush.send, host = '0.0.0.0' }) {
+    Object.assign(this, { file, protector, handlers, getState, isDesktopFocused, onError, webRoot, iconRoot, apkFile, tailscale, push, host });
+    this.phone = new Map(); // deviceId -> latest shared context, memory only
     this.server = null; this.clients = new Map(); this.pairing = null; this.error = ''; this.https = '';
     this.lastSnapshot = null; this.sent = new Map(); this.failures = new Map(); this.seenSaveAt = 0;
     this.config = this.load();
@@ -69,7 +71,8 @@ class Relay {
       .map(item => ({ id: item.id, name: cleanName(item.name), tokenHash: item.tokenHash, createdAt: Number(item.createdAt) || Date.now(),
         lastSeenAt: Number(item.lastSeenAt) || 0, ...(item.push?.endpoint ? { push: item.push } : {}) }));
     const port = Number.isInteger(data.port) && data.port >= 1024 && data.port <= 65535 ? data.port : DEFAULT_PORT;
-    return { enabled: data.enabled === true, port, allowApprovals: data.allowApprovals === true, devices,
+    const home = Number.isFinite(data.home?.lat) && Number.isFinite(data.home?.lon) ? { lat: data.home.lat, lon: data.home.lon, radius: Number(data.home.radius) || phoneContext.HOME_RADIUS_M } : null;
+    return { enabled: data.enabled === true, port, allowApprovals: data.allowApprovals === true, devices, home,
       vapid: data.vapid?.privateJwk ? data.vapid : webPush.createVapidKeys() };
   }
   save() {
@@ -90,6 +93,7 @@ class Relay {
       devices: this.config.devices.map(({ id, name, createdAt, lastSeenAt, push }) => ({ id, name, createdAt, lastSeenAt, push: Boolean(push),
         online: [...this.clients.values()].some(client => client.deviceId === id) })),
       pairing: pairing ? { code: pairing.code, expiresAt: pairing.expiresAt, url: pairing.url, qr: pairing.qr } : null,
+      home: Boolean(this.config.home), phone: this.phoneState(), apk: fs.existsSync(this.apkFile),
     };
   }
 
@@ -133,7 +137,7 @@ class Relay {
   }
   setAllowApprovals(allow) { this.config.allowApprovals = allow === true; this.save(); this.broadcastState(); return this.publicState(); }
   removeDevice(id) {
-    this.config.devices = this.config.devices.filter(device => device.id !== id); this.save();
+    this.config.devices = this.config.devices.filter(device => device.id !== id); this.phone.delete(id); this.save();
     for (const [key, client] of this.clients) if (client.deviceId === id) { client.response.end(); this.clients.delete(key); }
     return this.publicState();
   }
@@ -165,6 +169,27 @@ class Relay {
   }
 
   snapshot() { return view.snapshot(this.getState(), { allowApprovals: this.config.allowApprovals }); }
+
+  // The most recent context any paired phone shared, for the desktop and for prompts.
+  latestPhone() {
+    let best = null;
+    for (const [deviceId, context] of this.phone) {
+      const device = this.config.devices.find(item => item.id === deviceId);
+      if (device && (!best || context.at > best.context.at)) best = { device, context };
+    }
+    return best;
+  }
+  phoneState() {
+    const latest = this.latestPhone();
+    if (!latest) return null;
+    const where = phoneContext.place(latest.context, this.config.home);
+    return { name: latest.device.name, at: latest.context.at, location: Boolean(latest.context.location), home: where ? where.home : null,
+      distance: where ? where.meters : null, battery: latest.context.battery || null };
+  }
+  phoneSummary(now = Date.now()) {
+    const latest = this.latestPhone();
+    return latest ? phoneContext.summary(latest.context, this.config.home, { now, name: latest.device.name }) : '';
+  }
 
   // Controller events, mirrored to every connected phone.
   onEvent(event) {
@@ -204,6 +229,11 @@ class Relay {
   }
   async notify(notes) {
     if (this.isDesktopFocused() || [...this.clients.values()].some(client => client.visible)) return;
+    // The Android app's background connection shows these as native notifications.
+    const data = `data: ${JSON.stringify({ type: 'notify', notes: notes.slice(0, 3) })}
+
+`;
+    for (const client of this.clients.values()) if (client.background) client.response.write(data);
     const targets = this.config.devices.filter(device => device.push);
     if (!targets.length) return;
     let changed = false;
@@ -255,13 +285,18 @@ class Relay {
     const url = new URL(request.url, 'http://relay.local');
     if (request.method === 'GET' && STATIC[url.pathname]) return this.serveFile(response, ...STATIC[url.pathname]);
     if (request.method === 'GET' && ICONS[url.pathname]) return this.serveFile(response, ICONS[url.pathname], 'image/png', this.iconRoot);
+    if (request.method === 'GET' && url.pathname === '/little-bot.apk') {
+      if (!fs.existsSync(this.apkFile)) return this.json(response, 404, { error: 'The Android app is not built yet.' });
+      response.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'application/vnd.android.package-archive', 'Content-Disposition': 'attachment; filename="little-bot.apk"', 'Cache-Control': 'no-cache' });
+      return fs.createReadStream(this.apkFile).pipe(response);
+    }
     if (!url.pathname.startsWith('/api/')) return this.json(response, 404, { error: 'Not found.' });
     if (this.limited(request)) return this.json(response, 429, { error: 'Too many failed attempts. Wait ten minutes.' });
     try {
       if (url.pathname === '/api/pair' && request.method === 'POST') return this.json(response, 200, this.pair(await this.body(request), request));
       const device = this.device(request);
       if (!device) { this.failed(request); return this.json(response, 401, { error: 'This phone is not paired. Pair it again from Little Bot settings.' }); }
-      if (url.pathname === '/api/events' && request.method === 'GET') return this.stream(request, response, device);
+      if (url.pathname === '/api/events' && request.method === 'GET') return this.stream(request, response, device, url.searchParams.get('background') === '1');
       if (url.pathname === '/api/state' && request.method === 'GET') return this.json(response, 200, this.snapshot());
       if (url.pathname === '/api/push-key' && request.method === 'GET') return this.json(response, 200, { key: webPush.vapidPublicKey(this.config.vapid) });
       if (request.method !== 'POST') return this.json(response, 404, { error: 'Not found.' });
@@ -296,10 +331,11 @@ class Relay {
     this.onPaired?.(device);
     return { token, deviceId: device.id, name: device.name };
   }
-  stream(request, response, device) {
+  stream(request, response, device, background = false) {
     response.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
     const id = crypto.randomUUID();
-    const client = { id, deviceId: device.id, response, visible: true };
+    // A background listener (the Android app's service) never counts as someone looking at the chat.
+    const client = { id, deviceId: device.id, response, visible: !background, background };
     this.clients.set(id, client);
     const snap = this.snapshot();
     this.remember(snap.messages);
@@ -367,6 +403,22 @@ class Relay {
         const result = await this.push(device.push, { title: 'Little Bot', body: 'Notifications work.', tag: 'test', url: '/' }, { keys: this.config.vapid, subject: PUSH_SUBJECT });
         if (result.status >= 400) throw new Error(`The push service answered ${result.status}.`);
         return { ok: true };
+      }
+      case 'context': {
+        const context = phoneContext.normalizeContext(input);
+        const before = phoneContext.place(this.phone.get(device.id), this.config.home);
+        this.phone.set(device.id, context);
+        const after = phoneContext.place(context, this.config.home);
+        try { this.onContext?.({ device, context, before, after }); } catch (error) { this.onError('relay-context', error); }
+        return { ok: true, home: after ? after.home : null, distance: after ? after.meters : null, homeSet: Boolean(this.config.home) };
+      }
+      case 'home': {
+        if (input.clear === true) { this.config.home = null; this.save(); this.onClients?.(); return { ok: true, homeSet: false }; }
+        const location = this.phone.get(device.id)?.location;
+        if (!location) throw new Error('Share your location from the app first, then set home.');
+        this.config.home = { lat: location.lat, lon: location.lon, radius: phoneContext.HOME_RADIUS_M };
+        this.save(); this.onClients?.();
+        return { ok: true, homeSet: true };
       }
       case 'unpair': this.removeDevice(device.id); this.onClients?.(); return { ok: true };
       default: throw Object.assign(new Error('Not found.'), { status: 404 });

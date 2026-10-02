@@ -278,3 +278,72 @@ test('the web app is served with a strict content policy and the relay survives 
   await again.start(); t.after(() => again.stop());
   assert.equal((await fetch(`http://127.0.0.1:${again.config.port}/api/state`, { headers: { Authorization: `Bearer ${token}` } })).status, 200);
 });
+
+test('phone context: validated, summarized for prompts, and home/away is detected', () => {
+  const phone = require('../src/phone-context.cjs');
+  const now = Date.UTC(2026, 9, 2, 18);
+  assert.deepEqual(phone.normalizeContext({ location: { lat: 'x', lon: 2 }, battery: { level: 140 } }, now), { at: now });
+  const context = phone.normalizeContext({ location: { lat: 48.8566, lon: 2.3522, accuracy: 25.4, at: now - 120000 }, battery: { level: 54.2, charging: true }, extra: 'ignored' }, now);
+  assert.deepEqual(context, { at: now, location: { lat: 48.8566, lon: 2.3522, accuracy: 25, at: now - 120000 }, battery: { level: 54, charging: true } });
+  const home = { lat: 48.8566, lon: 2.3522, radius: 200 };
+  assert.deepEqual(phone.place(context, home), { meters: 0, home: true });
+  const away = phone.normalizeContext({ location: { lat: 48.8738, lon: 2.295, accuracy: 10 } }, now);
+  const where = phone.place(away, home);
+  assert.equal(where.home, false);
+  assert.ok(where.meters > 4000 && where.meters < 5000, String(where.meters));
+  assert.match(phone.summary(away, home, { now, name: 'Pixel' }), /Pixel.*away from home, about 4\.\d km.*48\.874, 2\.295/);
+  assert.match(phone.summary(context, home, { now }), /at home.*battery 54% charging/);
+  assert.match(phone.summary(context, null, { now }), /home is not set yet/);
+  assert.equal(phone.summary(context, home, { now: now + phone.STALE_MS + 1 }), '', 'stale context is not shown');
+});
+
+test('the Android app shares location, sets home, listens in the background and downloads from the PC', async t => {
+  const { relay, base, dir } = await startRelay(t);
+  const token = await pair(relay, base);
+  const post = (name, body) => fetch(`${base}/api/${name}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
+  assert.equal((await post('home', {})).status, 400, 'no location yet');
+  const contexts = [];
+  relay.onContext = event => contexts.push(event);
+  assert.deepEqual(await (await post('context', { location: { lat: 48.8566, lon: 2.3522, accuracy: 15 } })).json(), { ok: true, home: null, distance: null, homeSet: false });
+  assert.deepEqual(await (await post('home', {})).json(), { ok: true, homeSet: true });
+  assert.equal(relay.publicState().phone.home, true);
+  assert.match(relay.phoneSummary(), /Pixel.*at home/);
+  const left = await (await post('context', { location: { lat: 48.8738, lon: 2.295, accuracy: 15 } })).json();
+  assert.equal(left.home, false);
+  assert.deepEqual([contexts.at(-1).before.home, contexts.at(-1).after.home], [true, false]);
+
+  // A background listener never counts as someone looking, and gets notify events.
+  const events = [];
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+  const response = await fetch(`${base}/api/events?background=1`, { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal });
+  const reader = response.body.getReader();
+  const read = async () => { const { value } = await reader.read(); events.push(...new TextDecoder().decode(value).split('\n\n').filter(Boolean).map(block => JSON.parse(block.replace(/^data: /, '')))); };
+  await read();
+  assert.equal(events[0].type, 'hello');
+  await relay.notify([{ title: 'Little Bot · offer', body: 'Tea?', tag: 'message-x' }]);
+  await read();
+  assert.deepEqual(events.at(-1), { type: 'notify', notes: [{ title: 'Little Bot · offer', body: 'Tea?', tag: 'message-x' }] });
+
+  relay.apkFile = path.join(dir, 'missing.apk');
+  assert.equal((await fetch(`${base}/little-bot.apk`)).status, 404);
+  relay.apkFile = path.join(dir, 'app.apk'); fs.writeFileSync(relay.apkFile, 'PK-apk');
+  const apk = await fetch(`${base}/little-bot.apk`);
+  assert.equal(apk.headers.get('content-type'), 'application/vnd.android.package-archive');
+  assert.equal(await apk.text(), 'PK-apk');
+  assert.deepEqual(await (await post('home', { clear: true })).json(), { ok: true, homeSet: false });
+});
+
+test('the model\'s reasoning is folded away on the phone and never notified as a reply', () => {
+  const running = appState(); running.chats[0].status = 'running';
+  running.chats[0].messages.push({ id: 'u2', role: 'user', text: 'coffee then shower' });
+  const done = structuredClone(running); done.chats[0].status = 'idle';
+  done.chats[0].messages.push({ id: 'r1', role: 'assistant', kind: 'reasoning', text: 'He is doing coffee. Keep it tiny.' });
+  const thinking = view.snapshot(done).messages.find(item => item.id === 'r1');
+  assert.equal(thinking.thinking, true);
+  assert.equal(thinking.label, 'Thinking');
+  assert.deepEqual(view.notifications(view.snapshot(running), view.snapshot(done)), [], 'only reasoning so far: no "replied" notification');
+  done.chats[0].messages.push({ id: 'a3', role: 'assistant', phase: 'final_answer', text: 'Go. Coffee first.' });
+  assert.deepEqual(view.notifications(view.snapshot(running), view.snapshot(done)).map(item => item.body), ['Go. Coffee first.']);
+  assert.equal(view.snapshot(appState({ chats: [{ id: 'c', status: 'idle', messages: [{ id: 'x', role: 'assistant', phase: 'commentary', text: 'Checking the calendar first.' }] }] })).messages[0].thinking, true);
+});
