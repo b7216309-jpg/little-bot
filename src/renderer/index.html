@@ -267,7 +267,8 @@
   <dialog id="goal-dialog" class="dialog goal-dialog" aria-labelledby="goal-title"><form id="goal-form" novalidate><div class="dialog-header"><div><h2 id="goal-title">New goal</h2></div><button class="icon-button" type="button" data-close="goal-dialog" aria-label="Close goal editor"><span class="icon" data-icon="x"></span></button></div>
     <label class="field-label" for="goal-name">Name</label><input id="goal-name" maxlength="80" required placeholder="Prepare the weekly project summary">
     <label class="field-label" for="goal-kind">Goal type</label><select id="goal-kind"><option value="task">Task · finish a concrete outcome</option><option value="ongoing">Ongoing · act and coach over time</option></select>
-    <label><input id="goal-source-chat" type="checkbox" checked> Use the continuous chat and post useful results there</label>
+    <label><input id="goal-source-chat" type="checkbox" checked> Read the continuous chat as evidence</label>
+    <label><input id="goal-delivery-chat" type="checkbox" checked> Post results in the chat (off: work silently; results stay on this card and in the Activity inbox, and questions still reach you)</label>
     <label><input id="goal-active-hours" type="checkbox" checked> Scheduled reviews only during Heartbeat active hours</label>
     <label><input id="goal-source-feedback" type="checkbox"> Read your reactions and the heartbeat log (for a self-review goal)</label>
     <label><input id="goal-source-calendar" type="checkbox" checked> Include upcoming calendar events</label>

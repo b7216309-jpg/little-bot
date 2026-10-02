@@ -219,3 +219,4 @@
 .browser-empty p{max-width:300px;font-size:12px;line-height:1.6}
 .agent-browser-button.browser-active{border-color:#cad7bb;background:#f2f5ec;color:#58705c}
 .goal-context-meta .goal-waiting{color:#a0702c}
+.goal-context-meta .goal-silent{color:#58705c}
