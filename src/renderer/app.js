@@ -231,6 +231,7 @@ async function attempt(operation, successMessage) {
 function showDialog(id) {
   const dialog = $(id);
   if (!dialog.open) dialog.showModal();
+  if (id === 'settings-dialog') void refreshRelay(true);
 }
 
 function closeDialog(id) {
@@ -3927,6 +3928,80 @@ for (const id of ['heartbeat-start-hour', 'heartbeat-end-hour']) {
 $('heartbeat-form').addEventListener('input', markHeartbeatDirty);
 $('heartbeat-form').addEventListener('change', markHeartbeatDirty);
 $('heartbeat-form').addEventListener('submit', saveHeartbeat);
+let relayState = null;
+let relayTimer = null;
+function relayAgo(time) {
+  if (!time) return 'never';
+  const minutes = Math.round((Date.now() - time) / 60000);
+  if (minutes < 2) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  return formatDate(time);
+}
+function renderRelay(relay) {
+  if (!relay) return;
+  relayState = relay;
+  $('relay-enabled').checked = relay.enabled;
+  $('relay-approvals').checked = relay.allowApprovals;
+  $('relay-body').classList.toggle('hidden', !relay.enabled);
+  const status = !relay.enabled ? 'Off' : relay.error ? 'Error' : !relay.running ? 'Starting' : relay.connected ? `${relay.connected} phone${relay.connected === 1 ? '' : 's'} open` : 'Listening';
+  $('relay-status').textContent = status;
+  $('relay-status').classList.toggle('configured', relay.running && !relay.error);
+  $('relay-error').textContent = relay.error || '';
+  $('relay-error').classList.toggle('hidden', !relay.error);
+  $('relay-urls').replaceChildren(...(relay.running ? relay.urls.map(item => {
+    const row = element('div', 'relay-url');
+    row.append(element('span', '', item.label), element('span', 'relay-code', item.url));
+    return row;
+  }) : []));
+  const secure = relay.urls.some(item => item.secure);
+  $('relay-https').classList.toggle('hidden', secure);
+  $('relay-https-hint').textContent = secure
+    ? 'Tailscale HTTPS is on: pair with the https link to get notifications and install Little Bot as an app on the phone.'
+    : 'Notifications and installing as an app need https. Install Tailscale on this PC and your phone (same account), then use Turn on Tailscale HTTPS. Over plain Wi-Fi the chat works, but without notifications.';
+  const pairing = relay.pairing;
+  $('relay-pairing').classList.toggle('hidden', !pairing);
+  $('relay-pair').disabled = !relay.running;
+  clearTimeout(relayTimer);
+  if (pairing) {
+    $('relay-qr').src = pairing.qr;
+    $('relay-pair-url').textContent = pairing.url;
+    const minutes = Math.max(0, Math.ceil((pairing.expiresAt - Date.now()) / 60000));
+    $('relay-pair-expiry').textContent = minutes <= 1 ? 'in a minute' : `in ${minutes} minutes`;
+    relayTimer = setTimeout(() => { if (Date.now() >= pairing.expiresAt) void refreshRelay(); else renderRelay(relayState); }, 30000);
+  }
+  $('relay-devices').replaceChildren(...(relay.devices.length ? relay.devices.map(device => {
+    const row = element('div', 'relay-device');
+    const copy = element('div');
+    copy.append(element('strong', '', device.name), element('p', '', `${device.online ? 'Connected now' : `Last seen ${relayAgo(device.lastSeenAt)}`}${device.push ? ' · notifications on' : ''}`));
+    row.append(element('span', `relay-dot${device.online ? ' online' : ''}`), copy, action('Remove', async () => {
+      if (!window.confirm(`Remove ${device.name}? It will need a new QR code to connect again.`)) return;
+      const result = await attempt(() => window.bot.relayRemoveDevice({ id: device.id }), 'Phone removed.');
+      if (result) renderRelay(result);
+    }, 'button text-button'));
+    return row;
+  }) : [element('p', 'memory-empty', 'No phone paired yet.')]));
+}
+async function refreshRelay(refresh = false) {
+  try { renderRelay(await window.bot.relayState({ refresh })); } catch { /* Settings still opens without the relay. */ }
+}
+$('relay-enabled').addEventListener('change', async event => {
+  const enabled = event.target.checked;
+  const result = await attempt(() => window.bot.relaySetEnabled({ enabled }), enabled ? 'Phone relay is on.' : 'Phone relay is off.');
+  if (result) renderRelay(result); else event.target.checked = !enabled;
+});
+$('relay-approvals').addEventListener('change', async event => {
+  const allow = event.target.checked;
+  const result = await attempt(() => window.bot.relaySetApprovals({ allow }));
+  if (result) renderRelay(result); else event.target.checked = !allow;
+});
+$('relay-pair').addEventListener('click', async () => { const result = await attempt(() => window.bot.relayPair()); if (result) renderRelay(result); });
+$('relay-cancel-pair').addEventListener('click', async () => { const result = await attempt(() => window.bot.relayCancelPair()); if (result) renderRelay(result); });
+$('relay-https').addEventListener('click', async () => {
+  $('relay-https').disabled = true;
+  const result = await attempt(() => window.bot.relayTailscaleHttps(), 'Tailscale HTTPS is on.');
+  $('relay-https').disabled = false;
+  if (result) renderRelay(result);
+});
 $('activity-awareness').addEventListener('change', async event => {
   const enabled = event.target.checked;
   const result = await attempt(() => window.bot.setActivityAwareness({ enabled }), enabled ? 'Little Bot can now see which app you are using.' : 'Activity awareness is off.');
@@ -4007,6 +4082,7 @@ if (!window.bot) {
       card?.querySelector('.goal-question-answer')?.focus({ preventScroll: true });
     }
     else if (event.type === 'memory' && event.message) notify(event.message, Boolean(event.error));
+    else if (event.type === 'relay') renderRelay(event.relay);
     else if (event.type === 'heartbeat') { inboxFilter = 'all'; inboxSource = 'all'; showFeature('inbox'); }
     else if (event.type === 'login') {
       loginMetadata = event;

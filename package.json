@@ -1,7 +1,7 @@
 {
   "name": "little-bot",
   "productName": "Little Bot",
-  "version": "0.12.3",
+  "version": "0.13.0",
   "private": true,
   "description": "A focused local Windows assistant for chat, files, commands, and scheduled tasks.",
   "main": "src/main.cjs",
@@ -25,6 +25,7 @@
     "agent-browser": "0.38.1",
     "mammoth": "1.12.3",
     "onnxruntime-node": "1.30.0",
+    "qrcode-generator": "2.0.4",
     "unpdf": "1.8.1"
   },
   "devDependencies": {
