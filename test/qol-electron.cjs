@@ -89,7 +89,18 @@ async function run() {
       await window.webContents.executeJavaScript("document.querySelector('.action-group-details').open = true; new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
       fs.writeFileSync(path.join(dir, 'tool-calls-expanded.png'), (await window.webContents.capturePage()).toPNG());
     }
-    console.log(JSON.stringify({ chat, inbox }));
+    // Model Markdown renders as real lists, headings, quotes and emphasis, built from DOM nodes only.
+    const markdown = await window.webContents.executeJavaScript(`(() => {
+      const box = document.createElement('div');
+      renderMessageText(box, ${JSON.stringify('## Plan\n- **one** item\n- *two*\n\n3. third\n4. fourth\n> quoted\n---\nDone <img src=x onerror=alert(1)>\n```\n- not a list\n```')});
+      return { heading: box.querySelector('.md-heading')?.textContent, bullets: [...box.querySelectorAll('ul.md-list li')].map(li => li.textContent),
+        strong: box.querySelector('ul strong')?.textContent, em: box.querySelector('ul em')?.textContent, ordered: [...box.querySelectorAll('ol.md-list li')].map(li => li.textContent),
+        start: box.querySelector('ol.md-list')?.start, quote: box.querySelector('.md-quote')?.textContent, rule: Boolean(box.querySelector('hr.md-rule')),
+        injected: Boolean(box.querySelector('img')), code: box.querySelector('pre code')?.textContent };
+    })()`);
+    assert.deepEqual(markdown, { heading: 'Plan', bullets: ['one item', 'two'], strong: 'one', em: 'two', ordered: ['third', 'fourth'], start: 3,
+      quote: 'quoted', rule: true, injected: false, code: '- not a list' });
+    console.log(JSON.stringify({ chat, inbox, markdown: 'ok' }));
   } finally { window.destroy(); app.quit(); }
 }
 run().catch(error => { console.error(error.stack || error); app.exit(1); });

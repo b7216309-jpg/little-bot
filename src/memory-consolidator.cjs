@@ -21,6 +21,27 @@ Each memory must cite sourceIds from the supplied messages. Distinguish a user's
 Use a short stable key for the subject, for example project.package-manager. If a current record is corrected, set supersedesId to that record's exact ID and reuse its key. Global scope is for user preferences and facts; workspace scope is for the project. Existing records are provided to avoid duplicates.
 This is a text processing task. Produce the structured result without using tools.`;
 
+// Small local models drift from the schema: a missing scope or key, a bare array, an extra field.
+// Keep every usable memory and drop only the broken ones instead of failing the whole turn.
+function normalizeCandidates(output, job = {}) {
+  const list = Array.isArray(output) ? output : output && typeof output === 'object' && Array.isArray(output.memories) ? output.memories : null;
+  if (!list) throw new Error('Memory extraction did not match the required JSON schema.');
+  const schema = EXTRACTION_SCHEMA.properties.memories.items.properties;
+  const userIds = (job.messages || []).filter(message => message.role === 'user').map(message => message.id).filter(Boolean);
+  const result = [];
+  for (const item of list) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const text = typeof item.text === 'string' ? item.text.trim() : '';
+    const type = typeof item.type === 'string' ? item.type.trim().toLowerCase() : '';
+    if (!text || !schema.type.enum.includes(type)) continue;
+    const scope = schema.scope.enum.includes(item.scope) ? item.scope : type === 'preference' ? 'global' : 'workspace';
+    const key = typeof item.key === 'string' && item.key.trim() ? item.key.trim() : text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 48);
+    const sourceIds = Array.isArray(item.sourceIds) && item.sourceIds.some(id => typeof id === 'string') ? item.sourceIds.filter(id => typeof id === 'string') : userIds;
+    result.push({ text, type, scope, key, supersedesId: typeof item.supersedesId === 'string' && item.supersedesId ? item.supersedesId : null, sourceIds });
+  }
+  return result;
+}
+
 class MemoryConsolidator {
   constructor(controller, { intervalMs = 5000, timeoutMs = 90000, autoStart = true } = {}) {
     this.controller = controller;
@@ -150,17 +171,7 @@ Return only one JSON object matching this schema, without Markdown: ${JSON.strin
       try {
         if (['failed', 'interrupted'].includes(params.turn?.status) || params.turn?.error) throw new Error(params.turn?.error?.message || 'Memory extraction interrupted.');
         const output = parseModelJson(op.output, 'Memory extraction did not return readable JSON.');
-        const schema = EXTRACTION_SCHEMA.properties.memories.items;
-        if (!output || typeof output !== 'object' || !Array.isArray(output.memories) || Object.keys(output).some(key => key !== 'memories')
-          || output.memories.some(memory => !memory || typeof memory !== 'object' || Array.isArray(memory)
-            || schema.required.some(key => !Object.hasOwn(memory, key)) || Object.keys(memory).some(key => !Object.hasOwn(schema.properties, key))
-            || !['text', 'key'].every(key => typeof memory[key] === 'string')
-            || !schema.properties.type.enum.includes(memory.type) || !schema.properties.scope.enum.includes(memory.scope)
-            || !(memory.supersedesId === null || typeof memory.supersedesId === 'string')
-            || !Array.isArray(memory.sourceIds) || memory.sourceIds.some(id => typeof id !== 'string'))) {
-          throw new Error('Memory extraction did not match the required JSON schema.');
-        }
-        this.finish(op, output.memories);
+        this.finish(op, normalizeCandidates(output, op.job));
       } catch (error) { this.finish(op, null, error.message); }
     }
     return true;
@@ -221,4 +232,4 @@ Return only one JSON object matching this schema, without Markdown: ${JSON.strin
   }
 }
 
-module.exports = { MemoryConsolidator, EXTRACTION_SCHEMA, INSTRUCTIONS };
+module.exports = { normalizeCandidates, MemoryConsolidator, EXTRACTION_SCHEMA, INSTRUCTIONS };
