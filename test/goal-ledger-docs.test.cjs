@@ -35,14 +35,14 @@ test('the bundled operating guide migrates only the original previous guide', ()
   assert.match(skill, /\[LEDGER\.md\]\(\.\.\/\.\.\/\.\.\/LEDGER\.md\)/);
 });
 
-test('package and validation records advance to 0.13.3', () => {
+test('package and validation records advance to 0.14.0', () => {
   const packageJson = JSON.parse(read('package.json'));
   const lock = JSON.parse(read('package-lock.json'));
   const validation = read('VALIDATION.md');
-  assert.equal(packageJson.version, '0.13.3');
-  assert.equal(lock.version, '0.13.3');
-  assert.equal(lock.packages[''].version, '0.13.3');
-  assert.match(validation, /^# Version 0.13.3 verification/);
+  assert.equal(packageJson.version, '0.14.0');
+  assert.equal(lock.version, '0.14.0');
+  assert.equal(lock.packages[''].version, '0.14.0');
+  assert.match(validation, /^# Version 0.14.0 verification/);
   assert.match(validation, /deterministic fake model/);
   assert.match(validation, /No private reasoning or chain-of-thought transcript/);
 });

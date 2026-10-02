@@ -1,6 +1,15 @@
 'use strict';
 
 const $ = (id) => document.getElementById(id);
+// Theme: System follows Windows; the choice is a per-PC display preference.
+const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+function themeChoice() { try { return ['light', 'dark'].includes(localStorage.getItem('little-bot.theme')) ? localStorage.getItem('little-bot.theme') : 'system'; } catch { return 'system'; } }
+function applyTheme() {
+  const choice = themeChoice();
+  document.documentElement.dataset.theme = choice === 'system' ? (darkQuery.matches ? 'dark' : 'light') : choice;
+}
+applyTheme();
+darkQuery.addEventListener('change', applyTheme);
 const icons = {
   plus: ['M12 5v14', 'M5 12h14'],
   clock: ['M12 8v4l3 2', 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0'],
@@ -3991,6 +4000,7 @@ $('heartbeat-form').addEventListener('change', markHeartbeatDirty);
 $('heartbeat-form').addEventListener('submit', saveHeartbeat);
 // Quick links to each Settings section; the dialog is long.
 function renderSettingsJump() {
+  $('settings-theme').value = themeChoice();
   const sections = [...$('settings-dialog').querySelectorAll('.settings-section')].filter(section => !section.classList.contains('hidden'));
   $('settings-jump').replaceChildren(...sections.map(section => {
     const title = section.querySelector('h3')?.textContent.trim();
@@ -4001,6 +4011,11 @@ function renderSettingsJump() {
     return chip;
   }).filter(Boolean));
 }
+
+$('settings-theme').addEventListener('change', event => {
+  try { localStorage.setItem('little-bot.theme', event.target.value); } catch { /* The theme still applies for this session. */ }
+  applyTheme();
+});
 
 let relayState = null;
 let relayTimer = null;

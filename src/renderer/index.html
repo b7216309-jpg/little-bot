@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="./provider-usage.css">
   <link rel="stylesheet" href="./goal-ledger.css">
   <link rel="stylesheet" href="./standing-intents.css">
+  <link rel="stylesheet" href="./dark.css">
   <script src="./chat-scroll.js" defer></script>
   <script src="./action-groups.js" defer></script>
   <script src="./slash-commands.js" defer></script>
@@ -203,6 +204,7 @@
       <p id="provider-usage-note" class="provider-usage-note"></p>
     </section>
     <div class="settings-section"><h3>Workspace</h3><p class="field-hint">The conversation and new automations use this working folder.</p><div class="workspace-setting"><span class="icon" data-icon="folder"></span><span id="settings-workspace">No folder selected</span></div><div class="settings-actions"><button id="settings-choose-workspace" class="button secondary">Choose folder</button><button id="settings-open-workspace" class="button text-button">Open in Explorer<span class="icon small" data-icon="arrow-up-right"></span></button></div></div>
+    <section class="settings-section" aria-labelledby="appearance-settings-title"><h3 id="appearance-settings-title">Appearance</h3><div class="settings-row"><div><strong>Theme</strong><p>Follow Windows, or always use light or dark.</p></div><select id="settings-theme" class="theme-select" aria-label="Theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></div></section>
     <section class="settings-section relay-settings" aria-labelledby="relay-settings-title">
       <div class="settings-connection-heading"><h3 id="relay-settings-title">Phone relay</h3><span id="relay-status" class="service-status" role="status">Off</span></div>
       <label class="feature-toggle relay-toggle"><span>Use this conversation from your phone</span><span class="switch"><input id="relay-enabled" type="checkbox" aria-label="Phone relay"><span class="switch-track"></span></span></label>
