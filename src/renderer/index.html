@@ -184,6 +184,17 @@
         <p class="feature-footnote">External tools ask for approval; their service permissions apply.</p>
       </section>
     </main>
+    <aside id="browser-panel" class="browser-panel hidden" aria-label="Built-in browser">
+      <div class="browser-bar">
+        <button id="browser-back" class="icon-button" type="button" aria-label="Back" title="Back"><span class="icon" data-icon="arrow-left"></span></button>
+        <button id="browser-forward" class="icon-button" type="button" aria-label="Forward" title="Forward"><span class="icon" data-icon="arrow-right"></span></button>
+        <button id="browser-reload" class="icon-button" type="button" aria-label="Reload" title="Reload"><span class="icon" data-icon="refresh"></span></button>
+        <form id="browser-address-form" class="browser-address"><input id="browser-address" type="text" spellcheck="false" autocomplete="off" placeholder="Search or type an address" aria-label="Address"></form>
+        <button id="browser-hide" class="icon-button" type="button" aria-label="Hide browser" title="Hide browser (the page stays open)"><span class="icon" data-icon="x"></span></button>
+      </div>
+      <div id="browser-activity" class="browser-activity hidden" role="status"><span class="status-dot running"></span><span>Little Bot is browsing</span></div>
+      <div id="browser-viewport" class="browser-viewport"><div id="browser-empty" class="browser-empty"><span class="icon" data-icon="browser"></span><h2>Built-in browser</h2><p>Ask Little Bot to look something up, or type an address above. You can sign in to sites here; they stay signed in.</p></div></div>
+    </aside>
   </div>
   <dialog id="settings-dialog" class="dialog settings-dialog" aria-labelledby="settings-title">
     <div class="dialog-header"><div><h2 id="settings-title">Settings</h2></div><button class="icon-button" data-close="settings-dialog" aria-label="Close settings"><span class="icon" data-icon="x"></span></button></div>
@@ -222,7 +233,7 @@
       </div>
       <p id="relay-error" class="inline-error hidden" role="alert"></p>
     </section>
-    <section class="settings-section" aria-labelledby="browser-settings-title"><h3 id="browser-settings-title">Agent browser</h3><div class="settings-row"><div><strong>Vercel agent-browser</strong><p>A separate browser for your agent.</p></div><span id="settings-browser-status" class="service-status" role="status">Checking</span></div><p id="settings-browser-location" class="field-hint hidden"></p><div class="settings-actions"><button id="settings-open-browser" class="button secondary" type="button"><span class="icon" data-icon="browser"></span>Open browser</button><button id="settings-close-browser" class="button text-button" type="button" disabled>Close browser</button><button id="settings-install-browser" class="button secondary hidden" type="button">Install browser</button></div><p id="settings-browser-error" class="inline-error hidden" role="alert"></p></section>
+    <section class="settings-section" aria-labelledby="browser-settings-title"><h3 id="browser-settings-title">Browser</h3><div class="settings-row"><div><strong>Built-in browser</strong><p>Opens beside the chat with its own private profile. Sign-ins are kept until you clear browsing data.</p></div><span id="settings-browser-status" class="service-status" role="status">Checking</span></div><p id="settings-browser-location" class="field-hint hidden"></p><div class="settings-actions"><button id="settings-open-browser" class="button secondary" type="button"><span class="icon" data-icon="browser"></span>Open browser</button><button id="settings-close-browser" class="button text-button" type="button" disabled>Close browser</button><button id="settings-clear-browser" class="button text-button" type="button">Clear browsing data</button></div><p id="settings-browser-error" class="inline-error hidden" role="alert"></p></section>
     <div class="settings-section"><h3>Attachments</h3><p id="settings-attachment-usage" class="field-hint">Checking storage…</p><button id="settings-clean-attachments" class="button secondary" type="button">Clean unused files</button><p class="field-hint">Files in the conversation and current drafts are kept. Use Remove on a saved attachment to free its space.</p></div>
     <section class="settings-section" aria-labelledby="system-prompt-settings-title">
       <h3 id="system-prompt-settings-title">System prompt</h3>

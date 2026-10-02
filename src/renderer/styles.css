@@ -200,3 +200,21 @@
 .theme-select{width:auto;min-width:120px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:8px 10px;font-size:12px;color:var(--ink);max-width:none}
 .relay-phone{color:var(--ink);margin-top:8px}
 .message.user.scheduled .message-content{background:transparent;border:1px dashed #c9d3bc;color:#5d6a57;font-style:italic}.message.user.scheduled .automation-label{color:#58705c;font-weight:600}
+.app-shell.browser-open{grid-template-columns:224px minmax(0,1fr) minmax(380px,46%)}
+@media(max-width:1050px){.app-shell.browser-open{grid-template-columns:202px minmax(0,1fr) minmax(340px,44%)}}
+.browser-panel{display:flex;flex-direction:column;min-width:0;min-height:0;border-left:1px solid var(--line);background:var(--paper)}
+.browser-bar{height:71px;flex-shrink:0;display:flex;align-items:center;gap:4px;padding:0 12px;border-bottom:1px solid var(--line)}
+.browser-bar .icon-button:disabled{opacity:.35;cursor:default}
+.browser-bar .icon-button:not(:disabled):hover{background:var(--soft);color:var(--ink)}
+.browser-address{flex:1;min-width:0;margin:0 6px}
+.browser-address input{width:100%;border:1px solid var(--line);border-radius:99px;background:var(--white);padding:8px 14px;font-size:12px;color:var(--ink);outline:none}
+.browser-address input:focus{border-color:#cad7bb;box-shadow:0 0 0 3px #e7eedd}
+.browser-panel.loading .browser-address input{background-image:linear-gradient(90deg,transparent,#bc623f22,transparent);background-size:200% 100%;animation:browser-loading 1.2s linear infinite}
+@keyframes browser-loading{from{background-position:100% 0}to{background-position:-100% 0}}
+.browser-activity{display:flex;align-items:center;gap:8px;padding:7px 16px;font-size:11px;color:#58705c;background:#f2f5ec;border-bottom:1px solid #dfe7d4}
+.browser-viewport{flex:1;min-height:0;position:relative}
+.browser-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:32px;text-align:center;color:var(--muted)}
+.browser-empty .icon{width:34px;height:34px;color:#b9bfae}
+.browser-empty h2{font:22px/1.2 Georgia,serif;font-weight:400;color:var(--ink)}
+.browser-empty p{max-width:300px;font-size:12px;line-height:1.6}
+.agent-browser-button.browser-active{border-color:#cad7bb;background:#f2f5ec;color:#58705c}

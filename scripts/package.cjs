@@ -14,7 +14,6 @@ const { execFileSync } = require('node:child_process');
     platform: 'win32', arch: 'x64', electronVersion: '44.4.5',
     overwrite: true, prune: true, asar: false, icon: path.join(root, 'resources', 'icons', 'little-bot.ico'),
     ignore: [/^\/dist($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/\.test-data($|\/)/,
-      /^\/node_modules\/agent-browser\/bin\/agent-browser-(?:darwin|linux)/,
       /^\/node_modules\/onnxruntime-node\/bin\/napi-v6\/(?:darwin|linux|win32\/arm64)(?:\/|$)/],
     win32metadata: { CompanyName: 'Personal project', FileDescription: 'Little Bot — local assistant', ProductName: 'Little Bot' },
   });

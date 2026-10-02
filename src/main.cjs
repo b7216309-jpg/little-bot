@@ -28,7 +28,7 @@ const { AppManagement } = require('./app-management.cjs');
 const appHandlers = new Map();
 const { ProfileFiles } = require('./profile.cjs');
 const { installBundledSkills } = require('./bundled-skills.cjs');
-const { AgentBrowser } = require('./agent-browser.cjs');
+const { EmbeddedBrowser } = require('./embedded-browser.cjs');
 const { WebServices } = require('./web-services.cjs');
 const { Attachments } = require('./attachments.cjs');
 const { attachmentDescriptors } = require('./attachment-message.cjs');
@@ -130,7 +130,7 @@ app.whenReady().then(async () => {
   controller = new Controller({ store, client, onError: logDiagnostic });
   controller.memoryConsolidator = new MemoryConsolidator(controller);
   try { controller.memoryConsolidator.retryFormatFailures(); } catch (error) { logDiagnostic('memory-retry', error); }
-  controller.browser = new AgentBrowser({ root: path.join(stateDir, 'browser'), headed: !smoke, onChange: () => controller.changed() });
+  controller.browser = new EmbeddedBrowser({ root: path.join(stateDir, 'browser'), getWindow: () => window, onChange: () => controller.changed() });
   controller.webServices = new WebServices({ root: path.join(stateDir, 'services'), safeStorage });
   const attachmentReferences = () => store.data.chats.flatMap(chat => chat.messages.flatMap(message => (message.attachments || []).map(item => item.id)));
   controller.attachments = new Attachments({ root: path.join(stateDir, 'attachments'), nativeImage, references: attachmentReferences });
@@ -683,6 +683,10 @@ app.whenReady().then(async () => {
   });
   register('togglePlugin', payload => updateExtensions(() => extensionFiles.setPluginEnabled(payload)));
   register('deletePlugin', ({ id } = {}) => updateExtensions(() => extensionFiles.removePlugin(id)));
+  register('browserBounds', payload => controller.browser.setBounds(payload));
+  register('browserPanel', ({ visible } = {}) => { controller.browser.showPanel(visible === true); return controller.state(); });
+  register('browserNavigate', async payload => { await controller.browser.userNavigate(payload); return controller.state(); });
+  register('browserClearData', async () => { await controller.browser.clearData(); return controller.state(); });
   register('relayState', async ({ refresh } = {}) => { if (refresh && relay.server) await relay.refreshTailscale().catch(() => {}); return relay.publicState(); });
   register('relaySetEnabled', ({ enabled } = {}) => relay.setEnabled(enabled === true));
   register('relaySetPort', ({ port } = {}) => relay.setPort(Number(port)));
