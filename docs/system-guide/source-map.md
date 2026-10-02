@@ -214,6 +214,8 @@ Guide: [16-interface.md](16-interface.md)
 | [src/renderer/provider-usage.css](../../src/renderer/provider-usage.css) | Feature rendering, normalization or styling |
 | [src/renderer/slash-commands.js](../../src/renderer/slash-commands.js) | Feature rendering, normalization or styling |
 | [src/renderer/styles.css](../../src/renderer/styles.css) | Feature rendering, normalization or styling |
+| [src/renderer/assets/wink.svg](../../src/renderer/assets/wink.svg) | Wink brand mark used in the sidebar and welcome screen |
+| [src/renderer/branding.css](../../src/renderer/branding.css) | Feature rendering, normalization or styling |
 
 ## diagnostics distribution
 
@@ -235,3 +237,24 @@ Guide: [17-diagnostics-distribution.md](17-diagnostics-distribution.md)
 | [src/smoke.cjs](../../src/smoke.cjs) | Isolated development smoke harness |
 | [src/web-settings-smoke.cjs](../../src/web-settings-smoke.cjs) | Isolated development smoke harness |
 | [src/web-smoke.cjs](../../src/web-smoke.cjs) | Isolated development smoke harness |
+| [scripts/build-icons.cjs](../../scripts/build-icons.cjs) | Preparation, build, install or developer verification |
+| [resources/icons/little-bot.ico](../../resources/icons/little-bot.ico) | Windows app, installer and shortcut icon |
+| [resources/icons/little-bot.png](../../resources/icons/little-bot.png) | 512 px app icon, also the phone app icon |
+| [resources/icons/little-bot.svg](../../resources/icons/little-bot.svg) | Source tile for the app icons |
+
+## phone relay
+
+Guide: [18-phone-relay.md](18-phone-relay.md)
+
+| Source / resource | Responsibility |
+| --- | --- |
+| [src/relay.cjs](../../src/relay.cjs) | Local relay server, pairing, live stream and phone actions |
+| [src/relay-view.cjs](../../src/relay-view.cjs) | Trimmed phone view and notification rules |
+| [src/web-push.cjs](../../src/web-push.cjs) | Dependency-free Web Push (VAPID and aes128gcm) |
+| [src/relay-web/index.html](../../src/relay-web/index.html) | Phone web app |
+| [src/relay-web/app.js](../../src/relay-web/app.js) | Phone web app |
+| [src/relay-web/app.css](../../src/relay-web/app.css) | Phone web app |
+| [src/relay-web/sw.js](../../src/relay-web/sw.js) | Phone notifications and offline shell |
+| [src/relay-web/manifest.webmanifest](../../src/relay-web/manifest.webmanifest) | Phone app install manifest |
+| [resources/icons/little-bot-192.png](../../resources/icons/little-bot-192.png) | Phone app icon |
+| [resources/icons/little-bot-maskable.png](../../resources/icons/little-bot-maskable.png) | Android launcher icon |

@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#58705c">
+  <title>Little Bot</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon-192.png">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <img class="logo" src="/icon-192.png" alt="">
+    <div class="title"><strong>Little Bot</strong><span id="status" class="status">Connecting…</span></div>
+    <button id="goals-button" class="icon-button hidden" type="button" aria-label="Goals">◎</button>
+    <button id="menu-button" class="icon-button hidden" type="button" aria-label="Menu">⋯</button>
+  </header>
+
+  <main id="chat" class="chat hidden">
+    <div id="messages" class="messages" aria-live="polite"></div>
+    <div id="approvals" class="approvals"></div>
+  </main>
+
+  <section id="pair" class="screen hidden">
+    <img class="hero" src="/icon-192.png" alt="">
+    <h1>Pair this phone</h1>
+    <p id="pair-hint">On your PC, open Little Bot › Settings › Phone relay and tap <b>Pair a phone</b>, then scan the QR code with this phone.</p>
+    <form id="pair-form" class="hidden">
+      <label for="pair-name">Name this phone</label>
+      <input id="pair-name" maxlength="60" value="My phone" autocomplete="off">
+      <button class="primary" type="submit">Pair</button>
+    </form>
+    <p id="pair-error" class="error hidden" role="alert"></p>
+  </section>
+
+  <form id="composer" class="composer hidden">
+    <textarea id="input" rows="1" maxlength="32000" placeholder="Message Little Bot…" aria-label="Message"></textarea>
+    <button id="send" class="send" type="submit" aria-label="Send">↑</button>
+    <button id="stop" class="send stop hidden" type="button" aria-label="Stop">■</button>
+  </form>
+
+  <dialog id="goals-sheet" class="sheet">
+    <div class="sheet-head"><h2>Goals</h2><button class="icon-button" type="button" data-close aria-label="Close">✕</button></div>
+    <div id="goal-list" class="goal-list"></div>
+  </dialog>
+
+  <dialog id="menu-sheet" class="sheet">
+    <div class="sheet-head"><h2>This phone</h2><button class="icon-button" type="button" data-close aria-label="Close">✕</button></div>
+    <div class="menu">
+      <p id="push-state" class="hint"></p>
+      <button id="push-enable" class="primary" type="button">Turn on notifications</button>
+      <button id="push-test" class="secondary hidden" type="button">Send a test notification</button>
+      <button id="push-disable" class="secondary hidden" type="button">Turn off notifications</button>
+      <hr>
+      <button id="unpair" class="danger" type="button">Unpair this phone</button>
+      <p id="version" class="hint"></p>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast hidden" role="status"></div>
+</body>
+</html>

@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld('bot', {
   configureMemory: invoke('configureMemory'), linkMemoryProject: invoke('linkMemoryProject'),
   retryMemoryLearning: invoke('retryMemoryLearning'), discardMemoryLearning: invoke('discardMemoryLearning'),
   listBackups: invoke('listBackups'), createBackup: invoke('createBackup'), restoreBackup: invoke('restoreBackup'),
+  relayState: invoke('relayState'), relaySetEnabled: invoke('relaySetEnabled'), relaySetPort: invoke('relaySetPort'), relaySetApprovals: invoke('relaySetApprovals'),
+  relayPair: invoke('relayPair'), relayCancelPair: invoke('relayCancelPair'), relayRemoveDevice: invoke('relayRemoveDevice'), relayTailscaleHttps: invoke('relayTailscaleHttps'),
   answerProactive: invoke('answerProactive'), setActivityAwareness: invoke('setActivityAwareness'), removeWebWatch: invoke('removeWebWatch'),
   saveHeartbeat: invoke('saveHeartbeat'), runHeartbeat: invoke('runHeartbeat'), stopHeartbeat: invoke('stopHeartbeat'), readHeartbeat: invoke('readHeartbeat'),
   heartbeatFeedback: invoke('heartbeatFeedback'),

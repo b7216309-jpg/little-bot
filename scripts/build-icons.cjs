@@ -43,20 +43,30 @@ async function buildIcons() {
       const image = new Image();
       image.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(${JSON.stringify(tile)});
       await image.decode();
-      return ${JSON.stringify([...sizes, 512])}.map(size => {
+      const frames = ${JSON.stringify([...sizes, 192, 512])}.map(size => {
         const canvas = document.createElement('canvas');
         canvas.width = canvas.height = size;
         canvas.getContext('2d').drawImage(image, 0, 0, size, size);
         return {size, data: canvas.toDataURL('image/png').split(',')[1]};
       });
+      // Android masks launcher icons to its own shape: fill the square and keep the mark in the safe zone.
+      const mask = document.createElement('canvas');
+      mask.width = mask.height = 512;
+      const context = mask.getContext('2d');
+      context.fillStyle = '#58705c'; context.fillRect(0, 0, 512, 512);
+      context.drawImage(image, 64, 64, 384, 384);
+      frames.push({size: 'maskable', data: mask.toDataURL('image/png').split(',')[1]});
+      return frames;
     })()`);
     const images = frames.map(({ size, data }) => ({ size, png: Buffer.from(data, 'base64') }));
     const output = path.join(root, 'resources', 'icons');
     fs.mkdirSync(output, { recursive: true });
     fs.writeFileSync(path.join(output, 'little-bot.svg'), tile);
     fs.writeFileSync(path.join(output, 'little-bot.png'), images.find(image => image.size === 512).png);
-    fs.writeFileSync(path.join(output, 'little-bot.ico'), encodeIco(images.filter(image => image.size <= 256)));
-    console.log('Built Wink SVG, 512 px PNG, and Windows ICO (16–256 px).');
+    fs.writeFileSync(path.join(output, 'little-bot-192.png'), images.find(image => image.size === 192).png);
+    fs.writeFileSync(path.join(output, 'little-bot-maskable.png'), images.find(image => image.size === 'maskable').png);
+    fs.writeFileSync(path.join(output, 'little-bot.ico'), encodeIco(images.filter(image => image.size <= 256 && sizes.includes(image.size))));
+    console.log('Built Wink SVG, 512 and 192 px PNGs, the Android maskable PNG, and Windows ICO (16–256 px).');
   } finally {
     window.destroy();
     app.quit();

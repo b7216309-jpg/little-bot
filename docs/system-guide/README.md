@@ -23,6 +23,7 @@ Start with the [second functional review](review.md) for confirmed problems and 
 | User questions and answer challenges | [Questions and answer checks](15-questions-answer-checks.md) |
 | Renderer, panels, stream updates and slash commands | [Interface](16-interface.md) |
 | Error logs, smoke fixtures, tests, installation and packaging | [Diagnostics and distribution](17-diagnostics-distribution.md) |
+| Phone app, pairing, live sync and notifications | [Phone relay](18-phone-relay.md) |
 
 Each guide gives the call path, data ownership, conditions that prevent operation, and relevant tests. The [reproduction instructions](review/README.md) explain how to repeat the new failure probes without touching personal data.
 
