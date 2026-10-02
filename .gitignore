@@ -3,3 +3,4 @@ dist/
 .test-data/
 *.log
 resources/embeddings/bge-base-en-v1.5/
+android/build/

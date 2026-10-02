@@ -1,3 +1,20 @@
+# Version 0.15.0 verification
+
+0.15.0 adds the Little Bot Android app, with location sharing.
+
+- **The app.** It is a 41 KB plain-Java APK built and signed on this PC without Gradle (`scripts/build-android.cjs`). The PC serves it at `/little-bot.apk`. It hosts the same live chat, pairs through the existing QR code ("Pair the Android app instead") and keeps its token in the Android Keystore.
+- **Notifications without Google push.** A foreground service keeps a background stream to the PC. A background stream never counts as someone looking at the chat. While nobody is looking, the relay sends `notify` events and the service shows them. The service restarts after a reboot or an update.
+- **Location.** It is opt-in. The phone sends its location (every 5 minutes or 100 m) and battery level. "Set this place as home" saves a home point in the encrypted relay file. Chat, heartbeat and goal prompts get a short reference line: at home or the distance from home, coordinates rounded to about 100 m, and battery. Leaving or reaching home wakes a wild heartbeat. The location itself stays in memory on the PC only.
+- **Fix: reasoning on the phone.** The model's reasoning was shown as a normal reply on the phone; the desktop already folded it away. It now sits in the collapsed "Thinking" group, and reasoning alone never triggers a "replied" notification.
+
+New relay tests cover several cases:
+- validation of shared context, home/away distance and the prompt summary;
+- setting home, and background listeners receiving `notify` events;
+- serving the APK;
+- folding reasoning away.
+
+The APK passes `apksigner verify`, and `aapt2 dump badging` shows package `com.littlebot.app` 0.15.0 (code 1500), minimum SDK 30 and target SDK 34. The full Node suite ran (the only failures are the 11 known `C:\Users\work` extension suites), and `npm run test:electron` passes. The app itself still needs a first run on the user's phone.
+
 # Version 0.14.0 verification
 
 0.14.0 adds a dark theme. Settings › Appearance chooses System (follows Windows, the default), Light or Dark. The choice is kept per PC. The window background also follows Windows at startup, so there is no white flash.

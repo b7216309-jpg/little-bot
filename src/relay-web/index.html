@@ -32,6 +32,7 @@
       <label for="pair-name">Name this phone</label>
       <input id="pair-name" maxlength="60" value="My phone" autocomplete="off">
       <button class="primary" type="submit">Pair</button>
+      <a id="pair-native" class="secondary link-button hidden" href="#">Pair the Android app instead</a>
     </form>
     <p id="pair-error" class="error hidden" role="alert"></p>
   </section>
@@ -50,11 +51,18 @@
   <dialog id="menu-sheet" class="sheet">
     <div class="sheet-head"><h2>This phone</h2><button class="icon-button" type="button" data-close aria-label="Close">✕</button></div>
     <div class="menu">
+      <div id="native-section" class="menu hidden">
+        <p id="location-state" class="hint"></p>
+        <button id="location-toggle" class="primary" type="button">Share my location</button>
+        <button id="home-set" class="secondary" type="button">Set this place as home</button>
+        <p class="hint">Notifications come from the Little Bot app on this phone.</p>
+      </div>
       <p id="push-state" class="hint"></p>
       <button id="push-enable" class="primary" type="button">Turn on notifications</button>
       <button id="push-test" class="secondary hidden" type="button">Send a test notification</button>
       <button id="push-disable" class="secondary hidden" type="button">Turn off notifications</button>
       <hr>
+      <a id="get-apk" class="secondary link-button hidden" href="/little-bot.apk">Get the Android app</a>
       <button id="unpair" class="danger" type="button">Unpair this phone</button>
       <p id="version" class="hint"></p>
     </div>
