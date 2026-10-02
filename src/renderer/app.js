@@ -42,6 +42,8 @@ const icons = {
   browser: ['M3 4h18v16H3Z', 'M3 9h18', 'M6 6.5h.01', 'M9 6.5h.01', 'M12 6.5h.01'],
   paperclip: ['m21 11-9 9a6 6 0 0 1-8.5-8.5L13 2a4 4 0 0 1 5.7 5.7l-9 9a2 2 0 0 1-2.8-2.8L15 6'],
   file: ['M14 2H5v20h14V7Z', 'M14 2v5h5', 'M8 12h8', 'M8 16h5'],
+  'arrow-left': ['M19 12H5', 'm12 19-7-7 7-7'],
+  'arrow-right': ['M5 12h14', 'm12 5 7 7-7 7'],
 };
 
 function fillIcon(node, name) {
@@ -331,6 +333,7 @@ function render() {
   if (currentView === 'goals') renderGoals();
   if (currentView === 'profile') renderProfile();
   renderAgentInspector();
+  renderBrowserPanel();
   renderApprovals();
   updateComposer();
 }
@@ -1831,36 +1834,69 @@ function renderBrowserSettings() {
   const browser = state.browser || {};
   const busy = Boolean(browserActionPending || browser.status === 'running');
   const status = $('settings-browser-status');
-  status.textContent = browserActionPending === 'install' ? 'Installing…' : browserActionPending === 'open' ? 'Opening…' : browserActionPending === 'close' ? 'Closing…' : browser.status === 'running' ? 'Working' : browser.active ? 'Open' : browser.available ? 'Ready' : browser.available === false ? 'Setup needed' : 'Checking';
+  status.textContent = browserActionPending === 'clear' ? 'Clearing…' : browserActionPending === 'open' ? 'Opening…' : browserActionPending === 'close' ? 'Closing…' : browser.status === 'running' ? 'Working' : browser.active ? 'Open' : browser.available ? 'Ready' : browser.available === false ? 'Setup needed' : 'Checking';
   status.classList.toggle('configured', Boolean(browser.available || browser.active));
-  const location = [browser.version ? `agent-browser ${browser.version}` : '', browser.url || ''].filter(Boolean).join(' · ');
+  const location = browser.active && browser.url && browser.url !== 'about:blank' ? [browser.title, browser.url].filter(Boolean).join(' · ') : '';
   $('settings-browser-location').textContent = location;
   $('settings-browser-location').classList.toggle('hidden', !location);
   $('settings-open-browser').disabled = busy || !browser.available;
   $('settings-close-browser').disabled = Boolean(browserActionPending) || (!browser.active && browser.status !== 'running');
-  $('settings-install-browser').classList.toggle('hidden', browser.available !== false || typeof window.bot?.installAgentBrowser !== 'function');
-  $('settings-install-browser').disabled = busy;
-  $('settings-install-browser').textContent = browserActionPending === 'install' ? 'Installing…' : 'Install browser';
+  $('settings-clear-browser').disabled = busy;
   $('open-agent-browser').disabled = busy;
-  $('open-agent-browser').classList.toggle('browser-active', Boolean(browser.active));
-  $('open-agent-browser').title = browser.available ? 'Open the agent’s separate browser profile' : 'Set up the agent’s browser';
+  $('open-agent-browser').classList.toggle('browser-active', Boolean(browser.panel));
+  $('open-agent-browser').setAttribute('aria-pressed', String(Boolean(browser.panel)));
+  $('open-agent-browser').title = browser.panel ? 'Hide the built-in browser' : 'Show the built-in browser';
   const error = browserActionError || browser.error || '';
   $('settings-browser-error').textContent = error;
   $('settings-browser-error').classList.toggle('hidden', !error);
 }
 
+// The built-in browser is a native view laid over #browser-viewport; main follows this rectangle.
+let browserBoundsKey = '';
+function renderBrowserPanel() {
+  const browser = state?.browser || {};
+  const open = Boolean(browser.panel);
+  $('browser-panel').classList.toggle('hidden', !open);
+  document.querySelector('.app-shell').classList.toggle('browser-open', open);
+  if (!open) { browserBoundsKey = ''; return; }
+  const page = browser.url && browser.url !== 'about:blank' ? browser.url : '';
+  if (document.activeElement !== $('browser-address')) $('browser-address').value = page;
+  $('browser-back').disabled = !browser.canGoBack || Boolean(browser.driving);
+  $('browser-forward').disabled = !browser.canGoForward || Boolean(browser.driving);
+  $('browser-reload').disabled = !page || Boolean(browser.driving);
+  $('browser-address').disabled = Boolean(browser.driving);
+  $('browser-panel').classList.toggle('loading', Boolean(browser.loading));
+  $('browser-activity').classList.toggle('hidden', !browser.driving);
+  $('browser-empty').classList.toggle('hidden', Boolean(page));
+  scheduleBrowserBounds();
+}
+function scheduleBrowserBounds() { requestAnimationFrame(sendBrowserBounds); }
+function sendBrowserBounds() {
+  if (!state?.browser?.panel || typeof window.bot?.browserBounds !== 'function') return;
+  const rect = $('browser-viewport').getBoundingClientRect();
+  // Native views draw above the page, so step aside while a dialog is open.
+  const hidden = Boolean(document.querySelector('dialog[open]'));
+  const box = { x: rect.left, y: rect.top, width: rect.width, height: rect.height, hidden };
+  const key = JSON.stringify([Math.round(box.x), Math.round(box.y), Math.round(box.width), Math.round(box.height), hidden]);
+  if (key === browserBoundsKey) return;
+  browserBoundsKey = key;
+  window.bot.browserBounds(box).catch(() => { browserBoundsKey = ''; });
+}
+async function browserPanelAction(payload) {
+  try {
+    const result = payload === 'hide' ? await window.bot.browserPanel({ visible: false }) : await window.bot.browserNavigate(payload);
+    if (result?.settings) applyState(result);
+  } catch (error) { notify(error?.message || 'The browser could not do that.', true); }
+}
+
 async function browserAction(actionName) {
   if (browserActionPending) return;
-  if (actionName === 'open' && !state?.browser?.available) {
-    showDialog('settings-dialog');
-    $('browser-settings-title').scrollIntoView({ block: 'start' });
-    return;
-  }
+  if (actionName === 'clear' && !confirm('Clear the built-in browser’s cookies, sign-ins and cache?')) return;
   browserActionPending = actionName;
   browserActionError = '';
   renderBrowserSettings();
   try {
-    const operation = { open: 'openAgentBrowser', close: 'closeAgentBrowser', install: 'installAgentBrowser' }[actionName];
+    const operation = { open: 'openAgentBrowser', close: 'closeAgentBrowser', clear: 'browserClearData' }[actionName];
     const result = await window.bot[operation]();
     if (result?.settings) applyState(result);
   } catch (error) {
@@ -3827,10 +3863,19 @@ $('inspector-context-refresh').addEventListener('click', () => {
   contextUsedCache.delete(chat.id);
   loadContextUsed(chat, true);
 });
-$('open-agent-browser').addEventListener('click', () => browserAction('open'));
+$('open-agent-browser').addEventListener('click', () => state?.browser?.panel ? browserPanelAction('hide') : browserAction('open'));
+$('browser-hide').addEventListener('click', () => browserPanelAction('hide'));
+$('browser-back').addEventListener('click', () => browserPanelAction({ action: 'back' }));
+$('browser-forward').addEventListener('click', () => browserPanelAction({ action: 'forward' }));
+$('browser-reload').addEventListener('click', () => browserPanelAction({ action: state?.browser?.loading ? 'stop' : 'reload' }));
+$('browser-address-form').addEventListener('submit', (event) => { event.preventDefault(); browserPanelAction({ url: $('browser-address').value }); $('browser-address').blur(); });
+$('browser-address').addEventListener('keydown', (event) => { if (event.key === 'Escape') { $('browser-address').value = state?.browser?.url && state.browser.url !== 'about:blank' ? state.browser.url : ''; $('browser-address').blur(); } });
+new ResizeObserver(scheduleBrowserBounds).observe($('browser-viewport'));
+window.addEventListener('resize', scheduleBrowserBounds);
+new MutationObserver(scheduleBrowserBounds).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open'] });
 $('settings-open-browser').addEventListener('click', () => browserAction('open'));
 $('settings-close-browser').addEventListener('click', () => browserAction('close'));
-$('settings-install-browser').addEventListener('click', () => browserAction('install'));
+$('settings-clear-browser').addEventListener('click', () => browserAction('clear'));
 for (const service of ['firecrawl', 'brave']) {
   $('service-' + service + '-form').addEventListener('submit', (event) => { event.preventDefault(); saveServiceKey(service); });
   $('service-' + service + '-remove').addEventListener('click', () => saveServiceKey(service, true));

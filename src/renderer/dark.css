@@ -342,6 +342,12 @@ html[data-theme=dark] .settings-jump-chip:hover{border-color:#49513f;background:
 html[data-theme=dark] .theme-select{background:#1a1a1a}
 html[data-theme=dark] .message.user.scheduled .message-content{border:1px dashed #4a5240;color:#9eab99}
 html[data-theme=dark] .message.user.scheduled .automation-label{color:#93aa97}
+html[data-theme=dark] .browser-address input:focus{border-color:#49513f}
+html[data-theme=dark] .browser-panel.loading .browser-address input{background-image:linear-gradient(90deg,transparent,rgba(192,126,100,0.133),transparent)}
+html[data-theme=dark] }
+.browser-activity{color:#93aa97;background:#272b21;border-bottom:1px solid #373d30}
+html[data-theme=dark] .browser-empty .icon{color:#5b624e}
+html[data-theme=dark] .agent-browser-button.browser-active{border-color:#49513f;background:#272b21;color:#93aa97}
 html[data-theme=dark] .goal-ledger-current{border:1px solid #393d30;background:#21231b}
 html[data-theme=dark] .goal-ledger-plan-title h4{color:#a6b19d}
 html[data-theme=dark] .goal-ledger-version{border:1px solid #3c4234;background:#1a1a1a;color:#8d9786}

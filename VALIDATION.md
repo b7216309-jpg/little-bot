@@ -1,3 +1,16 @@
+# Version 0.17.0 verification
+
+0.17.0 replaces the external agent-browser (a separate Chrome or Edge window) with a browser built into Little Bot.
+
+- **Panel:** the page opens in a panel beside the chat. It has back, forward, reload, an address bar (plain words search DuckDuckGo) and Hide. A "Little Bot is browsing" badge locks the user controls while the agent drives. The native view steps aside while a dialog is open.
+- **Profile:** a persistent private partition (`persist:little-bot-browser`), so sign-ins survive restarts. Settings › Browser › Clear browsing data clears them. Permissions and downloads are denied, only http(s) opens, and new-tab links load in the same tab.
+- **Agent control:** the same `browser` tool and actions as before, through the Chrome DevTools Protocol of that view only. Snapshots come from the accessibility tree with @eN refs.
+- **Clicks and keys:** clicks use real pointer events when the target is on screen and under the pointer, and a DOM click otherwise. Keys get off-screen fallbacks. Each protocol command has a 15 s limit.
+- **Screenshots:** they need the window on screen; minimized, the agent is told to use snapshot or read.
+- **Removed:** the agent-browser npm dependency and the Install browser step.
+
+New test `test/embedded-browser-electron.cjs` drives navigate, snapshot, fill, select, check/uncheck, click, read, scroll, Enter-submit, back, a target=_blank link, screenshot, dialog step-aside, the user address bar, hide and close against a local page. It passed with the window visible, never shown, and minimized. The full Electron suite passed. The Node suite shows only the 11 known `C:Userswork` failures. Screenshots of the real app checked the empty panel, a live Wikipedia page in dark mode, and the Settings dialog over the panel.
+
 # Version 0.16.2 verification
 
 0.16.2 fixes web scraping errors. Firecrawl answers HTTP 403 for sites it refuses to scrape (Reddit, Instagram), and Little Bot reported that as a rejected API key. It now says the site is unsupported and points to the browser tool; real 401/403 key rejections keep the old message. The public-address DNS check before a scrape now allows 20 s instead of 5 s, because lookups through a slow resolver (Tailscale DNS here) took 10 s. Checked live with the real Firecrawl key (search, Wikipedia scrape, Reddit 403) and with a new unit test.
