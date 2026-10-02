@@ -800,7 +800,9 @@ class Controller extends EventEmitter {
       const result = await this.client.request('turn/start', {
         threadId: chat.threadId, input: [{ type: 'text', text: prompt }], cwd: folder,
         model: config.model || undefined, effort: this.effectiveEffort(config.model, effort),
-        approvalPolicy: 'never', approvalsReviewer: 'user', outputSchema: schema,
+        approvalPolicy: 'never', approvalsReviewer: 'user',
+        // Local servers reject a structured response format alongside tools; the prompt asks for the JSON instead.
+        ...(this.store.data.settings.connection === 'local' ? {} : { outputSchema: schema }),
         sandboxPolicy: { type: 'workspaceWrite', writableRoots: [folder], networkAccess: network,
           excludeSlashTmp: true, excludeTmpdirEnvVar: true },
       }, 60000);

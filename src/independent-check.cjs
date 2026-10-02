@@ -1,6 +1,7 @@
 'use strict';
 
 const { createHash } = require('node:crypto');
+const { parseModelJson } = require('./model-json.cjs');
 
 const INDEPENDENT_CHECK_MODES = Object.freeze(['off', 'selective', 'always']);
 const CLAIM_TYPES = Object.freeze(['fact', 'prediction', 'strategy', 'preference', 'value', 'none']);
@@ -187,7 +188,8 @@ function stripFence(value) {
 function parseIndependentCheckResult(value, proposedAnswer = '') {
   let parsed;
   try { parsed = JSON.parse(stripFence(value)); }
-  catch { throw new Error('Independent Check returned unreadable JSON.'); }
+  // Without a structured response format, small local models may add <think> blocks or prose around the JSON.
+  catch { parsed = parseModelJson(text(value, MAX_ANSWER + 10000), 'Independent Check returned unreadable JSON.'); }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Independent Check returned an invalid result.');
   if (!CLAIM_TYPES.includes(parsed.claimType) || !ASSESSMENTS.includes(parsed.assessment)
     || typeof parsed.pressureDetected !== 'boolean' || typeof parsed.conclusionStable !== 'boolean') {
