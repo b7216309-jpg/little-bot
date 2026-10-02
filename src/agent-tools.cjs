@@ -16,7 +16,7 @@ const actions = ['list', 'create', 'update', 'pause', 'resume'];
 const calendarActions = ['list', 'create', 'update', 'delete'];
 
 class AgentTools {
-  constructor({ management, store, manageGoal, manageSchedule, manageCalendar, manageFollowup, manageWatch, proposeLaunch, browser, webServices, sendAttachment }) { this.management = management; this.store = store; this.manageGoal = manageGoal; this.manageSchedule = manageSchedule; this.manageCalendar = manageCalendar; this.manageFollowup = manageFollowup; this.manageWatch = manageWatch; this.proposeLaunch = proposeLaunch; this.browser = browser; this.webServices = webServices; this.sendAttachment = sendAttachment; }
+  constructor({ management, store, manageGoal, manageSchedule, manageCalendar, manageFollowup, manageWatch, proposeLaunch, phoneAction, browser, webServices, sendAttachment }) { this.phoneAction = phoneAction; this.management = management; this.store = store; this.manageGoal = manageGoal; this.manageSchedule = manageSchedule; this.manageCalendar = manageCalendar; this.manageFollowup = manageFollowup; this.manageWatch = manageWatch; this.proposeLaunch = proposeLaunch; this.browser = browser; this.webServices = webServices; this.sendAttachment = sendAttachment; }
   // The engine rejects a thread whose dynamic tools mix the canonical {type:'function'} form with the
   // legacy form, so every source (app management, browser, services) is normalized here.
   specs(options = {}) {
@@ -62,6 +62,12 @@ class AgentTools {
       ...(this.proposeLaunch ? [functionSpec('launch_propose', 'Offer to start an installed Steam game: posts your short note in the chat with a Launch button. Nothing starts unless the user clicks it. Use games_list first to get the appid.', {
         appid: text(12), note: { type: 'string', maxLength: 600 },
       }, ['appid'])] : []),
+      ...(this.phoneAction ? [functionSpec('phone_action', 'Act on the user\'s paired Android phone (Little Bot app): set an alarm at hour:minute phone time, start a timer, ring the phone loudly so they can find it, or show a navigation route. Use only when the user asks for it in this conversation.', {
+        action: { type: 'string', enum: ['alarm', 'timer', 'ring', 'navigate'] },
+        hour: { type: 'integer', minimum: 0, maximum: 23 }, minute: { type: 'integer', minimum: 0, maximum: 59 },
+        minutes: { type: 'integer', minimum: 1, maximum: 1440, description: 'Timer length.' },
+        label: text(80), destination: text(200),
+      }, ['action'])] : []),
       ...(this.manageFollowup ? [functionSpec('followup_manage', 'Plan your own one-time check-in: create, list, or cancel. When it is due, your Heartbeat wakes with the note as its reason. Use it whenever you would say “I will check back on this”: after a promise, before an event, when something is in progress. Needs Heartbeat with Wild initiative. Not a reminder sent to other people.', {
         action: { type: 'string', enum: ['create', 'list', 'cancel'] }, id: text(100), note: text(300),
         inMinutes: { type: 'integer', minimum: 5, maximum: 43200, description: 'Minutes from now. Use this or atLocal.' },
@@ -133,6 +139,7 @@ class AgentTools {
       web_watch: ['action', 'id', 'url', 'label', 'intervalHours'],
       games_list: ['limit'],
       launch_propose: ['appid', 'note'],
+      phone_action: ['action', 'hour', 'minute', 'minutes', 'label', 'destination'],
     }[name];
     if (!allowed || Object.keys(args).some(key => !allowed.includes(key))) throw new Error('Unsupported tool or argument.');
     if (name === 'skill_list') return { skills: this._skills().map(skill => ({ name: skill.name, description: skill.description })) };
@@ -166,6 +173,12 @@ class AgentTools {
       if (args.action === 'remove') return this.manageWatch('remove', { id: string(args.id, 'watch ID', 100, true) });
       if (args.action !== 'add') throw new Error('Unsupported web watch action.');
       return this.manageWatch('add', { url: string(args.url, 'url', 2000, true), label: args.label === undefined ? undefined : string(args.label, 'label', 80), intervalHours: args.intervalHours });
+    }
+    if (name === 'phone_action') {
+      // Only the user's own conversation may ring the phone or set its alarms; never a heartbeat or goal.
+      if (chat.internal) throw new Error('Phone actions are available only in a direct user conversation.');
+      if (typeof this.phoneAction !== 'function') throw new Error('Phone actions are unavailable.');
+      return this.phoneAction(args);
     }
     if (name === 'launch_propose') {
       if (typeof this.proposeLaunch !== 'function') throw new Error('Game launch offers are unavailable.');

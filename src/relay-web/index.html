@@ -37,8 +37,12 @@
     <p id="pair-error" class="error hidden" role="alert"></p>
   </section>
 
+  <div id="pending" class="pending hidden" aria-label="Attachments to send"></div>
   <form id="composer" class="composer hidden">
+    <button id="attach" class="tool-button" type="button" aria-label="Attach photos or files">📎</button>
+    <input id="file-input" type="file" multiple hidden>
     <textarea id="input" rows="1" maxlength="32000" placeholder="Message Little Bot…" aria-label="Message"></textarea>
+    <button id="mic" class="tool-button hidden" type="button" aria-label="Dictate">🎤</button>
     <button id="send" class="send" type="submit" aria-label="Send">↑</button>
     <button id="stop" class="send stop hidden" type="button" aria-label="Stop">■</button>
   </form>

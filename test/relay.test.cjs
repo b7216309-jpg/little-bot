@@ -95,7 +95,7 @@ test('notifications fire for proactive messages, questions, approvals and finish
   assert.deepEqual(view.notifications(before, before), []);
   const proactive = appState();
   proactive.chats[0].messages.push({ id: 'p1', role: 'assistant', kind: 'heartbeat', heartbeatTopic: 'games', text: 'Want to play Hades tonight?', modelSeen: false });
-  assert.deepEqual(view.notifications(before, view.snapshot(proactive)), [{ title: 'Little Bot · on its own · games', body: 'Want to play Hades tonight?', tag: 'message-p1', kind: 'heartbeat' }]);
+  assert.deepEqual(view.notifications(before, view.snapshot(proactive)), [{ title: 'Little Bot · on its own · games', body: 'Want to play Hades tonight?', tag: 'message-p1', kind: 'heartbeat', messageId: 'p1' }]);
 
   const asking = appState({ approvals: [{ requestId: 'r1', chatId: 'chat-1', kind: 'question', dynamicTool: 'ask_user', title: 'Little Bot has a question', questions: [{ question: 'Which day?', options: [{ label: 'Monday' }] }] }] });
   const asked = view.snapshot(asking);
@@ -355,4 +355,44 @@ test('a scheduled task\'s prompt is labeled as scheduled, not as something the u
     { id: 'u1', role: 'user', text: 'thanks' },
   ] }] }));
   assert.deepEqual(snap.messages.map(item => [item.label, Boolean(item.scheduled)]), [['Scheduled · Bathroom Friday', true], ['Little Bot · Bathroom Friday', false], ['You', false]]);
+});
+
+test('the phone can upload attachments and send them, and Little Bot can act on the phone', async t => {
+  const imported = [];
+  const { relay, base, calls } = await startRelay(t, { handlers: { importAttachment: async ({ name, bytes }) => { imported.push([name, bytes.toString()]); return { id: 'att-1', name, kind: 'file', size: bytes.length, mime: 'text/plain' }; } } });
+  const token = await pair(relay, base);
+  const post = (name, body) => fetch(`${base}/api/${name}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
+  const upload = await (await post('attach', { name: '../notes/list.txt', data: Buffer.from('milk, eggs').toString('base64') })).json();
+  assert.deepEqual(upload, { attachment: { id: 'att-1', name: '..noteslist.txt', kind: 'file', size: 10 } });
+  assert.deepEqual(imported, [['..noteslist.txt', 'milk, eggs']]);
+  assert.equal((await post('attach', { name: 'x', data: '' })).status, 400);
+  assert.equal((await post('send', { text: '', attachmentIds: ['att-1'] })).status, 200);
+  assert.deepEqual(calls.at(-1), ['send', { chatId: 'chat-1', text: '', attachmentIds: ['att-1'] }]);
+
+  assert.throws(() => relay.phoneAction({ action: 'ring' }), /No phone with the Little Bot app/);
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+  const response = await fetch(`${base}/api/events?background=1`, { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal });
+  const reader = response.body.getReader();
+  const next = async () => { const { value } = await reader.read(); return new TextDecoder().decode(value).split('\n\n').filter(Boolean).map(block => JSON.parse(block.replace(/^data: /, ''))); };
+  await next();
+  assert.deepEqual(relay.phoneAction({ action: 'alarm', hour: 7, minute: 30, label: 'Gym' }), { sent: true, kind: 'alarm', phones: ['Pixel'] });
+  const [event] = await next();
+  assert.equal(event.type, 'action');
+  assert.deepEqual({ kind: event.action.kind, hour: event.action.hour, minute: event.action.minute, label: event.action.label }, { kind: 'alarm', hour: 7, minute: 30, label: 'Gym' });
+  assert.throws(() => relay.phoneAction({ action: 'alarm', hour: 25, minute: 0 }), /hour 0-23/);
+  assert.throws(() => relay.phoneAction({ action: 'timer', minutes: 0 }), /minutes from 1/);
+  assert.throws(() => relay.phoneAction({ action: 'navigate' }), /where to go/);
+  assert.throws(() => relay.phoneAction({ action: 'sms' }), /Choose alarm/);
+});
+
+test('phone_action is a direct-conversation tool only', async () => {
+  const { AgentTools } = require('../src/agent-tools.cjs');
+  const sent = [];
+  const tools = new AgentTools({ store: { data: { settings: {}, extensions: {} } }, phoneAction: async args => { sent.push(args); return { sent: true }; } });
+  assert.ok(tools.specs().some(spec => spec.name === 'phone_action'));
+  assert.deepEqual(await tools.call('phone_action', { action: 'timer', minutes: 20, label: 'Laundry' }, { chat: { id: 'c' } }), { sent: true });
+  await assert.rejects(tools.call('phone_action', { action: 'ring' }, { chat: { id: 'h', internal: true, wild: true } }), /direct user conversation/);
+  await assert.rejects(tools.call('phone_action', { action: 'ring', number: '123' }, { chat: { id: 'c' } }), /Unsupported/);
+  assert.deepEqual(sent, [{ action: 'timer', minutes: 20, label: 'Laundry' }]);
 });

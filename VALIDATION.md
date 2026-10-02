@@ -1,3 +1,21 @@
+# Version 0.16.0 verification
+
+0.16.0 lets the phone send photos and files, dictate, and lets Little Bot act on the phone. It pairs with Little Bot for Android 1.1.0, which the PC serves at `/little-bot.apk`.
+
+- **Photos and files from the phone:** a 📎 button, and Share → Little Bot from any app. Uploads go through the same attachment importer as the desktop. Attachments wait as chips in the composer until sent.
+- **Voice:** a 🎤 button using Android's speech recognizer.
+- **Phone actions:** a new `phone_action` tool (alarm, timer, ring to find the phone, navigation route), available only in the user's direct conversation.
+- **Notification buttons:** Reply, Answer and ✅ / ⏰ / ✖ work right from the notification.
+
+New tests cover several cases:
+- upload sanitizing and size handling;
+- sending with attachments;
+- phone actions reaching only the app's background connection, with every argument validated;
+- the tool being refused in a heartbeat;
+- notification data.
+
+The phone composer was checked at phone size with a demo relay: chips, thumbnail, remove, and Send turning on. The Android app compiles and passes `apksigner verify`. The full Node suite ran (the only failures are the 11 known `C:\Users\work` extension suites), and `npm run test:electron` passes.
+
 # Version 0.15.2 verification
 
 0.15.2 gives a scheduled task's prompt its own look on the desktop too. It was a normal "you" bubble with only a small label above it. It is now a dashed, italic bubble with a green "Scheduled · <name>" label, matching the phone. `automation-session-electron` now also checks that only the scheduled prompt gets this look. The full Node suite and `npm run test:electron` ran; the only failures are the 11 known `C:\Users\work` extension suites.
