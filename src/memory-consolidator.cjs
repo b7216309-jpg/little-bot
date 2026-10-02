@@ -35,6 +35,15 @@ class MemoryConsolidator {
     }
   }
   get service() { return this.controller.store.memoryService; }
+  // Jobs that failed only because the local server rejected a structured response format (fixed in 0.13.1) get another chance.
+  retryFormatFailures() {
+    let count = 0;
+    for (const job of this.service?.failedExtractions?.() || []) {
+      if (!/response_format/i.test(job.error || '')) continue;
+      try { this.service.retryExtraction(job.id); count++; } catch { /* Already retried or discarded. */ }
+    }
+    return count;
+  }
   get state() { return { status: this.active ? 'learning' : 'idle', lastError: this.lastError,
     failedJobs: this.service?.failedExtractions?.() || [] }; }
   enqueue(chat) {
@@ -112,11 +121,16 @@ class MemoryConsolidator {
         messages.push({ ...message, text }); remaining -= text.length;
       }
       const prompt = { workspace: cwd, messages, existing: records };
+      // Local servers reject a structured response format while the engine's tools are attached; ask in the prompt instead.
+      const local = settings.connection === 'local';
+      const text = JSON.stringify(prompt) + (local ? `
+
+Return only one JSON object matching this schema, without Markdown: ${JSON.stringify(EXTRACTION_SCHEMA)}` : '');
       const result = await c.client.request('turn/start', {
         threadId: op.threadId, cwd, model: settings.model || undefined,
-        input: [{ type: 'text', text: JSON.stringify(prompt) }],
+        input: [{ type: 'text', text }],
         effort: c.effectiveEffort(settings.model, 'low'), approvalPolicy: 'never',
-        sandboxPolicy: { type: 'readOnly' }, outputSchema: EXTRACTION_SCHEMA,
+        sandboxPolicy: { type: 'readOnly' }, ...(local ? {} : { outputSchema: EXTRACTION_SCHEMA }),
       }, 60000);
       op.turnId ||= result?.turn?.id;
       if (!op.turnId) throw new Error('No memory extraction turn was returned.');
