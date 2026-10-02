@@ -847,7 +847,11 @@ function conversationMessage(chat, message, index) {
       node = element('article', `message ${variant}`);
       if (variant === 'assistant' && (message.goalId || ['heartbeat', 'memory', 'watch', 'offer', 'goal'].includes(message.kind))) node.classList.add('proactive');
       if (Number.isFinite(message.createdAt)) node.title = new Date(message.createdAt).toLocaleString();
-      if (variant === 'user' && message.automationId) node.append(element('div', 'message-label automation-label', `Scheduled · ${message.automationName || 'Automation'}`));
+      // A scheduled task's prompt was not typed by the user: give it its own look, not a "you" bubble.
+      if (variant === 'user' && message.automationId) {
+        node.classList.add('scheduled');
+        node.append(element('div', 'message-label automation-label', `Scheduled · ${message.automationName || 'Automation'}`));
+      }
       if (variant === 'assistant' || variant === 'plan') {
         const label = element('div', 'message-label');
         let mark = element('span', 'mini-mark', 'P');
