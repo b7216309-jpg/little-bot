@@ -23,8 +23,20 @@ This is a text processing task. Produce the structured result without using tool
 
 // Small local models drift from the schema: a missing scope or key, a bare array, an extra field.
 // Keep every usable memory and drop only the broken ones instead of failing the whole turn.
+function candidateList(output) {
+  if (Array.isArray(output)) return output;
+  if (!output || typeof output !== 'object') return null;
+  if (Array.isArray(output.memories)) return output.memories;
+  // One memory returned bare, or the list under another name ({"memory": [...]}, {"items": [...]}).
+  if (typeof output.text === 'string') return [output];
+  const arrays = Object.values(output).filter(Array.isArray);
+  if (arrays.length === 1) return arrays[0];
+  if (output.memories && typeof output.memories === 'object') return [output.memories];
+  // {} or {"memories": null}: nothing durable was learned.
+  return arrays.length === 0 ? [] : null;
+}
 function normalizeCandidates(output, job = {}) {
-  const list = Array.isArray(output) ? output : output && typeof output === 'object' && Array.isArray(output.memories) ? output.memories : null;
+  const list = candidateList(output);
   if (!list) throw new Error('Memory extraction did not match the required JSON schema.');
   const schema = EXTRACTION_SCHEMA.properties.memories.items.properties;
   const userIds = (job.messages || []).filter(message => message.role === 'user').map(message => message.id).filter(Boolean);
@@ -56,11 +68,12 @@ class MemoryConsolidator {
     }
   }
   get service() { return this.controller.store.memoryService; }
-  // Jobs that failed only because the local server rejected a structured response format (fixed in 0.13.1) get another chance.
+  // Jobs that failed on output format (a rejected response_format before 0.13.1, or JSON shapes accepted since 0.17.1) get another chance.
+  // Unreadable JSON is not retried here, so a truly broken job cannot repeat on every start.
   retryFormatFailures() {
     let count = 0;
     for (const job of this.service?.failedExtractions?.() || []) {
-      if (!/response_format/i.test(job.error || '')) continue;
+      if (!/response_format|did not match the required JSON schema/i.test(job.error || '')) continue;
       try { this.service.retryExtraction(job.id); count++; } catch { /* Already retried or discarded. */ }
     }
     return count;

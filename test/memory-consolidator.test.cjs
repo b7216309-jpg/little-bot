@@ -113,6 +113,8 @@ test('learning jobs that failed on the rejected response format are retried; oth
   assert.equal(worker.retryFormatFailures(), 1);
   assert.equal(service.failedExtractions().length, 0);
   assert.equal(service.pendingExtractions().length, 1);
+  for (let i = 0; i < 3; i++) service.failExtraction(job.id, 'Memory extraction did not match the required JSON schema.');
+  assert.equal(worker.retryFormatFailures(), 1, 'Schema shapes accepted since 0.17.1 get another chance.');
   for (let i = 0; i < 3; i++) service.failExtraction(job.id, 'Memory extraction did not return readable JSON.');
   assert.equal(worker.retryFormatFailures(), 0);
   assert.equal(service.failedExtractions().length, 1);
@@ -131,5 +133,12 @@ test('a small model\'s near-miss memories are repaired, and only broken ones are
   ]);
   assert.deepEqual(normalizeCandidates([{ text: 'Uses Windows', type: 'fact' }], job)[0].scope, 'workspace');
   assert.deepEqual(normalizeCandidates({ memories: [] }, job), []);
-  assert.throws(() => normalizeCandidates({ answer: 'none' }, job), /required JSON schema/);
+  // Other shapes small models return: a bare memory, the list under another name, or nothing at all.
+  assert.equal(normalizeCandidates({ text: 'Uses Windows', type: 'fact', scope: 'global' }, job)[0].text, 'Uses Windows');
+  assert.equal(normalizeCandidates({ memory: [{ text: 'Likes tea', type: 'preference' }] }, job)[0].key, 'likes-tea');
+  assert.equal(normalizeCandidates({ memories: { text: 'Likes tea', type: 'preference' } }, job).length, 1);
+  assert.deepEqual(normalizeCandidates({}, job), []);
+  assert.deepEqual(normalizeCandidates({ memories: null, note: 'nothing durable' }, job), []);
+  assert.throws(() => normalizeCandidates({ a: [], b: [] }, job), /required JSON schema/);
+  assert.throws(() => normalizeCandidates('none', job), /required JSON schema/);
 });
