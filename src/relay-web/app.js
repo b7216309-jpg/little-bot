@@ -197,6 +197,7 @@ function renderText(parent, text) {
 function messageNode(message) {
   const node = el('div', `msg ${message.role}`);
   if (message.proactive) node.classList.add('proactive');
+  if (message.scheduled) node.classList.add('scheduled');
   if (message.kind === 'question') node.classList.add('question');
   if (message.role === 'assistant' && ['running', 'inProgress'].includes(message.status)) node.classList.add('streaming');
   node.append(el('span', 'label', message.label));

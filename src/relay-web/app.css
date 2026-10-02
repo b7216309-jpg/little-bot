@@ -98,3 +98,5 @@ hr{border:0;border-top:1px solid var(--line);width:100%;margin:6px 0}
 .empty{color:var(--muted);text-align:center;margin-top:30vh}
 .link-button{display:block;text-align:center;text-decoration:none;color:inherit}
 .tools div p.thought{font-family:inherit;font-size:12.5px;font-style:italic;white-space:pre-wrap}
+.msg.user.scheduled .bubble{background:var(--soft);color:var(--ink);border:1px dashed var(--line)}
+.msg.user.scheduled .label{color:var(--accent)}

@@ -1,3 +1,11 @@
+# Version 0.15.1 verification
+
+0.15.1 fixes how a scheduled task's prompt appears on the phone. It was labeled "You", as if the user had typed it; the desktop already showed "Scheduled · <name>". Phones now show the same label, in a dashed bubble.
+
+The Android app's sources moved to their own repository (little-bot-android). This repository keeps the built APK that the relay serves.
+
+A new relay test covers the labels for a scheduled prompt, its reply and a typed message. The full Node suite ran (the only failures are the 11 known `C:\Users\work` extension suites).
+
 # Version 0.15.0 verification
 
 0.15.0 adds the Little Bot Android app, with location sharing.

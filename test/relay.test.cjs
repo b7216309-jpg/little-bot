@@ -347,3 +347,12 @@ test('the model\'s reasoning is folded away on the phone and never notified as a
   assert.deepEqual(view.notifications(view.snapshot(running), view.snapshot(done)).map(item => item.body), ['Go. Coffee first.']);
   assert.equal(view.snapshot(appState({ chats: [{ id: 'c', status: 'idle', messages: [{ id: 'x', role: 'assistant', phase: 'commentary', text: 'Checking the calendar first.' }] }] })).messages[0].thinking, true);
 });
+
+test('a scheduled task\'s prompt is labeled as scheduled, not as something the user typed', () => {
+  const snap = view.snapshot(appState({ chats: [{ id: 'c', status: 'idle', messages: [
+    { id: 's1', role: 'user', text: 'Remind Savinien to do the bathroom', automationId: 'a1', automationName: 'Bathroom Friday' },
+    { id: 's2', role: 'assistant', text: 'Bathroom, Savi.', automationId: 'a1', automationName: 'Bathroom Friday' },
+    { id: 'u1', role: 'user', text: 'thanks' },
+  ] }] }));
+  assert.deepEqual(snap.messages.map(item => [item.label, Boolean(item.scheduled)]), [['Scheduled · Bathroom Friday', true], ['Little Bot · Bathroom Friday', false], ['You', false]]);
+});
