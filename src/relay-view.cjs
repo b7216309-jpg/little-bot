@@ -67,7 +67,7 @@ function notifications(previous, next) {
   const known = new Set(previous.messages.map(message => message.id));
   for (const message of next.messages) {
     if (known.has(message.id) || !message.proactive) continue;
-    result.push({ title: message.label, body: excerpt(message.text) || 'New message', tag: `message-${message.id}` });
+    result.push({ title: message.label, body: excerpt(message.text) || 'New message', tag: `message-${message.id}`, kind: message.kind || '' });
   }
   const before = new Set(previous.approvals.map(item => item.requestId));
   for (const approval of next.approvals) {

@@ -231,7 +231,7 @@ async function attempt(operation, successMessage) {
 function showDialog(id) {
   const dialog = $(id);
   if (!dialog.open) dialog.showModal();
-  if (id === 'settings-dialog') void refreshRelay(true);
+  if (id === 'settings-dialog') { void refreshRelay(true); renderSettingsJump(); }
 }
 
 function closeDialog(id) {
@@ -3394,6 +3394,26 @@ function renderExtensionTools() {
     heading.append(element('span', 'extension-tag', 'Built in'));
     fragment.append(card);
   }
+  // Little Bot's own tools, so it is clear what the assistant can do without any extension.
+  fragment.append(element('p', 'extension-group-label', 'Little Bot abilities'));
+  const abilities = element('div', 'ability-grid');
+  for (const [name, description, iconName] of [
+    ['Memory', 'Saves, searches and forgets durable facts and preferences, and rereads the whole conversation.', 'memory'],
+    ['Questions', 'Asks you one short question when an answer would change the result.', 'chat'],
+    ['Goals and routines', 'Drafts goals, manages routines and standing intents. Goals you authorize run on their own.', 'goal'],
+    ['Calendar', 'Reads and manages the local calendar in your PC’s time.', 'calendar'],
+    ['Follow-ups', 'Plans one-time check-ins, up to 30 days ahead, that wake the heartbeat.', 'clock'],
+    ['Web watches', 'Watches a public page and tells you in the chat when it changes.', 'browser'],
+    ['Games', 'Knows your installed Steam games and offers to launch one; only your click starts it.', 'sparkles'],
+    ['Skills', 'Finds and follows your enabled skills when they fit the request.', 'extensions'],
+  ]) {
+    const item = element('div', 'ability');
+    const copy = element('div');
+    copy.append(element('strong', '', name), element('p', '', description));
+    item.append(icon(iconName), copy);
+    abilities.append(item);
+  }
+  fragment.append(abilities);
   fragment.append(element('p', 'extension-group-label', 'External MCP tools'));
   let discovered = 0;
   for (const server of extensionData().servers || []) {
@@ -3969,6 +3989,19 @@ for (const id of ['heartbeat-start-hour', 'heartbeat-end-hour']) {
 $('heartbeat-form').addEventListener('input', markHeartbeatDirty);
 $('heartbeat-form').addEventListener('change', markHeartbeatDirty);
 $('heartbeat-form').addEventListener('submit', saveHeartbeat);
+// Quick links to each Settings section; the dialog is long.
+function renderSettingsJump() {
+  const sections = [...$('settings-dialog').querySelectorAll('.settings-section')].filter(section => !section.classList.contains('hidden'));
+  $('settings-jump').replaceChildren(...sections.map(section => {
+    const title = section.querySelector('h3')?.textContent.trim();
+    if (!title) return null;
+    const chip = element('button', 'settings-jump-chip', title);
+    chip.type = 'button';
+    chip.addEventListener('click', () => section.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    return chip;
+  }).filter(Boolean));
+}
+
 let relayState = null;
 let relayTimer = null;
 function relayAgo(time) {

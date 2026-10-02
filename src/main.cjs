@@ -13,6 +13,7 @@ const backups = require('./backups.cjs');
 const { ActivityMonitor } = require('./activity.cjs');
 const { WebWatcher } = require('./web-watch.cjs');
 const { Relay } = require('./relay.cjs');
+const relayView = require('./relay-view.cjs');
 const { installedGame } = require('./steam-library.cjs');
 const proactiveChat = require('./proactive-chat.cjs');
 const { deliverHeartbeat, flush: flushProactive } = require('./proactive-chat.cjs');
@@ -321,6 +322,25 @@ app.whenReady().then(async () => {
   relay.onClients = relayChanged;
   relay.onPaired = device => { relayChanged(); controller.emit('event', { type: 'memory', message: `Paired ${device.name} with the phone relay.` }); };
   controller.on('event', event => relay.onEvent(event));
+  // Desktop notifications while the window is in the background: replies, questions, approvals, web watches and offers.
+  // Heartbeat and goal alerts already notify through onAlert, and learned notes stay quiet.
+  let desktopSnapshot = null;
+  controller.on('event', event => {
+    if (event.type !== 'state' || smoke) return;
+    let notes = [];
+    try { const next = relayView.snapshot(event.state); notes = relayView.notifications(desktopSnapshot, next); desktopSnapshot = next; }
+    catch (error) { logDiagnostic('desktop-notify', error); return; }
+    if (!Notification.isSupported() || !window || window.isDestroyed() || (window.isFocused() && window.isVisible())) return;
+    for (const note of notes.filter(item => !['heartbeat', 'goal', 'memory'].includes(item.kind) && !/^Goal ·/.test(item.title)).slice(0, 2)) {
+      const notice = new Notification({ title: note.title, body: note.body, silent: !note.tag.startsWith('approval-'), icon: appIconFile });
+      notice.on('click', () => {
+        if (!window || window.isDestroyed()) return;
+        if (window.isMinimized()) window.restore();
+        window.show(); window.focus();
+      });
+      notice.show();
+    }
+  });
 
   function ensureExtensionsIdle() {
     if (controller.extensionsBusy || goals.activeId || controller.goalChat || heartbeat.running || scheduler.runningId || controller.heartbeatChat || store.data.chats.some(chat => chat.status !== 'idle')) {
