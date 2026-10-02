@@ -33,7 +33,6 @@
   "resources/skills/research-brief/LICENSE.txt": "12-skills-plugins-mcp.md",
   "resources/skills/research-brief/SKILL.md": "12-skills-plugins-mcp.md",
   "resources/skills/web-tools/SKILL.md": "12-skills-plugins-mcp.md",
-  "scripts/build-android.cjs": "18-phone-relay.md",
   "scripts/build-dark-theme.cjs": "16-interface.md",
   "scripts/build-icons.cjs": "17-diagnostics-distribution.md",
   "scripts/build-installer.ps1": "17-diagnostics-distribution.md",
