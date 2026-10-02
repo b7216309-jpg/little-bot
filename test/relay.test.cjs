@@ -95,7 +95,7 @@ test('notifications fire for proactive messages, questions, approvals and finish
   assert.deepEqual(view.notifications(before, before), []);
   const proactive = appState();
   proactive.chats[0].messages.push({ id: 'p1', role: 'assistant', kind: 'heartbeat', heartbeatTopic: 'games', text: 'Want to play Hades tonight?', modelSeen: false });
-  assert.deepEqual(view.notifications(before, view.snapshot(proactive)), [{ title: 'Little Bot · on its own · games', body: 'Want to play Hades tonight?', tag: 'message-p1' }]);
+  assert.deepEqual(view.notifications(before, view.snapshot(proactive)), [{ title: 'Little Bot · on its own · games', body: 'Want to play Hades tonight?', tag: 'message-p1', kind: 'heartbeat' }]);
 
   const asking = appState({ approvals: [{ requestId: 'r1', chatId: 'chat-1', kind: 'question', dynamicTool: 'ask_user', title: 'Little Bot has a question', questions: [{ question: 'Which day?', options: [{ label: 'Monday' }] }] }] });
   const asked = view.snapshot(asking);

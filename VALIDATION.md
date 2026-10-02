@@ -1,3 +1,13 @@
+# Version 0.13.3 verification
+
+0.13.3 continues the polish pass.
+
+- **Desktop notifications for everything that needs you.** Before, only heartbeat and goal alerts notified while the window was in the background. Now a finished reply, a question, an approval (with sound), a web-watch change and an offer notify too. They use the same rules as the phone relay. Learned notes stay quiet, and heartbeat and goal alerts keep their own notification, so nothing is duplicated.
+- **Little Bot abilities in Extensions.** The Tools tab lists what Little Bot can do on its own: memory, questions, goals and routines, calendar, follow-ups, web watches, games and skills. Before, it showed only Terminal and Files.
+- **Settings quick links.** Settings opens with a row of section chips that scroll to each section.
+
+The relay notification test now also covers each note's message kind. The full Node suite ran (the only failures are the 11 known `C:\Users\work` extension suites), and `npm run test:electron` passes. The Extensions and Settings screens were checked in screenshots of the real renderer.
+
 # Version 0.13.2 verification
 
 0.13.2 is a polish release based on a screen-by-screen review of the app with sample data and on the real error log.
