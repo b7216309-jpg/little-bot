@@ -1,3 +1,12 @@
+# Version 0.17.2 verification
+
+0.17.2 keeps goals and the heartbeat flowing and says why they wait.
+
+- **Heartbeat:** a failed run now gives its daily slot back. Live, six failures on the morning of 2026-10-02 (the pre-0.13.1 response_format error) used up the 6-run limit by 13:17, so the heartbeat stayed silent all day. Retry backoff still spaces failed attempts.
+- **Goal waiting reasons:** each due goal that has not started shows why on its card. The reasons are: model offline, a reply in progress, memory learning, another goal or the heartbeat or a scheduled task running, extensions updating, outside active hours, or a different model connection. They are in-memory only (`goalWaiting` in state), not saved.
+
+Tests: a new heartbeat test covers a failed run followed by a success, and the backoff test now expects failures to leave the daily count alone. The goal-contract active-hours test checks both reasons. The Node suite shows only the 11 known `C:Userswork` failures; the Electron suite passed.
+
 # Version 0.17.1 verification
 
 0.17.1 makes memory tolerant of the local 2-bit model's output.

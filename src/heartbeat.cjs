@@ -371,6 +371,8 @@ class Heartbeat {
       // Only a wild heartbeat may choose its own next wake-up; calm keeps the fixed interval.
       const wake = config.initiative === 'wild' && status !== 'error' ? wakeMinutes(wakeInMinutes) : null;
       if (status === 'error') {
+        // A failed run (model offline, a server rejection) gives its daily slot back; the retry backoff still spaces attempts.
+        if (config.dayKey === localDay(nowMs)) config.runsToday = Math.max(0, config.runsToday - 1);
         config.lastError = summary;
         config.nextRunAt = nowMs + retryDelay(config);
       } else {
