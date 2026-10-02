@@ -216,6 +216,8 @@ Guide: [16-interface.md](16-interface.md)
 | [src/renderer/styles.css](../../src/renderer/styles.css) | Feature rendering, normalization or styling |
 | [src/renderer/assets/wink.svg](../../src/renderer/assets/wink.svg) | Wink brand mark used in the sidebar and welcome screen |
 | [src/renderer/branding.css](../../src/renderer/branding.css) | Feature rendering, normalization or styling |
+| [src/renderer/dark.css](../../src/renderer/dark.css) | Generated dark theme (do not edit by hand) |
+| [scripts/build-dark-theme.cjs](../../scripts/build-dark-theme.cjs) | Generates the dark theme from the light stylesheets |
 
 ## diagnostics distribution
 
