@@ -1,3 +1,12 @@
+# Version 0.18.0 verification
+
+0.18.0 makes goal and heartbeat messages less noisy. The user found every goal result posted in chat, each with Do it / Later / Not interested buttons, and said that made no sense for most of them.
+
+- **No generic buttons:** heartbeat, goal and web-watch messages no longer get the ✅ ⏰ ✖ buttons, on desktop or in phone notifications. The user replies in the chat, and a reply to a goal message already brings its review forward. A concrete offer such as a Steam launch keeps its button. Buttons on older saved messages still work and still feed the reaction log.
+- **Silent goals:** a goal has `delivery: chat | silent`. A silent goal keeps its results on its card (a Silent label plus the last result text) and in the Activity inbox. Its questions still reach the chat. The goal is told it is silent, so it writes a work log instead of a message. Older goals that did not read the chat start silent. The goal editor separates "Read the continuous chat" from "Post results in the chat".
+
+Tests: updated contract, outbox and proactive-tools tests, plus a new silent-delivery test. The Node suite shows only the 11 known `C:Userswork` failures; the Electron suite passed.
+
 # Version 0.17.2 verification
 
 0.17.2 keeps goals and the heartbeat flowing and says why they wait.

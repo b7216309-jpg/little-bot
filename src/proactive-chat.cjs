@@ -9,9 +9,9 @@ const MAX_PENDING = 20;
 const MAX_BRIDGE = 10;
 const PROACTIVE_KINDS = ['heartbeat', 'goal', 'memory', 'watch', 'offer'];
 const MAX_FEEDBACK = 200;
-// One-click answers on proactive suggestions. Choices feed attention preferences and the reaction log.
-const DEFAULT_ACTIONS = [{ id: 'do', label: '✅ Do it' }, { id: 'later', label: '⏰ Later' }, { id: 'no', label: '✖ Not interested' }];
-const ACTION_KINDS = ['heartbeat', 'goal', 'watch'];
+// Proactive messages carry buttons only for a concrete offer (a game launch). Notes, tips and check-ins get none:
+// the user simply replies in the chat, and a reply to a goal message already brings that goal's review forward.
+// Older messages keep their saved buttons, and answering them still feeds the reaction log.
 const LAUNCH_TARGET = /^steam:\/\/rungameid\/\d{1,10}$/;
 
 function normalizeActions(value) {
@@ -54,7 +54,7 @@ function post(data, fields, { duplicate = null, nowMs = Date.now() } = {}) {
   const pending = Array.isArray(chat.pendingProactive) ? chat.pendingProactive : [];
   if (duplicate && [...chat.messages, ...pending].some(duplicate)) return null;
   const message = { id: randomUUID(), role: 'assistant', status: 'completed', createdAt: nowMs, modelSeen: false,
-    ...(ACTION_KINDS.includes(fields.kind) && !fields.goalQuestionId ? { actions: DEFAULT_ACTIONS.map(action => ({ ...action })) } : {}), ...fields };
+    ...fields };
   if (chat.status === 'idle') {
     chat.messages.push(message);
     chat.updatedAt = nowMs;
