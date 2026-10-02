@@ -13,7 +13,7 @@
 | goal_manage / schedule_manage | Goal drafts and recurring schedule management |
 | ask_user | Persisted question/request routing |
 | attachment_send | Workspace/browser-output import and visible delivery |
-| browser / web_search_service / web_scrape | AgentBrowser / WebServices |
+| browser / web_search_service / web_scrape | EmbeddedBrowser / WebServices |
 | app_state and *_manage / *_control | AppManagement and registered main handlers |
 
 The read-only set contains skills, recall and calendar_list. Direct full chat receives the broader tool set. Heartbeat, goals and Independent Check do not inherit every direct-chat management operation. Goals use their own permitted workspace/write/terminal/network/MCP tools.

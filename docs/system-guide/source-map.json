@@ -44,7 +44,7 @@
   "scripts/uninstall.ps1": "17-diagnostics-distribution.md",
   "scripts/verify-tool-migration.cjs": "10-agent-tools-terminal.md",
   "src/activity.cjs": "08-heartbeat-inbox.md",
-  "src/agent-browser.cjs": "11-browser-web.md",
+  "src/embedded-browser.cjs": "11-browser-web.md",
   "src/agent-tools.cjs": "10-agent-tools-terminal.md",
   "src/app-management.cjs": "10-agent-tools-terminal.md",
   "src/attachment-message.cjs": "14-attachments.md",
