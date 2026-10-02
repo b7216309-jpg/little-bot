@@ -43,6 +43,7 @@ const launchTime = performance.now();
 if (!smoke && !app.requestSingleInstanceLock()) app.quit();
 let window, controller, scheduler, heartbeat, goals, eventRuntime, errorLog, activity, webWatcher, quitting = false;
 const rendererFile = path.join(__dirname, 'renderer', 'index.html');
+const appIconFile = path.join(__dirname, '..', 'resources', 'icons', 'little-bot.png');
 const rendererUrl = pathToFileURL(rendererFile).href;
 
 function logDiagnostic(source, error, metadata) {
@@ -167,7 +168,7 @@ app.whenReady().then(async () => {
     onAlert: item => {
       if (smoke || !Notification.isSupported() || window?.isFocused()) return;
       const notice = new Notification({ title: item.status === 'error' ? 'Little Bot needs attention' : item.source === 'goal' ? 'Little Bot goals' : 'Little Bot heartbeat',
-        body: item.summary.slice(0, 240), silent: true });
+        body: item.summary.slice(0, 240), silent: true, icon: appIconFile });
       notice.on('click', () => {
         if (!window || window.isDestroyed()) return;
         if (window.isMinimized()) window.restore();
@@ -649,7 +650,7 @@ app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
   window = new BrowserWindow({ width: 1240, height: 860, minWidth: 900, minHeight: 620,
-    title: 'Little Bot', backgroundColor: '#f7f5f0', show: false,
+    title: 'Little Bot', backgroundColor: '#f7f5f0', show: false, icon: appIconFile,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true,
       nodeIntegration: false, sandbox: true, spellcheck: false, webviewTag: false, backgroundThrottling: !smoke },
   });

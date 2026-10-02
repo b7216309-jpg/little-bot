@@ -34,7 +34,8 @@ New-Item -ItemType Directory -Force -Path $stage | Out-Null
 try {
   $installScript = Join-Path $PSScriptRoot 'install.ps1'
   $uninstallScript = Join-Path $PSScriptRoot 'uninstall.ps1'
-  foreach ($required in @($portable, $installScript, $uninstallScript)) {
+  $appIcon = Join-Path (Split-Path -Parent $PSScriptRoot) 'resources\icons\little-bot.ico'
+  foreach ($required in @($portable, $installScript, $uninstallScript, $appIcon)) {
     if (!(Test-Path -LiteralPath $required -PathType Leaf)) { throw "Missing installer input: $required" }
   }
 
@@ -141,7 +142,7 @@ internal static class Program
   ) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
   if (!$csc) { throw '.NET Framework C# compiler was not found.' }
 
-  & $csc /nologo /target:winexe /optimize+ "/out:$stubPath" $sourcePath
+  & $csc /nologo /target:winexe /optimize+ "/win32icon:$appIcon" "/out:$stubPath" $sourcePath
   if ($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $stubPath -PathType Leaf)) {
     throw 'Setup bootstrapper compilation failed.'
   }

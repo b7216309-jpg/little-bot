@@ -6,12 +6,13 @@ const { execFileSync } = require('node:child_process');
   await require('./prepare-embeddings.cjs').prepareEmbeddings();
   const { packager } = await import('@electron/packager');
   const root = path.resolve(__dirname, '..');
+  execFileSync(require('electron'), [path.join(__dirname, 'build-icons.cjs')], { stdio: 'inherit', windowsHide: true });
   const version = require('../package.json').version;
   const outputRoot = path.join(root, 'dist', version);
   const outputs = await packager({
     dir: root, out: outputRoot, name: 'Little Bot',
     platform: 'win32', arch: 'x64', electronVersion: '44.4.5',
-    overwrite: true, prune: true, asar: false,
+    overwrite: true, prune: true, asar: false, icon: path.join(root, 'resources', 'icons', 'little-bot.ico'),
     ignore: [/^\/dist($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/\.test-data($|\/)/,
       /^\/node_modules\/agent-browser\/bin\/agent-browser-(?:darwin|linux)/,
       /^\/node_modules\/onnxruntime-node\/bin\/napi-v6\/(?:darwin|linux|win32\/arm64)(?:\/|$)/],
