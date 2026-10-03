@@ -67,4 +67,5 @@ Event-runtime-triggered checks currently hold the whole event dispatch lane unti
 
 ## Verification
 
-[Heartbeat](../../test/heartbeat.test.cjs), [controller heartbeat](../../test/controller-heartbeat.test.cjs), [event producers](../../test/event-producers.test.cjs) and [inbox/UI behavior](../../test/qol-electron.cjs). Tests cover quiet/alert parsing, action recording, caps, hours, persisted attention and interruption. They do not prove that Windows delivered a real toast.
+[Heartbeat](../../test/heartbeat.test.cjs).
+

@@ -43,7 +43,6 @@ Run the built conversation tests. GPU fixtures cover FP16, int8, Q4 and hybrid f
 From the Little Bot checkout, use a **separate** ready test server on port 8081. Diagnostic clients can evict real conversations:
 
 ```powershell
-node --test test/local-model-relay-strata.test.cjs test/strata-responses-adapter.test.cjs test/connections-strata.test.cjs
 node integrations/strata/verify-conversation-cache.cjs http://127.0.0.1:8081/v1 12000 --background-records 1200 --cancel
 ```
 

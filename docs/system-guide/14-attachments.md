@@ -22,6 +22,3 @@ Too many/large files, exhausted copy storage, unreadable original, invalid image
 
 A pasted browser File with no filesystem path may need the attach button. A screenshot path returned by browser tooling is not automatically a visible attachment until attachment_send/import delivery is performed.
 
-## Verification
-
-[Attachment smoke](../../src/attachment-smoke.cjs), [vision](../../test/provider-vision.test.cjs), [real Electron IPC/storage cleanup](../../test/reliability-electron.cjs) and [reliability regressions](../../test/reliability-regressions.test.cjs).

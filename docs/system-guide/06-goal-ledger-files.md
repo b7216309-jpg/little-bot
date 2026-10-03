@@ -22,6 +22,3 @@ Missing/changed workspace, invalid write roots, unavailable files, links/nonregu
 
 A file-triggered goal observes filesystem metadata changes through its own watcher/fingerprints. It is not a general computer-wide watcher and does not replay changes from a closed-app session.
 
-## Verification
-
-[File/session behavior](../../test/goal-file-session.test.cjs), [ledger](../../test/goal-ledger.test.cjs), [integration](../../test/goal-ledger-integration.test.cjs), [record context](../../test/goal-ledger-record-context.test.cjs), [lifecycle](../../test/goal-ledger-lifecycle.test.cjs) and [Electron ledger](../../test/goal-ledger-electron.cjs).

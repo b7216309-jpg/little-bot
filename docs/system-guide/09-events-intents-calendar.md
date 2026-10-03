@@ -24,6 +24,3 @@ Disabled intent, unmatched source/filter, unauthorized/missing target, busy lane
 
 A calendar entry is data, not automatically a reminder or appointment booking. A standing intent or appropriate check must act on its event. Disk failures can change the live calendar without emitting its change event (R2), leaving intent consumers unaware.
 
-## Verification
-
-[Bus](../../test/event-bus.test.cjs), [runtime](../../test/event-runtime.test.cjs), [intent persistence](../../test/standing-intents.test.cjs), [calendar](../../test/calendar.test.cjs) and [calendar UI](../../test/calendar-electron.cjs). The second review also exercised internal calendar_list beyond the initial excerpt.

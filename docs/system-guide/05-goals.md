@@ -26,4 +26,5 @@ An interrupted local goal verifies existing effects before continuing. Goals wit
 
 ## Verification
 
-[Contract](../../test/goal-contract.test.cjs), [executor usage](../../test/goal-executor-usage.test.cjs), [events](../../test/goal-events.test.cjs), [ledger lifecycle](../../test/goal-ledger-lifecycle.test.cjs) and [actual goal UI](../../test/goal-contract-electron.cjs). Earlier live Strata execution verified a workspace write, host checks, in-chat result, calendar evidence and unchanged-review short circuit; see [VALIDATION.md](../../VALIDATION.md).
+[Contract](../../test/goal-contract.test.cjs).
+
