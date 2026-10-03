@@ -65,3 +65,4 @@ html.widget-mode body{background:transparent;padding:8px;overflow:hidden}
 .widget-pill-label>span{font-size:9px}
 .widget-mode .stop-square{width:9px;height:9px;background:currentColor;border-radius:2px}
 @media(max-width:380px){.widget-mode .widget-header{padding-left:14px;padding-right:12px;gap:8px}.widget-mode .widget-controls{gap:0}.widget-mode .widget-control{width:25px}.widget-mode .composer-options #model-select{max-width:88px}.widget-mode .composer-options #effort-select{max-width:48px}}
+html[data-theme=dark].widget-mode{color-scheme:dark}

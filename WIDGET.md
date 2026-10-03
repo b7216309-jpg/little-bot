@@ -8,7 +8,7 @@ Both views share the same conversation and controller. Switching transfers the u
 
 The overflow menu opens Settings or Goals in the full app and offers the existing Compact conversation action. Rich tool pages and the built-in browser stay in the full app; hiding its browser panel leaves the page and ongoing browser work intact. Closing the widget returns to the full app. Close the full app to quit normally.
 
-Glass uses a pale frosted surface independently of the full app's theme preference. Windows 11's supported acrylic material adds native desktop blur; other Windows versions use the same readable CSS surface. No second engine, model load, or extra inference is started by entering widget mode.
+Glass follows the app's light or dark theme: a pale frosted surface in light, a charcoal one in dark (its dark rules are generated into `dark.css` with the rest of the app). Windows 11's supported acrylic material adds native desktop blur; other Windows versions use the same readable CSS surface. No second engine, model load, or extra inference is started by entering widget mode.
 
 ## Verification
 
