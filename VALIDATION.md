@@ -1,3 +1,11 @@
+# IQ3_S model-switch compaction repair · 2026-10-03
+
+The installed 0.18.1 app rejected manual compaction after selecting IQ3_S because its saved conversation still referenced IQ2_XS. Both subscribed-session and restart regression tests reproduce the exact saved-model error against the original installed controller. Manual compaction now detaches a subscribed session when its model changes, resumes the same native thread with the selected model and effort, and then requests compaction. Failed reloads leave the old model binding intact. Saved autonomous-task and connection guards remain in place.
+
+39 focused tests passed across compaction, single-session chat, Strata detection and transport. An additional real bundled-agent-engine test uses a mock Chat Completions HTTP server through the actual Strata relay: IQ2 chat → IQ3 compaction → IQ3 chat. It verifies the native thread ID and visible transcript survive, the compaction request includes prior history, and the next request contains the summary. No Strata process, model load or live inference is used.
+
+Applied to current 0.18.1 main for publication: `npm run ci` passes all 92 Node tests, syntax checks for 101 JavaScript files, and the Electron embedded-browser integration test. The focused regressions cover subscribed sessions, restart, failed reload, and the native-engine compaction/chat sequence.
+
 # Version 0.18.1 verification
 
 0.18.1 fixes the phone chat silently stopping updating. Sends from the phone still reached the PC, but replies never appeared on the phone.
