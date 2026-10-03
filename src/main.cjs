@@ -29,6 +29,7 @@ const appHandlers = new Map();
 const { ProfileFiles } = require('./profile.cjs');
 const { installBundledSkills } = require('./bundled-skills.cjs');
 const { EmbeddedBrowser } = require('./embedded-browser.cjs');
+const { WindowsUia } = require('./windows-uia.cjs');
 const { WebServices } = require('./web-services.cjs');
 const { Attachments } = require('./attachments.cjs');
 const { attachmentDescriptors } = require('./attachment-message.cjs');
@@ -244,7 +245,8 @@ app.whenReady().then(async () => {
   }
 
   controller.appManagement = new AppManagement({controller,handlers:appHandlers,filename:path.join(stateDir,'app-operations.json')});
-  controller.agentTools = new AgentTools({ management:controller.appManagement, store, browser: controller.browser, webServices: controller.webServices,
+  controller.windowsUi = new WindowsUia({ root: path.join(stateDir, 'windows-ui') });
+  controller.agentTools = new AgentTools({ management:controller.appManagement, store, browser: controller.browser, webServices: controller.webServices, windowsUi: controller.windowsUi,
     phoneAction: async args => relay.phoneAction(args),
     manageWatch: async (action, payload) => action === 'list' ? webWatcher.list() : action === 'remove' ? webWatcher.remove(payload.id) : webWatcher.add(payload),
     proposeLaunch: async ({ appid, note }) => {
@@ -777,7 +779,7 @@ app.whenReady().then(async () => {
         if (process.env.LITTLE_BOT_LIVE_LOCAL_QA === '1') console.log(JSON.stringify({ liveAttachments: await require('./attachment-smoke.cjs').runLive({ window, controller, store, stateDir }) }));
       }
       if (smokeOnly !== 'attachments') console.log(JSON.stringify({ recall: await require('./recall-smoke.cjs').run({ window, controller, store, stateDir }) }));
-      await controller.browser.close({ shutdown: true }); controller.webServices.close();
+      await controller.browser.close({ shutdown: true }); controller.webServices.close(); await controller.windowsUi?.close();
       scheduler.stop(); heartbeat.stop(); eventRuntime.stop(); await goals.close(); await controller.close();
       app.exit(0);
     } catch (error) { console.error(cleanError(error.stack || error)); scheduler.stop(); heartbeat.stop(); eventRuntime.stop(); await goals.close(); await controller.browser.close({ shutdown: true }).catch(() => {}); controller.webServices.close(); await controller.close(); app.exit(1); }

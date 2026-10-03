@@ -131,6 +131,8 @@
   "src/user-questions.cjs": "15-questions-answer-checks.md",
   "src/web-push.cjs": "18-phone-relay.md",
   "src/web-services.cjs": "11-browser-web.md",
+  "src/windows-uia.cjs": "11-browser-web.md",
+  "src/windows-uia-bridge.ps1": "11-browser-web.md",
   "src/web-settings-smoke.cjs": "17-diagnostics-distribution.md",
   "src/web-smoke.cjs": "17-diagnostics-distribution.md",
   "src/web-watch.cjs": "08-heartbeat-inbox.md"
