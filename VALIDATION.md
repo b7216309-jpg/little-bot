@@ -1,3 +1,11 @@
+# Version 0.20.0 verification
+
+0.20.0 ships Codex's Glass widget mode (PR #67) with a review pass.
+
+- **Review:** the widget window has the same lockdown as the full app (sandboxed, contextIsolation, no Node, links restricted to http(s)), and the shared IPC trust check still requires an app window's main frame on the renderer URL. 99 Node tests pass; the widget and built-in browser Electron tests pass, the browser test visible and hidden.
+- **Dark mode fix:** the widget kept a pale frame while its contents turned dark, so some titles became unreadable. `widget-mode.css` is now part of the dark-theme generator, which also learned that `.widget-mode` sits on `<html>`: the rules become `html[data-theme=dark].widget-mode …` instead of impossible descendant selectors. Checked with screenshots of the real widget in dark and light.
+- **Docs:** `desktop-windows.cjs`, the widget renderer files and `local-time.cjs` are mapped in the system guide. Run `node docs/system-guide/review/validate-docs.cjs` before merging; CI does not run it yet.
+
 # Glass widget mode · 2026-10-03
 
 The Glass design is implemented as a second native view of the same controller, with a frosted surface, pin control, collapse-to-pill, and full-app return. Draft text, Plan choice, and file references transfer between views. The existing send, streamed replies, approval, Compact, and Stop paths are reused. A hidden renderer cannot navigate the visible app or overwrite its draft on a background goal event. Closing the full app also destroys the hidden widget so it cannot keep the process alive.
