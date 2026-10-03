@@ -1,6 +1,8 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 const invoke = name => data => ipcRenderer.invoke(`bot:${name}`, data);
 contextBridge.exposeInMainWorld('bot', {
+  windowMode: process.argv.includes('--little-bot-widget') ? 'widget' : 'full',
+  getDisplayState: invoke('getDisplayState'), setDisplayMode: invoke('setDisplayMode'), setWidgetState: invoke('setWidgetState'),
   getState: invoke('getState'), getContextUsed: invoke('getContextUsed'), reportError: invoke('reportError'), openLogs: invoke('openLogs'), chooseWorkspace: invoke('chooseWorkspace'),
   saveProfile: invoke('saveProfile'), openProfileFolder: invoke('openProfileFolder'),
   saveSettings: invoke('saveSettings'), login: invoke('login'), send: invoke('send'),

@@ -12,6 +12,8 @@
   <link rel="stylesheet" href="./goal-ledger.css">
   <link rel="stylesheet" href="./standing-intents.css">
   <link rel="stylesheet" href="./dark.css">
+  <link rel="stylesheet" href="./widget-mode.css">
+  <script src="./widget-mode.js" defer></script>
   <script src="./chat-scroll.js" defer></script>
   <script src="./action-groups.js" defer></script>
   <script src="./slash-commands.js" defer></script>
@@ -25,6 +27,13 @@
   <script src="./standing-intents-panel.js" defer></script>
 </head>
 <body>
+  <div id="widget-pill" aria-label="Little Bot compact widget">
+    <img class="widget-pill-mark" src="./assets/wink.svg" alt="" width="36" height="36">
+    <button id="widget-pill-expand" class="widget-pill-label" type="button" title="Expand conversation"><strong>Little Bot</strong><span><span class="widget-status-dot"></span><span id="widget-pill-status">Ready</span></span></button>
+    <button id="widget-pill-stop" class="widget-control" type="button" title="Stop current task" aria-label="Stop current task" hidden><span class="stop-square"></span></button>
+    <button id="widget-pill-attach" class="widget-control" type="button" title="Expand and attach files" aria-label="Expand and attach files"><span class="icon" data-icon="plus"></span></button>
+    <button class="widget-control" type="button" data-widget-view="chat" title="Open full app" aria-label="Open full app"><span class="icon" data-icon="arrow-up-right"></span></button>
+  </div>
   <div class="app-shell">
     <aside class="sidebar" aria-label="Navigation">
       <div class="brand"><img class="brand-icon" src="./assets/wink.svg" width="35" height="35" alt=""><span>little bot<span class="brand-dot">.</span></span></div>
@@ -48,9 +57,21 @@
       </div>
     </aside>
     <main class="main">
+      <header class="widget-header">
+        <img src="./assets/wink.svg" alt="" width="38" height="38">
+        <div class="widget-heading"><strong>Little Bot</strong><span><span class="widget-status-dot"></span><span id="widget-status">Ready</span></span></div>
+        <div class="widget-controls">
+          <button id="widget-pin" class="widget-control" type="button" aria-label="Keep above other windows" aria-pressed="true" title="Unpin from other windows"><span class="icon" data-icon="pin"></span></button>
+          <button id="widget-collapse" class="widget-control" type="button" title="Collapse to a pill" aria-label="Collapse to a pill"><span class="icon" data-icon="minus"></span></button>
+          <button id="widget-full" class="widget-control" type="button" title="Open full app · Ctrl+Shift+M" aria-label="Open full app"><span class="icon" data-icon="expand"></span></button>
+          <div class="widget-menu-wrap"><button id="widget-more" class="widget-control" type="button" title="More options" aria-label="More options" aria-expanded="false" aria-controls="widget-menu"><span class="icon" data-icon="more"></span></button>
+            <div id="widget-menu" class="widget-menu" hidden><button type="button" data-widget-view="settings">Settings</button><button type="button" data-widget-view="goals">Goals & activity</button><button id="widget-compact" type="button">Compact conversation</button><button type="button" data-widget-view="chat">Open full app</button></div>
+          </div>
+        </div>
+      </header>
       <header class="topbar">
         <div class="topbar-left"><span id="page-label" class="page-label">Conversation</span><span class="topbar-divider"></span><span id="runtime-status" class="runtime-status"><span class="status-dot starting"></span><span>Starting engine</span></span></div>
-        <div class="topbar-actions"><button id="agent-inspector-toggle" class="workspace-button inspector-toggle" type="button" aria-pressed="false" title="Show agent activity"><span class="icon" data-icon="info"></span><span>Activity</span></button><button id="open-agent-browser" class="workspace-button agent-browser-button" type="button" title="Open the agent’s browser"><span class="icon" data-icon="browser"></span><span>Browser</span></button><button id="choose-workspace" class="workspace-button" title="Choose a workspace"><span class="icon" data-icon="folder"></span><span id="workspace-label">Choose workspace</span><span class="icon small" data-icon="chevron-down"></span></button></div>
+        <div class="topbar-actions"><button id="enter-widget" class="workspace-button" type="button" title="Glass widget mode · Ctrl+Shift+M"><span class="icon" data-icon="compact"></span><span>Widget</span></button><button id="agent-inspector-toggle" class="workspace-button inspector-toggle" type="button" aria-pressed="false" title="Show agent activity"><span class="icon" data-icon="info"></span><span>Activity</span></button><button id="open-agent-browser" class="workspace-button agent-browser-button" type="button" title="Open the agent’s browser"><span class="icon" data-icon="browser"></span><span>Browser</span></button><button id="choose-workspace" class="workspace-button" title="Choose a workspace"><span class="icon" data-icon="folder"></span><span id="workspace-label">Choose workspace</span><span class="icon small" data-icon="chevron-down"></span></button></div>
       </header>
       <section id="chat-view" class="chat-view"><div class="attachment-drop-overlay" aria-hidden="true"><span class="icon" data-icon="paperclip"></span><span>Drop files here</span></div>
         <aside id="agent-inspector" class="agent-inspector hidden" aria-label="Agent activity">
