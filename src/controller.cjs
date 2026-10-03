@@ -10,6 +10,7 @@ const { CompactionTracker, COMPACTION_TIMEOUT_MS, COMPACTION_STOP_TIMEOUT_MS, va
 const { chatContext } = require('./goal-contract.cjs');
 const proactive = require('./proactive-chat.cjs');
 const { parseModelJson } = require('./model-json.cjs');
+const { localStamp, timeContext } = require('./local-time.cjs');
 const { GoalExecutor } = require('./goal-executor.cjs');
 const { attachmentDescriptors } = require('./attachment-message.cjs');
 const { localBaseUrl, localModel, connectionBinding, normalizeModelCapabilities, modelSupportsVision, probeLocal, providerConfig } = require('./connections.cjs');
@@ -487,7 +488,7 @@ class Controller extends EventEmitter {
   reactionContext(limit = 10) {
     const icons = { do: '✅ did it', later: '⏰ later', no: '✖ not interested', launch: '▶ launched' };
     const recent = (this.store.data.feedbackLog || []).slice(-limit);
-    return recent.length ? `The user's latest reactions to your suggestions (learn from them; do not repeat what got ✖):\n${recent.map(item => `- ${new Date(item.at).toISOString().slice(0, 16)} ${icons[item.choice] || item.choice} · ${item.source}${item.topic ? ` · ${item.topic}` : ''}: ${item.excerpt.slice(0, 140)}`).join('\n')}` : '';
+    return recent.length ? `The user's latest reactions to your suggestions (learn from them; do not repeat what got ✖):\n${recent.map(item => `- ${localStamp(item.at)} ${icons[item.choice] || item.choice} · ${item.source}${item.topic ? ` · ${item.topic}` : ''}: ${item.excerpt.slice(0, 140)}`).join('\n')}` : '';
   }
   contextUsedFor(chatId) {
     if (typeof chatId !== 'string' || !this.chat(chatId)) return null;
@@ -644,6 +645,7 @@ class Controller extends EventEmitter {
         memoryContext ? { kind: 'memory', label: 'Memory recall', text: memoryContext } : null,
         prepared.text ? { kind: 'attachments', label: 'Attachment excerpts', text: prepared.text } : null,
         { kind: 'shell', label: 'Shell conduct', text: SHELL_CONDUCT },
+        { kind: 'time', label: 'Current time', text: timeContext() },
         { kind: 'request', label: override?.automationId ? 'Scheduled task' : 'Current user request', text: requestBlock },
       ].filter(Boolean);
       const result = await this.client.request('turn/start', {
@@ -808,8 +810,8 @@ class Controller extends EventEmitter {
       const profile = this.profileContext();
       const attention = typeof config.attentionContext === 'string' ? config.attentionContext.slice(0, 8000) : '';
       const streak = Number.isInteger(config.quietStreak) ? config.quietStreak : 0;
-      const recentPulse = (config.pulse || []).slice(-5).map(item => ({ at: new Date(item.at).toISOString(), status: item.status, note: item.note }));
-      const prompt = [profile, `Perform one bounded heartbeat check. Working folder: ${folder}\nCurrent time: ${new Date().toISOString()} (local: ${new Date().toString()})\n\nUser checklist:\n${config.checklist}\n\nRecent activity (reference data):\n${JSON.stringify(previous)}`,
+      const recentPulse = (config.pulse || []).slice(-5).map(item => ({ at: localStamp(item.at), status: item.status, note: item.note }));
+      const prompt = [profile, `Perform one bounded heartbeat check. Working folder: ${folder}\n${timeContext()}\n\nUser checklist:\n${config.checklist}\n\nRecent activity (reference data):\n${JSON.stringify(previous)}`,
         wild && recentPulse.length ? `Your last checks (reference data):\n${JSON.stringify(recentPulse)}` : '',
         wild && typeof config.wakeReason === 'string' && config.wakeReason ? `Why you woke now: ${config.wakeReason}` : '',
         this.activityContext(), this.reactionContext(),

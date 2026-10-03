@@ -8,6 +8,7 @@ const { questionInput, questionSpec, clarifications } = require('./user-question
 const { EXECUTOR_LEDGER_SCHEMA, goalLedgerContext, normalizeExecutorLedgerUpdate } = require('./goal-ledger.cjs');
 const contract = require('./goal-contract.cjs');
 const { parseModelJson } = require('./model-json.cjs');
+const { timeContext } = require('./local-time.cjs');
 const { SHELL_CONDUCT } = require('./shell-conduct.cjs');
 
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -180,7 +181,7 @@ class GoalExecutor {
         permissions: goal.permissions, remainingBudget: remaining };
       operation.phase = 'turnStarting';
       const turn = await this.client.request('turn/start', {
-        threadId: operation.threadId, input: [{ type: 'text', text: [profile, `Perform one goal step.\n${JSON.stringify(prompt)}`, contract.isV2(goal) ? 'Use freshEvidence and saved actions first. Retrieve only a specific missing fact. Do not repeat stale searches or rewrite notes when nothing changed.' : 'Start with the saved state/checkpoint. Retrieve only specific evidence missing for the active step. Prefer one focused memory search (3 results) and at most two short source reads. Stop searching when you can act or identify a necessary user question. Do not read the entire conversation or unrelated skills. The token budget counts input again on every model request, not only generated output.', memory,
+        threadId: operation.threadId, input: [{ type: 'text', text: [profile, timeContext(), `Perform one goal step.\n${JSON.stringify(prompt)}`, contract.isV2(goal) ? 'Use freshEvidence and saved actions first. Retrieve only a specific missing fact. Do not repeat stale searches or rewrite notes when nothing changed.' : 'Start with the saved state/checkpoint. Retrieve only specific evidence missing for the active step. Prefer one focused memory search (3 results) and at most two short source reads. Stop searching when you can act or identify a necessary user question. Do not read the entire conversation or unrelated skills. The token budget counts input again on every model request, not only generated output.', memory,
           !contract.isV2(goal) && goal.connection === 'local' ? 'Use tools to do the work. When finished, call goal_finish with a short summary and checkpoint instead of writing a JSON final reply. Do not repeat the full state file or produce a separate ledger. Use workspace_write for text updates and workspace_read to check them; terminal verification is unnecessary for simple file contents.' : '',
           quietNudge ? `This goal has produced nothing meaningful for at least ${quietNudge} hours, so this review runs even without new evidence. Make one concrete useful contribution now: an action you can do with saved access, a timely recommendation, or one good question. Return no-change only if nothing useful is possible.` : '',
         ].filter(Boolean).join('\n\n') }], cwd: operation.cwd, runtimeWorkspaceRoots,

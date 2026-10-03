@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('node:fs/promises');
+const { localStamp } = require('./local-time.cjs');
 const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 const proactive = require('./proactive-chat.cjs');
@@ -104,7 +105,7 @@ async function collect(goal, data, now = Date.now()) {
     const events = (data.calendar?.events || []).filter(e => e.startAt <= now + 7 * 86400000 && (e.endAt || e.startAt) >= now);
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const value = events.map(e => ({ id: e.id, title: clip(e.title, 120), startAt: e.startAt, endAt: e.endAt || e.startAt,
-      startIso: new Date(e.startAt).toISOString(), endIso: new Date(e.endAt || e.startAt).toISOString(), timezone,
+      start: localStamp(e.startAt), end: localStamp(e.endAt || e.startAt), timezone,
       phase: e.startAt <= now ? 'due' : 'upcoming', approachingWithinMinutes: approachingWithinMinutes(e, now) }));
     versions.calendar = hash(JSON.stringify(value));
     for (const e of value.slice(0, 8)) {
@@ -123,8 +124,8 @@ async function collect(goal, data, now = Date.now()) {
     const pulse = (data.heartbeat?.pulse || []).filter(item => item.at > since).slice(-15);
     // Changes only when the user reacts again, not when the review window moves.
     versions.feedback = (data.feedbackLog || []).at(-1)?.id || '';
-    if (reactions.length) add({ id: 'feedback:reactions', kind: 'feedback', text: JSON.stringify(reactions.map(({ at, choice, source, topic, excerpt }) => ({ at: new Date(at).toISOString(), choice, source, topic, excerpt: excerpt.slice(0, 160) }))) }, 2500);
-    if (pulse.length) add({ id: 'feedback:heartbeat-log', kind: 'feedback', text: JSON.stringify(pulse.map(({ at, status, note, wakeInMinutes }) => ({ at: new Date(at).toISOString(), status, note: (note || '').slice(0, 160), wakeInMinutes }))) }, 2000);
+    if (reactions.length) add({ id: 'feedback:reactions', kind: 'feedback', text: JSON.stringify(reactions.map(({ at, choice, source, topic, excerpt }) => ({ at: localStamp(at), choice, source, topic, excerpt: excerpt.slice(0, 160) }))) }, 2500);
+    if (pulse.length) add({ id: 'feedback:heartbeat-log', kind: 'feedback', text: JSON.stringify(pulse.map(({ at, status, note, wakeInMinutes }) => ({ at: localStamp(at), status, note: (note || '').slice(0, 160), wakeInMinutes }))) }, 2000);
     if (!reactions.length && !pulse.length) coverage.push('No reactions or heartbeat runs since the last review.');
   }
   const fileBudget = Math.max(1, Math.floor(contentBudget / Math.max(1, goal.sources.files.length)));
