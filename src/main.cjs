@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, session, Notification, safeStorage, nativeImage, protocol, powerMonitor, nativeTheme } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, session, Notification, safeStorage, nativeImage, protocol, powerMonitor, nativeTheme, screen } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -29,6 +29,7 @@ const appHandlers = new Map();
 const { ProfileFiles } = require('./profile.cjs');
 const { installBundledSkills } = require('./bundled-skills.cjs');
 const { EmbeddedBrowser } = require('./embedded-browser.cjs');
+const { DesktopWindows } = require('./desktop-windows.cjs');
 const { WindowsUia } = require('./windows-uia.cjs');
 const { WebServices } = require('./web-services.cjs');
 const { Attachments } = require('./attachments.cjs');
@@ -44,7 +45,7 @@ if (process.env.LITTLE_BOT_DATA_DIR) app.setPath('userData', path.resolve(proces
 const smoke = process.argv.includes('--smoke-test');
 const launchTime = performance.now();
 if (!smoke && !app.requestSingleInstanceLock()) app.quit();
-let window, controller, scheduler, heartbeat, goals, eventRuntime, errorLog, activity, webWatcher, relay, quitting = false;
+let window, desktopWindows, controller, scheduler, heartbeat, goals, eventRuntime, errorLog, activity, webWatcher, relay, quitting = false;
 const rendererFile = path.join(__dirname, 'renderer', 'index.html');
 const appIconFile = path.join(__dirname, '..', 'resources', 'icons', 'little-bot.png');
 const rendererUrl = pathToFileURL(rendererFile).href;
@@ -83,8 +84,7 @@ function stateProtector() {
 function register(name, handler) {
   appHandlers.set(name, handler);
   ipcMain.handle(`bot:${name}`, async (event, payload) => {
-    if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame ||
-      event.senderFrame.url.split('#')[0] !== rendererUrl) throw new Error('Untrusted app window.');
+    if (!desktopWindows?.trusted(event)) throw new Error('Untrusted app window.');
     try { return await handler(payload); } catch (error) {
       logDiagnostic(`ipc:${name}`, error);
       throw new Error(cleanError(error));
@@ -157,7 +157,7 @@ app.whenReady().then(async () => {
   const publishEvent = event => eventRuntime?.publish(event) || { accepted: false, reason: 'stopped' };
   scheduler = new Scheduler({ store, run: runAutomation, publish: publishEvent, canRun: () => !store.data.autonomy.paused && !goals?.activeId && !controller.goalChat && !heartbeat?.running && !controller.extensionsBusy && !controller.memoryBusy && !store.data.chats.some(chat => chat.status !== 'idle'), onChange: () => controller.changed() });
   heartbeat = new Heartbeat({ store, run: config => controller.runHeartbeat(config),
-    canNotify: () => !store.data.autonomy.paused && !window?.isFocused() && Notification.isSupported()
+    canNotify: () => !store.data.autonomy.paused && !desktopWindows?.isFocused() && Notification.isSupported()
       && !store.data.chats.some(chat => chat.status !== 'idle'),
     canRun: () => controller.runtime.status === 'ready' && controller.account.status === 'connected'
       && !store.data.autonomy.paused && !goals?.activeId && !controller.goalChat && !controller.extensionsBusy && !controller.memoryBusy && !scheduler.runningId && !controller.heartbeatChat && !store.data.chats.some(chat => chat.status !== 'idle')
@@ -170,14 +170,12 @@ app.whenReady().then(async () => {
       controller.changed(true);
     },
     onAlert: item => {
-      if (smoke || !Notification.isSupported() || window?.isFocused()) return;
+      if (smoke || !Notification.isSupported() || desktopWindows?.isFocused()) return;
       const notice = new Notification({ title: item.status === 'error' ? 'Little Bot needs attention' : item.source === 'goal' ? 'Little Bot goals' : 'Little Bot heartbeat',
         body: item.summary.slice(0, 240), silent: true, icon: appIconFile });
       notice.on('click', () => {
         if (!window || window.isDestroyed()) return;
-        if (window.isMinimized()) window.restore();
-        window.show(); window.focus(); window.webContents.send('bot:event', item.source === 'goal' && item.goalId
-          ? { type: 'goalQuestion', goalId: item.goalId } : { type: 'heartbeat' });
+        desktopWindows.openFull(item.source === 'goal' ? 'goals' : 'inbox');
       });
       notice.show();
     },
@@ -324,13 +322,13 @@ app.whenReady().then(async () => {
       throw new Error('Unsupported calendar action.');
     },
   });
-  controller.on('event', event => { if (window && !window.isDestroyed()) window.webContents.send('bot:event', event); });
+  controller.on('event', event => desktopWindows?.broadcast(event));
   // Phones get the same conversation through the relay, using the same handlers as this window.
   relay = new Relay({ file: path.join(stateDir, 'relay.json'), protector: stateProtector(), onError: logDiagnostic,
     ...(process.env.LITTLE_BOT_RELAY_HOST ? { host: process.env.LITTLE_BOT_RELAY_HOST } : {}),
-    getState: () => controller.state(), isDesktopFocused: () => Boolean(window && !window.isDestroyed() && window.isFocused() && window.isVisible()),
+    getState: () => controller.state(), isDesktopFocused: () => Boolean(desktopWindows?.isFocused()),
     handlers: new Proxy({}, { get: (_target, name) => payload => appHandlers.get(name)(payload) }) });
-  const relayChanged = () => { if (window && !window.isDestroyed()) window.webContents.send('bot:event', { type: 'relay', relay: relay.publicState() }); };
+  const relayChanged = () => desktopWindows?.broadcast({ type: 'relay', relay: relay.publicState() });
   relay.onClients = relayChanged;
   controller.phoneSummary = () => relay.phoneSummary();
   relay.onContext = ({ before, after }) => {
@@ -347,13 +345,12 @@ app.whenReady().then(async () => {
     let notes = [];
     try { const next = relayView.snapshot(event.state); notes = relayView.notifications(desktopSnapshot, next); desktopSnapshot = next; }
     catch (error) { logDiagnostic('desktop-notify', error); return; }
-    if (!Notification.isSupported() || !window || window.isDestroyed() || (window.isFocused() && window.isVisible())) return;
+    if (!Notification.isSupported() || !window || window.isDestroyed() || desktopWindows?.isFocused()) return;
     for (const note of notes.filter(item => !['heartbeat', 'goal', 'memory'].includes(item.kind) && !/^Goal ·/.test(item.title)).slice(0, 2)) {
       const notice = new Notification({ title: note.title, body: note.body, silent: !note.tag.startsWith('approval-'), icon: appIconFile });
       notice.on('click', () => {
         if (!window || window.isDestroyed()) return;
-        if (window.isMinimized()) window.restore();
-        window.show(); window.focus();
+        desktopWindows.show().catch(error => logDiagnostic('display-show', error));
       });
       notice.show();
     }
@@ -385,6 +382,14 @@ app.whenReady().then(async () => {
   register('importSkillPath', ({path:file}) => updateExtensions(() => extensionFiles.importSkill(file)));
   register('importPluginPath', ({path:folder}) => updateExtensions(() => extensionFiles.importPlugin(folder)));
   register('getState', () => controller.state());
+  register('getDisplayState', () => desktopWindows.state());
+  register('setDisplayMode', async payload => {
+    if (payload?.mode === 'widget') controller.browser.showPanel(false);
+    const display = await desktopWindows.setMode(payload);
+    if (display.mode === 'widget') controller.changed();
+    return display;
+  });
+  register('setWidgetState', payload => desktopWindows.setWidgetState(payload));
   register('getContextUsed', ({ chatId } = {}) => controller.contextUsedFor(chatId));
   register('reportError', ({ kind, message, stack } = {}) => {
     if (typeof kind !== 'string' || kind.length > 100 || typeof message !== 'string' || message.length > 12000
@@ -411,7 +416,7 @@ app.whenReady().then(async () => {
   register('refreshConnection', () => controller.refreshConnection());
   register('refreshProviderUsage', () => controller.refreshProviderUsage());
   register('chooseAttachments', async () => {
-    const selected = await dialog.showOpenDialog(window, { title: 'Attach files', properties: ['openFile', 'multiSelections'] });
+    const selected = await dialog.showOpenDialog(desktopWindows.activeWindow(), { title: 'Attach files', properties: ['openFile', 'multiSelections'] });
     return selected.canceled ? [] : importAttachments(() => controller.attachments.importPaths(selected.filePaths));
   });
   async function refreshAttachmentStorage() {
@@ -451,7 +456,7 @@ app.whenReady().then(async () => {
   });
   register('saveAttachment', async ({ id } = {}) => {
     const item = await controller.attachments.get(id);
-    const selected = await dialog.showSaveDialog(window, { title: 'Save file', defaultPath: path.join(app.getPath('downloads'), item.name) });
+    const selected = await dialog.showSaveDialog(desktopWindows.activeWindow(), { title: 'Save file', defaultPath: path.join(app.getPath('downloads'), item.name) });
     if (selected.canceled || !selected.filePath) return { canceled: true };
     const { buffer } = await controller.attachments.read(id);
     await fs.promises.writeFile(selected.filePath, buffer);
@@ -467,7 +472,7 @@ app.whenReady().then(async () => {
   register('closeAgentBrowser', async () => { await controller.browser.close(); return controller.state(); });
   register('installAgentBrowser', async () => { await controller.browser.install(); return controller.state(); });
   register('chooseWorkspace', async () => {
-    const selected = await dialog.showOpenDialog(window, { title: 'Choose Little Bot’s working folder',
+    const selected = await dialog.showOpenDialog(desktopWindows.activeWindow(), { title: 'Choose Little Bot’s working folder',
       defaultPath: store.data.settings.workspace, properties: ['openDirectory', 'createDirectory'] });
     if (!selected.canceled) await controller.memoryConsolidator.pauseForUser();
     return selected.canceled ? null : controller.setWorkspace(selected.filePaths[0]);
@@ -684,12 +689,12 @@ app.whenReady().then(async () => {
   register('deleteSkill', ({ id } = {}) => updateExtensions(() => extensionFiles.removeSkill(id)));
   register('importSkill', async () => {
     ensureExtensionsIdle();
-    const selected = await dialog.showOpenDialog(window, { title: 'Import a SKILL.md instruction file', properties: ['openFile'], filters: [{ name: 'Skill instructions', extensions: ['md'] }] });
+    const selected = await dialog.showOpenDialog(desktopWindows.activeWindow(), { title: 'Import a SKILL.md instruction file', properties: ['openFile'], filters: [{ name: 'Skill instructions', extensions: ['md'] }] });
     return selected.canceled ? null : updateExtensions(() => extensionFiles.importSkill(selected.filePaths[0]));
   });
   register('importPlugin', async () => {
     ensureExtensionsIdle();
-    const selected = await dialog.showOpenDialog(window, { title: 'Import a local plugin folder', properties: ['openDirectory'] });
+    const selected = await dialog.showOpenDialog(desktopWindows.activeWindow(), { title: 'Import a local plugin folder', properties: ['openDirectory'] });
     return selected.canceled ? null : updateExtensions(() => extensionFiles.importPlugin(selected.filePaths[0]));
   });
   register('togglePlugin', payload => updateExtensions(() => extensionFiles.setPluginEnabled(payload)));
@@ -731,12 +736,17 @@ app.whenReady().then(async () => {
   });
   let awaySince = null;
   const returnedAfter = 90 * 60000;
-  window.on('blur', () => { awaySince ??= Date.now(); });
-  window.on('focus', () => {
+  const onBlur = () => { awaySince ??= Date.now(); };
+  const onFocus = () => {
     const away = awaySince === null ? 0 : Date.now() - awaySince;
     awaySince = null;
     if (away >= returnedAfter) eventRuntime?.publish({ type: 'user.returned', source: 'app', payload: { awayMinutes: Math.round(away / 60000) } });
-  });
+  };
+  window.on('blur', onBlur); window.on('focus', onFocus);
+  desktopWindows = new DesktopWindows({ fullWindow: window, BrowserWindow, screen, rendererFile,
+    preloadFile: path.join(__dirname, 'preload.cjs'), icon: appIconFile,
+    file: path.join(stateDir, 'display.json'), onError: logDiagnostic, onFocus, onBlur,
+    openLink: url => { if (safeWebUrl(url)) shell.openExternal(url).catch(error => logDiagnostic('widget-link', error)); } });
   window.webContents.on('will-navigate', (event, url) => { if (url !== rendererUrl) event.preventDefault(); });
   window.on('close', event => {
     if (quitting || smoke || (!goals.activeId && !heartbeat.running && !store.data.chats.some(chat => chat.status !== 'idle'))) return;
@@ -746,7 +756,7 @@ app.whenReady().then(async () => {
     if (choice === 0) event.preventDefault();
   });
   await window.loadFile(rendererFile);
-  if (!smoke) window.show();
+  if (!smoke) await desktopWindows.setMode({ mode: desktopWindows.preferences.mode });
   const startup = controller.start();
   startup.then(() => {
     controller.runtime.startupMs = Math.round(performance.now() - launchTime);
@@ -785,11 +795,12 @@ app.whenReady().then(async () => {
     } catch (error) { console.error(cleanError(error.stack || error)); scheduler.stop(); heartbeat.stop(); eventRuntime.stop(); await goals.close(); await controller.browser.close({ shutdown: true }).catch(() => {}); controller.webServices.close(); await controller.close(); app.exit(1); }
   }
 }).catch(error => { logDiagnostic('main:startup', error); console.error(cleanError(error)); app.exit(1); });
-app.on('second-instance', () => { if (window) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); } });
+app.on('second-instance', () => { desktopWindows?.show().catch(error => logDiagnostic('display-show', error)); });
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', event => {
   if (quitting) return;
   event.preventDefault(); quitting = true; scheduler?.stop(); heartbeat?.stop(); eventRuntime?.stop(); activity?.stop(); webWatcher?.stop(); relay?.stop().catch(() => {});
+  desktopWindows?.close();
   controller?.webServices?.close();
   Promise.allSettled([goals?.close(), controller?.browser?.close({ shutdown: true })]).then(() => controller?.close()).catch(error => console.error(cleanError(error))).finally(() => app.quit());
 });

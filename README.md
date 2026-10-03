@@ -57,6 +57,8 @@ The Conversation view is one persistent timeline. Change its working folder, mod
 
 ## Files and images
 
+**Glass widget mode:** click **Widget** or press **Ctrl+Shift+M** for a small floating conversation. Pin it, collapse it into a pill, or return to the full app with your unsent draft and files intact. See [WIDGET.md](WIDGET.md).
+
 Attach with the paperclip, drop files, or paste an image. Qwen can inspect photos. PDF, DOCX, and text files supply locally extracted text; scanned PDFs need OCR, which is not included. Other formats remain accessible as files.
 
 The agent can return documents, screenshots, and existing images as attachments with preview/save controls. This version does not add an image-generation model.
