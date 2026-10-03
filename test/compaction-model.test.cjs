@@ -87,4 +87,3 @@ test('failed model reload keeps the original conversation binding and releases c
   assert.equal(chat.status, 'idle');
   assert.equal(client.calls.some(call => call.method === 'thread/compact/start'), false);
 });
-
