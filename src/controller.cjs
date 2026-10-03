@@ -692,7 +692,10 @@ class Controller extends EventEmitter {
     if (this.goalChat) throw new Error('Wait for the goal to finish before compacting.');
     if (this.heartbeatChat) throw new Error('Wait for the heartbeat to finish before compacting.');
     const chat = this.chat(chatId);
-    if (chat) this.ensureReady(chat);
+    const settings = this.store.data.settings;
+    // The public conversation follows the selected model. Keep the native
+    // history for compaction, while saved autonomous tasks retain their binding.
+    if (chat) this.ensureReady({ ...chat, model: settings.model });
     if (!chat?.threadId || !chat.messages.some(message => message.role === 'user')) throw new Error('Start a conversation before compacting its context.');
     if (chat.status !== 'idle') throw new Error('Wait for this reply, or stop it before compacting.');
     const folder = workspacePath(chat.workspace);
@@ -709,9 +712,22 @@ class Controller extends EventEmitter {
     operation.timer.unref?.();
     this.changed(true);
     try {
-      await this.resumeThread(chat, this.threadOptions(chat, folder));
+      const modelChanged = chat.model !== settings.model;
+      if (modelChanged && this.resumed.has(chat.threadId)) {
+        // A subscribed session ignores resume overrides. Reload the same
+        // persisted history with the new model before requesting its summary.
+        await this.client.request('thread/unsubscribe', { threadId: chat.threadId }, 10000);
+        this.resumed.delete(chat.threadId);
+        this.threadCompactionSettings.delete(chat.threadId);
+        this.threadInstructionSettings.delete(chat.threadId);
+      }
+      if (this.manualCompactions.get(chat.id) !== operation || this.closing) return { chatId: chat.id };
+      await this.resumeThread(chat, this.threadOptions({ ...chat, model: settings.model, effort: settings.effort || 'low' }, folder));
       if (this.manualCompactions.get(chat.id) !== operation || this.closing) return { chatId: chat.id };
       if (operation.cancelReason) { this.finish(chat, operation.cancelReason); return { chatId: chat.id }; }
+      chat.model = settings.model;
+      chat.effort = settings.effort || 'low';
+      this.persistNow();
       operation.phase = 'starting';
       await this.client.request('thread/compact/start', { threadId: chat.threadId }, 30000);
       if (this.manualCompactions.get(chat.id) === operation) {
