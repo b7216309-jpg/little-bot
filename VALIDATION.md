@@ -1,3 +1,13 @@
+# Glass widget mode · 2026-10-03
+
+The Glass design is implemented as a second native view of the same controller, with a frosted surface, pin control, collapse-to-pill, and full-app return. Draft text, Plan choice, and file references transfer between views. The existing send, streamed replies, approval, Compact, and Stop paths are reused. A hidden renderer cannot navigate the visible app or overwrite its draft on a background goal event. Closing the full app also destroys the hidden widget so it cannot keep the process alive.
+
+Five window tests cover draft sanitization, creation races, main-frame IPC trust, screen/collapse bounds, and shutdown. The real Electron integration test verifies draft/Plan/file handoff, sending, Stop from the pill, automatic approval expansion, pin state, Settings, persistence, and close-to-full. Screenshots were visually inspected. The test uses fixture state and never starts an engine or contacts Strata.
+
+The full Node suite passes 99 tests. Syntax checks pass for 109 JavaScript files. The existing visible-window browser integration fails at its fixture's Greet click both here and with pristine main's browser source/test. Its supported `SHOW_WINDOW=0` path passes; `SHOW_WINDOW=0 npm run test:electron` passes both browser and native widget integrations. The widget test still creates real native windows and captures them under this setting, and checks that Strata's reasoning controls fit at the minimum widget size using fixture state.
+
+Installed files are backed up under `.test-data/glass-widget-before` in the original checkout, with before/after hashes in `manifest.json`. Each preexisting installed file matched the pristine 0.19.1 base before replacement. The running app was not stopped or restarted; Glass becomes available at the next normal reopen. No live Strata or inference was used.
+
 # Version 0.19.1 verification
 
 0.19.1 fixes the agent often getting the time of day wrong.

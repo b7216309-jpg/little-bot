@@ -6,11 +6,16 @@ const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
 function themeChoice() { try { return ['light', 'dark'].includes(localStorage.getItem('little-bot.theme')) ? localStorage.getItem('little-bot.theme') : 'system'; } catch { return 'system'; } }
 function applyTheme() {
   const choice = themeChoice();
-  document.documentElement.dataset.theme = choice === 'system' ? (darkQuery.matches ? 'dark' : 'light') : choice;
+  document.documentElement.dataset.theme = window.bot?.windowMode === 'widget' ? 'light' : choice === 'system' ? (darkQuery.matches ? 'dark' : 'light') : choice;
 }
 applyTheme();
 darkQuery.addEventListener('change', applyTheme);
+window.addEventListener('storage', event => { if (event.key === 'little-bot.theme') applyTheme(); });
 const icons = {
+  pin: ['M9 3h6l-1 6 4 4H6l4-4Z', 'M12 13v8'],
+  minus: ['M5 12h14'],
+  expand: ['M8 3H3v5', 'M16 3h5v5', 'M3 16v5h5', 'M21 16v5h-5'],
+  more: ['M5 12h.01', 'M12 12h.01', 'M19 12h.01'],
   plus: ['M12 5v14', 'M5 12h14'],
   clock: ['M12 8v4l3 2', 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0'],
   calendar: ['M6 2v4', 'M18 2v4', 'M3 8h18', 'M5 4h14a2 2 0 0 1 2 2v15H3V6a2 2 0 0 1 2-2Z', 'M7 12h3', 'M14 12h3', 'M7 16h3', 'M14 16h3'],
@@ -240,6 +245,8 @@ async function attempt(operation, successMessage) {
 }
 
 function showDialog(id) {
+  if (window.LittleBotWidget?.widget && id === 'settings-dialog') { void window.LittleBotWidget.openFull('settings'); return; }
+  if (window.LittleBotWidget?.widget) void window.LittleBotWidget.expand();
   const dialog = $(id);
   if (!dialog.open) dialog.showModal();
   if (id === 'settings-dialog') { void refreshRelay(true); renderSettingsJump(); }
@@ -336,6 +343,7 @@ function render() {
   renderBrowserPanel();
   renderApprovals();
   updateComposer();
+  window.LittleBotWidget?.render(state);
 }
 
 function renderHeader() {
@@ -439,6 +447,7 @@ function showAutomations() {
 }
 
 function showFeature(view) {
+  if (window.LittleBotWidget?.widget) { void window.LittleBotWidget.openFull(view); return; }
   navigationVersion += 1;
   if (currentView === 'chat') saveCurrentDraft();
   currentView = view;
@@ -1854,6 +1863,7 @@ function renderBrowserSettings() {
 // The built-in browser is a native view laid over #browser-viewport; main follows this rectangle.
 let browserBoundsKey = '';
 function renderBrowserPanel() {
+  if (window.LittleBotWidget?.widget) return;
   const browser = state?.browser || {};
   const open = Boolean(browser.panel);
   $('browser-panel').classList.toggle('hidden', !open);
@@ -1872,6 +1882,7 @@ function renderBrowserPanel() {
 }
 function scheduleBrowserBounds() { requestAnimationFrame(sendBrowserBounds); }
 function sendBrowserBounds() {
+  if (window.LittleBotWidget?.widget) return;
   if (!state?.browser?.panel || typeof window.bot?.browserBounds !== 'function') return;
   const rect = $('browser-viewport').getBoundingClientRect();
   // Native views draw above the page, so step aside while a dialog is open.
@@ -3702,6 +3713,7 @@ function renderApprovals() {
     activeApprovalId = null;
   }
   const unseen = approvals.find((approval) => !seenApprovals.has(approval.requestId));
+  if (window.LittleBotWidget && !window.LittleBotWidget.isActive()) return;
   if (unseen && !document.querySelector('dialog[open]')) openApproval(unseen);
 }
 
@@ -4227,8 +4239,11 @@ if (!window.bot) {
 } else {
   window.bot.onEvent((event) => {
     if (event.type === 'state') applyState(event.state);
+    else if (event.type === 'display') window.LittleBotWidget?.applyDisplay(event);
+    else if (event.type === 'displayRequestFull') void window.LittleBotWidget?.openFull(event.view || 'chat');
     else if (event.type === 'chatUpdate') applyChatUpdate(event);
     else if (event.type === 'goalQuestion') {
+      if (window.LittleBotWidget && !window.LittleBotWidget.isActive()) return;
       showFeature('goals');
       const card = Array.from($('goals-list').children).find(node => node.dataset.goalId === event.goalId);
       card?.scrollIntoView({ block: 'nearest' });
@@ -4236,12 +4251,28 @@ if (!window.bot) {
     }
     else if (event.type === 'memory' && event.message) notify(event.message, Boolean(event.error));
     else if (event.type === 'relay') renderRelay(event.relay);
-    else if (event.type === 'heartbeat') { inboxFilter = 'all'; inboxSource = 'all'; showFeature('inbox'); }
+    else if (event.type === 'heartbeat' && (!window.LittleBotWidget || window.LittleBotWidget.isActive())) { inboxFilter = 'all'; inboxSource = 'all'; showFeature('inbox'); }
     else if (event.type === 'login') {
       loginMetadata = event;
       if (event.error || event.status === 'error' || event.status === 'cancelled' || event.status === 'complete' || event.status === 'success') loginPending = false;
       renderConnection();
     }
+  });
+  window.LittleBotWidget?.init({
+    state: () => state, busy: () => sending || attachmentImportPending || Boolean(document.querySelector('dialog[open]')),
+    notify,
+    exportDraft: () => ({ text: $('message-input').value, attachments: queuedAttachments(), plan: currentPlanMode() }),
+    importDraft: draft => {
+      chatDrafts.set(draftKey(), draft.text); attachmentDrafts.set(draftKey(), draft.attachments);
+      planModeDrafts.set(draftKey(), draft.plan); $('message-input').value = draft.text;
+      sizeComposer(); updateComposer();
+    },
+    showView: view => {
+      if (view === 'settings') showDialog('settings-dialog');
+      else if (view === 'browser') void browserAction('open');
+      else if (view === 'chat') selectChat(selectedChatId);
+      else showFeature(view);
+    },
   });
   window.bot.getState().then(applyState).catch((error) => {
     notify(error?.message || String(error), true);
