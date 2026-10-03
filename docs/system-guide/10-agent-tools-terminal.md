@@ -14,6 +14,7 @@
 | ask_user | Persisted question/request routing |
 | attachment_send | Workspace/browser-output import and visible delivery |
 | browser / web_search_service / web_scrape | EmbeddedBrowser / WebServices |
+| windows_ui | WindowsUia (other Windows apps through UI Automation) |
 | app_state and *_manage / *_control | AppManagement and registered main handlers |
 
 The read-only set contains skills, recall and calendar_list. Direct full chat receives the broader tool set. Heartbeat, goals and Independent Check do not inherit every direct-chat management operation. Goals use their own permitted workspace/write/terminal/network/MCP tools.

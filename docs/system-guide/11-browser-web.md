@@ -12,6 +12,17 @@ The agent tool supports navigate, snapshot, read, ref-based click/fill/select/ch
 
 Every protocol command has a 15-second limit. Actions are serialized by the busy state. When the agent uses the browser, the panel opens and shows "Little Bot is browsing". The user's address bar and buttons are disabled meanwhile. The user can browse, sign in or solve a check in the panel at any other time.
 
+## Other Windows apps
+
+[WindowsUia](../../src/windows-uia.cjs) gives the agent one `windows_ui` tool for other desktop apps. Its actions are list_windows, snapshot, find, click, set_value, select, expand, scroll, type, focus, screenshot and wait. A snapshot or find returns compact lines with `@uN` refs, and an action uses one ref.
+
+Each call runs [a PowerShell bridge](../../src/windows-uia-bridge.ps1) in a hidden STA process using the managed UI Automation client, with a 30-second limit; a stopped conversation kills it. Standard Win32 and WinForms controls often reach that client as bare panes, so the bridge recognises them through MSAA (true role, accessible name, checked state), falling back to window class and style. It then operates them with the MSAA default action or their own messages: posted BM_CLICK, WM_SETTEXT, or CB_SELECTSTRING plus CBN_SELCHANGE.
+
+Rules:
+- The tool exists only on Windows, and only in the user's own running conversation, never in goals, heartbeat or automations.
+- After every action the window must be observed again within 5 minutes before the next action.
+- Screenshots go to data/windows-ui/screenshots, and the newest 20 are kept.
+
 ## Search and scrape
 
 [WebServices](../../src/web-services.cjs) supplies Brave/Firecrawl service tools using keys configured in Settings. The local service vault uses Electron safeStorage. Direct chat can use the tools; goals require their saved network permission. Heartbeat has network disabled.
