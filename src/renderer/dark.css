@@ -414,7 +414,7 @@ html[data-theme=dark] .provider-usage-average strong{color:#9aab94}
 html[data-theme=dark] .provider-usage-average small{color:#747c6f}
 html[data-theme=dark] .provider-usage-hint,html[data-theme=dark] .provider-usage-note{color:#727a6c}
 html[data-theme=dark].widget-mode{--ink:#c5ccd2;--muted:#838c93;--accent:#96aca0;--line:rgba(26,26,26,0.439);--soft:rgba(26,26,26,0.314)}
-html[data-theme=dark].widget-mode .app-shell{border:1px solid rgba(26,26,26,0.69);background:linear-gradient(145deg,rgba(29,34,37,0.863),rgba(34,38,43,0.788))}
+html[data-theme=dark].widget-mode .app-shell{border:1px solid rgba(26,26,26,0.69);background:linear-gradient(145deg,rgba(29,34,37,0.961),rgba(34,38,43,0.933))}
 html[data-theme=dark] .widget-heading>span,html[data-theme=dark] .widget-pill-label>span{color:#7d888f}
 html[data-theme=dark] .widget-status-dot{background:#6a8776}
 html[data-theme=dark] .widget-status-dot.attention{background:#c3a57f}
@@ -439,5 +439,5 @@ html[data-theme=dark].widget-mode .attachment-drafts .attachment-card{background
 html[data-theme=dark].widget-mode .attachment-card{background:rgba(26,26,26,0.376)}
 html[data-theme=dark].widget-mode .dialog{border-color:#1a1a1a;background:#1b2023;color:#b6c1c6}
 html[data-theme=dark].widget-mode .toast{background:rgba(27,34,31,0.969)}
-html[data-theme=dark].widget-mode.widget-collapsed #widget-pill{border:1px solid rgba(26,26,26,0.69);background:linear-gradient(145deg,rgba(29,34,37,0.863),rgba(34,38,43,0.788))}
+html[data-theme=dark].widget-mode.widget-collapsed #widget-pill{border:1px solid rgba(26,26,26,0.69);background:linear-gradient(145deg,rgba(29,34,37,0.961),rgba(34,38,43,0.933))}
 html[data-theme=dark] .widget-pill-label{color:#b8c2c7}

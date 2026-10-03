@@ -2,7 +2,7 @@
 #widget-pill,.widget-header{display:none}
 html.widget-mode{--ink:#293137;--muted:#737d84;--accent:#546f60;--line:#ffffff70;--soft:#ffffff50;--paper:transparent;background:transparent;color-scheme:light}
 html.widget-mode body{background:transparent;padding:8px;overflow:hidden}
-.widget-mode .app-shell{display:block;height:calc(100vh - 16px);border:1px solid #ffffffb0;border-radius:25px;background:linear-gradient(145deg,#f4f7f9dc,#edf0f3c9);box-shadow:inset 0 1px 0 #fff9,0 3px 15px #1f30351a;overflow:hidden}
+.widget-mode .app-shell{display:block;height:calc(100vh - 16px);border:1px solid #ffffffb0;border-radius:25px;background:linear-gradient(145deg,#f4f7f9f5,#edf0f3ee);box-shadow:inset 0 1px 0 #fff9,0 3px 15px #1f30351a;overflow:hidden}
 .widget-mode .main{height:100%;background:transparent;min-width:0}
 .widget-mode .sidebar,.widget-mode .topbar,.widget-mode #agent-inspector,.widget-mode #browser-panel{display:none!important}
 .widget-mode .widget-header{display:flex;align-items:center;gap:10px;height:78px;flex:none;padding:16px 18px 12px;-webkit-app-region:drag}
@@ -59,7 +59,7 @@ html.widget-mode body{background:transparent;padding:8px;overflow:hidden}
 .widget-mode .dialog{width:calc(100vw - 35px);max-width:420px;max-height:calc(100vh - 35px);padding:20px;border-color:#fff;background:#f7f9fa;color:#35434a}
 .widget-mode .toast{left:50%;bottom:23px;width:calc(100% - 42px);font-size:11px;padding:10px 13px;background:#f8faf9f7;max-width:400px}
 .widget-mode.widget-collapsed .app-shell{display:none}
-.widget-mode.widget-collapsed #widget-pill{display:flex;align-items:center;gap:9px;height:62px;padding:10px 13px;border:1px solid #ffffffb0;border-radius:22px;background:linear-gradient(145deg,#f4f7f9dc,#edf0f3c9);box-shadow:inset 0 1px 0 #fff9;-webkit-app-region:drag}
+.widget-mode.widget-collapsed #widget-pill{display:flex;align-items:center;gap:9px;height:62px;padding:10px 13px;border:1px solid #ffffffb0;border-radius:22px;background:linear-gradient(145deg,#f4f7f9f5,#edf0f3ee);box-shadow:inset 0 1px 0 #fff9;-webkit-app-region:drag}
 .widget-pill-label{display:grid;gap:4px;flex:1;text-align:left;background:transparent;border:0;padding:0;color:#334149;min-width:0;-webkit-app-region:no-drag}
 .widget-pill-label strong{font-size:13px;font-weight:650;letter-spacing:-.25px}
 .widget-pill-label>span{font-size:9px}
