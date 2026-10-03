@@ -10,6 +10,10 @@ Specialized modules implement action groups, the goal ledger, provider usage, st
 
 [slash-commands.js](../../src/renderer/slash-commands.js) parses local convenience commands: help, plan, execute, goal, schedule, calendar, memory, activity, settings and clear, with supported aliases. /clear clears the unsent draft/attachments; it does not erase the saved continuous timeline. Unknown/private commands are rejected.
 
+## Glass widget
+
+[DesktopWindows](../../src/desktop-windows.cjs) owns the full window and the floating Glass widget. Both load the same renderer, share one controller, and pass the same strict IPC main-frame check. Switching carries the unsent draft, Plan choice and attachment references; the widget can be pinned on top or collapsed to a pill, and its size, position and mode are saved in `display.json`. See [WIDGET.md](../../WIDGET.md).
+
 ## Usage and context display
 
 [ProviderUsage](../../src/provider-usage.cjs) normalizes provider-reported quota windows and local timing/token samples. Codex remaining percentages derive from provider usage. Local performance is whole-turn timing, including tools; tool-free samples supply a rolling average. It is not a model benchmark, price estimate or proof of KV-cache reuse.

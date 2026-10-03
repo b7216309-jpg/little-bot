@@ -413,3 +413,31 @@ html[data-theme=dark] .provider-usage-average span{color:#939e8c}
 html[data-theme=dark] .provider-usage-average strong{color:#9aab94}
 html[data-theme=dark] .provider-usage-average small{color:#747c6f}
 html[data-theme=dark] .provider-usage-hint,html[data-theme=dark] .provider-usage-note{color:#727a6c}
+html[data-theme=dark].widget-mode{--ink:#c5ccd2;--muted:#838c93;--accent:#96aca0;--line:rgba(26,26,26,0.439);--soft:rgba(26,26,26,0.314)}
+html[data-theme=dark].widget-mode .app-shell{border:1px solid rgba(26,26,26,0.69);background:linear-gradient(145deg,rgba(29,34,37,0.863),rgba(34,38,43,0.788))}
+html[data-theme=dark] .widget-heading>span,html[data-theme=dark] .widget-pill-label>span{color:#7d888f}
+html[data-theme=dark] .widget-status-dot{background:#6a8776}
+html[data-theme=dark] .widget-status-dot.attention{background:#c3a57f}
+html[data-theme=dark] .widget-control{color:#828e95}
+html[data-theme=dark] .widget-control:hover,html[data-theme=dark] .widget-control[aria-pressed=true]{background:rgba(26,26,26,0.396);color:#b6c6c0}
+html[data-theme=dark] .widget-control:focus-visible,html[data-theme=dark] .widget-pill-label:focus-visible{outline:2px solid #729080}
+html[data-theme=dark] .widget-menu{background:rgba(27,34,34,0.969);border:1px solid #1a1a1a}
+html[data-theme=dark] .widget-menu button{color:#a4b3b8}
+html[data-theme=dark] .widget-menu button:hover{background:#27322c}
+html[data-theme=dark].widget-mode .message-meta{color:#728086}
+html[data-theme=dark].widget-mode .message-content{color:#b3bec3}
+html[data-theme=dark].widget-mode .user .message-content{background:rgba(26,26,26,0.471);border:1px solid rgba(26,26,26,0.69)}
+html[data-theme=dark].widget-mode .assistant .message-content{background:rgba(26,26,26,0.208);border:1px solid rgba(26,26,26,0.396)}
+html[data-theme=dark].widget-mode .message-content pre,html[data-theme=dark].widget-mode .message-content code{background:rgba(41,53,51,0.439);border-color:rgba(58,73,72,0.502)}
+html[data-theme=dark].widget-mode .task-summary{color:#6f7c84}
+html[data-theme=dark].widget-mode .composer{background:rgba(26,26,26,0.612);border:1px solid rgba(26,26,26,0.808)}
+html[data-theme=dark].widget-mode #message-input{color:#b1bbc1}
+html[data-theme=dark].widget-mode .composer-options #model-select{color:#7c898e}
+html[data-theme=dark].widget-mode .composer-options #effort-select{color:#7c898e}
+html[data-theme=dark].widget-mode .send-button{background:#b4c4be;border-color:#b4c4be}
+html[data-theme=dark].widget-mode .attachment-drafts .attachment-card{background:rgba(26,26,26,0.376)}
+html[data-theme=dark].widget-mode .attachment-card{background:rgba(26,26,26,0.376)}
+html[data-theme=dark].widget-mode .dialog{border-color:#1a1a1a;background:#1b2023;color:#b6c1c6}
+html[data-theme=dark].widget-mode .toast{background:rgba(27,34,31,0.969)}
+html[data-theme=dark].widget-mode.widget-collapsed #widget-pill{border:1px solid rgba(26,26,26,0.69);background:linear-gradient(145deg,rgba(29,34,37,0.863),rgba(34,38,43,0.788))}
+html[data-theme=dark] .widget-pill-label{color:#b8c2c7}

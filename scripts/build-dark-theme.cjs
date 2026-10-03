@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const renderer = path.join(__dirname, '..', 'src', 'renderer');
-const SOURCES = ['styles.css', 'goal-ledger.css', 'provider-usage.css', 'standing-intents.css', 'branding.css'];
+const SOURCES = ['styles.css', 'goal-ledger.css', 'provider-usage.css', 'standing-intents.css', 'branding.css', 'widget-mode.css'];
 const OUTPUT = path.join(renderer, 'dark.css');
 const SKIP_PROPERTIES = /^(box-shadow|text-shadow|filter|-webkit-app-region|mask|content)$/;
 const COLOR = /#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)|(?<![-\w])(?:white|black)(?![-\w])/g;
@@ -84,6 +84,9 @@ function walk(css, emit, prefix = '') {
       const selector = head.split(',').map(item => {
         const part = item.trim();
         if (part === ':root' || part === 'html') return 'html[data-theme=dark]';
+        // Classes set on <html> itself (html.widget-mode, or .widget-mode as the first compound) join the dark selector.
+        const root = /^(?:html)?(\.widget-mode)\b(.*)$/.exec(part);
+        if (root) return `html[data-theme=dark]${root[1]}${root[2]}`;
         return `html[data-theme=dark] ${part}`;
       }).join(',');
       emit(`${selector}{${declarations.join(';')}}`);
