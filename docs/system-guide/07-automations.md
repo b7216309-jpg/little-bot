@@ -24,6 +24,3 @@ Offline/provider failure records an error and advances the next schedule; the sc
 
 Failed schedule persistence can leave an enabled routine in memory (R2). An event-triggered long routine also holds event dispatch until its model turn resolves (R4). See the [review](review.md).
 
-## Verification
-
-[Scheduler](../../test/scheduler.test.cjs), [exact times](../../test/exact-time-automation.test.cjs), [schedule tools](../../test/schedule-management.test.cjs), [missed schedules](../../test/missed-schedules.test.cjs) and [shared automation timeline](../../test/automation-session-electron.cjs).

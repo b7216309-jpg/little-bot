@@ -28,6 +28,3 @@ A server can be configured but failed, authentication-required or tool-less. Ref
 
 It must be imported, enabled and refreshed. Public reads can work without a token; code search and writes require suitable credentials/permissions. It is included as an example plugin, not automatically connected to every account. No real GitHub write through the agent plugin was attempted in this review.
 
-## Verification
-
-[Extensions](../../test/extensions.test.cjs), [runtime/auth/inventory](../../test/extension-runtime.test.cjs), [controller wiring](../../test/extension-controller.test.cjs), [GitHub protocol](../../test/github-plugin.test.cjs) and [bundled guide regressions](../../test/reliability-regressions.test.cjs).

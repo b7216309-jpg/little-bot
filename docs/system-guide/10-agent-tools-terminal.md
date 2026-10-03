@@ -38,4 +38,5 @@ The pinned engine persists dynamic tools when a thread is created. [tool-migrati
 
 ## Verification
 
-[App management](../../test/app-management.test.cjs), [migration](../../test/tool-migration.test.cjs), [migration paths](../../test/tool-migration-paths.test.cjs), [shell conduct](../../test/shell-conduct.test.cjs), [full access](../../test/full-access.test.cjs) and [Plan mode](../../test/plan-mode.test.cjs).
+[migration](../../test/tool-migration.test.cjs).
+
