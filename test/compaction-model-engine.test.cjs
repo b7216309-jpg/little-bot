@@ -32,7 +32,8 @@ test('bundled engine compacts IQ2 history with IQ3 and continues chat through th
   const controller = new Controller({ store, client });
   t.after(async () => {
     await controller.close(); await new Promise(resolve => server.close(resolve));
-    fs.rmSync(root, { recursive: true, force: true });
+    // The engine process may still hold files for a moment after close on Windows; a leftover temp folder is not a failure.
+    try { fs.rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 }); } catch {}
   });
   await client.start(); await controller.localModelRelay.start();
   controller.runtime = { status: 'ready' }; controller.account = { status: 'connected' };
