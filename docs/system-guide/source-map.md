@@ -21,6 +21,7 @@ Guide: [02-chat-context.md](02-chat-context.md)
 | --- | --- |
 | [src/compaction.cjs](../../src/compaction.cjs) | Production application module |
 | [src/controller.cjs](../../src/controller.cjs) | Production application module |
+| [src/local-time.cjs](../../src/local-time.cjs) | Local clock text given to the model |
 
 ## models strata
 
@@ -207,6 +208,7 @@ Guide: [16-interface.md](16-interface.md)
 | Source / resource | Responsibility |
 | --- | --- |
 | [src/provider-usage.cjs](../../src/provider-usage.cjs) | Production application module |
+| [src/desktop-windows.cjs](../../src/desktop-windows.cjs) | Full app and Glass widget windows |
 | [src/renderer/action-groups.js](../../src/renderer/action-groups.js) | Feature rendering, normalization or styling |
 | [src/renderer/app.js](../../src/renderer/app.js) | Feature rendering, normalization or styling |
 | [src/renderer/chat-scroll.js](../../src/renderer/chat-scroll.js) | Feature rendering, normalization or styling |
@@ -219,6 +221,8 @@ Guide: [16-interface.md](16-interface.md)
 | [src/renderer/assets/wink.svg](../../src/renderer/assets/wink.svg) | Wink brand mark used in the sidebar and welcome screen |
 | [src/renderer/branding.css](../../src/renderer/branding.css) | Feature rendering, normalization or styling |
 | [src/renderer/dark.css](../../src/renderer/dark.css) | Generated dark theme (do not edit by hand) |
+| [src/renderer/widget-mode.css](../../src/renderer/widget-mode.css) | Glass widget styles |
+| [src/renderer/widget-mode.js](../../src/renderer/widget-mode.js) | Glass widget controls |
 | [scripts/build-dark-theme.cjs](../../scripts/build-dark-theme.cjs) | Generates the dark theme from the light stylesheets |
 
 ## diagnostics distribution
