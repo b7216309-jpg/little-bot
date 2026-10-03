@@ -33,4 +33,5 @@ Moving only state.json does not migrate native engine sessions, memory, attachme
 
 ## Verification
 
-[Store tests](../../test/store.test.cjs), [session encryption](../../test/session-encryption.test.cjs), [Codex transport](../../test/codex.test.cjs), [Windows distribution](../../test/windows-distribution.test.cjs) and [reliability regressions](../../test/reliability-regressions.test.cjs).
+[Store tests](../../test/store.test.cjs), [Windows distribution](../../test/windows-distribution.test.cjs).
+

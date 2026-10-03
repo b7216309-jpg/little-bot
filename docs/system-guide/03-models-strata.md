@@ -24,4 +24,4 @@ Caching reuses compatible prompt prefixes. Changed tool definitions, profile, in
 
 ## Verification and limits
 
-[Strata probing](../../test/connections-strata.test.cjs), [adapter](../../test/strata-responses-adapter.test.cjs), [relay](../../test/local-model-relay-strata.test.cjs), [namespace compatibility](../../test/responses-namespace-compat.test.cjs) and [vision](../../test/provider-vision.test.cjs). Live relay and SSD engine checks are recorded in [VALIDATION.md](../../VALIDATION.md). The GPU fixtures compare RAM and SSD restores byte for byte across supported KV formats; live inference uses RTX 4070 Ti, int8 streaming KV and MTP. Image rotation and other hardware require separate live validation.
+Strata probing, adapter, relay, namespace compatibility and vision. Live relay and SSD engine checks are recorded in [VALIDATION.md](../../VALIDATION.md). The GPU fixtures compare RAM and SSD restores byte for byte across supported KV formats; live inference uses RTX 4070 Ti, int8 streaming KV and MTP. Image rotation and other hardware require separate live validation.

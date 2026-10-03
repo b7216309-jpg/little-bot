@@ -44,4 +44,5 @@ Memory is off; scope points at another project; aliases are absent; no relevant 
 
 ## Verification
 
-[Memory](../../test/memory.test.cjs), [consolidation](../../test/memory-consolidator.test.cjs), [real embeddings](../../test/local-embeddings.test.cjs), [Electron memory runtime](../../test/memory-runtime-electron.cjs) and [retry regressions](../../test/reliability-regressions.test.cjs).
+[consolidation](../../test/memory-consolidator.test.cjs).
+

@@ -24,4 +24,5 @@ An empty model list is not evidence that the thinking UI was removed: the select
 
 ## Verification
 
-[System prompt settings](../../test/system-prompt-settings.test.cjs), [Controller settings](../../test/controller.test.cjs), [connections](../../test/connections-strata.test.cjs), [Store](../../test/store.test.cjs) and [personal smoke](../../src/personal-smoke.cjs).
+[Store](../../test/store.test.cjs).
+
