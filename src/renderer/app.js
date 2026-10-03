@@ -6,7 +6,7 @@ const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
 function themeChoice() { try { return ['light', 'dark'].includes(localStorage.getItem('little-bot.theme')) ? localStorage.getItem('little-bot.theme') : 'system'; } catch { return 'system'; } }
 function applyTheme() {
   const choice = themeChoice();
-  document.documentElement.dataset.theme = window.bot?.windowMode === 'widget' ? 'light' : choice === 'system' ? (darkQuery.matches ? 'dark' : 'light') : choice;
+  document.documentElement.dataset.theme = choice === 'system' ? (darkQuery.matches ? 'dark' : 'light') : choice;
 }
 applyTheme();
 darkQuery.addEventListener('change', applyTheme);

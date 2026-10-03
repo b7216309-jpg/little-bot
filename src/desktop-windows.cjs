@@ -85,16 +85,13 @@ class DesktopWindows {
       const widget = new this.BrowserWindow({ ...bounds, minWidth: this.preferences.collapsed ? COLLAPSED.width : 360,
         minHeight: this.preferences.collapsed ? COLLAPSED.height : 420, maxWidth: 640, maxHeight: 900,
         title: 'Little Bot · Glass', frame: false, transparent: true, backgroundColor: '#00000000',
-        show: false, hasShadow: true, roundedCorners: true, resizable: !this.preferences.collapsed,
+        show: false, hasShadow: false, roundedCorners: false, resizable: !this.preferences.collapsed,
         maximizable: false, fullscreenable: false, alwaysOnTop: this.preferences.pinned, icon: this.icon,
         webPreferences: { preload: this.preloadFile, additionalArguments: ['--little-bot-widget'],
           contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false, webviewTag: false, backgroundThrottling: false } });
       this.widget = widget;
-      // Windows 11 22H2+ provides the real desktop blur. Other hosts keep a
-      // legible frosted CSS surface rather than requiring an OS upgrade.
-      if (process.platform === 'win32') {
-        try { widget.setBackgroundMaterial('acrylic'); } catch (error) { this.onError('widget-material', error); }
-      }
+      // No native acrylic or window shadow: Windows paints both on the whole rectangular window, which showed as a
+      // gray box with square corners around the rounded card. The card draws its own surface and soft shadow.
       widget.on('move', () => this.rememberBounds()); widget.on('resize', () => this.rememberBounds());
       widget.on('focus', this.onFocus); widget.on('blur', this.onBlur);
       widget.on('close', event => {

@@ -1,3 +1,12 @@
+# Version 0.20.1 verification
+
+0.20.1 removes the gray box around the Glass widget and makes the widget follow the app theme.
+
+- **Gray box:** the widget window turned on Windows' native acrylic material and shadow, which Windows paints on the whole rectangular window, so a gray square-cornered box showed around the rounded card. The window is now fully transparent with no native material or shadow. The card keeps its own CSS shadow, and its surface is slightly more opaque without the desktop blur.
+- **Theme:** the renderer forced the widget to light whatever the theme, so the 0.20.0 dark rules never applied. It now follows Light/Dark/System like the full app.
+
+Checked with a real screen capture around the widget on the desktop, in dark. Node tests, the widget Electron test and validate-docs pass.
+
 # Version 0.20.0 verification
 
 0.20.0 ships Codex's Glass widget mode (PR #67) with a review pass.
