@@ -1,3 +1,12 @@
+# Version 0.19.1 verification
+
+0.19.1 fixes the agent often getting the time of day wrong.
+
+- **Cause:** the engine's environment context gives only `current_date` and `timezone`, never the clock time, and Little Bot added none to chat turns or goal steps. The heartbeat got a UTC ISO stamp first (`...T22:40:00.000Z`, two hours behind Paris), and reactions, heartbeat logs, calendar evidence, the proactive bridge and attention snoozes were all raw UTC ISO strings that small models read as local time.
+- **Fix:** a new `src/local-time.cjs` writes "Current local time: Saturday 3 October 2026, 00:40 (Europe/Paris, UTC+02:00)…". Every chat turn (including scheduled tasks), every goal step and the heartbeat now get it. All of those timestamps are local "Sat 2026-10-03 00:40" stamps. `app_state` reports the same local time.
+
+`npm test` passes, with one new test that keeps ISO stamps out of these strings.
+
 # Version 0.19.0 verification
 
 0.19.0 merges and finishes the 2026-09-28 `feature/windows-uia` branch: Little Bot can operate other Windows apps.

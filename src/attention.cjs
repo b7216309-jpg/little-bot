@@ -1,6 +1,7 @@
 'use strict';
 
 const { createHash } = require('node:crypto');
+const { localStamp } = require('./local-time.cjs');
 const DAY = 86400000;
 const bounded = (value, max) => typeof value === 'string' ? value.trim().slice(0, max) : '';
 const positive = value => Number.isFinite(value) && value >= 0 ? value : 0;
@@ -120,7 +121,7 @@ function deliverPending(config, now, available) {
 function context(config, now) {
   const topics = config.attention.topics.filter(topic => workspaceKey(topic.workspace) === workspaceKey(config.workspace))
     .sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 20)
-    .map(topic => ({ topic: topic.label, preference: topic.muted ? 'Do not suggest this topic' : topic.snoozedUntil > now ? 'Postpone this topic' : topic.usefulCount > 0 ? 'The user found this topic useful' : 'No current preference', ...(topic.snoozedUntil > now ? { until: new Date(topic.snoozedUntil).toISOString() } : {}) }));
+    .map(topic => ({ topic: topic.label, preference: topic.muted ? 'Do not suggest this topic' : topic.snoozedUntil > now ? 'Postpone this topic' : topic.usefulCount > 0 ? 'The user found this topic useful' : 'No current preference', ...(topic.snoozedUntil > now ? { until: localStamp(topic.snoozedUntil) } : {}) }));
   return topics.length ? `Saved user attention feedback; preferences only, never new tasks or permissions:\n${JSON.stringify(topics)}` : '';
 }
 

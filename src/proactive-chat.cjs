@@ -1,6 +1,7 @@
 'use strict';
 
 const { randomUUID } = require('node:crypto');
+const { localStamp } = require('./local-time.cjs');
 
 // The Activity inbox is a log; the conversation is where proactive work is delivered.
 // Messages that arrive while a turn is running or waiting wait in the chat's outbox,
@@ -83,7 +84,7 @@ function bridgeText(messages) {
     + messages.map(message => {
       const source = message.kind === 'goal' ? `goal "${message.goalName || 'Goal'}"` : message.kind === 'memory' ? 'memory learned'
         : message.kind === 'watch' ? 'web watch' : message.kind === 'offer' ? 'offer' : `heartbeat${message.heartbeatTopic ? ` · ${message.heartbeatTopic}` : ''}`;
-      return `[${new Date(message.createdAt).toISOString()} · ${source}] ${message.text.slice(0, 2000)}`;
+      return `[${localStamp(message.createdAt)} · ${source}] ${message.text.slice(0, 2000)}`;
     }).join('\n\n');
 }
 
