@@ -1,5 +1,6 @@
 'use strict';
 const fs=require('node:fs');
+const { timeContext } = require('./local-time.cjs');
 const path=require('node:path');
 const {randomUUID}=require('node:crypto');
 const OPERATIONS={
@@ -34,7 +35,7 @@ class AppManagement {
  specs(){return [{name:'app_state',description:'Read current Little Bot configuration and pending app operations. Does not expose chat history or service credentials.',inputSchema:{type:'object',properties:{},additionalProperties:false}},...Object.entries(OPERATIONS).map(([name,ops])=>({name,description:DESCRIPTIONS[name],inputSchema:{type:'object',properties:{action:{type:'string',enum:Object.keys(ops)},payload:{type:'object',description:'Fields for this action; use get/list first to inspect the current record.',additionalProperties:true}},required:['action'],additionalProperties:false}}))];}
  state(){const c=this.controller,s=c.store.data;return {settings:s.settings,connection:c.connection,heartbeat:s.heartbeat,automations:s.automations,goals:s.autonomy,standingIntents:s.standingIntents||s.events,profile:c.profileFiles?.getState(),services:c.webServices?.getState(),browser:c.browser?.getState(),extensions:{...s.extensions,skills:(s.extensions?.skills||[]).map(({content,...skill})=>skill)},memory:{enabled:s.memory.enabled,learning:c.memoryConsolidator?.state},attachments:c.attachmentStorage,operations:this.jobs.slice(-20)};}
  overview(){const c=this.controller,s=c.store.data;return {
-  localTime:new Date().toString(),utcTime:new Date().toISOString(),
+  localTime:timeContext(),
   operations:this.jobs.slice(-20).map(({payload,...job})=>job),
   connection:{kind:s.settings.connection,model:s.settings.model,status:c.connection?.status},
   workspace:s.settings.workspace,memory:{enabled:s.memory.enabled},
