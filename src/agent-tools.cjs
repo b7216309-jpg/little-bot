@@ -16,7 +16,7 @@ const actions = ['list', 'create', 'update', 'pause', 'resume'];
 const calendarActions = ['list', 'create', 'update', 'delete'];
 
 class AgentTools {
-  constructor({ management, store, manageGoal, manageSchedule, manageCalendar, manageFollowup, manageWatch, proposeLaunch, phoneAction, browser, webServices, sendAttachment }) { this.phoneAction = phoneAction; this.management = management; this.store = store; this.manageGoal = manageGoal; this.manageSchedule = manageSchedule; this.manageCalendar = manageCalendar; this.manageFollowup = manageFollowup; this.manageWatch = manageWatch; this.proposeLaunch = proposeLaunch; this.browser = browser; this.webServices = webServices; this.sendAttachment = sendAttachment; }
+  constructor({ management, store, manageGoal, manageSchedule, manageCalendar, manageFollowup, manageWatch, proposeLaunch, phoneAction, browser, webServices, windowsUi, sendAttachment }) { this.phoneAction = phoneAction; this.management = management; this.store = store; this.manageGoal = manageGoal; this.manageSchedule = manageSchedule; this.manageCalendar = manageCalendar; this.manageFollowup = manageFollowup; this.manageWatch = manageWatch; this.proposeLaunch = proposeLaunch; this.browser = browser; this.webServices = webServices; this.windowsUi = windowsUi; this.sendAttachment = sendAttachment; }
   // The engine rejects a thread whose dynamic tools mix the canonical {type:'function'} form with the
   // legacy form, so every source (app management, browser, services) is normalized here.
   specs(options = {}) {
@@ -37,7 +37,7 @@ class AgentTools {
     });
     const readTools = [...skills, ...recallSpecs(), calendarList, gamesList];
     if (readOnly) return readTools;
-    return [...readTools, ...(this.management?.specs() || []), questionSpec(), ...(this.browser?.specs() || []), ...(this.webServices?.specs() || []),
+    return [...readTools, ...(this.management?.specs() || []), questionSpec(), ...(this.browser?.specs() || []), ...(this.webServices?.specs() || []), ...(this.windowsUi?.specs() || []),
       functionSpec('memory_save', 'Save a durable fact, preference, decision, procedure, or unresolved issue. Use immediately when the user asks to remember something. Supply id to correct an existing record; its prior version remains historical. Memory is shared across models. Use global for personal preferences and workspace for project knowledge.', {
         id: text(200), text: text(20000), type: { type: 'string', enum: ['fact', 'preference', 'decision', 'procedure', 'discovery', 'issue'] },
         scope: { type: 'string', enum: ['global', 'workspace'] }, key: text(300), pinned: { type: 'boolean' },
@@ -125,6 +125,11 @@ class AgentTools {
       if (!this.sendAttachment || !chat || chat.internal || chat.automationId || chat.status !== 'running') throw new Error('Attachments can be sent only in an active user conversation.');
       if (Object.keys(args).some(key => !['path', 'caption'].includes(key)) || typeof args.path !== 'string' || !args.path.trim() || args.path.length > 2000 || args.path.includes('\0') || (args.caption !== undefined && (typeof args.caption !== 'string' || args.caption.length > 1000))) throw new Error('Choose a file path and an optional short caption.');
       return this.sendAttachment(args, chat);
+    }
+    if (name === 'windows_ui') {
+      // Other apps' windows are driven only from the user's own running conversation, never from goals, heartbeat or automations.
+      if (!this.windowsUi || !chat || chat.internal || chat.automationId || chat.status !== 'running') throw new Error('Controlling Windows apps needs an active user conversation.');
+      return this.windowsUi.tool(args, { chat, owner: chat.id, isActive: () => chat.status === 'running' });
     }
     if (['browser', 'web_search_service', 'web_scrape'].includes(name)) {
       if (!chat || chat.internal || chat.automationId) throw new Error('Browser and service tools require a user conversation; goals need their saved network permission.');

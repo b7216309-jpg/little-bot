@@ -1,3 +1,20 @@
+# Version 0.19.0 verification
+
+0.19.0 merges and finishes the 2026-09-28 `feature/windows-uia` branch: Little Bot can operate other Windows apps.
+
+- **One tool:** the agent gets `windows_ui` (list_windows, snapshot, find, click, set_value, select, expand, scroll, type, focus, screenshot, wait) instead of twelve tools. Snapshots are compact lines with `@uN` refs, about 2 KB for Calculator. It is wired natively into AgentTools and main, replacing the branch's prototype patching through a second entry point.
+- **Bridge:** the loader's runtime string patches are applied in `windows-uia-bridge.ps1` itself. A PowerShell one-child unwrapping bug in `Child-Collection` is fixed.
+- **Win32 and WinForms controls:** these reached the managed UIA client as bare panes, so Character Map's buttons could not be pressed. They are now recognised through MSAA role, name and checked state, falling back to window class and style. They are operated by the MSAA default action, a posted BM_CLICK, WM_SETTEXT, or CB_SELECTSTRING plus CBN_SELCHANGE.
+- **Rules kept:** direct running conversation only, a fresh observation before each action, a 30 s bridge limit, and cancellation when the chat stops.
+
+Checked live:
+- WinForms fixture: type, check, pick a combo entry, click Save; the app reported `Saved:Ada:True:Beta`. Screenshot taken; a second action without a look was refused.
+- Character Map: Button, CheckBox and ComboBox recognised, 0.6 s per snapshot.
+- Calculator: clicking "Sept" showed 7 on the display, 0.8 s per snapshot.
+- The bundled engine accepted the full tool list at thread/start.
+
+`npm test`: 89 tests pass (the desktop UIA test is skipped on CI).
+
 # Version 0.18.1 verification
 
 0.18.1 fixes the phone chat silently stopping updating. Sends from the phone still reached the PC, but replies never appeared on the phone.
