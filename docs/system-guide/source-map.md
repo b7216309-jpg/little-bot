@@ -139,6 +139,8 @@ Guide: [11-browser-web.md](11-browser-web.md)
 | --- | --- |
 | [src/embedded-browser.cjs](../../src/embedded-browser.cjs) | Production application module |
 | [src/web-services.cjs](../../src/web-services.cjs) | Production application module |
+| [src/windows-uia.cjs](../../src/windows-uia.cjs) | Production application module |
+| [src/windows-uia-bridge.ps1](../../src/windows-uia-bridge.ps1) | PowerShell UI Automation bridge |
 
 ## skills plugins mcp
 
