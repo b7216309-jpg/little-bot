@@ -28,4 +28,5 @@ Firecrawl answers HTTP 403 for sites it does not scrape; that is reported as an 
 
 ## Verification
 
-[Web concurrency/cancellation](../../test/web-services-concurrency.test.cjs), [agent-side routing](../../test/agent-side-panel.test.cjs), [full access](../../test/full-access.test.cjs), [built-in browser](../../test/embedded-browser-electron.cjs), [web smoke](../../src/web-smoke.cjs) and [web-settings smoke](../../src/web-settings-smoke.cjs). Smoke files are development harnesses, not automatically fresh live-provider evidence.
+[built-in browser](../../test/embedded-browser-electron.cjs).
+

@@ -22,6 +22,3 @@ No eligible final answer, active chat/background work, unavailable model, malfor
 
 User-question routing depends on live engine ownership; R3 in the [review](review.md) describes a lost-acknowledgement case that can suppress the old turn. Goal answers persist, whereas a direct live RPC wait does not survive as the same active request across an engine restart.
 
-## Verification
-
-[Core review policy](../../test/independent-check-core.test.cjs), [runner](../../test/independent-check-runner.test.cjs), [controller](../../test/independent-check-controller.test.cjs), [renderer](../../test/independent-check-renderer.test.cjs), [goal question UI](../../test/goal-contract-electron.cjs) and [MCP runtime](../../test/extension-runtime.test.cjs).

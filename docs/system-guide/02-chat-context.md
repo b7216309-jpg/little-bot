@@ -26,6 +26,3 @@ Compaction uses the selected provider/model through the engine. The CPU embeddin
 
 Engine/account readiness, a missing workspace, active background work, extension changes, unsupported image input, lost RPC acknowledgements and unavailable provider streams. Maximum direct input is 32,000 characters and eight attachments. Provider output cutoffs are failures with partial output retained, not successful final answers.
 
-## Verification
-
-[Controller](../../test/controller.test.cjs), [single session](../../test/single-session.test.cjs), [Plan mode](../../test/plan-mode.test.cjs), [compaction](../../test/compaction.test.cjs), [context inspector](../../test/context-used.test.cjs) and [stream scrolling](../../test/chat-scroll.test.cjs).
