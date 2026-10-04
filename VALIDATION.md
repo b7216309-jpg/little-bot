@@ -1,3 +1,12 @@
+# Version 0.20.2 verification
+
+0.20.2 keeps chats working after the local server is restarted without its vision encoder.
+
+- **Cause:** old images stay in chat history and were sent with every request. A Strata server started without vision rejects the whole request ("this server was started without the vision encoder"), so every chat failed.
+- **Fix:** when a request carries images, the local relay asks Strata's `/health` whether images are supported. If not, each image is replaced by a short note saying the current model cannot see images, and the turn goes through. The check runs per request, so turning vision back on restores images.
+
+Checked against a fake no-vision Strata server (image replaced, request accepted). Node tests and validate-docs pass.
+
 # Version 0.20.1 verification
 
 0.20.1 removes the gray box around the Glass widget and makes the widget follow the app theme.
