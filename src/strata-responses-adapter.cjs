@@ -33,6 +33,24 @@ function chatContent(content) {
   return parts;
 }
 
+// A Strata server started without its vision encoder rejects the whole request
+// when any message carries an image, including old images in chat history.
+// Replace each image with a short note so the conversation keeps working.
+const IMAGE_OMITTED = '[An image was here, but the current model cannot see images.]';
+function withoutImages(messages) {
+  let removed = 0;
+  for (const message of messages) {
+    if (!Array.isArray(message.content)) continue;
+    message.content = message.content.map(part => {
+      if (part?.type !== 'image_url') return part.text || '';
+      removed++;
+      return IMAGE_OMITTED;
+    }).filter(Boolean).join('\n');
+  }
+  return removed;
+}
+const hasImages = messages => messages.some(message => Array.isArray(message.content) && message.content.some(part => part?.type === 'image_url'));
+
 function toolOutputText(output) {
   if (typeof output === 'string') return output;
   if (Array.isArray(output)) {
@@ -352,4 +370,4 @@ class StrataStreamAdapter extends Transform {
   }
 }
 
-module.exports = { StrataStreamAdapter, estimateResponsesInputTokens, responsesToChat };
+module.exports = { StrataStreamAdapter, estimateResponsesInputTokens, responsesToChat, withoutImages, hasImages };
