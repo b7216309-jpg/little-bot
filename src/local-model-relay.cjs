@@ -8,7 +8,7 @@ const { pipeline } = require('node:stream/promises');
 const { localBaseUrl, LOCAL_STREAM_IDLE_TIMEOUT_MS } = require('./connections.cjs');
 const { applyQwenGeneration } = require('./local-generation.cjs');
 const { prepareNamespaceTools, restoreNamespaceCalls } = require('./responses-namespace-compat.cjs');
-const { StrataStreamAdapter, estimateResponsesInputTokens, responsesToChat } = require('./strata-responses-adapter.cjs');
+const { StrataStreamAdapter, estimateResponsesInputTokens, responsesToChat, withoutImages, hasImages } = require('./strata-responses-adapter.cjs');
 
 // A 50 MiB attachment turn can exceed 64 MiB after base64 encoding.
 const MAX_BODY_BYTES = 96 * 1024 * 1024;
@@ -44,6 +44,27 @@ function readBody(request) {
     };
     const end = () => { cleanup(); resolve(Buffer.concat(chunks, size)); };
     request.on('data', data); request.once('end', end); request.once('error', error); request.once('aborted', aborted);
+  });
+}
+
+// Asks Strata's /health whether this server loaded its vision encoder. The answer
+// is read per request, so swapping models or restarting the server is picked up.
+// null means unknown; images are then sent as before.
+function strataImages(base) {
+  const target = new URL('/health', base);
+  const transport = target.protocol === 'https:' ? https : http;
+  return new Promise(resolve => {
+    const request = transport.get(target, { agent: false, timeout: 3000 }, response => {
+      let raw = '';
+      response.setEncoding('utf8');
+      response.on('data', chunk => { if (raw.length < 65536) raw += chunk; });
+      response.on('end', () => {
+        try { const images = JSON.parse(raw)?.images; resolve(typeof images === 'boolean' ? images : null); } catch { resolve(null); }
+      });
+      response.on('error', () => resolve(null));
+    });
+    request.on('timeout', () => request.destroy());
+    request.on('error', () => resolve(null));
   });
 }
 
@@ -217,6 +238,10 @@ class LocalModelRelay {
     if (adapter === 'strata') {
       const translated = responsesToChat(body, thinking);
       body = translated.body;
+      if (hasImages(body.messages) && await strataImages(base) === false) {
+        const removed = withoutImages(body.messages);
+        this.onError('images-omitted', new Error(`Removed ${removed} image(s): the local server has no vision encoder.`), { removed });
+      }
       // Official Strata matches complete token/image prefixes automatically.
       // Slot metadata belongs to the retired PR #175 server protocol.
       strataTools = translated.toolKinds;
