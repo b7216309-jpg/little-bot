@@ -20,9 +20,7 @@ node docs/system-guide/review/validate-docs.cjs
 
 ci checks JavaScript syntax, runs the Node tests and all 14 Electron fixtures. Pretest prepares the pinned embedding files, checking identity/size/hash and downloading missing assets. The review repro command is intentionally separate: it probes the bad behavior observed at 0.10.1 and is not a desired-behavior regression suite. Read [its instructions](review/README.md) before interpreting results.
 
-Source smoke harnesses exercise startup, attachments, goals, profile, recall and web/settings paths. Some need live connections or credentials. Passing fixture tests is not proof of real third-party login, notification delivery, scheduling while closed or arbitrary model quality.
-
-The fresh second-pass ci run passed 166 JavaScript syntax checks, 453 Node tests and 14 Electron fixtures. Earlier installed-app live Strata evidence on this same application revision is recorded in [VALIDATION.md](../../VALIDATION.md). The live tests used isolated workspace/application state.
+The suite is deliberately small (about 100 Node tests and a few Electron fixtures); add a test only for a real regression. Passing it is not proof of real third-party login, notification delivery, scheduling while closed or model quality. Per-release checks are recorded in [VALIDATION.md](../../VALIDATION.md).
 
 ## Packaging and installation
 

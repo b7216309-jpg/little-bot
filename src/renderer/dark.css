@@ -10,13 +10,7 @@ html[data-theme=dark] .new-chat:hover{background:#24221c;border-color:#565646}
 html[data-theme=dark] .new-chat kbd{color:#6c7167}
 html[data-theme=dark] .nav-button:hover,html[data-theme=dark] .nav-button.active{background:#36372b}
 html[data-theme=dark] .count{background:#1a1a1a}
-html[data-theme=dark] .sidebar-label{color:#73796d}
-html[data-theme=dark] .chat-empty{color:#73796e}
-html[data-theme=dark] .chat-item:hover,html[data-theme=dark] .chat-item.active{background:#37392d}
 html[data-theme=dark] .chat-link .icon{color:#787e72}
-html[data-theme=dark] .chat-delete{color:#828a7b}
-html[data-theme=dark] .chat-delete:hover{background:#434637;color:#b2614d}
-html[data-theme=dark] .local-note{color:#747b6c}
 html[data-theme=dark] .status-dot.starting{background:#c4a97e}
 html[data-theme=dark] .status-dot.error{background:#c0796a}
 html[data-theme=dark] .account-button{border-top:1px solid #3c3e31}
@@ -48,8 +42,6 @@ html[data-theme=dark] .inspector-context-block>summary span{color:#717a67}
 html[data-theme=dark] .inspector-context-block>pre{border-top:1px solid #2e3126;background:#22221b;color:#9ca796}
 html[data-theme=dark] .runtime-status{color:#757d70}
 html[data-theme=dark] .workspace-button{color:#909989}
-html[data-theme=dark] .bot-face{background:#353229}
-html[data-theme=dark] .bot-face span{background:#8e9885}
 html[data-theme=dark] .eyebrow{color:#777d64}
 html[data-theme=dark] .welcome-description{color:#7c8575}
 html[data-theme=dark] .suggestion{background:#1f1e18}
@@ -70,9 +62,6 @@ html[data-theme=dark] .composer-options select{color:#949d8d}
 html[data-theme=dark] .composer-options #effort-select{color:#727a67}
 html[data-theme=dark] .plan-mode-toggle{color:#8d9682}
 html[data-theme=dark] .plan-mode-toggle.active,html[data-theme=dark] .plan-mode-toggle[aria-pressed=true]{background:#2e3126;color:#99a78f}
-html[data-theme=dark] .private-session-toggle{color:#8d9682}
-html[data-theme=dark] .private-session-toggle.active,html[data-theme=dark] .private-session-toggle[aria-pressed=true]{background:#343129;color:#afa89c}
-html[data-theme=dark] .private-chat-badge{color:#9b9285;background:#37332b}
 html[data-theme=dark] .message.plan .message-label{color:#919f85}
 html[data-theme=dark] .message.plan .mini-mark{background:#31352a;color:#9caa93}
 html[data-theme=dark] .message.plan .message-content{border-left:2px solid #3c4334}
@@ -148,7 +137,7 @@ html[data-theme=dark] ::-webkit-scrollbar-thumb{background:#424738}
 html[data-theme=dark] ::-webkit-scrollbar-thumb:hover{background:#58614d}
 html[data-theme=dark] }
 
-.eyebrow,html[data-theme=dark] .welcome-description,html[data-theme=dark] .connection-heading p,html[data-theme=dark] .field-hint,html[data-theme=dark] .runtime-status,html[data-theme=dark] .sidebar-label,html[data-theme=dark] .chat-empty,html[data-theme=dark] .local-note,html[data-theme=dark] .account-copy>span,html[data-theme=dark] .suggestion>span:not(.icon),html[data-theme=dark] .section-heading>div>p:last-child,html[data-theme=dark] .automation-notice,html[data-theme=dark] .automations-empty p,html[data-theme=dark] .routine-copy p,html[data-theme=dark] .routine-meta,html[data-theme=dark] .routine-status,html[data-theme=dark] .settings-row p,html[data-theme=dark] .settings-section h3,html[data-theme=dark] .interval-input,html[data-theme=dark] .automation-context,html[data-theme=dark] .question-option small,html[data-theme=dark] .confirm-dialog p,html[data-theme=dark] .tool-status,html[data-theme=dark] .thinking,html[data-theme=dark] .composer-options #effort-select{color:#99a490}
+.eyebrow,html[data-theme=dark] .welcome-description,html[data-theme=dark] .connection-heading p,html[data-theme=dark] .field-hint,html[data-theme=dark] .runtime-status,html[data-theme=dark] .account-copy>span,html[data-theme=dark] .suggestion>span:not(.icon),html[data-theme=dark] .section-heading>div>p:last-child,html[data-theme=dark] .automation-notice,html[data-theme=dark] .automations-empty p,html[data-theme=dark] .routine-copy p,html[data-theme=dark] .routine-meta,html[data-theme=dark] .routine-status,html[data-theme=dark] .settings-row p,html[data-theme=dark] .settings-section h3,html[data-theme=dark] .interval-input,html[data-theme=dark] .automation-context,html[data-theme=dark] .question-option small,html[data-theme=dark] .confirm-dialog p,html[data-theme=dark] .tool-status,html[data-theme=dark] .thinking,html[data-theme=dark] .composer-options #effort-select{color:#99a490}
 html[data-theme=dark] .calendar-empty{border:1px dashed #3c4133;background:#1f1e18}
 html[data-theme=dark] .calendar-empty>.icon{color:#6f7c62}
 html[data-theme=dark] .calendar-empty p{color:#8d9886}
@@ -159,15 +148,11 @@ html[data-theme=dark] .calendar-event-copy h3{color:#b5c0ae}
 html[data-theme=dark] .calendar-event-copy p{color:#8b9583}
 html[data-theme=dark] .feature-toggle{color:#99a490}
 html[data-theme=dark] .memory-layer,html[data-theme=dark] .feature-card{background:#1f1e18}
-html[data-theme=dark] .layer-number{color:#9a897e}
 html[data-theme=dark] .layer-heading p{color:#99a490}
-html[data-theme=dark] .layer-tag{background:#2e3026;color:#99a490}
-html[data-theme=dark] .layer-description{color:#99a490}
 html[data-theme=dark] .memory-empty{color:#99a490}
 html[data-theme=dark] .memory-item{border-top:1px solid #303227}
 html[data-theme=dark] .memory-item-text{color:#b5c0ae}
 html[data-theme=dark] .memory-item-meta{color:#99a490}
-html[data-theme=dark] .episode-link{color:#b37659}
 html[data-theme=dark] .feature-footnote{color:#99a490}
 html[data-theme=dark] .heartbeat-status{background:#2f3227;color:#9aa78f}
 html[data-theme=dark] .heartbeat-status.running{color:#af7d5b;background:#302c26}
@@ -424,7 +409,6 @@ html[data-theme=dark] .widget-control:focus-visible,html[data-theme=dark] .widge
 html[data-theme=dark] .widget-menu{background:rgba(27,34,34,0.969);border:1px solid #1a1a1a}
 html[data-theme=dark] .widget-menu button{color:#a4b3b8}
 html[data-theme=dark] .widget-menu button:hover{background:#27322c}
-html[data-theme=dark].widget-mode .message-meta{color:#728086}
 html[data-theme=dark].widget-mode .message-content{color:#b3bec3}
 html[data-theme=dark].widget-mode .user .message-content{background:rgba(26,26,26,0.471);border:1px solid rgba(26,26,26,0.69)}
 html[data-theme=dark].widget-mode .assistant .message-content{background:rgba(26,26,26,0.208);border:1px solid rgba(26,26,26,0.396)}
