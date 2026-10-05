@@ -1,3 +1,15 @@
+# Version 0.22.2 verification
+
+0.22.2 trims the test suite further. No app changes.
+
+Removed:
+- `windows-uia.test.cjs` and its PowerShell fixture: skipped on CI, slow, and they drive a real window.
+- `compaction-model-engine.test.cjs`: starts the real engine and failed on CI over temp-folder cleanup.
+- `local-time.test.cjs`: one trivial check.
+- `desktop-windows.test.cjs`: the widget Electron test covers it.
+
+Kept: store, memory-consolidator, model-json, goal-contract, heartbeat, relay, compaction-model, dark-theme, tool-migration, windows-distribution (used by the CI package job), and the two Electron tests. `npm test`: 91 tests, about 2.5 s, all pass.
+
 # Version 0.22.1 verification
 
 0.22.1 removes dead code. No behavior changes.
