@@ -6,7 +6,7 @@ const { randomBytes } = require('node:crypto');
 const { Transform } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const { localBaseUrl, LOCAL_STREAM_IDLE_TIMEOUT_MS } = require('./connections.cjs');
-const { applyQwenGeneration } = require('./local-generation.cjs');
+const { applyQwenGeneration, applySampling } = require('./local-generation.cjs');
 const { prepareNamespaceTools, restoreNamespaceCalls } = require('./responses-namespace-compat.cjs');
 const { StrataStreamAdapter, estimateResponsesInputTokens, responsesToChat, withoutImages, hasImages } = require('./strata-responses-adapter.cjs');
 
@@ -127,8 +127,10 @@ function responseEvents(namespaceTools) {
 // Codex's custom-provider client cannot add chat_template_kwargs. This narrow
 // local transport adds Qwen's real switch without altering history or SSE data.
 class LocalModelRelay {
-  constructor({ thinking = () => true, onError = () => {} } = {}) {
+  constructor({ thinking = () => true, sampling = () => ({}), onError = () => {} } = {}) {
     if (typeof thinking !== 'function') throw new TypeError('thinking must be a function.');
+    if (typeof sampling !== 'function') throw new TypeError('sampling must be a function.');
+    this.sampling = sampling;
     if (typeof onError !== 'function') throw new TypeError('onError must be a function.');
     this.thinking = thinking;
     this.onError = onError;
@@ -238,6 +240,7 @@ class LocalModelRelay {
     if (adapter === 'strata') {
       const translated = responsesToChat(body, thinking);
       body = translated.body;
+      applySampling(body, this.sampling());
       if (hasImages(body.messages) && await strataImages(base) === false) {
         const removed = withoutImages(body.messages);
         this.onError('images-omitted', new Error(`Removed ${removed} image(s): the local server has no vision encoder.`), { removed });
