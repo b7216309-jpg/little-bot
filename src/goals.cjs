@@ -399,7 +399,7 @@ class GoalRunner {
     return goal;
   }
   finishReview(goal, evidence, outcome, summary, refs, runId) {
-    const previous = structuredClone(goal), chat = this.store.data.chats?.[0];
+    const previous = structuredClone(goal), chat = this.store.data.chats?.find(item => !item.private);
     const messages = chat?.messages.length, updatedAt = chat?.updatedAt;
     try {
     contract.consume(goal, evidence, outcome, summary, refs);

@@ -38,6 +38,7 @@
     <aside class="sidebar" aria-label="Navigation">
       <div class="brand"><img class="brand-icon" src="./assets/wink.svg" width="35" height="35" alt=""><span>little bot<span class="brand-dot">.</span></span></div>
       <button id="nav-conversation" class="nav-button active"><span class="icon" data-icon="chat"></span><span>Conversation</span></button>
+      <button id="nav-quick" class="nav-button" title="A side chat for one-off tasks: no memory, goals or follow-ups, and nothing is saved"><span class="icon" data-icon="sparkles"></span><span>Quick session</span></button>
       <button id="nav-inbox" class="nav-button"><span class="icon" data-icon="heartbeat"></span><span>Activity inbox</span><span id="heartbeat-unread" class="count hidden">0</span></button>
       <details id="sidebar-tools" class="sidebar-tools">
         <summary id="tools-toggle" aria-controls="tool-navigation"><span class="icon" data-icon="chevron-down"></span><span>Tools</span></summary>
@@ -71,7 +72,7 @@
       </header>
       <header class="topbar">
         <div class="topbar-left"><span id="page-label" class="page-label">Conversation</span><span class="topbar-divider"></span><span id="runtime-status" class="runtime-status"><span class="status-dot starting"></span><span>Starting engine</span></span></div>
-        <div class="topbar-actions"><button id="enter-widget" class="workspace-button" type="button" title="Glass widget mode · Ctrl+Shift+M"><span class="icon" data-icon="compact"></span><span>Widget</span></button><button id="agent-inspector-toggle" class="workspace-button inspector-toggle" type="button" aria-pressed="false" title="Show agent activity"><span class="icon" data-icon="info"></span><span>Activity</span></button><button id="open-agent-browser" class="workspace-button agent-browser-button" type="button" title="Open the agent’s browser"><span class="icon" data-icon="browser"></span><span>Browser</span></button><button id="choose-workspace" class="workspace-button" title="Choose a workspace"><span class="icon" data-icon="folder"></span><span id="workspace-label">Choose workspace</span><span class="icon small" data-icon="chevron-down"></span></button></div>
+        <div class="topbar-actions"><button id="quick-end" class="workspace-button hidden" type="button" title="End this Quick session; it is not saved"><span class="icon" data-icon="x"></span><span>End session</span></button><button id="enter-widget" class="workspace-button" type="button" title="Glass widget mode · Ctrl+Shift+M"><span class="icon" data-icon="compact"></span><span>Widget</span></button><button id="agent-inspector-toggle" class="workspace-button inspector-toggle" type="button" aria-pressed="false" title="Show agent activity"><span class="icon" data-icon="info"></span><span>Activity</span></button><button id="open-agent-browser" class="workspace-button agent-browser-button" type="button" title="Open the agent’s browser"><span class="icon" data-icon="browser"></span><span>Browser</span></button><button id="choose-workspace" class="workspace-button" title="Choose a workspace"><span class="icon" data-icon="folder"></span><span id="workspace-label">Choose workspace</span><span class="icon small" data-icon="chevron-down"></span></button></div>
       </header>
       <section id="chat-view" class="chat-view"><div class="attachment-drop-overlay" aria-hidden="true"><span class="icon" data-icon="paperclip"></span><span>Drop files here</span></div>
         <aside id="agent-inspector" class="agent-inspector hidden" aria-label="Agent activity">
@@ -87,8 +88,8 @@
         <div id="chat-scroll" class="chat-scroll">
           <section id="welcome" class="welcome">
             <div class="welcome-symbol" aria-hidden="true"><img class="welcome-icon" src="./assets/wink.svg" width="64" height="64" alt=""></div>
-            <h1>What’s next?</h1>
-            <p class="welcome-description">Ask, attach, or put something in motion.</p>
+            <h1 id="welcome-title">What’s next?</h1>
+            <p id="welcome-description" class="welcome-description">Ask, attach, or put something in motion.</p>
             <div id="connection-card" class="connection-card hidden">
               <div class="connection-heading"><span class="icon" data-icon="sparkles"></span><div><h2>Connect Codex</h2><p>ChatGPT or an OpenAI API key.</p></div></div>
               <div class="connection-actions"><button id="connect-chatgpt" class="button primary">Sign in with ChatGPT<span class="icon" data-icon="arrow-up-right"></span></button><button id="show-api-key" class="button text-button">Use an API key</button></div>

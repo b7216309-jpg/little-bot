@@ -1,7 +1,7 @@
 {
   "name": "little-bot",
   "productName": "Little Bot",
-  "version": "0.20.4",
+  "version": "0.21.0",
   "private": true,
   "description": "A focused local Windows assistant for chat, files, commands, and scheduled tasks.",
   "main": "src/main.cjs",

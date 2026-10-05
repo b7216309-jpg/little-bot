@@ -551,7 +551,7 @@ class Controller extends EventEmitter {
       this.threadInstructionSettings.set(chat.threadId, signature);
     }
   }
-  async send({ chatId, text = '', attachmentIds = [], mode, privateSession } = {}, override = null) {
+  async send({ chatId, text = '', attachmentIds = [], mode, privateSession, quick } = {}, override = null) {
     if (this.memoryConsolidator) await this.memoryConsolidator.pauseForUser();
     this.ensureReady();
     if (this.memoryBusy) throw new Error('Memory is finishing an update. Try again in a moment.');
@@ -563,17 +563,19 @@ class Controller extends EventEmitter {
     if (override && attachmentIds.length) throw new Error('Attachments are available in direct conversations.');
     if (mode !== undefined && !['execute', 'plan'].includes(mode)) throw new Error('Choose Execute or Plan mode.');
     if (override && mode === 'plan') throw new Error('Plan mode is available only in direct conversations.');
-    if (privateSession !== undefined && typeof privateSession !== 'boolean') throw new Error('Private session must be on or off.');
-    if (privateSession) throw new Error('Private sessions are no longer available. Little Bot uses one persistent conversation.');
+    if (privateSession) throw new Error('Private sessions were replaced by Quick sessions.');
+    if (quick !== undefined && typeof quick !== 'boolean') throw new Error('Quick session must be on or off.');
+    // A Quick session is a side chat for one-off work: never saved, no memory read or written, no goals,
+    // follow-ups or proactive messages, and a smaller tool set. It is the chat marked private.
+    const turnPrivate = !override && (quick === true || this.chat(chatId)?.private === true);
     if (typeof text !== 'string' || (!text.trim() && !attachmentIds.length) || text.length > 32000) throw new Error('Write a message or attach a file.');
     text = text.trim();
     const selectedSkills = skillContext(this.store.data.extensions, text);
-    // A single public timeline survives engine, model and workspace changes.
-    let chat = this.store.data.chats[0] || null;
-    if (chat && chat.status !== 'idle') throw new Error('Wait for this reply, or stop it first.');
+    // A single public timeline survives engine, model and workspace changes; the Quick session sits after it.
+    if (this.store.data.chats.some(item => item.status !== 'idle')) throw new Error('Wait for the current reply, or stop it first.');
+    let chat = this.store.data.chats.find(item => turnPrivate ? item.private : !item.private) || null;
     const settings = override || this.store.data.settings;
     const turnMode = override ? 'execute' : (mode || chat?.mode || 'execute');
-    const turnPrivate = false;
     if (override) this.ensureReady(override);
     const folder = workspacePath(settings.workspace);
     const binding = connectionBinding(settings, this.store.data.settings.connection);
@@ -595,11 +597,10 @@ class Controller extends EventEmitter {
       chat = { id: randomUUID(), title: 'Conversation', threadId: null, workspace: folder,
         model: settings.model, effort: settings.effort || 'low', createdAt: now, updatedAt: now,
         ...connectionBinding(settings, this.store.data.settings.connection),
-        mode: turnMode, ...(turnPrivate ? { private: true } : {}), status: 'idle', messages: [] };
-      this.store.data.chats.unshift(chat);
+        mode: turnMode, ...(turnPrivate ? { private: true, title: 'Quick session' } : {}), status: 'idle', messages: [] };
+      if (turnPrivate) this.store.data.chats.push(chat); else this.store.data.chats.unshift(chat);
     }
     Object.assign(chat, binding, { workspace: folder, model: settings.model, toolMode });
-    delete chat.private;
     // Mark busy before awaiting RPC so two clicks cannot start overlapping turns.
     if (override?.automationId) chat.automationPreviousMode = chat.mode || 'execute';
     chat.mode = turnMode;
@@ -619,8 +620,8 @@ class Controller extends EventEmitter {
     this.changed(true);
     try {
       if (retiredThreadId) await this.client.request('thread/unsubscribe', { threadId: retiredThreadId }, 10000);
-      await this.store.memoryService?.prepareQuery(text);
-      memoryContext = buildMemoryContext(this.store.data.memory, { workspace: folder, query: text, chatId: override?.automationId ? undefined : chat.id, sessions: this.store.data.chats, settings: this.store.data.settings });
+      if (!chat.private) await this.store.memoryService?.prepareQuery(text);
+      if (!chat.private) memoryContext = buildMemoryContext(this.store.data.memory, { workspace: folder, query: text, chatId: override?.automationId ? undefined : chat.id, sessions: this.store.data.chats, settings: this.store.data.settings });
       const prepared = attachmentIds.length ? await this.attachments.prepare(attachmentIds) : { descriptors: [], input: [], text: '' };
       const hasImageInput = prepared.input.some(item => item?.type === 'localImage');
       const vision = hasImageInput ? this.visionSupport(chat.model) : null;
@@ -630,7 +631,7 @@ class Controller extends EventEmitter {
       if (this.closing) throw new Error('Little Bot is closing.');
       if (prepared.descriptors.length) userMessage.attachments = attachmentDescriptors(prepared.descriptors);
       chat.messages.push(userMessage); chat.lastTurnRequestId = userMessage.id; inputAccepted = true;
-      if (!override?.automationId) this.store.memoryService?.setWorkingState(chat.id, {
+      if (!override?.automationId && !chat.private) this.store.memoryService?.setWorkingState(chat.id, {
         objective: text, status: 'running', workspace: folder, model: chat.model,
         source: { sessionId: chat.id, messageId: userMessage.id }, updatedAt: Date.now(),
       });
@@ -644,8 +645,8 @@ class Controller extends EventEmitter {
       this.persistNow(); this.changed();
       const common = this.threadOptions(chat, folder);
       if (!chat.threadId) {
-        const result = await this.client.request('thread/start', { ...common, ...(chat.private ? { ephemeral: true } : {}), ...(this.agentTools ? { dynamicTools: this.agentTools.specs({ readOnly: turnMode === 'plan' || Boolean(override?.automationId) }) } : {}) }, 60000);
-        chat.threadId = result.thread.id; chat.toolSchema = fingerprint(this.agentTools?.specs({ readOnly: toolMode === 'readOnly' }) || []); this.resumed.add(chat.threadId);
+        const result = await this.client.request('thread/start', { ...common, ...(chat.private ? { ephemeral: true } : {}), ...(this.agentTools ? { dynamicTools: this.agentTools.specs({ readOnly: turnMode === 'plan' || Boolean(override?.automationId), quick: chat.private === true }) } : {}) }, 60000);
+        chat.threadId = result.thread.id; chat.toolSchema = fingerprint(this.agentTools?.specs({ readOnly: toolMode === 'readOnly', quick: chat.private === true }) || []); this.resumed.add(chat.threadId);
         this.threadCompactionSettings.set(chat.threadId, common.config.model_post_turn_compact_threshold_percent);
         this.threadInstructionSettings.set(chat.threadId, this.threadSignature(common));
       } else await this.resumeThread(chat, common);
@@ -654,13 +655,15 @@ class Controller extends EventEmitter {
       const requestBlock = override?.automationId
         ? `Scheduled task: ${override.name || 'Automation'}\n${text}\n\nThis is an automated run of a saved task, not a new message from the user. Use relevant conversation context, but perform only this scheduled task. Do not resume unrelated unfinished conversation work or treat this prompt as a new personal fact about the user.`
         : `Current user request:\n${text || 'Examine the attached files.'}`;
-      const unseenProactive = override ? [] : proactive.unseen(chat);
+      const unseenProactive = override || chat.private ? [] : proactive.unseen(chat);
+      const quickNote = chat.private ? 'This is a Quick session: a side chat for one-off work. Saved memory, goals and follow-ups are off here, and nothing from it is remembered. Just do the task.' : '';
       const inputBlocks = [
-        !override && chatContext(this.store.data) ? { kind: 'goals', label: 'Current goals', text: chatContext(this.store.data) } : null,
+        quickNote ? { kind: 'quick', label: 'Quick session', text: quickNote } : null,
+        !override && !chat.private && chatContext(this.store.data) ? { kind: 'goals', label: 'Current goals', text: chatContext(this.store.data) } : null,
         unseenProactive.length ? { kind: 'proactive', label: 'Your messages since the user last wrote', text: proactive.bridgeText(unseenProactive) } : null,
         historyBridge ? { kind: 'history', label: 'Conversation continuity', text: historyBridge } : null,
         profile ? { kind: 'profile', label: 'Profile · USER.md + SOUL.md', text: profile } : null,
-        !override && this.activityContext() ? { kind: 'activity', label: 'Current activity', text: this.activityContext() } : null,
+        !override && !chat.private && this.activityContext() ? { kind: 'activity', label: 'Current activity', text: this.activityContext() } : null,
         selectedSkills ? { kind: 'skills', label: 'Selected skills', text: selectedSkills } : null,
         memoryContext ? { kind: 'memory', label: 'Memory recall', text: memoryContext } : null,
         prepared.text ? { kind: 'attachments', label: 'Attachment excerpts', text: prepared.text } : null,
@@ -686,7 +689,7 @@ class Controller extends EventEmitter {
         developerInstructionsLabel: turnMode === 'plan' ? 'System prompt + Plan mode' : 'System prompt',
         inputBlocks,
         nonTextInputs: prepared.input.length,
-        memoryStatus: chat.private ? 'Skipped in Private session.'
+        memoryStatus: chat.private ? 'Off in the Quick session.'
           : this.store.data.memory.enabled === false ? 'Memory is disabled.'
             : memoryContext ? 'Relevant memory was injected.' : 'No relevant saved memory matched this turn.',
       });
@@ -950,7 +953,7 @@ class Controller extends EventEmitter {
       if (message.kind === 'reasoning') this.reasoningParts.delete(message);
     }
     chat.messages = chat.messages.filter(message => message.kind !== 'reasoning' || message.text.trim());
-    if (!chat.internal && !manual && !chat.automationId) this.eventRuntime?.publish({
+    if (!chat.internal && !manual && !chat.automationId && !chat.private) this.eventRuntime?.publish({
       type: error ? 'chat.failed' : 'chat.completed', source: 'chat',
       dedupeKey: `chat:${chat.id}:${turnId || finishedAt}`,
       payload: { chatId: chat.id, title: chat.title, workspace: chat.workspace, automationId: chat.automationId || null,
@@ -976,7 +979,7 @@ class Controller extends EventEmitter {
     }
     delete chat.automationId; delete chat.automationName; delete chat.automationPreviousMode;
     // After the turn's own bookkeeping, so a queued proactive message is never mistaken for this turn's answer.
-    if (!chat.internal) proactive.flush(chat, finishedAt);
+    if (!chat.internal && !chat.private) proactive.flush(chat, finishedAt);
     if (!chat.internal) this.persistNow();
     this.changed();
   }
@@ -997,8 +1000,16 @@ class Controller extends EventEmitter {
     if (this.memoryConsolidator) await this.memoryConsolidator.pauseForUser();
     return this.independentCheck.challenge(payload);
   }
-  deleteChat() {
-    throw new Error('Little Bot keeps one continuous conversation. Individual conversations cannot be deleted.');
+  // Only the Quick session can be ended; the main conversation is continuous.
+  async deleteChat({ chatId } = {}) {
+    const chat = this.chat(chatId);
+    if (!chat?.private) throw new Error('Little Bot keeps one continuous conversation. Individual conversations cannot be deleted.');
+    if (chat.status !== 'idle') await this.stop({ chatId }).catch(() => {});
+    if (chat.threadId) await this.client.request('thread/unsubscribe', { threadId: chat.threadId }, 10000).catch(() => {});
+    this.resumed.delete(chat.threadId); this.contextUsed.delete(chat.id);
+    this.store.data.chats = this.store.data.chats.filter(item => item !== chat);
+    this.changed();
+    return this.state();
   }
   message(chat, id, role, kind) {
     let message = chat.messages.find(item => item.id === id);
