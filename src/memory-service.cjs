@@ -990,10 +990,5 @@ class MemoryService {
     const result = this.db.prepare("UPDATE extraction_jobs SET status='discarded' WHERE id=? AND status='failed'").run(id);
     if (!result.changes) throw new Error('Choose a failed memory learning job.');
   }
-  applyExtraction(candidates, source = {}) {
-    return (Array.isArray(candidates) ? candidates : [])
-      .map((candidate) => this.save({ ...candidate, source, automatic: true }))
-      .filter(Boolean);
-  }
 }
 module.exports = { MemoryService, workspaceKey, MAX_EXTRACTION_ATTEMPTS };

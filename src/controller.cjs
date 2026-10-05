@@ -555,7 +555,7 @@ class Controller extends EventEmitter {
       this.threadInstructionSettings.set(chat.threadId, signature);
     }
   }
-  async send({ chatId, text = '', attachmentIds = [], mode, privateSession, quick } = {}, override = null) {
+  async send({ chatId, text = '', attachmentIds = [], mode, quick } = {}, override = null) {
     if (this.memoryConsolidator) await this.memoryConsolidator.pauseForUser();
     this.ensureReady();
     if (this.memoryBusy) throw new Error('Memory is finishing an update. Try again in a moment.');
@@ -567,7 +567,6 @@ class Controller extends EventEmitter {
     if (override && attachmentIds.length) throw new Error('Attachments are available in direct conversations.');
     if (mode !== undefined && !['execute', 'plan'].includes(mode)) throw new Error('Choose Execute or Plan mode.');
     if (override && mode === 'plan') throw new Error('Plan mode is available only in direct conversations.');
-    if (privateSession) throw new Error('Private sessions were replaced by Quick sessions.');
     if (quick !== undefined && typeof quick !== 'boolean') throw new Error('Quick session must be on or off.');
     // A Quick session is a side chat for one-off work: never saved, no memory read or written, no goals,
     // follow-ups or proactive messages, and a smaller tool set. It is the chat marked private.

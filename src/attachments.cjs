@@ -359,7 +359,6 @@ class Attachments {
     return { mime: 'image/png', dataURL: `data:image/png;base64,${(await this.read(id)).buffer.toString('base64')}` };
   }
 
-  async getImageDataURL(id) { return (await this.preview(id)).dataURL; }
 
   async _text(item) {
     const extension = path.extname(item.name).slice(1).toLowerCase();

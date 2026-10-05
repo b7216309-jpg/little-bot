@@ -120,7 +120,6 @@ class EmbeddedBrowser {
     if (!this.url) await this._load('about:blank').catch(() => {});
     return this.showPanel(true);
   }
-  async install() { return this.getState(); }
   async clearData() {
     await this.close();
     await this._session().clearStorageData();

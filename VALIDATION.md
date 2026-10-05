@@ -1,3 +1,15 @@
+# Version 0.22.1 verification
+
+0.22.1 removes dead code. No behavior changes.
+
+- **Smoke harnesses:** the seven `src/*-smoke.cjs` files (946 lines), the `--smoke-test` startup path in main and the `npm run smoke` script. CI and `npm test` never ran them.
+- **agent-browser leftovers:** the no-op `installAgentBrowser` endpoint and `EmbeddedBrowser.install()`.
+- **Uncalled code:** the old `privateSession` flag, `relaySetPort`/`Relay.setPort`, `Attachments.getImageDataURL` and `MemoryService.applyExtraction`.
+- **CSS:** 37 rules and 6 selectors for markup that no longer exists (the old multi-chat list, Private session badges, memory layers, mockup leftovers); dark.css regenerated.
+- **Docs:** the smoke files are unmapped, and the stale test counts (453 Node tests, 14 Electron fixtures) are replaced.
+
+Checked: syntax, 99 Node tests, both Electron tests, validate-docs, and screenshots of every view.
+
 # Version 0.22.0 verification
 
 0.22.0 adds sampling controls for Strata.

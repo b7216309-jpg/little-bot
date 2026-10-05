@@ -131,12 +131,6 @@ class Relay {
     if (this.config.enabled) await this.start(); else { this.pairing = null; await this.stop(); }
     return this.publicState();
   }
-  async setPort(port) {
-    if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Choose a port between 1024 and 65535.');
-    this.config.port = port; this.save();
-    if (this.server) { await this.stop(); await this.start(); }
-    return this.publicState();
-  }
   setAllowApprovals(allow) { this.config.allowApprovals = allow === true; this.save(); this.broadcastState(); return this.publicState(); }
   removeDevice(id) {
     this.config.devices = this.config.devices.filter(device => device.id !== id); this.phone.delete(id); this.save();

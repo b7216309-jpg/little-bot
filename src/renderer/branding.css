@@ -1,11 +1,11 @@
-.brand-icon {
+.brand-icon{
   display: block;
   width: 35px;
   height: 35px;
   flex-shrink: 0;
 }
 
-.welcome-icon {
+.welcome-icon{
   display: block;
   width: 64px;
   height: 64px;
