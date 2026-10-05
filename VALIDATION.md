@@ -1,3 +1,12 @@
+# Version 0.22.3 verification
+
+0.22.3 clears the message box after the first message of a Quick session.
+
+- **Cause:** a new Quick session has no chat yet, so the box belonged to "no chat". The send creates the chat and the page switches to it, and the clear step saw a different chat and kept the text. The main conversation always exists, so it was not affected.
+- **Fix:** the box is also cleared when the send created the chat, and when the page has not switched yet, as long as you are still in the same mode.
+
+Syntax and the widget Electron test (send clears the draft) pass.
+
 # Version 0.22.2 verification
 
 0.22.2 trims the test suite further. No app changes.
