@@ -7,7 +7,10 @@ function themeChoice() { try { return ['light', 'dark'].includes(localStorage.ge
 function applyTheme() {
   const choice = themeChoice();
   document.documentElement.dataset.theme = choice === 'system' ? (darkQuery.matches ? 'dark' : 'light') : choice;
+  if (window.bot?.windowMode === 'full') window.bot.setTitleBarTheme({ dark: document.documentElement.dataset.theme === 'dark' }).catch(() => {});
 }
+// The full window has no native title bar; styles.css makes the top bars draggable and keeps them clear of the caption buttons.
+if (window.bot?.windowMode === 'full') document.documentElement.classList.add('custom-titlebar');
 applyTheme();
 darkQuery.addEventListener('change', applyTheme);
 window.addEventListener('storage', event => { if (event.key === 'little-bot.theme') applyTheme(); });
