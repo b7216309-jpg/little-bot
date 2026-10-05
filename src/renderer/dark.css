@@ -318,7 +318,6 @@ html[data-theme=dark] .independent-check{border:1px solid #454036;background:#23
 html[data-theme=dark] .independent-check > summary{color:#aca9a0}
 html[data-theme=dark] .independent-check-original summary{color:#aca9a0}
 html[data-theme=dark] .answer-context-menu{border:1px solid #454036;background:#23211c}
-html[data-theme=dark] .continuous-session-note{color:var(--text-muted, #808080)}
 html[data-theme=dark] .memory-toolbar input,html[data-theme=dark] .memory-toolbar select{border:1px solid var(--border, #373737);background:var(--surface, #1a1a1a)}
 html[data-theme=dark] .memory-source{border-left:2px solid var(--border, #373737)}
 html[data-theme=dark] .action-group{background:#20221b}

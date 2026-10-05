@@ -1,3 +1,9 @@
+# Version 0.21.1 verification
+
+0.21.1 tidies the sidebar: the "One conversation. Memory that grows with you." tagline is removed, and the account and settings button sits at the bottom of the sidebar.
+
+Checked with a desktop screenshot.
+
 # Version 0.21.0 verification
 
 0.21.0 adds the Quick session, on the desktop and the phone, and includes the 0.20.4 title bar.
