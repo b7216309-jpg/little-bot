@@ -1,3 +1,12 @@
+# Version 0.21.0 verification
+
+0.21.0 adds the Quick session, on the desktop and the phone, and includes the 0.20.4 title bar.
+
+- **Quick session:** a side chat for one-off tasks, opened from the sidebar (or the phone's Quick tab). It is never saved, gets no memory, goals, activity or proactive messages, writes no memory or episodes, and has no memory, goal, routine, web-watch, follow-up or app-management tools. Proactive messages and goals keep using the main conversation. **End session** discards it; it also disappears when the app closes.
+- The unused Private-session code is reused for this; the old `privateSession` flag is refused.
+
+Checked end to end with the bundled engine and a mock Strata server: separate chat, same quick chat reused for a follow-up, no memory block, 17 tools instead of 23, nothing written to disk, the phone snapshot carries both chats, ending removes it and the main chat cannot be deleted. The phone page was checked in a browser against the relay demo (tabs, streaming, End). Desktop screenshots in light and dark. Node tests and validate-docs pass.
+
 # Version 0.20.4 verification
 
 0.20.4 removes the native Windows title bar from the full window.

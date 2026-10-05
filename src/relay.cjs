@@ -207,15 +207,15 @@ class Relay {
     const notes = view.notifications(this.lastSnapshot, next);
     this.lastSnapshot = next;
     const upsert = [];
-    const ids = next.messages.map(message => message.id);
-    for (const message of next.messages) {
+    const ids = next.messages.map(message => message.id), quickIds = next.quickMessages.map(message => message.id);
+    for (const message of [...next.messages, ...next.quickMessages]) {
       const json = JSON.stringify(message);
       if (this.sent.get(message.id) !== json) { this.sent.set(message.id, json); upsert.push(message); }
     }
-    const keep = new Set(ids);
+    const keep = new Set([...ids, ...quickIds]);
     for (const id of this.sent.keys()) if (!keep.has(id)) this.sent.delete(id);
-    const { messages, ...rest } = next;
-    this.broadcast({ type: 'state', ...rest, ids, upsert });
+    const { messages, quickMessages, ...rest } = next;
+    this.broadcast({ type: 'state', ...rest, ids, quickIds, upsert });
     if (notes.length) this.notify(notes).catch(error => this.onError('relay-push', error));
   }
   // Little Bot's phone tool: alarms, timers, ringing and routes run on the phone through its background connection.
@@ -247,10 +247,11 @@ class Relay {
   }
   remember(messages) { for (const message of messages) this.sent.set(message.id, JSON.stringify(message)); }
   broadcastMessages(event) {
-    if (event.chatId !== this.lastSnapshot?.chat?.id) return;
+    const quick = event.chatId === this.lastSnapshot?.quick?.id;
+    if (!quick && event.chatId !== this.lastSnapshot?.chat?.id) return;
     const upsert = (event.messages || []).map(view.slimMessage);
     this.remember(upsert);
-    if (upsert.length) this.broadcast({ type: 'messages', upsert });
+    if (upsert.length) this.broadcast({ type: 'messages', upsert, ...(quick ? { quick: true } : {}) });
   }
   broadcast(payload) {
     const data = `data: ${JSON.stringify(payload)}\n\n`;
@@ -367,8 +368,8 @@ class Relay {
     const client = { id, deviceId: device.id, response, visible: !background, background };
     this.clients.set(id, client);
     const snap = this.snapshot();
-    this.remember(snap.messages);
-    response.write(`data: ${JSON.stringify({ type: 'hello', clientId: id, ...snap, ids: snap.messages.map(item => item.id), upsert: snap.messages, messages: undefined })}\n\n`);
+    this.remember([...snap.messages, ...snap.quickMessages]);
+    response.write(`data: ${JSON.stringify({ type: 'hello', clientId: id, ...snap, ids: snap.messages.map(item => item.id), quickIds: snap.quickMessages.map(item => item.id), upsert: [...snap.messages, ...snap.quickMessages], messages: undefined, quickMessages: undefined })}\n\n`);
     request.on('close', () => { this.clients.delete(id); this.onClients?.(); });
     this.onClients?.();
   }
@@ -386,7 +387,9 @@ class Relay {
         const text = String(input.text || '').trim();
         const attachmentIds = Array.isArray(input.attachmentIds) ? input.attachmentIds.filter(id => typeof id === 'string').slice(0, 8) : [];
         if ((!text && !attachmentIds.length) || text.length > 32000) throw new Error('Write a message first.');
-        await this.handlers.send({ ...(chatId ? { chatId } : {}), text, ...(attachmentIds.length ? { attachmentIds } : {}) });
+        // The Quick session: a side chat with no memory, goals or follow-ups (see Controller.send).
+        if (input.quick === true) await this.handlers.send({ quick: true, ...(snap.quick ? { chatId: snap.quick.id } : {}), text, ...(attachmentIds.length ? { attachmentIds } : {}) });
+        else await this.handlers.send({ ...(chatId ? { chatId } : {}), text, ...(attachmentIds.length ? { attachmentIds } : {}) });
         return { ok: true };
       }
       case 'attach': {
@@ -398,7 +401,12 @@ class Relay {
         const attachment = await this.handlers.importAttachment({ name, bytes });
         return { attachment: { id: attachment.id, name: attachment.name, kind: attachment.kind, size: attachment.size, ...(attachment.thumbnail ? { thumbnail: attachment.thumbnail } : {}) } };
       }
-      case 'stop': if (chatId) await this.handlers.stop({ chatId }); return { ok: true };
+      case 'stop': {
+        const target = input.quick === true ? snap.quick?.id : chatId;
+        if (target) await this.handlers.stop({ chatId: target });
+        return { ok: true };
+      }
+      case 'endQuick': if (snap.quick) await this.handlers.deleteChat({ chatId: snap.quick.id }); return { ok: true };
       case 'proactive': await this.handlers.answerProactive({ messageId: String(input.messageId || ''), choice: String(input.choice || '') }); return { ok: true };
       case 'answer': {
         const approval = snap.approvals.find(item => item.requestId === input.requestId && item.ask);

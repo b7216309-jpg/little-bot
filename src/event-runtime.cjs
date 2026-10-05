@@ -188,7 +188,7 @@ class EventRuntime {
       'phone.arrived_home': ['The user just got home (from their phone). A good moment for a short welcome-back note if something useful is waiting.', 2 * MINUTE, false],
     }[event.type];
     if (event.type === 'chat.completed' && typeof this.goals.userReplied === 'function') {
-      try { this.goals.userReplied(this.store.data.chats?.[0]); } catch (error) { this._error(error, event); }
+      try { this.goals.userReplied(this.store.data.chats?.find(chat => !chat.private)); } catch (error) { this._error(error, event); }
     }
     if (!wake || typeof this.heartbeat.wakeSoon !== 'function') return;
     try { this.heartbeat.wakeSoon(wake[0], wake[1], { debounce: wake[2] }); }
