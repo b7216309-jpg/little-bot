@@ -34,4 +34,33 @@ function applyQwenGeneration(body, thinking) {
   return body;
 }
 
-module.exports = { applyQwenGeneration };
+// Sampling chosen in Little Bot for the Strata server. Each key is optional; a missing key leaves
+// Strata's own setting in charge, the same as an empty field in Strata's panel.
+const SAMPLING_LIMITS = {
+  temperature: { min: 0, max: 2, integer: false, field: 'temperature' },
+  topP: { min: 0, max: 1, integer: false, field: 'top_p' },
+  topK: { min: 0, max: 200, integer: true, field: 'top_k' },
+  maxTokens: { min: 256, max: 131072, integer: true, field: 'max_completion_tokens' },
+  seed: { min: 0, max: 2147483647, integer: true, field: 'seed' },
+};
+function normalizeSampling(value, { strict = false } = {}) {
+  const result = {};
+  if (value === null || value === undefined) return result;
+  if (typeof value !== 'object' || Array.isArray(value)) { if (strict) throw new Error('Sampling settings must be an object.'); return result; }
+  for (const [key, limit] of Object.entries(SAMPLING_LIMITS)) {
+    const raw = value[key];
+    if (raw === null || raw === undefined || raw === '') continue;
+    const number = Number(raw);
+    const valid = Number.isFinite(number) && number >= limit.min && number <= limit.max && (!limit.integer || Number.isInteger(number));
+    if (valid) result[key] = limit.integer ? number : Math.round(number * 100) / 100;
+    else if (strict) throw new Error(`${key} must be between ${limit.min} and ${limit.max}.`);
+  }
+  return result;
+}
+// Applied to the Chat Completions body sent to Strata. Little Bot's choices override the engine's.
+function applySampling(body, sampling) {
+  for (const [key, value] of Object.entries(normalizeSampling(sampling))) body[SAMPLING_LIMITS[key].field] = value;
+  return body;
+}
+
+module.exports = { applyQwenGeneration, normalizeSampling, applySampling, SAMPLING_LIMITS };

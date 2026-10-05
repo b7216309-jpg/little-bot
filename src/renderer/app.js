@@ -15,6 +15,7 @@ applyTheme();
 darkQuery.addEventListener('change', applyTheme);
 window.addEventListener('storage', event => { if (event.key === 'little-bot.theme') applyTheme(); });
 const icons = {
+  sliders: ['M4 6h9', 'M17 6h3', 'M4 12h3', 'M11 12h9', 'M4 18h11', 'M19 18h1', 'M15 4v4', 'M9 10v4', 'M17 16v4'],
   pin: ['M9 3h6l-1 6 4 4H6l4-4Z', 'M12 13v8'],
   minus: ['M5 12h14'],
   expand: ['M8 3H3v5', 'M16 3h5v5', 'M3 16v5h5', 'M21 16v5h-5'],
@@ -1137,10 +1138,55 @@ function renderThinkingControl() {
   if (strata) $('effort-select').value = enabled ? (state.settings.effort || 'low') : 'none';
   else if ($('effort-select').value === 'none') $('effort-select').value = state.settings.effort || 'medium';
   $('thinking-toggle').classList.toggle('hidden', !local || strata);
+  $('sampling-button').classList.toggle('hidden', !strata);
+  if (!strata) setSamplingOpen(false);
+  else renderSampling();
   $('thinking-toggle').setAttribute('aria-checked', String(enabled));
   $('thinking-toggle').setAttribute('aria-busy', String(thinkingSaving));
   $('thinking-toggle').disabled = thinkingChangeBlocked();
   $('thinking-value').textContent = enabled ? 'On' : 'Off';
+}
+
+// Strata sampling. Empty means Strata's own setting; a slider shows Strata's usual value until moved.
+const SAMPLING_SHOWN = { temperature: 0.8, topP: 0.95, topK: 20 };
+let samplingDraft = null, samplingTimer = null;
+function savedSampling() { return state?.settings?.localSampling || {}; }
+function setSamplingOpen(open) {
+  $('sampling-panel').classList.toggle('hidden', !open);
+  $('sampling-button').setAttribute('aria-expanded', String(open));
+  $('sampling-button').classList.toggle('active', open);
+  if (open) renderSampling();
+}
+function renderSampling() {
+  const values = samplingDraft || savedSampling();
+  for (const key of ['temperature', 'topP', 'topK']) {
+    const set = values[key] !== undefined;
+    if (document.activeElement !== $('sampling-' + key)) $('sampling-' + key).value = String(set ? values[key] : SAMPLING_SHOWN[key]);
+    $('sampling-' + key + '-value').textContent = set ? (key === 'topK' ? String(values[key]) : Number(values[key]).toFixed(2)) : 'Strata';
+    $('sampling-' + key).closest('.sampling-row').classList.toggle('unset', !set);
+  }
+  for (const key of ['maxTokens', 'seed']) if (document.activeElement !== $('sampling-' + key)) $('sampling-' + key).value = values[key] ?? '';
+  const count = Object.keys(values).length;
+  $('sampling-state').textContent = count ? `${count} set here` : 'Strata’s settings';
+  $('sampling-button').classList.toggle('customized', count > 0);
+}
+function queueSampling(next) {
+  samplingDraft = next;
+  renderSampling();
+  clearTimeout(samplingTimer);
+  samplingTimer = setTimeout(async () => {
+    const localSampling = samplingDraft; samplingDraft = null;
+    await attempt(() => window.bot.saveSettings({ localSampling }));
+    renderSampling();
+  }, 350);
+}
+function samplingInput(event) {
+  const key = event.target.dataset.key;
+  const next = { ...(samplingDraft || savedSampling()) };
+  const raw = event.target.value.trim();
+  if (raw === '') delete next[key]; else next[key] = Number(raw);
+  if (event.target.type === 'number' && raw !== '' && !event.target.checkValidity()) return;
+  queueSampling(next);
 }
 
 async function toggleThinking() {
@@ -3986,6 +4032,10 @@ $('model-select').addEventListener('change', () => attempt(() => window.bot.save
 })));
 $('effort-select').addEventListener('change', changeReasoningEffort);
 $('thinking-toggle').addEventListener('click', toggleThinking);
+$('sampling-button').addEventListener('click', () => setSamplingOpen($('sampling-panel').classList.contains('hidden')));
+$('sampling-close').addEventListener('click', () => setSamplingOpen(false));
+$('sampling-reset').addEventListener('click', () => queueSampling({}));
+for (const key of ['temperature', 'topP', 'topK', 'maxTokens', 'seed']) $('sampling-' + key).addEventListener(key === 'maxTokens' || key === 'seed' ? 'change' : 'input', samplingInput);
 $('plan-mode-toggle').addEventListener('click', () => {
   if ($('plan-mode-toggle').disabled) return;
   planModeDrafts.set(draftKey(), !currentPlanMode());
