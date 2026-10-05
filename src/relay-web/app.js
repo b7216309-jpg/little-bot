@@ -14,6 +14,8 @@ let token = native ? String(native.token() || '') : store.get();
 let snap = null;               // Everything except messages, from the last state event.
 const messages = new Map();    // id -> message
 let order = [];
+let quickOrder = [];
+let quickMode = false;         // the phone is showing the Quick session
 let clientId = '';
 let connected = false;
 let streamAbort = null;
@@ -83,7 +85,7 @@ async function attempt(action) {
 // Pairing
 function showScreen(name) {
   $('pair').classList.toggle('hidden', name !== 'pair');
-  for (const id of ['chat', 'composer', 'goals-button', 'menu-button']) $(id).classList.toggle('hidden', name !== 'chat');
+  for (const id of ['chat', 'composer', 'goals-button', 'menu-button', 'tabs']) $(id).classList.toggle('hidden', name !== 'chat');
 }
 function unpaired() {
   if (native) { native.unpaired(); return; }
@@ -182,29 +184,30 @@ async function connect() {
   }
 }
 
-function applyMessages(upsert, ids) {
+function applyMessages(upsert, ids, quickIds, quick = false) {
   for (const message of upsert || []) {
     messages.set(message.id, message);
-    if (!ids && !order.includes(message.id)) order.push(message.id);
+    const list = quick ? quickOrder : order;
+    if (!ids && !list.includes(message.id)) list.push(message.id);
   }
   if (ids) {
-    order = ids.slice();
-    const keep = new Set(ids);
+    order = ids.slice(); quickOrder = (quickIds || []).slice();
+    const keep = new Set([...order, ...quickOrder]);
     for (const id of messages.keys()) if (!keep.has(id)) messages.delete(id);
   }
 }
 function handle(event) {
   if (event.type === 'hello') {
-    messages.clear(); order = [];
+    messages.clear(); order = []; quickOrder = [];
     clientId = event.clientId; connected = true; retryDelay = 1000;
     reportPresence();
   }
   if (event.type === 'hello' || event.type === 'state') {
-    const { type, ids, upsert, clientId: _, ...rest } = event;
+    const { type, ids, quickIds, upsert, clientId: _, ...rest } = event;
     snap = rest;
-    applyMessages(upsert, ids);
+    applyMessages(upsert, ids, quickIds);
   } else if (event.type === 'messages') {
-    applyMessages(event.upsert);
+    applyMessages(event.upsert, null, null, event.quick === true);
   }
   render();
 }
@@ -301,8 +304,20 @@ function nearBottom() {
   const chat = $('chat');
   return chat.scrollHeight - chat.scrollTop - chat.clientHeight < 120;
 }
+function setQuickMode(on) {
+  quickMode = on;
+  $('tab-main').classList.toggle('active', !on); $('tab-main').setAttribute('aria-pressed', String(!on));
+  $('tab-quick').classList.toggle('active', on); $('tab-quick').setAttribute('aria-pressed', String(on));
+  $('input').placeholder = on ? 'Quick task for Little Bot…' : 'Message Little Bot…';
+  render();
+  $('chat').scrollTop = $('chat').scrollHeight;
+}
 function render() {
-  const chatStatus = snap?.chat?.status || 'idle';
+  const active = quickMode ? snap?.quick : snap?.chat;
+  const visible = quickMode ? quickOrder : order;
+  const chatStatus = active?.status || 'idle';
+  $('quick-bar').classList.toggle('hidden', !quickMode);
+  $('quick-end').disabled = !snap?.quick;
   const running = chatStatus === 'running' || chatStatus === 'waiting';
   if (connected) {
     if (!snap?.ready) setStatus(snap?.runtimeError || 'PC connected · engine not ready', 'offline');
@@ -312,10 +327,10 @@ function render() {
   }
   const stick = nearBottom();
   const items = [];
-  if (snap?.chat?.more) items.push(el('div', 'more', 'Older messages are on your PC'));
+  if (!quickMode && snap?.chat?.more) items.push(el('div', 'more', 'Older messages are on your PC'));
   let tools = [];
   const flush = () => { if (tools.length) { items.push(toolsNode(tools)); tools = []; } };
-  for (const id of order) {
+  for (const id of visible) {
     const message = messages.get(id);
     if (!message) continue;
     if (message.role === 'tool' || message.thinking) { tools.push(message); continue; }
@@ -323,9 +338,9 @@ function render() {
     items.push(messageNode(message));
   }
   flush();
-  if (chatStatus === 'running' && !order.some(id => ['running', 'inProgress'].includes(messages.get(id)?.status) && messages.get(id)?.role === 'assistant')) items.push(el('div', 'thinking', 'Little Bot is working'));
-  if (snap?.chat?.error) items.push(el('div', 'error-line', snap.chat.error));
-  if (!items.length) items.push(el('div', 'empty', connected ? 'Say hi to Little Bot.' : 'Connecting to your PC…'));
+  if (chatStatus === 'running' && !visible.some(id => ['running', 'inProgress'].includes(messages.get(id)?.status) && messages.get(id)?.role === 'assistant')) items.push(el('div', 'thinking', 'Little Bot is working'));
+  if (active?.error) items.push(el('div', 'error-line', active.error));
+  if (!items.length) items.push(el('div', 'empty', !connected ? 'Connecting to your PC…' : quickMode ? 'A side chat for one-off tasks. Little Bot won’t remember it, and your main conversation stays clean.' : 'Say hi to Little Bot.'));
   // Keep open tool groups open across re-renders.
   const open = new Set([...$('messages').querySelectorAll('details[open]')].map((_, index) => index));
   $('messages').replaceChildren(...items);
@@ -402,7 +417,7 @@ $('composer').addEventListener('submit', async event => {
   const text = $('input').value.trim();
   if ((!text && !pending.length) || busy || uploading) return;
   busy = true; render();
-  const ok = await attempt(() => api('send', { text, attachmentIds: pending.map(item => item.id) }));
+  const ok = await attempt(() => api('send', { text, attachmentIds: pending.map(item => item.id), ...(quickMode ? { quick: true } : {}) }));
   busy = false;
   if (ok) { $('input').value = ''; pending = []; renderPending(); sizeInput(); $('chat').scrollTop = $('chat').scrollHeight; }
   render();
@@ -473,7 +488,10 @@ window.littleBotDictated = text => {
   sizeInput(); render(); input.focus();
 };
 $('mic').addEventListener('click', () => native?.dictate?.());
-$('stop').addEventListener('click', () => attempt(() => api('stop', {})));
+$('stop').addEventListener('click', () => attempt(() => api('stop', quickMode ? { quick: true } : {})));
+$('tab-main').addEventListener('click', () => setQuickMode(false));
+$('tab-quick').addEventListener('click', () => setQuickMode(true));
+$('quick-end').addEventListener('click', () => attempt(() => api('endQuick', {})));
 
 // Goals
 const GOAL_LABELS = { queued: 'Scheduled', running: 'Running', paused: 'Paused', blocked: 'Blocked', completed: 'Done', failed: 'Failed' };

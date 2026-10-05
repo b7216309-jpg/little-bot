@@ -74,7 +74,7 @@ async function collect(goal, data, now = Date.now()) {
   };
   versions.definition = hash(JSON.stringify({ objective: goal.objective, kind: goal.kind, sources: goal.sources, steps: goal.steps, reviewPolicy: goal.reviewPolicy }));
   const processed = new Set(goal.review?.processedMessages || []);
-  const chat = data.chats?.[0];
+  const chat = data.chats?.find(item => !item.private);
   if (goal.sources.chat && data.memory?.enabled !== false) {
     if (!chat) coverage.push('No continuous conversation is available.');
     const user = (chat?.messages || []).filter(m => m.role === 'user' && !m.automationId && !m.goalId && m.kind !== 'automation');

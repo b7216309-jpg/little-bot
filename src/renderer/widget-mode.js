@@ -38,7 +38,7 @@ window.LittleBotWidget = (() => {
   function render(state) {
     consume();
     if (!state || !widget) return;
-    const chat = state.chats?.[0];
+    const chat = state.chats?.find(item => !item.private);
     const waiting = chat?.status === 'waiting' || state.approvals?.length;
     const working = chat?.status === 'running' || chat?.compaction?.status === 'running';
     const offline = state.account?.status !== 'connected';

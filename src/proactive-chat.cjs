@@ -50,7 +50,7 @@ function normalizePending(value) {
 
 // Posts into the idle conversation or queues for later. `duplicate` checks both delivered and queued messages.
 function post(data, fields, { duplicate = null, nowMs = Date.now() } = {}) {
-  const chat = data?.chats?.[0];
+  const chat = data?.chats?.find(item => !item.private);
   if (!chat || !Array.isArray(chat.messages)) return null;
   const pending = Array.isArray(chat.pendingProactive) ? chat.pendingProactive : [];
   if (duplicate && [...chat.messages, ...pending].some(duplicate)) return null;
@@ -123,7 +123,7 @@ function deliverOffer(data, { appid, name, note = '' } = {}, nowMs = Date.now())
 
 // Records the user's click. Side effects (launch, feedback, follow-up turn) belong to the caller.
 function answer(data, { messageId, choice } = {}, nowMs = Date.now()) {
-  const chat = data?.chats?.[0];
+  const chat = data?.chats?.find(item => !item.private);
   const message = [...(chat?.messages || []), ...(chat?.pendingProactive || [])].find(item => item.id === messageId);
   if (!message || !Array.isArray(message.actions)) throw new Error('This suggestion is no longer available.');
   if (message.answer) throw new Error('This suggestion was already answered.');
