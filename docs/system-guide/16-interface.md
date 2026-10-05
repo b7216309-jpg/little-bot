@@ -14,6 +14,10 @@ Specialized modules implement action groups, the goal ledger, provider usage, st
 
 [DesktopWindows](../../src/desktop-windows.cjs) owns the full window and the floating Glass widget. Both load the same renderer, share one controller, and pass the same strict IPC main-frame check. Switching carries the unsent draft, Plan choice and attachment references; the widget can be pinned on top or collapsed to a pill, and its size, position and mode are saved in `display.json`. See [WIDGET.md](../../WIDGET.md).
 
+## Quick session
+
+The sidebar's **Quick session** (and the phone's Quick tab) is a side chat for one-off tasks. It is the chat marked `private`: [Controller.send](../../src/controller.cjs) keeps it after the main conversation, never saves it, injects no memory, goals, activity or proactive messages, and writes no memory or episodes. [AgentTools](../../src/agent-tools.cjs) leaves out memory, goal, routine, web-watch, follow-up and app-management tools for it. **End session** discards it (`deleteChat`); the main conversation cannot be deleted. Everything that means "the conversation" (proactive delivery, goals, the phone's main tab, the widget) uses the first non-private chat.
+
 ## Usage and context display
 
 [ProviderUsage](../../src/provider-usage.cjs) normalizes provider-reported quota windows and local timing/token samples. Codex remaining percentages derive from provider usage. Local performance is whole-turn timing, including tools; tool-free samples supply a rolling average. It is not a model benchmark, price estimate or proof of KV-cache reuse.

@@ -19,6 +19,12 @@
     <button id="menu-button" class="icon-button hidden" type="button" aria-label="Menu"><span class="i" data-icon="more" aria-hidden="true"></span></button>
   </header>
 
+  <nav id="tabs" class="tabs hidden" aria-label="Chats">
+    <button id="tab-main" class="tab active" type="button" aria-pressed="true">Conversation</button>
+    <button id="tab-quick" class="tab" type="button" aria-pressed="false">Quick session</button>
+  </nav>
+  <div id="quick-bar" class="quick-bar hidden"><span>No memory, goals or follow-ups. Not saved.</span><button id="quick-end" class="chip" type="button">End</button></div>
+
   <main id="chat" class="chat hidden">
     <div id="messages" class="messages" aria-live="polite"></div>
     <div id="approvals" class="approvals"></div>

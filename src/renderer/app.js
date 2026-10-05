@@ -191,7 +191,11 @@ const isConnected = () => state?.account?.status === 'connected';
 const isReady = () => state?.runtime?.status === 'ready';
 const connectionType = () => state?.connection?.type || state?.settings?.connection || 'codex';
 const isStrataLocal = () => connectionType() === 'local' && state?.connection?.adapter === 'strata';
-const draftKey = () => selectedChatId || '__new__';
+// The Quick session is a side chat (marked private by the main process): no memory, goals or follow-ups, never saved.
+let quickMode = false;
+const newDraftKey = () => quickMode ? '__quick__' : '__new__';
+const modeChat = () => state?.chats?.find(chat => quickMode ? chat.private : !chat.private) || null;
+const draftKey = () => selectedChatId || newDraftKey();
 const queuedAttachments = () => attachmentDrafts.get(draftKey()) || [];
 const currentPlanMode = () => planModeDrafts.has(draftKey()) ? planModeDrafts.get(draftKey()) : currentChat()?.mode === 'plan';
 const basename = (path) => String(path || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path || 'Choose workspace';
@@ -280,7 +284,7 @@ function applyState(next) {
     const latest = [...(state.chats || [])].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))[0];
     selectedChatId = latest?.id || null;
   }
-  selectedChatId = state.chats?.[0]?.id || null;
+  selectedChatId = modeChat()?.id || null;
   if (isConnected()) {
     loginPending = false;
     loginMetadata = null;
@@ -351,7 +355,7 @@ function render() {
 
 function renderHeader() {
   const chat = currentChat();
-  $('page-label').textContent = { inbox: 'Activity inbox', goals: 'Goals', automations: 'Automations', calendar: 'Calendar', memory: 'Memory', profile: 'Profile', heartbeat: 'Heartbeat', extensions: 'Extensions' }[currentView] || 'Conversation';
+  $('page-label').textContent = currentView === 'chat' && quickMode ? 'Quick session' : { inbox: 'Activity inbox', goals: 'Goals', automations: 'Automations', calendar: 'Calendar', memory: 'Memory', profile: 'Profile', heartbeat: 'Heartbeat', extensions: 'Extensions' }[currentView] || 'Conversation';
   const status = state.runtime || {};
   const label = status.status === 'ready' ? 'Ready' : status.status === 'error' ? 'Needs attention' : 'Starting';
   const dot = element('span', `status-dot ${status.status === 'ready' ? '' : status.status === 'error' ? 'error' : 'starting'}`);
@@ -404,8 +408,10 @@ function renderHeader() {
 }
 
 function renderSidebar() {
-  $('nav-conversation').classList.toggle('active', currentView === 'chat');
-  $('nav-conversation').setAttribute('aria-current', currentView === 'chat' ? 'page' : 'false');
+  $('nav-conversation').classList.toggle('active', currentView === 'chat' && !quickMode);
+  $('nav-conversation').setAttribute('aria-current', currentView === 'chat' && !quickMode ? 'page' : 'false');
+  $('nav-quick').classList.toggle('active', currentView === 'chat' && quickMode);
+  $('nav-quick').setAttribute('aria-current', currentView === 'chat' && quickMode ? 'page' : 'false');
   $('nav-automations').classList.toggle('active', currentView === 'automations');
   $('nav-calendar').classList.toggle('active', currentView === 'calendar');
   $('nav-memory').classList.toggle('active', currentView === 'memory');
@@ -419,17 +425,18 @@ function renderSidebar() {
 }
 
 function saveCurrentDraft() {
-  chatDrafts.set(selectedChatId || '__new__', $('message-input').value);
+  chatDrafts.set(draftKey(), $('message-input').value);
 }
 
-function selectChat(id) {
+function selectChat(id, quick = false) {
   navigationVersion += 1;
-  saveCurrentDraft();
-  selectedChatId = state?.chats?.[0]?.id || null;
+  if (currentView === 'chat') saveCurrentDraft();
+  quickMode = quick;
+  selectedChatId = modeChat()?.id || null;
   id = selectedChatId;
   currentView = 'chat';
   chatFollowTail = true;
-  $('message-input').value = chatDrafts.get(id || '__new__') || '';
+  $('message-input').value = chatDrafts.get(draftKey()) || '';
   $('chat-view').classList.remove('hidden');
   $('automations-view').classList.add('hidden');
   $('calendar-view').classList.add('hidden');
@@ -1048,6 +1055,11 @@ function renderConversation() {
   }
   const hasMessages = Boolean(chat?.messages?.length);
   $('welcome').classList.toggle('hidden', hasMessages);
+  $('welcome-title').textContent = quickMode ? 'Quick session' : 'What’s next?';
+  $('welcome-description').textContent = quickMode ? 'For one-off tasks. No memory, goals or follow-ups, and nothing here is saved, so your main conversation stays clean.' : 'Ask, attach, or put something in motion.';
+  $('suggestions').classList.toggle('hidden', quickMode);
+  $('quick-end').classList.toggle('hidden', !quickMode || !chat);
+  $('quick-end').disabled = chat?.status === 'running' || chat?.status === 'waiting';
   $('messages').classList.toggle('hidden', !hasMessages);
   const scrollSnapshot = captureChatScroll();
   if (hasMessages) {
@@ -1098,7 +1110,7 @@ function updateComposer() {
   $('plan-mode-toggle').disabled = Boolean(running || sending || !isReady());
   $('plan-mode-toggle').setAttribute('aria-pressed', String(Boolean(currentPlanMode())));
   $('plan-mode-toggle').classList.toggle('active', Boolean(currentPlanMode()));
-  $('message-input').placeholder = currentPlanMode() ? 'Ask Little Bot to plan…' : 'Message Little Bot…';
+  $('message-input').placeholder = currentPlanMode() ? 'Ask Little Bot to plan…' : quickMode ? 'Quick task for Little Bot…' : 'Message Little Bot…';
   renderThinkingControl();
   renderAttachmentQueue();
   renderChatContext();
@@ -1523,12 +1535,13 @@ async function sendMessage(event) {
   }
   if ((!text && !attachmentIds.length) || sending || thinkingSaving || attachmentImportPending || !isConnected() || !isReady() || chat?.status === 'running' || chat?.status === 'waiting' || chat?.compaction?.status === 'running' || compactionPending.has(chat?.id)) return;
   const originChatId = selectedChatId;
-  const originDraftKey = originChatId || '__new__';
+  const originDraftKey = originChatId || newDraftKey();
+  const originQuick = quickMode;
   const originNavigation = navigationVersion;
   sending = true;
   updateComposer();
   try {
-    const result = await window.bot.send({ chatId: originChatId || undefined, text, attachmentIds, mode });
+    const result = await window.bot.send({ chatId: originChatId || undefined, text, attachmentIds, mode, ...(originQuick ? { quick: true } : {}) });
     if (chatDrafts.get(originDraftKey) === submittedDraft) chatDrafts.delete(originDraftKey);
     const remainingAttachments = (attachmentDrafts.get(originDraftKey) || []).filter((attachment) => !attachmentIds.includes(attachment.id));
     if (remainingAttachments.length) attachmentDrafts.set(originDraftKey, remainingAttachments);
@@ -1542,8 +1555,8 @@ async function sendMessage(event) {
       if (result?.chatId) {
         selectedChatId = result.chatId;
         planModeDrafts.set(result.chatId, mode === 'plan');
-        if (originDraftKey === '__new__') {
-          planModeDrafts.delete('__new__');
+        if (originDraftKey === '__new__' || originDraftKey === '__quick__') {
+          planModeDrafts.delete(originDraftKey);
         }
       }
     }
@@ -3826,6 +3839,12 @@ function resolveConfirm(accepted) {
 }
 
 $('nav-conversation').addEventListener('click', () => selectChat(null));
+$('nav-quick').addEventListener('click', () => selectChat(null, true));
+$('quick-end').addEventListener('click', async () => {
+  const chat = currentChat();
+  if (!chat?.private) return;
+  if (await attempt(() => window.bot.deleteChat({ chatId: chat.id }), 'Quick session ended.')) { chatDrafts.delete('__quick__'); selectChat(null, true); }
+});
 $('nav-automations').addEventListener('click', showAutomations);
 $('nav-calendar').addEventListener('click', () => showFeature('calendar'));
 $('nav-memory').addEventListener('click', () => showFeature('memory'));

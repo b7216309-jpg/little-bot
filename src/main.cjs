@@ -597,7 +597,7 @@ app.whenReady().then(async () => {
       if (goal) goals.record(goal, 'reaction', `You chose "${action.label}" on: ${entry.excerpt.slice(0, 160)}`);
     }
     store.save(); controller.changed(true);
-    const chat = store.data.chats[0];
+    const chat = store.data.chats.find(item => !item.private);
     if (choice === 'do' && chat?.status === 'idle') {
       // Same path as a typed message: an active goal or heartbeat yields first instead of failing the send.
       try { await appHandlers.get('send')({ chatId: chat.id, text: `✅ Yes, go ahead with this: "${entry.excerpt.slice(0, 280)}"` }); }
@@ -771,7 +771,8 @@ app.whenReady().then(async () => {
   const startup = controller.start();
   startup.then(() => {
     controller.runtime.startupMs = Math.round(performance.now() - launchTime);
-    if (store.data.chats[0]?.status === 'idle' && flushProactive(store.data.chats[0])) controller.changed(true);
+    const main = store.data.chats.find(item => !item.private);
+    if (main?.status === 'idle' && flushProactive(main)) controller.changed(true);
     controller.changed(); eventRuntime.start(); scheduler.start(); heartbeat.start(); goals.start();
     if (!smoke) {
       if (store.data.settings.activityAwareness === true) activity.start();

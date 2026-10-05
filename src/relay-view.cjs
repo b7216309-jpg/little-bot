@@ -47,15 +47,19 @@ function slimApproval(approval) {
 }
 
 function snapshot(state, { allowApprovals = false } = {}) {
-  const chat = (state.chats || [])[0] || null;
+  const chat = (state.chats || []).find(item => !item.private) || null;
   const messages = chat ? chat.messages.slice(-MAX_MESSAGES) : [];
+  const quick = (state.chats || []).find(item => item.private) || null;
+  const quickMessages = quick ? quick.messages.slice(-MAX_MESSAGES) : [];
   return {
     version: state.appVersion,
     ready: state.runtime?.status === 'ready' && state.account?.status === 'connected',
     runtimeError: state.runtime?.status === 'error' ? cut(state.runtime.error || 'The local engine could not start.', 400) : '',
     chat: chat ? { id: chat.id, status: chat.status, error: cut(chat.error, 1000), more: chat.messages.length > messages.length } : null,
     messages: messages.map(slimMessage),
-    approvals: (state.approvals || []).filter(item => !chat || item.chatId === chat.id).map(slimApproval),
+    quick: quick ? { id: quick.id, status: quick.status, error: cut(quick.error, 1000) } : null,
+    quickMessages: quickMessages.map(slimMessage),
+    approvals: (state.approvals || []).filter(item => !chat || item.chatId === chat.id || item.chatId === quick?.id).map(slimApproval),
     allowApprovals,
     goals: (state.autonomy?.goals || []).map(goal => ({ id: goal.id, name: cut(goal.name, 120), status: goal.status,
       nextRunAt: Number.isFinite(goal.nextRunAt) ? goal.nextRunAt : null, nextStep: cut(goal.nextStep, 300) })),

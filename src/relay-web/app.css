@@ -122,3 +122,8 @@ hr{border:0;border-top:1px solid var(--line);width:100%;margin:6px 0}
 .file{display:inline-flex;align-items:center;gap:6px}
 .file-remove{display:grid;place-items:center}
 .file-remove .i{width:14px;height:14px}
+.tabs{display:flex;gap:6px;padding:6px 12px 0;max-width:760px;margin:0 auto;width:100%;box-sizing:border-box}
+.tab{flex:1;border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:999px;padding:7px 10px;font:inherit;font-size:13px}
+.tab.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.quick-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 14px 0;max-width:760px;margin:0 auto;width:100%;box-sizing:border-box;color:var(--muted);font-size:12px}
+.quick-bar .chip{padding:4px 12px}
