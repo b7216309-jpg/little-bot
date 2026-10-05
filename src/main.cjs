@@ -81,6 +81,10 @@ function stateProtector() {
     decryptString: value => safeStorage.decryptString(value),
   };
 }
+// Caption buttons sit on the top bar (70px plus its 1px border), so they match the paper color.
+function titleBarColors(dark) {
+  return dark ? { color: '#21201a', symbolColor: '#a9b0aa', height: 70 } : { color: '#fcfbf8', symbolColor: '#5f665f', height: 70 };
+}
 function register(name, handler) {
   appHandlers.set(name, handler);
   ipcMain.handle(`bot:${name}`, async (event, payload) => {
@@ -703,6 +707,10 @@ app.whenReady().then(async () => {
   register('browserPanel', ({ visible } = {}) => { controller.browser.showPanel(visible === true); return controller.state(); });
   register('browserNavigate', async payload => { await controller.browser.userNavigate(payload); return controller.state(); });
   register('browserClearData', async () => { await controller.browser.clearData(); return controller.state(); });
+  register('setTitleBarTheme', ({ dark } = {}) => {
+    if (window && !window.isDestroyed()) window.setTitleBarOverlay(titleBarColors(dark === true));
+    return true;
+  });
   register('relayState', async ({ refresh } = {}) => { if (refresh && relay.server) await relay.refreshTailscale().catch(() => {}); return relay.publicState(); });
   register('relaySetEnabled', ({ enabled } = {}) => relay.setEnabled(enabled === true));
   register('relaySetPort', ({ port } = {}) => relay.setPort(Number(port)));
@@ -715,8 +723,11 @@ app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
+  // No native title bar: the app's own top bar reaches the window edge and Windows draws only the
+  // minimize/maximize/close buttons over it, in the app's colors (updated by setTitleBarTheme).
   window = new BrowserWindow({ width: 1240, height: 860, minWidth: 900, minHeight: 620,
     title: 'Little Bot', backgroundColor: nativeTheme.shouldUseDarkColors ? '#21201a' : '#f7f5f0', show: false, icon: appIconFile,
+    titleBarStyle: 'hidden', titleBarOverlay: titleBarColors(nativeTheme.shouldUseDarkColors),
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true,
       nodeIntegration: false, sandbox: true, spellcheck: false, webviewTag: false, backgroundThrottling: !smoke },
   });
