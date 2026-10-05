@@ -20,6 +20,7 @@ const { SHELL_CONDUCT, commandTranscript, appendCommandDelta } = require('./shel
 const { IndependentCheckRunner } = require('./independent-check-runner.cjs');
 const { INDEPENDENT_CHECK_MODES, normalizeIndependentCheckMode } = require('./independent-check.cjs');
 const { ProviderUsage } = require('./provider-usage.cjs');
+const { normalizeSampling } = require('./local-generation.cjs');
 
 function cleanError(error) {
   return String(error?.message || error || 'Something went wrong')
@@ -101,6 +102,7 @@ class Controller extends EventEmitter {
     this.onError = onError;
     this.localModelRelay = new LocalModelRelay({
       thinking: () => this.store.data.settings.localThinking !== false,
+      sampling: () => this.store.data.settings.localSampling || {},
       onError: (source, error, metadata) => this.onError(`local-model-relay:${source}`, error, metadata),
     });
     this.runtime = { status: 'starting' };
@@ -415,6 +417,7 @@ class Controller extends EventEmitter {
     if (input.effort !== undefined) {
       if (!['low', 'medium', 'high'].includes(input.effort)) throw new Error('Invalid thinking level.');
     }
+    const localSampling = input.localSampling !== undefined ? normalizeSampling(input.localSampling, { strict: true }) : undefined;
     if (input.independentCheckMode !== undefined && !INDEPENDENT_CHECK_MODES.includes(input.independentCheckMode)) {
       throw new Error('Choose Off, Selective, or Always for Independent Check.');
     }
@@ -440,6 +443,7 @@ class Controller extends EventEmitter {
     }
     if (input.effort !== undefined) this.store.data.settings.effort = input.effort;
     if (input.localThinking !== undefined) this.store.data.settings.localThinking = input.localThinking;
+    if (localSampling !== undefined) this.store.data.settings.localSampling = localSampling;
     if (input.independentCheckMode !== undefined) this.store.data.settings.independentCheckMode = input.independentCheckMode;
     if (input.autoCompactPercent !== undefined) this.store.data.settings.autoCompactPercent = input.autoCompactPercent;
     if (input.systemPrompt !== undefined) {

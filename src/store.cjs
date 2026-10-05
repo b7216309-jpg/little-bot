@@ -16,6 +16,7 @@ const { normalizeIndependentCheckMode, normalizeIndependentCheckRecord } = requi
 const { normalizeStandingIntents } = require('./standing-intents.cjs');
 const { normalizePending, normalizeActions, normalizeAnswer, normalizeFeedbackLog } = require('./proactive-chat.cjs');
 const { normalizeWatches } = require('./web-watch.cjs');
+const { normalizeSampling } = require('./local-generation.cjs');
 
 const INTERRUPTED = 'Interrupted because Little Bot closed before the task finished.';
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -100,6 +101,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
       autoCompactPercent: normalizeAutoCompactPercent(settings.autoCompactPercent),
       independentCheckMode: normalizeIndependentCheckMode(settings.independentCheckMode),
       activityAwareness: settings.activityAwareness === true,
+      localSampling: normalizeSampling(settings.localSampling),
       ...(typeof settings.systemPrompt === 'string' ? { systemPrompt: settings.systemPrompt.slice(0, 100000) } : {}),
     },
     chats: chats.filter(isObject).filter(chat => chat.private !== true).slice(0, 1).map(chat => {
