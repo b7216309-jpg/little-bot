@@ -2,6 +2,7 @@
 
 const { parseModelJson } = require('./model-json.cjs');
 const proactive = require('./proactive-chat.cjs');
+const dreaming = require('./dreaming.cjs');
 
 // Users forgot almost half of automatically learned records; fewer, sturdier memories are worth more.
 const MAX_LEARNED_PER_TURN = 3;
@@ -78,7 +79,7 @@ class MemoryConsolidator {
     }
     return count;
   }
-  get state() { return { status: this.active ? 'learning' : 'idle', lastError: this.lastError,
+  get state() { return { status: this.active ? (this.active.kind === 'dream' ? 'dreaming' : 'learning') : 'idle', lastError: this.lastError,
     failedJobs: this.service?.failedExtractions?.() || [] }; }
   enqueue(chat) {
     if (this.closed || this.controller.store.data.memory?.enabled === false) return;
@@ -111,8 +112,8 @@ class MemoryConsolidator {
       }).finally(() => { this.embeddingWork = null; });
     }
     const job = this.service.pendingExtractions(1)[0];
-    if (!job) return false;
-    const op = { job, output: '', threadId: null, turnId: null, cancelled: false };
+    if (!job) return this.maybeDream();
+    const op = { kind: 'extract', job, output: '', threadId: null, turnId: null, cancelled: false };
     op.completion = new Promise(resolve => { op.resolve = resolve; });
     this.active = op;
     this.controller.memoryBusy = true;
@@ -123,8 +124,35 @@ class MemoryConsolidator {
     await op.starting;
     return true;
   }
+  // "Dream now" from the Memory page; it still waits for the idle lane.
+  requestDream() { this.dreamRequested = true; this.dreamNotBefore = 0; }
+  async maybeDream() {
+    const c = this.controller, state = c.store.data.companion, now = Date.now();
+    if (!state || now < (this.dreamNotBefore || 0)) return false;
+    const fresh = dreaming.newUserMessages(c.store.data, Number.isFinite(state.lastDreamAt) ? state.lastDreamAt : now - 36 * 3600000);
+    let idleSeconds;
+    try { idleSeconds = c.systemIdleSeconds?.(); } catch { /* Unknown idle time counts as idle. */ }
+    if (!dreaming.isDreamDue({ now, lastDreamAt: state.lastDreamAt, idleSeconds, requested: this.dreamRequested, fresh })) return false;
+    const material = dreaming.dreamMaterial(c, now);
+    if (!material.messages.length) {
+      this.dreamRequested = false; this.dreamNotBefore = now + 3600000;
+      state.lastDreamError = 'Nothing new to reflect on yet.'; c.changed(true);
+      return false;
+    }
+    const op = { kind: 'dream', material, output: '', threadId: null, turnId: null, cancelled: false };
+    op.completion = new Promise(resolve => { op.resolve = resolve; });
+    this.active = op;
+    c.memoryBusy = true;
+    c.changed();
+    op.timer = setTimeout(() => { void this.stop('The dream took too long.').catch(error => { this.lastError = error.message; }); }, 5 * 60000);
+    op.timer.unref?.();
+    op.starting = this.run(op);
+    await op.starting;
+    return true;
+  }
   async run(op) {
     const c = this.controller, settings = c.store.data.settings;
+    if (op.kind === 'dream') return this.runDream(op);
     try {
       const cwd = op.job.workspace || settings.workspace;
       const disabled = await c.extensionRuntime?.heartbeatConfig(cwd) || {};
@@ -172,6 +200,40 @@ Return only one JSON object matching this schema, without Markdown: ${JSON.strin
       if (this.active === op && !op.cancelled) this.finish(op, null, error.message);
     }
   }
+  async runDream(op) {
+    const c = this.controller, settings = c.store.data.settings;
+    try {
+      const cwd = settings.workspace;
+      const disabled = await c.extensionRuntime?.heartbeatConfig(cwd) || {};
+      if (op.cancelled || this.closed) return;
+      const started = await c.client.request('thread/start', {
+        cwd, model: settings.model || undefined, ephemeral: true, approvalPolicy: 'never',
+        sandbox: 'read-only', developerInstructions: dreaming.DREAM_INSTRUCTIONS,
+        config: { ...disabled, ...c.providerConfig(), 'features.shell_tool': false,
+          'features.unified_exec': false, 'features.js_repl': false, 'features.code_mode': false,
+          'features.multi_agent': false, 'features.skill_mcp_dependency_install': false,
+          web_search: 'disabled', model_reasoning_effort: 'low' },
+      }, 60000);
+      op.threadId = started?.thread?.id;
+      if (!op.threadId) throw new Error('No dream thread was returned.');
+      if (op.cancelled || this.closed) return;
+      await c.extensionRuntime?.verifyHeartbeat(op.threadId);
+      if (op.cancelled || this.closed) return;
+      const local = settings.connection === 'local';
+      const profile = c.profileContext?.() || '';
+      const text = [profile, `Material for tonight (reference data):\n${JSON.stringify(op.material)}`,
+        local ? `Return only one JSON object matching this schema, without Markdown: ${JSON.stringify(dreaming.DREAM_SCHEMA)}` : ''].filter(Boolean).join('\n\n');
+      const result = await c.client.request('turn/start', {
+        threadId: op.threadId, cwd, model: settings.model || undefined, input: [{ type: 'text', text }],
+        effort: c.effectiveEffort(settings.model, 'low'), approvalPolicy: 'never',
+        sandboxPolicy: { type: 'readOnly' }, ...(local ? {} : { outputSchema: dreaming.DREAM_SCHEMA }),
+      }, 60000);
+      op.turnId ||= result?.turn?.id;
+      if (!op.turnId) throw new Error('No dream turn was returned.');
+    } catch (error) {
+      if (this.active === op && !op.cancelled) this.finish(op, null, error.message);
+    }
+  }
   notification(method, params = {}) {
     const op = this.active;
     if (!op?.threadId || params.threadId !== op.threadId) return false;
@@ -183,8 +245,8 @@ Return only one JSON object matching this schema, without Markdown: ${JSON.strin
     else if (method === 'turn/completed') {
       try {
         if (['failed', 'interrupted'].includes(params.turn?.status) || params.turn?.error) throw new Error(params.turn?.error?.message || 'Memory extraction interrupted.');
-        const output = parseModelJson(op.output, 'Memory extraction did not return readable JSON.');
-        this.finish(op, normalizeCandidates(output, op.job));
+        const output = parseModelJson(op.output, op.kind === 'dream' ? 'The dream did not return readable JSON.' : 'Memory extraction did not return readable JSON.');
+        this.finish(op, op.kind === 'dream' ? output : normalizeCandidates(output, op.job));
       } catch (error) { this.finish(op, null, error.message); }
     }
     return true;
@@ -194,7 +256,8 @@ Return only one JSON object matching this schema, without Markdown: ${JSON.strin
     op.cancelled = true;
     clearTimeout(op.timer);
     try {
-      if (candidates) {
+      if (op.kind === 'dream') this.settleDream(op, candidates, error);
+      else if (candidates) {
         const learned = this.service.completeExtraction(op.job.id, candidates.slice(0, MAX_LEARNED_PER_TURN));
         if (proactive.deliverLearned(this.controller.store.data, learned)) this.controller.changed(true);
       }
@@ -202,7 +265,8 @@ Return only one JSON object matching this schema, without Markdown: ${JSON.strin
       this.lastError = error || null;
     } catch (failure) {
       this.lastError = failure.message;
-      this.service.failExtraction(op.job.id, failure.message);
+      if (op.kind === 'dream') { this.controller.store.data.companion.lastDreamError = failure.message; this.dreamNotBefore = Date.now() + 30 * 60000; }
+      else this.service.failExtraction(op.job.id, failure.message);
     } finally {
       this.active = null;
       this.controller.memoryBusy = false;
@@ -211,6 +275,19 @@ Return only one JSON object matching this schema, without Markdown: ${JSON.strin
       void this.release(op);
       this.controller.changed();
     }
+  }
+  // A finished dream is saved; a failed one waits half an hour; one interrupted by the user simply runs again later.
+  settleDream(op, output, error) {
+    const state = this.controller.store.data.companion;
+    if (output) {
+      const { learned } = dreaming.applyDream(this.controller, output, op.material);
+      this.dreamRequested = false;
+      proactive.deliverLearned(this.controller.store.data, learned);
+    } else if (error) {
+      state.lastDreamError = error.slice(0, 300);
+      this.dreamNotBefore = Date.now() + 30 * 60000;
+    } else this.dreamNotBefore = Date.now() + 10 * 60000;
+    this.controller.changed(true);
   }
   async release(op) {
     if (!op.threadId || this.controller.closing) return;

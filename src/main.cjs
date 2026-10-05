@@ -37,6 +37,7 @@ const { attachmentDescriptors } = require('./attachment-message.cjs');
 const { ErrorLog } = require('./error-log.cjs');
 const { MAX_EVENTS, validateCalendarEvent, listCalendarEvents, calendarEventView } = require('./calendar.cjs');
 const { randomUUID } = require('node:crypto');
+const companion = require('./companion.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'little-bot-attachment', privileges: { standard: true, secure: true, supportFetchAPI: false } }]);
 
@@ -133,6 +134,7 @@ app.whenReady().then(async () => {
   const client = new CodexClient({ homeDir: codexHome, cwd: defaultWorkspace });
   controller = new Controller({ store, client, onError: logDiagnostic });
   controller.memoryConsolidator = new MemoryConsolidator(controller);
+  controller.systemIdleSeconds = () => powerMonitor.getSystemIdleTime();
   try { controller.memoryConsolidator.retryFormatFailures(); } catch (error) { logDiagnostic('memory-retry', error); }
   controller.browser = new EmbeddedBrowser({ root: path.join(stateDir, 'browser'), getWindow: () => window, onChange: () => controller.changed() });
   controller.webServices = new WebServices({ root: path.join(stateDir, 'services'), safeStorage });
@@ -256,6 +258,13 @@ app.whenReady().then(async () => {
       proactiveChat.deliverOffer(store.data, { appid: game.appid, name: game.name, note });
       controller.changed(true);
       return { offered: true, game: game.name, note: 'A Launch button was posted; the game starts only if the user clicks it.' };
+    },
+    manageIntention: async (action, payload = {}) => {
+      if (action === 'list') return companion.active(store.data.companion).map(({ id, text, why, trigger, fires }) => ({ id, text, why, trigger, offered: fires }));
+      const result = action === 'create' ? companion.create(store.data.companion, payload, { source: payload.source })
+        : companion.close(store.data.companion, payload.id, action === 'done' ? 'done' : 'cancelled');
+      controller.changed(true);
+      return { id: result.id, text: result.text, trigger: result.trigger, status: result.status };
     },
     manageFollowup: async (action, payload) => {
       if (action === 'list') return heartbeat.listFollowups();
@@ -709,6 +718,8 @@ app.whenReady().then(async () => {
     if (window && !window.isDestroyed()) window.setTitleBarOverlay(titleBarColors(dark === true));
     return true;
   });
+  register('dreamNow', () => { controller.memoryConsolidator.requestDream(); controller.changed(); return controller.state(); });
+  register('cancelIntention', ({ id } = {}) => { companion.close(store.data.companion, String(id || ''), 'cancelled'); controller.changed(true); return controller.state(); });
   register('relayState', async ({ refresh } = {}) => { if (refresh && relay.server) await relay.refreshTailscale().catch(() => {}); return relay.publicState(); });
   register('relaySetEnabled', ({ enabled } = {}) => relay.setEnabled(enabled === true));
   register('relaySetApprovals', ({ allow } = {}) => relay.setAllowApprovals(allow === true));

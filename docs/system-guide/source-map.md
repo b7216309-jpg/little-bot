@@ -56,6 +56,8 @@ Guide: [04-memory.md](04-memory.md)
 | [src/local-embeddings-worker.cjs](../../src/local-embeddings-worker.cjs) | Production application module |
 | [src/local-embeddings.cjs](../../src/local-embeddings.cjs) | Production application module |
 | [src/memory-consolidator.cjs](../../src/memory-consolidator.cjs) | Production application module |
+| [src/dreaming.cjs](../../src/dreaming.cjs) | Nightly dream: diary, durable memories and intentions |
+| [src/companion.cjs](../../src/companion.cjs) | Dream diary and intentions (prospective memory) |
 | [src/memory-service.cjs](../../src/memory-service.cjs) | Production application module |
 | [src/memory.cjs](../../src/memory.cjs) | Production application module |
 | [src/recall.cjs](../../src/recall.cjs) | Production application module |

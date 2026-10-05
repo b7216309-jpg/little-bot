@@ -46,3 +46,8 @@ Memory is off; scope points at another project; aliases are absent; no relevant 
 
 [consolidation](../../test/memory-consolidator.test.cjs).
 
+## Dreaming and intentions
+
+[Dreaming](../../src/dreaming.cjs) runs in the memory learning lane ([MemoryConsolidator](../../src/memory-consolidator.cjs)), so it never overlaps a conversation and stops when the user sends a message. It is due once at least four new user messages exist and either it is night (before 06:00, 16 hours since the last dream, PC idle 15 minutes) or 30 hours passed and the PC has been idle 10 minutes; **Dream now** on the Memory page skips the wait. It reads the recent conversation, remembered facts, the last diary entries, open intentions, the next four days of calendar, recent heartbeat notes and the heartbeat agenda, and returns a diary entry, at most three memories and at most three intentions. A memory is saved only when it cites the user's own messages, so the bot's claims cannot become facts.
+
+[Intentions](../../src/companion.cjs) are prospective memory: something to bring up later, triggered by the next chat, a topic keyword, a date or a moment (back at the PC, got home, left home). Chat turns get matching ones as a context block; the heartbeat gets the ones due now or matching the presence event that woke it, and speaking up spends an offer. Each is offered at most once per 20 hours and three times, and expires (14 days from a dream, 30 from chat). The `intention_manage` tool lets the chat and the wild heartbeat create, list, finish or cancel them; the Quick session and goals cannot. Diary and intentions live in `state.json`'s encrypted part next to chats and memory.
