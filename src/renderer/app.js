@@ -1596,7 +1596,9 @@ async function sendMessage(event) {
     void releaseAttachments(attachmentIds.map(id => ({ id }))).catch(error => notify(error.message || String(error), true));
     // The user can visit another panel or chat while send is starting.
     // Clear only this submitted draft, including when they return before the RPC ends.
-    if (selectedChatId === originChatId && $('message-input').value === submittedDraft) $('message-input').value = '';
+    // A first message creates its chat (the Quick session starts empty), so the box then belongs to result.chatId.
+    const sameBox = quickMode === originQuick && (selectedChatId === originChatId || (!originChatId && (!selectedChatId || selectedChatId === result?.chatId)));
+    if (sameBox && $('message-input').value === submittedDraft) $('message-input').value = '';
     if (originNavigation === navigationVersion && currentView === 'chat') {
       if (result?.chatId) {
         selectedChatId = result.chatId;
