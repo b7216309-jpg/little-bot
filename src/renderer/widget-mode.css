@@ -27,7 +27,6 @@ html.widget-mode body{background:transparent;padding:8px;overflow:hidden}
 .widget-mode .chat-scroll{padding:0;min-height:0}
 .widget-mode .messages{max-width:none;width:auto;padding:10px 18px 15px;margin:0}
 .widget-mode .message{margin-bottom:17px}
-.widget-mode .message-meta{font-size:9px;margin-bottom:5px;color:#839096}
 .widget-mode .message-content{font-size:12px;line-height:1.7;color:#39464d}
 .widget-mode .user .message-content{background:#ffffff78;border:1px solid #ffffffb0;border-radius:16px 16px 4px 16px;padding:10px 13px;max-width:92%}
 .widget-mode .assistant .message-content{background:#ffffff35;border:1px solid #ffffff65;border-radius:16px 16px 16px 4px;padding:11px 13px;width:auto}
@@ -43,7 +42,7 @@ html.widget-mode body{background:transparent;padding:8px;overflow:hidden}
 .widget-mode .composer-options .options-divider{display:none}
 .widget-mode .composer-options #plan-mode-toggle{font-size:9px;padding:4px 5px}
 .widget-mode .send-button{background:#354e44;border-color:#354e44;border-radius:50%;width:30px;height:30px}
-.widget-mode .composer-hint,.widget-mode .context-panel{display:none}
+.widget-mode .context-panel{display:none}
 .widget-mode .chat-error,.widget-mode .approval-banner{width:calc(100% - 32px);font-size:10px;flex-wrap:wrap}
 .widget-mode .welcome{padding:35px 23px 20px}
 .widget-mode .welcome-symbol{display:block;margin-bottom:15px}

@@ -42,9 +42,8 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'little-bot-attachment', privile
 
 app.setName('Little Bot');
 if (process.env.LITTLE_BOT_DATA_DIR) app.setPath('userData', path.resolve(process.env.LITTLE_BOT_DATA_DIR));
-const smoke = process.argv.includes('--smoke-test');
 const launchTime = performance.now();
-if (!smoke && !app.requestSingleInstanceLock()) app.quit();
+if (!app.requestSingleInstanceLock()) app.quit();
 let window, desktopWindows, controller, scheduler, heartbeat, goals, eventRuntime, errorLog, activity, webWatcher, relay, quitting = false;
 const rendererFile = path.join(__dirname, 'renderer', 'index.html');
 const appIconFile = path.join(__dirname, '..', 'resources', 'icons', 'little-bot.png');
@@ -174,7 +173,7 @@ app.whenReady().then(async () => {
       controller.changed(true);
     },
     onAlert: item => {
-      if (smoke || !Notification.isSupported() || desktopWindows?.isFocused()) return;
+      if (!Notification.isSupported() || desktopWindows?.isFocused()) return;
       const notice = new Notification({ title: item.status === 'error' ? 'Little Bot needs attention' : item.source === 'goal' ? 'Little Bot goals' : 'Little Bot heartbeat',
         body: item.summary.slice(0, 240), silent: true, icon: appIconFile });
       notice.on('click', () => {
@@ -345,7 +344,7 @@ app.whenReady().then(async () => {
   // Heartbeat and goal alerts already notify through onAlert, and learned notes stay quiet.
   let desktopSnapshot = null;
   controller.on('event', event => {
-    if (event.type !== 'state' || smoke) return;
+    if (event.type !== 'state') return;
     let notes = [];
     try { const next = relayView.snapshot(event.state); notes = relayView.notifications(desktopSnapshot, next); desktopSnapshot = next; }
     catch (error) { logDiagnostic('desktop-notify', error); return; }
@@ -474,7 +473,6 @@ app.whenReady().then(async () => {
   });
   register('openAgentBrowser', async () => { await controller.browser.open(); return controller.state(); });
   register('closeAgentBrowser', async () => { await controller.browser.close(); return controller.state(); });
-  register('installAgentBrowser', async () => { await controller.browser.install(); return controller.state(); });
   register('chooseWorkspace', async () => {
     const selected = await dialog.showOpenDialog(desktopWindows.activeWindow(), { title: 'Choose Little Bot’s working folder',
       defaultPath: store.data.settings.workspace, properties: ['openDirectory', 'createDirectory'] });
@@ -713,7 +711,6 @@ app.whenReady().then(async () => {
   });
   register('relayState', async ({ refresh } = {}) => { if (refresh && relay.server) await relay.refreshTailscale().catch(() => {}); return relay.publicState(); });
   register('relaySetEnabled', ({ enabled } = {}) => relay.setEnabled(enabled === true));
-  register('relaySetPort', ({ port } = {}) => relay.setPort(Number(port)));
   register('relaySetApprovals', ({ allow } = {}) => relay.setAllowApprovals(allow === true));
   register('relayPair', () => relay.startPairing());
   register('relayCancelPair', () => { relay.pairing = null; return relay.publicState(); });
@@ -729,7 +726,7 @@ app.whenReady().then(async () => {
     title: 'Little Bot', backgroundColor: nativeTheme.shouldUseDarkColors ? '#21201a' : '#f7f5f0', show: false, icon: appIconFile,
     titleBarStyle: 'hidden', titleBarOverlay: titleBarColors(nativeTheme.shouldUseDarkColors),
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true,
-      nodeIntegration: false, sandbox: true, spellcheck: false, webviewTag: false, backgroundThrottling: !smoke },
+      nodeIntegration: false, sandbox: true, spellcheck: false, webviewTag: false },
   });
   window.webContents.on('render-process-gone', (_event, details) => {
     logDiagnostic('renderer:process-gone', new Error(`Renderer process exited: ${details.reason || 'unknown'}`), {
@@ -760,27 +757,25 @@ app.whenReady().then(async () => {
     openLink: url => { if (safeWebUrl(url)) shell.openExternal(url).catch(error => logDiagnostic('widget-link', error)); } });
   window.webContents.on('will-navigate', (event, url) => { if (url !== rendererUrl) event.preventDefault(); });
   window.on('close', event => {
-    if (quitting || smoke || (!goals.activeId && !heartbeat.running && !store.data.chats.some(chat => chat.status !== 'idle'))) return;
+    if (quitting || (!goals.activeId && !heartbeat.running && !store.data.chats.some(chat => chat.status !== 'idle'))) return;
     const choice = dialog.showMessageBoxSync(window, { type: 'question', buttons: ['Keep working', 'Quit'],
       defaultId: 0, cancelId: 0, title: 'A task is still running',
       message: 'Quit Little Bot and stop its active tasks?' });
     if (choice === 0) event.preventDefault();
   });
   await window.loadFile(rendererFile);
-  if (!smoke) await desktopWindows.setMode({ mode: desktopWindows.preferences.mode });
+  await desktopWindows.setMode({ mode: desktopWindows.preferences.mode });
   const startup = controller.start();
   startup.then(() => {
     controller.runtime.startupMs = Math.round(performance.now() - launchTime);
     const main = store.data.chats.find(item => !item.private);
     if (main?.status === 'idle' && flushProactive(main)) controller.changed(true);
     controller.changed(); eventRuntime.start(); scheduler.start(); heartbeat.start(); goals.start();
-    if (!smoke) {
-      if (store.data.settings.activityAwareness === true) activity.start();
-      webWatcher.start();
-      relay.start().then(relayChanged).catch(error => logDiagnostic('relay-start', error));
-      setTimeout(dailyBackup, 60000).unref?.();
-      setInterval(dailyBackup, 6 * 3600000).unref?.();
-    }
+    if (store.data.settings.activityAwareness === true) activity.start();
+    webWatcher.start();
+    relay.start().then(relayChanged).catch(error => logDiagnostic('relay-start', error));
+    setTimeout(dailyBackup, 60000).unref?.();
+    setInterval(dailyBackup, 6 * 3600000).unref?.();
     if (restoreResult?.restored) controller.emit('event', { type: 'memory', message: `Restored the ${restoreResult.restored} backup. Your previous data was kept as ${restoreResult.safety}.` });
     else if (restoreResult?.error) controller.emit('event', { type: 'memory', error: true, message: restoreResult.error });
     else if (store.memoryWasMissing) {
@@ -788,24 +783,6 @@ app.whenReady().then(async () => {
       controller.emit('event', { type: 'memory', error: true, message: 'The memory database was missing and has been recreated, so learned memories are gone. If that was not intended, restore a backup from Memory → Search settings → Backups.' });
     }
   }).catch(() => {});
-  if (smoke) {
-    try {
-      await startup;
-      const smokeOnly = process.env.LITTLE_BOT_SMOKE_ONLY;
-      if (!['attachments', 'recall'].includes(smokeOnly)) {
-        await require('./smoke.cjs').run({ window, controller, store, stateDir, extensionFiles, extensionRuntime, goals, heartbeat });
-        await require('./web-smoke.cjs').run({ window, controller, store, stateDir });
-      }
-      if (smokeOnly !== 'recall') {
-        console.log(JSON.stringify({ attachments: await require('./attachment-smoke.cjs').run({ window, controller, store, stateDir }) }));
-        if (process.env.LITTLE_BOT_LIVE_LOCAL_QA === '1') console.log(JSON.stringify({ liveAttachments: await require('./attachment-smoke.cjs').runLive({ window, controller, store, stateDir }) }));
-      }
-      if (smokeOnly !== 'attachments') console.log(JSON.stringify({ recall: await require('./recall-smoke.cjs').run({ window, controller, store, stateDir }) }));
-      await controller.browser.close({ shutdown: true }); controller.webServices.close(); await controller.windowsUi?.close();
-      scheduler.stop(); heartbeat.stop(); eventRuntime.stop(); await goals.close(); await controller.close();
-      app.exit(0);
-    } catch (error) { console.error(cleanError(error.stack || error)); scheduler.stop(); heartbeat.stop(); eventRuntime.stop(); await goals.close(); await controller.browser.close({ shutdown: true }).catch(() => {}); controller.webServices.close(); await controller.close(); app.exit(1); }
-  }
 }).catch(error => { logDiagnostic('main:startup', error); console.error(cleanError(error)); app.exit(1); });
 app.on('second-instance', () => { desktopWindows?.show().catch(error => logDiagnostic('display-show', error)); });
 app.on('window-all-closed', () => app.quit());

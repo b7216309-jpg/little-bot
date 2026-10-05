@@ -142,7 +142,7 @@ On Windows, `npm run package` produces the unpacked app folder, a portable ZIP, 
 
 Pinned dependencies: Codex 0.157.1, agent-browser 0.38.1, Mammoth 1.12.3, unpdf 1.8.1, Electron 44.4.5, ONNX Runtime 1.30.0, and Hugging Face Tokenizers 0.2.0. Embedding assets are fetched and verified at build time, then bundled for offline use; the installed app downloads no models.
 
-For focused checks and remaining limitations, see [VALIDATION.md](VALIDATION.md). Smoke runs require a fresh isolated `LITTLE_BOT_DATA_DIR`.
+For focused checks and remaining limitations, see [VALIDATION.md](VALIDATION.md).
 
 References: [Codex app-server](https://learn.chatgpt.com/docs/app-server), [agent-browser](https://agent-browser.dev/), [Firecrawl](https://docs.firecrawl.dev/), [Electron security](https://www.electronjs.org/docs/latest/tutorial/security).
 

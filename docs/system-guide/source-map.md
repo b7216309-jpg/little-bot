@@ -237,14 +237,7 @@ Guide: [17-diagnostics-distribution.md](17-diagnostics-distribution.md)
 | [scripts/package.cjs](../../scripts/package.cjs) | Preparation, build, install or developer verification |
 | [scripts/readme-screenshots.cjs](../../scripts/readme-screenshots.cjs) | Preparation, build, install or developer verification |
 | [scripts/uninstall.ps1](../../scripts/uninstall.ps1) | Preparation, build, install or developer verification |
-| [src/attachment-smoke.cjs](../../src/attachment-smoke.cjs) | Isolated development smoke harness |
 | [src/error-log.cjs](../../src/error-log.cjs) | Production application module |
-| [src/goals-smoke.cjs](../../src/goals-smoke.cjs) | Isolated development smoke harness |
-| [src/personal-smoke.cjs](../../src/personal-smoke.cjs) | Isolated development smoke harness |
-| [src/recall-smoke.cjs](../../src/recall-smoke.cjs) | Isolated development smoke harness |
-| [src/smoke.cjs](../../src/smoke.cjs) | Isolated development smoke harness |
-| [src/web-settings-smoke.cjs](../../src/web-settings-smoke.cjs) | Isolated development smoke harness |
-| [src/web-smoke.cjs](../../src/web-smoke.cjs) | Isolated development smoke harness |
 | [scripts/build-icons.cjs](../../scripts/build-icons.cjs) | Preparation, build, install or developer verification |
 | [resources/icons/little-bot.ico](../../resources/icons/little-bot.ico) | Windows app, installer and shortcut icon |
 | [resources/icons/little-bot.png](../../resources/icons/little-bot.png) | 512 px app icon, also the phone app icon |
