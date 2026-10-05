@@ -1,3 +1,13 @@
+# Version 0.20.4 verification
+
+0.20.4 removes the native Windows title bar from the full window.
+
+- The colored Windows title bar is hidden. The app's own top bar reaches the window edge and is draggable, as are the logo and the browser bar; their buttons stay clickable.
+- Windows still draws minimize, maximize and close (snap layouts keep working), now over the top bar in the paper color with matching symbols. The renderer sends the resolved theme so they follow Light/Dark/System.
+- The top bar and browser bar keep clear of those buttons using the title-bar area width.
+
+Checked with real screen captures in light, dark and the Goals view. Node tests and validate-docs pass.
+
 # Version 0.20.3 verification
 
 0.20.3 keeps proactivity running after the local model is swapped.

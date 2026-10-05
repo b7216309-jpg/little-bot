@@ -220,3 +220,9 @@
 .agent-browser-button.browser-active{border-color:#cad7bb;background:#f2f5ec;color:#58705c}
 .goal-context-meta .goal-waiting{color:#a0702c}
 .goal-context-meta .goal-silent{color:#58705c}
+/* Hidden native title bar (full window): drag from the top bars and the logo, keep controls clickable, and leave room for the caption buttons. */
+.custom-titlebar{--caption-width:calc(100vw - env(titlebar-area-x,0px) - env(titlebar-area-width,100vw))}
+.custom-titlebar .topbar,.custom-titlebar .browser-bar,.custom-titlebar .brand{-webkit-app-region:drag}
+.custom-titlebar .topbar button,.custom-titlebar .topbar a,.custom-titlebar .topbar select,.custom-titlebar .topbar input,.custom-titlebar .browser-bar button,.custom-titlebar .browser-bar form,.custom-titlebar .browser-bar input{-webkit-app-region:no-drag}
+.custom-titlebar .topbar,.custom-titlebar .browser-bar{height:71px}
+.custom-titlebar .app-shell:not(.browser-open) .topbar,.custom-titlebar .browser-bar{padding-right:calc(var(--caption-width) + 14px)}
