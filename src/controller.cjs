@@ -332,6 +332,7 @@ class Controller extends EventEmitter {
       await this.localModelRelay.start();
       this.models = result.models; this.connection = result.connection;
       this.account = { status: 'connected', type: 'local' };
+      this.followLocalModel();
       this.providerUsage.connectionChanged(this.connection);
     } catch (error) {
       this.models = []; this.account = { status: 'signedOut', type: 'local' };
@@ -339,6 +340,25 @@ class Controller extends EventEmitter {
       this.providerUsage.connectionChanged(this.connection);
     }
     this.changed(); return this.state();
+  }
+  // A local server loads one model at a time. Background work (heartbeat, goals, scheduled tasks) saved
+  // with a model the server no longer has would otherwise wait forever after the user swaps models
+  // (for example IQ2 to IQ3), so it moves to the model that is selected and loaded now.
+  followLocalModel() {
+    const { settings } = this.store.data, current = settings.localModel;
+    if (settings.connection !== 'local' || !this.models.some(model => model.id === current)) return;
+    const moved = [];
+    const jobs = [['heartbeat', this.store.data.heartbeat], ...(this.store.data.autonomy?.goals || []).map(goal => ['goal', goal]),
+      ...(this.store.data.automations || []).map(automation => ['automation', automation])];
+    for (const [kind, job] of jobs) {
+      if (!job?.model || job.model === current || connectionBinding(job).connection !== 'local'
+        || localBaseUrl(job.localBaseUrl) !== localBaseUrl(settings.localBaseUrl) || this.models.some(model => model.id === job.model)) continue;
+      moved.push(`${kind} ${job.title || job.name || ''}`.trim() + `: ${job.model}`);
+      job.model = current;
+    }
+    if (!moved.length) return;
+    this.onError('local-model-followed', new Error(`Moved ${moved.length} background job(s) to ${current}.`), { moved });
+    this.changed(true);
   }
   async saveConnection(input = {}) {
     if (this.memoryConsolidator) await this.memoryConsolidator.pauseForUser();
