@@ -1,3 +1,20 @@
+# Version 0.23.0 verification
+
+0.23.0 gives Little Bot a night: dreaming and intentions, modeled on OpenClaw's dreaming and standing intents.
+
+- **Dreaming:** once a night (or after a 30-hour gap when the PC is idle), in the memory learning lane, Little Bot looks back over the recent conversation, what it remembers, its last diary entries, the calendar and its heartbeat notes. It writes a short diary entry in its own voice, at most three durable memories and at most three intentions. A memory is kept only when it cites the user's own messages. **Dream now** on the Memory page skips the wait.
+- **Intentions (prospective memory):** things to bring up later, triggered by the next chat, a topic keyword, a date, or a moment (back at the PC, got home, left home). Chat turns get the matching ones; the heartbeat gets the ones due now or matching the event that woke it. Budget: once per 20 hours, three times, then expired (14 days from a dream, 30 from chat). A new `intention_manage` tool lets the chat and the wild heartbeat create, list, finish or cancel them; the Quick session and goals cannot.
+- **Memory page:** a Night thoughts card shows the latest diary entry, earlier nights and what is on its mind, with Drop buttons.
+- Diary and intentions are stored in the encrypted part of state.json. The heartbeat now remembers which presence event woke it (`wakeEvent`).
+
+Checked end to end with the bundled engine and a mock Strata server:
+- the dream ran in the learning lane (state "dreaming") and saved a diary entry and two intentions;
+- a memory backed only by the bot was rejected, and one backed by the user's messages was saved and announced as learned;
+- a message mentioning the topic got the intention and the `intention_manage` tool, and a second message within the cooldown did not get it again;
+- the dated intention comes due for the heartbeat on its date, and the diary persisted.
+
+Also checked: a screenshot of the Memory card, Node tests (91), both Electron tests and validate-docs.
+
 # Version 0.22.3 verification
 
 0.22.3 clears the message box after the first message of a Quick session.

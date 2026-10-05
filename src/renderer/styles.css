@@ -234,3 +234,17 @@
 .sampling-row.unset input[type=range]{opacity:.45}
 .sampling-field input{width:110px;border:1px solid var(--line);border-radius:7px;background:transparent;color:var(--ink);padding:4px 8px;font:inherit}
 .sampling-note{color:var(--muted);font-size:11px;margin:6px 0 0}
+/* Night thoughts (Memory page): dream diary and intentions. */
+.dream-card .layer-heading{display:flex;align-items:center;gap:10px}
+.dream-status{flex:1;color:var(--muted);font-size:12px}
+.dream-entry{border-left:2px solid var(--accent);padding:2px 0 2px 12px;margin:8px 0 10px}
+.dream-meta{margin:0 0 4px;color:var(--muted);font-size:11.5px}
+.dream-meta::first-letter{text-transform:uppercase}
+.dream-text{margin:0;font-family:var(--serif,Georgia,serif);font-size:14.5px;line-height:1.6;font-style:italic}
+.dream-history summary{cursor:pointer;color:var(--muted);font-size:12.5px;margin:4px 0}
+.dream-subhead{font-size:12.5px;margin:14px 0 6px;color:var(--ink)}
+.intention-list{display:grid;gap:6px}
+.intention-row{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:9px;padding:7px 10px}
+.intention-copy{flex:1;min-width:0}
+.intention-text{margin:0 0 2px;font-size:13px}
+.intention-copy .field-hint{margin:0}
