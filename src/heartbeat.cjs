@@ -97,6 +97,7 @@ function normalizeHeartbeat(value, settings = {}, nowMs = Date.now(), recovering
     runsToday: integer(value.runsToday, 0, 100, 0), failureCount: integer(value.failureCount, 0, 10, 0),
     quietStreak: integer(value.quietStreak, 0, 1000, 0), pulse: pulse(value.pulse), followups: followups(value.followups),
     ...(typeof value.wakeReason === 'string' && value.wakeReason.trim() ? { wakeReason: clean(value.wakeReason, 300) } : {}),
+    ...(typeof value.wakeEvent === 'string' && value.wakeEvent.trim() ? { wakeEvent: clean(value.wakeEvent, 60) } : {}),
     lastFingerprint: /^[a-f0-9]{64}$/.test(value.lastFingerprint) ? value.lastFingerprint : '',
     lastAlertAt: timestamp(value.lastAlertAt),
     lastActions: actions(value.lastActions),
@@ -272,7 +273,7 @@ class Heartbeat {
     if (!config.checklist.trim()) throw new Error('Add a checklist before running heartbeat.');
     if (!config.workspace.trim()) throw new Error('Choose a working folder before running heartbeat.');
     const startedAt = this.now();
-    const wakeReason = config.wakeReason || '';
+    const wakeReason = config.wakeReason || '', wakeEvent = config.wakeEvent || '';
     const dayKey = localDay(startedAt);
     if (config.dayKey === dayKey && config.runsToday >= config.maxRunsPerDay) throw new Error('Heartbeat has reached its daily run limit.');
     this.running = true;
@@ -286,6 +287,7 @@ class Heartbeat {
           current.nextRunAt = startedAt + current.intervalMinutes * MINUTE;
           delete current.lastError;
           delete current.wakeReason;
+          delete current.wakeEvent;
         });
       } catch (error) { throw this._storageFailure(error); }
       this.publish?.({ type: 'heartbeat.started', source: 'heartbeat',
@@ -293,7 +295,7 @@ class Heartbeat {
 
       let result, extra;
       try {
-        const returned = await this.run({ ...structuredClone(config), wakeReason, attentionContext: attention.context(config, this.now()) });
+        const returned = await this.run({ ...structuredClone(config), wakeReason, wakeEvent, attentionContext: attention.context(config, this.now()) });
         if (!object(returned) || !['quiet', 'alert'].includes(returned.status) || typeof returned.summary !== 'string') {
           throw new Error('Heartbeat returned an invalid result.');
         }
@@ -314,13 +316,16 @@ class Heartbeat {
 
   // Moments when the user is present pull a wild heartbeat forward. With debounce the check waits until
   // activity has settled for the full delay; otherwise it only ever moves earlier.
-  wakeSoon(reason, delayMs, { debounce = false } = {}) {
+  wakeSoon(reason, delayMs, { debounce = false, event = '' } = {}) {
     const config = this.store.data.heartbeat;
     if (config.initiative !== 'wild' || !config.enabled || !config.checklist.trim()) return false;
     if (!Number.isFinite(delayMs) || delayMs < 0) throw new TypeError('A wake-up delay is required.');
     const at = this.now() + delayMs;
     if (!debounce && Number.isFinite(config.nextRunAt) && config.nextRunAt <= at) return false;
-    this._mutate(current => { current.nextRunAt = at; current.wakeReason = clean(reason, 300); });
+    this._mutate(current => {
+      current.nextRunAt = at; current.wakeReason = clean(reason, 300);
+      if (event) current.wakeEvent = clean(event, 60); else delete current.wakeEvent;
+    });
     return true;
   }
 

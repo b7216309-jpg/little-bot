@@ -191,7 +191,7 @@ class EventRuntime {
       try { this.goals.userReplied(this.store.data.chats?.find(chat => !chat.private)); } catch (error) { this._error(error, event); }
     }
     if (!wake || typeof this.heartbeat.wakeSoon !== 'function') return;
-    try { this.heartbeat.wakeSoon(wake[0], wake[1], { debounce: wake[2] }); }
+    try { this.heartbeat.wakeSoon(wake[0], wake[1], { debounce: wake[2], event: event.type }); }
     catch (error) { this._error(error, event); }
   }
 
