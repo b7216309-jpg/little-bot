@@ -1,3 +1,13 @@
+# Version 0.22.0 verification
+
+0.22.0 adds sampling controls for Strata.
+
+- A small sliders button next to the reasoning level (shown only on a Strata connection) opens a Sampling card above the composer: temperature, top-p, top-k, max tokens and seed. Reasoning stays in the existing None/Low/Medium/High menu.
+- A value left untouched is not sent, so Strata's own setting applies (like an empty field in Strata's panel). **Use Strata's** clears them all. The button turns accent-colored when anything is set here.
+- Saved as `settings.localSampling` (validated and range-checked) and applied by the local relay to every request to Strata, including goals, the heartbeat and memory.
+
+Checked against a mock Strata server: set values reach the request and override the engine's, nothing is sent when empty, and out-of-range values are refused. Screenshots in light and dark. Node tests and validate-docs pass.
+
 # Version 0.21.1 verification
 
 0.21.1 tidies the sidebar: the "One conversation. Memory that grows with you." tagline is removed, and the account and settings button sits at the bottom of the sidebar.

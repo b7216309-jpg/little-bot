@@ -226,3 +226,20 @@
 .custom-titlebar .topbar button,.custom-titlebar .topbar a,.custom-titlebar .topbar select,.custom-titlebar .topbar input,.custom-titlebar .browser-bar button,.custom-titlebar .browser-bar form,.custom-titlebar .browser-bar input{-webkit-app-region:no-drag}
 .custom-titlebar .topbar,.custom-titlebar .browser-bar{height:71px}
 .custom-titlebar .app-shell:not(.browser-open) .topbar,.custom-titlebar .browser-bar{padding-right:calc(var(--caption-width) + 14px)}
+/* Strata sampling: a small card above the composer, opened from the sliders button. */
+.sampling-button{width:26px;height:26px;padding:4px;color:#68745f}
+.sampling-button.customized{color:var(--accent)}
+.sampling-button.active{background:var(--soft)}
+.sampling-panel{border:1px solid var(--line);border-radius:12px;background:var(--paper);padding:10px 14px 8px;margin-bottom:8px;font-size:12px}
+.sampling-head{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.sampling-head strong{font-size:12.5px}
+.sampling-head #sampling-state{color:var(--muted);flex:1}
+.sampling-head .text-button{font-size:11.5px;color:var(--muted);background:transparent;border:0;padding:2px 4px;cursor:pointer}
+.sampling-head .icon-button{width:22px;height:22px;padding:3px}
+.sampling-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:4px 22px}
+.sampling-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:2px 8px;color:var(--ink)}
+.sampling-row output{color:var(--muted);font-variant-numeric:tabular-nums}
+.sampling-row input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--green);margin:0}
+.sampling-row.unset input[type=range]{opacity:.45}
+.sampling-field input{width:110px;border:1px solid var(--line);border-radius:7px;background:transparent;color:var(--ink);padding:4px 8px;font:inherit}
+.sampling-note{color:var(--muted);font-size:11px;margin:6px 0 0}
