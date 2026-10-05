@@ -17,6 +17,7 @@ const { normalizeStandingIntents } = require('./standing-intents.cjs');
 const { normalizePending, normalizeActions, normalizeAnswer, normalizeFeedbackLog } = require('./proactive-chat.cjs');
 const { normalizeWatches } = require('./web-watch.cjs');
 const { normalizeSampling } = require('./local-generation.cjs');
+const { normalizeCompanion } = require('./companion.cjs');
 
 const INTERRUPTED = 'Interrupted because Little Bot closed before the task finished.';
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -44,12 +45,13 @@ function validProtector(value) {
 function protectedEnvelope(data, protector) {
   const normalized = data;
   if (!protector) return normalized;
-  const payload = JSON.stringify({ chats: normalized.chats, memory: normalized.memory });
+  const payload = JSON.stringify({ chats: normalized.chats, memory: normalized.memory, companion: normalized.companion });
   const encrypted = protector.encryptString(payload);
   if (!Buffer.isBuffer(encrypted) || !encrypted.length) throw new Error('Could not encrypt saved conversations.');
   const disk = { ...normalized };
   delete disk.chats;
   delete disk.memory;
+  delete disk.companion;
   disk.protected = {
     version: PROTECTED_STATE_VERSION,
     format: 'safeStorage',
@@ -74,7 +76,7 @@ function unprotectState(parsed, protector) {
   if (!isObject(sensitive) || !Array.isArray(sensitive.chats) || !isObject(sensitive.memory)) {
     throw new Error('Decrypted app state has an invalid format.');
   }
-  const result = { ...parsed, chats: sensitive.chats, memory: sensitive.memory };
+  const result = { ...parsed, chats: sensitive.chats, memory: sensitive.memory, ...(isObject(sensitive.companion) ? { companion: sensitive.companion } : {}) };
   delete result.protected;
   return result;
 }
@@ -89,6 +91,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
     standingIntents: normalizeStandingIntents(data.standingIntents, Date.now(), recovering),
     extensions: normalizeExtensions(data.extensions),
     memory: normalizeMemory(data.memory),
+    companion: normalizeCompanion(data.companion),
     calendar: normalizeCalendar(data.calendar),
     feedbackLog: normalizeFeedbackLog(data.feedbackLog),
     webWatches: normalizeWatches(data.webWatches),

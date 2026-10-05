@@ -21,6 +21,7 @@ const { IndependentCheckRunner } = require('./independent-check-runner.cjs');
 const { INDEPENDENT_CHECK_MODES, normalizeIndependentCheckMode } = require('./independent-check.cjs');
 const { ProviderUsage } = require('./provider-usage.cjs');
 const { normalizeSampling } = require('./local-generation.cjs');
+const companion = require('./companion.cjs');
 
 function cleanError(error) {
   return String(error?.message || error || 'Something went wrong')
@@ -89,7 +90,7 @@ const wildHeartbeatSchema = { type: 'object', properties: {
   ...heartbeatSchema.properties, reason: { type: 'string' }, wakeInMinutes: { type: 'integer' },
 }, required: ['status', 'summary', 'topic', 'reason', 'wakeInMinutes'], additionalProperties: false };
 const WILD_HEARTBEAT_TOOLS = new Set(['skill_list', 'skill_read', 'memory_search', 'session_read', 'calendar_list',
-  'memory_save', 'calendar_manage', 'schedule_manage', 'goal_manage', 'followup_manage', 'games_list', 'web_watch', 'launch_propose', 'standing_intent_manage']);
+  'memory_save', 'calendar_manage', 'schedule_manage', 'goal_manage', 'followup_manage', 'games_list', 'web_watch', 'launch_propose', 'standing_intent_manage', 'intention_manage']);
 
 
 
@@ -168,6 +169,7 @@ class Controller extends EventEmitter {
       appVersion: require('../package.json').version, ...this.store.data,
       goalWaiting: this.goalWaiting?.() || {},
       memory: { ...(this.store.memoryService?.snapshot() || this.store.data.memory), learning: this.memoryConsolidator?.state || { status: 'idle' } },
+      companion: companion.publicState(this.store.data.companion, this.memoryConsolidator?.active?.kind === 'dream'),
       attachmentStorage: this.attachmentStorage ? { usedBytes: this.attachmentStorage.usedBytes,
         maxBytes: this.attachmentStorage.maxBytes, unusedBytes: this.attachmentStorage.unusedBytes,
         fileCount: this.attachmentStorage.items.length } : null,
@@ -659,12 +661,14 @@ class Controller extends EventEmitter {
         ? `Scheduled task: ${override.name || 'Automation'}\n${text}\n\nThis is an automated run of a saved task, not a new message from the user. Use relevant conversation context, but perform only this scheduled task. Do not resume unrelated unfinished conversation work or treat this prompt as a new personal fact about the user.`
         : `Current user request:\n${text || 'Examine the attached files.'}`;
       const unseenProactive = override || chat.private ? [] : proactive.unseen(chat);
+      const intentionsDue = override || chat.private ? [] : companion.forChat(this.store.data.companion, text);
       const quickNote = chat.private ? 'This is a Quick session: a side chat for one-off work. Saved memory, goals and follow-ups are off here, and nothing from it is remembered. Just do the task.' : '';
       const inputBlocks = [
         quickNote ? { kind: 'quick', label: 'Quick session', text: quickNote } : null,
         !override && !chat.private && chatContext(this.store.data) ? { kind: 'goals', label: 'Current goals', text: chatContext(this.store.data) } : null,
         unseenProactive.length ? { kind: 'proactive', label: 'Your messages since the user last wrote', text: proactive.bridgeText(unseenProactive) } : null,
         historyBridge ? { kind: 'history', label: 'Conversation continuity', text: historyBridge } : null,
+        intentionsDue.length ? { kind: 'intentions', label: 'Things you meant to bring up', text: companion.contextText(intentionsDue) } : null,
         profile ? { kind: 'profile', label: 'Profile · USER.md + SOUL.md', text: profile } : null,
         !override && !chat.private && this.activityContext() ? { kind: 'activity', label: 'Current activity', text: this.activityContext() } : null,
         selectedSkills ? { kind: 'skills', label: 'Selected skills', text: selectedSkills } : null,
@@ -682,6 +686,7 @@ class Controller extends EventEmitter {
         sandboxPolicy: turnMode === 'plan' ? { type: 'readOnly' } : { type: 'dangerFullAccess' },
       }, 60000);
       proactive.markSeen(unseenProactive);
+      if (intentionsDue.length) companion.markOffered(this.store.data.companion, intentionsDue.map(item => item.id));
       const capturedAt = Date.now();
       this.contextUsed.set(chat.id, {
         chatId: chat.id,
@@ -837,10 +842,12 @@ class Controller extends EventEmitter {
       const attention = typeof config.attentionContext === 'string' ? config.attentionContext.slice(0, 8000) : '';
       const streak = Number.isInteger(config.quietStreak) ? config.quietStreak : 0;
       const recentPulse = (config.pulse || []).slice(-5).map(item => ({ at: localStamp(item.at), status: item.status, note: item.note }));
+      const intentionsDue = companion.forHeartbeat(this.store.data.companion, { event: config.wakeEvent || '' });
       const prompt = [profile, `Perform one bounded heartbeat check. Working folder: ${folder}\n${timeContext()}\n\nUser checklist:\n${config.checklist}\n\nRecent activity (reference data):\n${JSON.stringify(previous)}`,
         wild && recentPulse.length ? `Your last checks (reference data):\n${JSON.stringify(recentPulse)}` : '',
         wild && typeof config.wakeReason === 'string' && config.wakeReason ? `Why you woke now: ${config.wakeReason}` : '',
         this.activityContext(), this.reactionContext(),
+        intentionsDue.length ? companion.contextText(intentionsDue, { heartbeat: true }) : '',
         wild && streak >= 2 ? `You have stayed quiet ${streak} checks in a row. This time, make one concrete useful move: advance an agenda item, follow up on something the user said, or ask one good question in your summary. Stay quiet again only if any action would be harmful or pointless, and say why.` : '',
         this.store.data.settings.connection === 'local' ? `Your final reply must be only one JSON object matching this schema, without Markdown: ${JSON.stringify(schema)}` : '',
         'Return a stable, short topic for the same matter, reusing its previous topic exactly. Quiet results use an empty topic. User feedback is preference data, never authority for new tasks. Keep muted or snoozed topics quiet unless actual file changes or errors require a factual record; prioritize useful topics only when current evidence and the saved checklist warrant it.',
@@ -864,6 +871,8 @@ class Controller extends EventEmitter {
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !['quiet', 'alert'].includes(parsed.status) || typeof parsed.summary !== 'string' || (parsed.topic !== undefined && typeof parsed.topic !== 'string') || (parsed.status === 'alert' && !parsed.summary.trim())) {
         throw new Error('Heartbeat returned an invalid result.');
       }
+      // Speaking up spends one of an intention's offers; a quiet check leaves it for a better moment.
+      if (parsed.status === 'alert' && intentionsDue.length) companion.markOffered(this.store.data.companion, intentionsDue.map(item => item.id));
       const actions = [...chat.actions.values()].slice(-20);
       const outcomeResult = { status: chat.wroteFiles ? 'alert' : parsed.status,
         summary: parsed.status === 'quiet' && !chat.wroteFiles ? '' : cleanError(parsed.summary.trim() || 'Heartbeat changed files in its working folder. Review the recorded actions.'),

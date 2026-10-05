@@ -78,6 +78,8 @@
   "src/main.cjs": "01-runtime-storage.md",
   "src/mcp-forms.cjs": "15-questions-answer-checks.md",
   "src/memory-consolidator.cjs": "04-memory.md",
+  "src/dreaming.cjs": "04-memory.md",
+  "src/companion.cjs": "04-memory.md",
   "src/memory-service.cjs": "04-memory.md",
   "src/memory.cjs": "04-memory.md",
   "src/missed-schedules.cjs": "07-automations.md",

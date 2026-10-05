@@ -2,7 +2,7 @@
 
 const { recallSpecs, recallSearch, recallRead } = require('./recall.cjs');
 const { questionSpec } = require('./user-questions.cjs');
-const QUICK_BLOCKED = new Set(['memory_save', 'memory_forget', 'goal_manage', 'schedule_manage', 'web_watch', 'followup_manage']);
+const QUICK_BLOCKED = new Set(['memory_save', 'memory_forget', 'goal_manage', 'schedule_manage', 'web_watch', 'followup_manage', 'intention_manage']);
 
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const string = (value, label, limit, required = false) => {
@@ -17,7 +17,7 @@ const actions = ['list', 'create', 'update', 'pause', 'resume'];
 const calendarActions = ['list', 'create', 'update', 'delete'];
 
 class AgentTools {
-  constructor({ management, store, manageGoal, manageSchedule, manageCalendar, manageFollowup, manageWatch, proposeLaunch, phoneAction, browser, webServices, windowsUi, sendAttachment }) { this.phoneAction = phoneAction; this.management = management; this.store = store; this.manageGoal = manageGoal; this.manageSchedule = manageSchedule; this.manageCalendar = manageCalendar; this.manageFollowup = manageFollowup; this.manageWatch = manageWatch; this.proposeLaunch = proposeLaunch; this.browser = browser; this.webServices = webServices; this.windowsUi = windowsUi; this.sendAttachment = sendAttachment; }
+  constructor({ management, store, manageGoal, manageSchedule, manageCalendar, manageFollowup, manageWatch, manageIntention, proposeLaunch, phoneAction, browser, webServices, windowsUi, sendAttachment }) { this.manageIntention = manageIntention; this.phoneAction = phoneAction; this.management = management; this.store = store; this.manageGoal = manageGoal; this.manageSchedule = manageSchedule; this.manageCalendar = manageCalendar; this.manageFollowup = manageFollowup; this.manageWatch = manageWatch; this.proposeLaunch = proposeLaunch; this.browser = browser; this.webServices = webServices; this.windowsUi = windowsUi; this.sendAttachment = sendAttachment; }
   // The engine rejects a thread whose dynamic tools mix the canonical {type:'function'} form with the
   // legacy form, so every source (app management, browser, services) is normalized here.
   specs(options = {}) {
@@ -75,6 +75,11 @@ class AgentTools {
         action: { type: 'string', enum: ['create', 'list', 'cancel'] }, id: text(100), note: text(300),
         inMinutes: { type: 'integer', minimum: 5, maximum: 43200, description: 'Minutes from now. Use this or atLocal.' },
         atLocal: { type: 'string', minLength: 16, maxLength: 16, description: 'PC-local YYYY-MM-DDTHH:MM.' },
+      }, ['action'])] : []),
+      ...(this.manageIntention ? [functionSpec('intention_manage', 'Your prospective memory: things to bring up with the user later. create when the user asks ("next time X comes up, remind me of Y") or when you want to follow up on something they shared (an exam, a trip, a worry, a release they are waiting for); list; done once you have brought it up; cancel when it no longer matters. trigger: next_chat (next conversation), topic (when one of 1-4 keywords comes up), date (local YYYY-MM-DD), moment (returned = back at the PC, home = got home, out = left home). Each is offered to you at most once a day, three times, and expires in 30 days, so it never nags.', {
+        action: { type: 'string', enum: ['list', 'create', 'done', 'cancel'] }, id: text(100), text: text(300), why: text(300),
+        trigger: { type: 'string', enum: ['next_chat', 'topic', 'date', 'moment'] }, keywords: { type: 'array', maxItems: 6, items: text(40) },
+        date: { type: 'string', minLength: 10, maxLength: 10, description: 'Local YYYY-MM-DD for a date trigger.' }, moment: { type: 'string', enum: ['returned', 'home', 'out'] },
       }, ['action'])] : []),
       functionSpec('calendar_manage', 'Manage Little Bot’s local calendar in the PC’s local time: list events, create an event, update an existing event, or delete one. This calendar is stored only in Little Bot and is not synced to Google, Outlook, or another provider.', {
         action: { type: 'string', enum: calendarActions },
@@ -154,6 +159,7 @@ class AgentTools {
       calendar_list: ['fromLocal', 'toLocal', 'limit'],
       calendar_manage: ['action', 'id', 'title', 'startLocal', 'endLocal', 'allDay', 'location', 'notes', 'fromLocal', 'toLocal', 'limit'],
       followup_manage: ['action', 'id', 'note', 'inMinutes', 'atLocal'],
+      intention_manage: ['action', 'id', 'text', 'why', 'trigger', 'keywords', 'date', 'moment'],
       web_watch: ['action', 'id', 'url', 'label', 'intervalHours'],
       games_list: ['limit'],
       launch_propose: ['appid', 'note'],
@@ -201,6 +207,15 @@ class AgentTools {
     if (name === 'launch_propose') {
       if (typeof this.proposeLaunch !== 'function') throw new Error('Game launch offers are unavailable.');
       return this.proposeLaunch({ appid: string(args.appid, 'appid', 12, true), note: args.note === undefined ? '' : string(args.note, 'note', 600) });
+    }
+    if (name === 'intention_manage') {
+      if (typeof this.manageIntention !== 'function') throw new Error('Intentions are unavailable.');
+      if (args.action === 'list') return { intentions: await this.manageIntention('list') };
+      if (args.action === 'done' || args.action === 'cancel') return this.manageIntention(args.action, { id: string(args.id, 'intention ID', 100, true) });
+      if (args.action !== 'create') throw new Error('Unsupported intention action.');
+      if (args.keywords !== undefined && (!Array.isArray(args.keywords) || args.keywords.some(item => typeof item !== 'string'))) throw new Error('keywords must be a list of words.');
+      return this.manageIntention('create', { text: string(args.text, 'text', 300, true), why: args.why === undefined ? '' : string(args.why, 'why', 300),
+        trigger: { type: args.trigger || 'next_chat', keywords: args.keywords, date: args.date, moment: args.moment }, source: chat.internal ? 'heartbeat' : 'chat' });
     }
     if (name === 'followup_manage') {
       if (typeof this.manageFollowup !== 'function') throw new Error('Follow-ups are unavailable.');

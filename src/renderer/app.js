@@ -2405,8 +2405,43 @@ function memoryRecords() {
   return state.memory?.records || [...(state.memory?.facts || []), ...(state.memory?.episodes || []).map(item => ({ ...item, type: 'episode', text: item.summary }))];
 }
 
+// Night thoughts: the latest dream diary and what Little Bot means to bring up (its intentions).
+const TRIGGER_LABELS = { next_chat: () => 'next time you talk', topic: trigger => `when ${trigger.keywords.join(', ')} comes up`, date: trigger => `on ${trigger.date}`,
+  moment: trigger => ({ returned: 'when you are back at the PC', home: 'when you get home', out: 'when you head out' }[trigger.moment] || 'at the right moment') };
+function dreamEntry(dream) {
+  const node = element('article', 'dream-entry');
+  const meta = [new Date(dream.at).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }),
+    dream.learned ? `${dream.learned} remembered` : '', dream.intentions ? `${dream.intentions} to bring up` : ''].filter(Boolean).join(' · ');
+  node.append(element('p', 'dream-meta', meta), element('p', 'dream-text', dream.diary));
+  return node;
+}
+function renderDreams() {
+  const companion = state.companion || {};
+  const dreams = companion.dreams || [], intentions = companion.intentions || [];
+  $('dream-status').textContent = companion.dreaming ? 'Dreaming…'
+    : companion.lastDreamError ? companion.lastDreamError
+      : companion.lastDreamAt ? `Last dream ${new Date(companion.lastDreamAt).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' })}` : '';
+  $('dream-now').disabled = Boolean(companion.dreaming) || state.memory?.enabled === false;
+  $('dream-latest').replaceChildren(dreams[0] ? dreamEntry(dreams[0])
+    : element('p', 'field-hint', 'After a few conversations, Little Bot looks back over your days at night, tidies what it remembers and writes a short diary here.'));
+  $('dream-history').classList.toggle('hidden', dreams.length < 2);
+  $('dream-history-list').replaceChildren(...dreams.slice(1).map(dreamEntry));
+  $('intention-list').replaceChildren(...(intentions.length ? intentions.map(item => {
+    const row = element('div', 'intention-row');
+    const copy = element('div', 'intention-copy');
+    copy.append(element('p', 'intention-text', item.text),
+      element('p', 'field-hint', [TRIGGER_LABELS[item.trigger.type]?.(item.trigger), item.fires ? `offered ${item.fires}/${item.maxFires}` : '', item.source === 'dream' ? 'from a dream' : ''].filter(Boolean).join(' · ')));
+    const cancel = element('button', 'button text-button', 'Drop');
+    cancel.type = 'button'; cancel.title = 'Little Bot will not bring this up';
+    cancel.addEventListener('click', () => attempt(() => window.bot.cancelIntention({ id: item.id })));
+    row.append(copy, cancel);
+    return row;
+  }) : [element('p', 'field-hint', 'Nothing yet. Little Bot notes things to follow up on, like a plan you mentioned, and brings each up at most three times.')]));
+}
+
 function renderMemory() {
   $('memory-enabled').checked = state.memory?.enabled !== false;
+  renderDreams();
   $('memory-disabled-note').classList.toggle('hidden', state.memory?.enabled !== false);
   refreshMemoryResults();
   renderMemoryContext();
@@ -3887,6 +3922,7 @@ function resolveConfirm(accepted) {
 }
 
 $('nav-conversation').addEventListener('click', () => selectChat(null));
+$('dream-now').addEventListener('click', () => attempt(() => window.bot.dreamNow(), 'Little Bot will dream as soon as it is idle.'));
 $('nav-quick').addEventListener('click', () => selectChat(null, true));
 $('quick-end').addEventListener('click', async () => {
   const chat = currentChat();
