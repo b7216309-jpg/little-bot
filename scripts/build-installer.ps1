@@ -20,7 +20,9 @@ if (!(Test-Path -LiteralPath (Join-Path $source 'Little Bot.exe') -PathType Leaf
 
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $portable) | Out-Null
 Remove-Item -LiteralPath $portable -Force -ErrorAction SilentlyContinue
-Compress-Archive -Path (Join-Path $source '*') -DestinationPath $portable -CompressionLevel Optimal
+# .NET's zip writer: the same archive as Compress-Archive, many times faster, and it does not stall on large trees.
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[IO.Compression.ZipFile]::CreateFromDirectory($source, $portable, [IO.Compression.CompressionLevel]::Optimal, $false)
 
 if ($PortableOnly) {
   Write-Host "Portable archive: $portable"
