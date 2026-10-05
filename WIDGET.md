@@ -12,4 +12,4 @@ Glass follows the app's light or dark theme: a pale frosted surface in light, a 
 
 ## Verification
 
-`node --test test/desktop-windows.test.cjs` covers window switching, draft sanitization, IPC main-frame trust, collapse positioning, screen recovery, and creation races. `electron test/widget-window-electron.cjs` drives the real secured preload and both app renderers with fixture data. It verifies drafts, Plan, attachments, sending, Stop, approval expansion, pinning, Settings handoff, close-to-full behavior, and display persistence. Screenshots are saved under `.test-data/glass-expanded.png` and `.test-data/glass-collapsed.png`. This test never starts an engine or contacts Strata.
+`electron test/widget-window-electron.cjs` drives the real secured preload and both app renderers with fixture data. It verifies drafts, Plan, attachments, sending, Stop, approval expansion, pinning, Settings handoff, close-to-full behavior, and display persistence. Screenshots are saved under `.test-data/glass-expanded.png` and `.test-data/glass-collapsed.png`. This test never starts an engine or contacts Strata.
