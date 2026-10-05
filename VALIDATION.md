@@ -1,3 +1,12 @@
+# Version 0.20.3 verification
+
+0.20.3 keeps proactivity running after the local model is swapped.
+
+- **Cause:** the heartbeat, every goal and every scheduled task saved the exact local model ID they were created with. After the server was switched from `qwen3.8-flash-next-iq2_xs` to `qwen3.8-flash-next-iq3_s`, all of them stopped silently: the heartbeat skipped every check and goals showed "Set to a different model connection". Nothing proactive happened without a manual prompt.
+- **Fix:** when the app connects to the local server, background jobs on that server whose saved model is no longer loaded move to the selected, loaded model. A job whose model is still served is left alone. The move is logged as `local-model-followed`.
+
+Checked on a temp store (heartbeat moved from the unloaded model to the loaded one). Node tests and validate-docs pass.
+
 # Version 0.20.2 verification
 
 0.20.2 keeps chats working after the local server is restarted without its vision encoder.
