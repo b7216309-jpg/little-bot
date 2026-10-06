@@ -238,6 +238,7 @@ Guide: [17-diagnostics-distribution.md](17-diagnostics-distribution.md)
 | [scripts/install.ps1](../../scripts/install.ps1) | Preparation, build, install or developer verification |
 | [scripts/package.cjs](../../scripts/package.cjs) | Preparation, build, install or developer verification |
 | [scripts/readme-screenshots.cjs](../../scripts/readme-screenshots.cjs) | Preparation, build, install or developer verification |
+| [scripts/readme-preload.cjs](../../scripts/readme-preload.cjs) | Demo-data bridge for the README screenshots |
 | [scripts/uninstall.ps1](../../scripts/uninstall.ps1) | Preparation, build, install or developer verification |
 | [src/error-log.cjs](../../src/error-log.cjs) | Production application module |
 | [scripts/build-icons.cjs](../../scripts/build-icons.cjs) | Preparation, build, install or developer verification |

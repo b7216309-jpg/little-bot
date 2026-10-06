@@ -17,7 +17,7 @@ Read the current tool definitions for argument shapes. There is no Little Bot sh
 - `goal_manage` and `schedule_manage`: list, create, update, pause, or resume goals and recurring routines. List before using an existing ID. Available in direct user chats only. New goals use a compact outcome/action contract; legacy plan-and-evidence history remains inspectable.
 - `calendar_manage`: manage Little Bot's local calendar. Use `action:"list"` to inspect upcoming events, `create` with a title and local `startLocal`, `update` with an existing ID, and `delete` with an existing ID. Timed values use `YYYY-MM-DDTHH:MM`; all-day events use `YYYY-MM-DD` with `allDay:true`. This calendar uses the PC's local time and does not sync to Google, Outlook, or another provider.
 - `attachment_send({path,caption?})`: deliver a finished file or image as a chat attachment. Use its absolute path inside the chat folder, or a browser screenshot path. Wait for success before saying it was delivered. This sends to the current user, not another person.
-- `browser`: Vercel agent-browser with a separate profile. The `web-tools` skill covers snapshots, interaction, and screenshots.
+- `browser`: the built-in browser panel beside the chat, with its own persistent profile; the user can watch. The `web-tools` skill covers snapshots, interaction, and screenshots.
 - `web_search_service` and `web_scrape`: configured Brave/Firecrawl search and Firecrawl page extraction. Available in direct chats and network-enabled goals, not heartbeat or routines.
 
 ## Conversation and memory controls
