@@ -25,8 +25,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
-# agent-browser
-
-Little Bot bundles Vercel agent-browser 0.38.1 under Apache-2.0. The upstream LICENSE, skill data, and third-party notices are included in node_modules/agent-browser. Source: https://github.com/vercel-labs/agent-browser/tree/v0.38.1
-

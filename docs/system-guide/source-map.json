@@ -41,6 +41,7 @@
   "scripts/package.cjs": "17-diagnostics-distribution.md",
   "scripts/prepare-embeddings.cjs": "04-memory.md",
   "scripts/readme-screenshots.cjs": "17-diagnostics-distribution.md",
+  "scripts/readme-preload.cjs": "17-diagnostics-distribution.md",
   "scripts/uninstall.ps1": "17-diagnostics-distribution.md",
   "scripts/verify-tool-migration.cjs": "10-agent-tools-terminal.md",
   "src/activity.cjs": "08-heartbeat-inbox.md",

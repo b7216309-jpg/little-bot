@@ -19,7 +19,7 @@ Changes made for Little Bot: removed Notion-specific commands, OAuth setup, data
 ## Reviewed but not bundled
 
 - [Anthropic doc co-authoring](https://github.com/anthropics/skills/blob/33375500bcea98d610eb30ce10ac4e59b89c390d/skills/doc-coauthoring/SKILL.md): useful reader-oriented drafting ideas, but its extensive interactive stages conflict with this app's lightweight workflow. This folder also has no skill-specific license file at the reviewed revision. No content from it is included.
-- [Anthropic web app testing](https://github.com/anthropics/skills/blob/33375500bcea98d610eb30ce10ac4e59b89c390d/skills/webapp-testing/SKILL.md): depends on Python Playwright and helper scripts, which are not bundled. Little Bot instead uses its original `web-tools` guide with agent-browser.
+- [Anthropic web app testing](https://github.com/anthropics/skills/blob/33375500bcea98d610eb30ce10ac4e59b89c390d/skills/webapp-testing/SKILL.md): depends on Python Playwright and helper scripts, which are not bundled. Little Bot instead uses its original `web-tools` guide with the built-in browser.
 - [Notion knowledge capture](https://github.com/openai/skills/blob/49f948faa9258a0c61caceaf225e179651397431/skills/.curated/notion-knowledge-capture/SKILL.md): overlaps Little Bot's existing memory and goal features and adds Notion database assumptions. Excluded to keep the starter collection small.
 
 Anthropic repository reviewed commit: `33375500bcea98d610eb30ce10ac4e59b89c390d`.
