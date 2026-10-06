@@ -9,7 +9,7 @@ Use the current tool definitions. Missing tools in an older chat require a new c
 
 - `web_search_service`: find sources with a specific query and at most 5 results. `provider:"auto"` chooses a configured service.
 - `web_scrape`: read a public URL through Firecrawl, using a proportional `maxChars` up to 20,000.
-- `browser`: inspect dynamic or signed-in pages and perform requested website actions through Vercel agent-browser. It has a separate persistent profile and is available in direct chats only. Network-enabled goals may use search and scrape; heartbeat and routines cannot.
+- `browser`: inspect dynamic or signed-in pages and perform requested website actions in the built-in browser panel the user can watch. It has its own persistent profile and is available in direct chats only. Network-enabled goals may use search and scrape; heartbeat and routines cannot.
 
 These app tools also work with Local Qwen; the local model has no provider-hosted web search. Service keys belong in Settings. Queries and URLs go to the chosen service and may consume credits; stop retrying authentication or quota failures.
 

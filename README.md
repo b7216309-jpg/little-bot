@@ -1,149 +1,133 @@
-# Little Bot
+<h1 align="center">
+  <img src="resources/icons/little-bot.png" width="72" alt=""><br>
+  Little Bot
+</h1>
 
-A Windows personal assistant with one continuous conversation, durable local memory, files, terminal work, web browsing, and proactive tasks. Electron, plain JavaScript, and a pinned Codex tool runtime.
+<p align="center">
+  <b>A local-first AI companion for Windows.</b><br>
+  It remembers you, notices what is going on, dreams over your day at night,<br>
+  and speaks up on its own: all on your own GPU.
+</p>
 
-## Reliability update (0.10.1)
+<p align="center">
+  <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-2b2a24?style=flat-square">
+  <img alt="Local first" src="https://img.shields.io/badge/runs-local%20first-65846c?style=flat-square">
+  <img alt="Electron 44" src="https://img.shields.io/badge/Electron-44-2b2a24?style=flat-square">
+  <img alt="Version 0.23" src="https://img.shields.io/badge/version-0.23-bc623f?style=flat-square">
+</p>
 
-- Large saved chats reopen without the former encrypted-envelope size mismatch.
-- The bundled Windows engine starts from long build/portable paths.
-- Strata receives JSON schemas in its prompts; memory learning validates results, stops after three failed attempts and offers Retry/Discard in Memory. Output-token cutoffs report failure and keep partial text.
-- Ongoing reviews settle standing intents, calendar evidence keeps dates/times, and completion dependencies accept tasks only. Deferred operations recover from save failures without repeating applied actions.
-- Removed drafts release attachment storage. Settings shows usage and unused-file cleanup; saved attachments offer Remove while preserving message text and original source files.
+<p align="center"><img src="docs/screenshots/hero.png" alt="Little Bot on the desktop and on a phone, suggesting a break after a long coding session"></p>
 
-## A quick look
+Most assistants wait for you to type. Little Bot keeps one continuous conversation with you, learns what matters, and has a life between your messages: it checks in at good moments, follows up on things you mentioned, works on goals you gave it, and reflects on your days overnight. It runs on a local model (Qwen through [Strata](integrations/strata/README.md) by default), so your conversations stay on your PC.
 
-Screenshots below use the real application renderer with fictional demo data. No personal chats, profiles, credentials, or model requests are involved.
+## Why it feels alive
 
-### One conversation, with tools when you need them
+**🫀 It speaks up on its own.** The heartbeat keeps its own agenda and chooses when to look again. It also wakes on real moments: you come back to the PC, start a game, have been in the same app for hours, get home, or just finished a conversation. Active hours, daily limits and *Later / don't suggest this* keep it pleasant.
 
-Keep a continuous timeline, attach files and images, choose reasoning effort, and expand tool activity without filling the chat with controls. Right-click a completed answer to challenge it.
+**🌙 It dreams.** Once a night it looks back over the last days, tidies what it remembers (only from your own words, never its own claims), writes a short diary entry in its own voice, and decides what it wants to bring up. You can read every night on the Memory page.
 
-![Conversation with a fictional research-planning example](docs/screenshots/conversation.png)
+**💭 It remembers to ask.** Intentions are prospective memory: *ask how the exam went*, *when the patch comes up, mention the DLC*, *on Friday, check in*. They trigger on the next chat, a topic, a date or a moment, and are budgeted (once a day, three times, then they expire) so it never nags.
 
-### Memory you can inspect and edit
+**🎯 It works toward goals with you.** Ongoing goals review fresh evidence from your chat, calendar and project files, keep a plan with verifiable progress, and either talk to you or work silently.
 
-Search saved knowledge, inspect sources, pin preferences, and forget obsolete information. A bundled CPU embedding model adds offline semantic search; original conversations remain searchable after context compaction.
+**📱 It is in your pocket.** Pair your phone and use the same conversation anywhere over Tailscale, with notifications. The Android companion app adds location (home/away), alarms, timers and "ring my phone".
 
-![Memory panel with fictional preferences and project facts](docs/screenshots/memory.png)
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/night-thoughts.png" alt="Night thoughts: a dream diary entry and the intentions it wants to bring up"><br><sub><b>Night thoughts.</b> Last night's diary and what is on its mind.</sub></td>
+    <td width="50%"><img src="docs/screenshots/goals.png" alt="Goals with their latest result and next step"><br><sub><b>Goals.</b> Ongoing work with a plan, evidence and a budget.</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/heartbeat.png" alt="Activity inbox with heartbeat updates"><br><sub><b>Activity inbox.</b> Everything it did or noticed on its own.</sub></td>
+    <td><img src="docs/screenshots/quick-session.png" alt="A Quick session renaming files"><br><sub><b>Quick session.</b> One-off tasks with no memory, goals or follow-ups.</sub></td>
+  </tr>
+</table>
 
-### Useful recurring work
+<p align="center">
+  <img src="docs/screenshots/widget.png" width="300" alt="The Glass widget floating over the desktop">
+  &nbsp;&nbsp;&nbsp;
+  <img src="docs/screenshots/phone.png" width="300" alt="The phone page with the same conversation">
+</p>
+<p align="center"><sub>The <b>Glass widget</b> (Ctrl+Shift+M) and the <b>phone page</b>: the same conversation, wherever you are.</sub></p>
 
-Run scheduled prompts in the same conversation, using intervals or selected days and local times. Goals add a persistent plan and verification evidence; Heartbeat checks for meaningful updates while the app is open.
+## What it can do
 
-![Automations with fictional research and planning schedules](docs/screenshots/automations.png)
+| | |
+|---|---|
+| **Work on your PC** | Files and terminal in a working folder (*Execute*), or read-only *Plan* mode. Attach images, PDFs, Word and text files; it can hand files back. |
+| **Use the web** | A built-in browser panel it drives while you watch (logins persist), plus optional Firecrawl or Brave Search keys for search and scraping. |
+| **Use your apps** | Windows UI Automation: list windows, read controls, click, type and select in ordinary desktop apps. |
+| **Know your life** | A local calendar, your Steam library (with one-click launch offers), web pages it watches for changes, and opt-in awareness of the app you are using. |
+| **Remember** | Facts, preferences and decisions in a local SQLite memory with offline semantic search (bundled BGE embeddings). Inspect, edit, pin or forget anything, with sources. |
+| **Stay honest** | Optional *Independent Check* reviews answers for sycophancy, and you can right-click any reply to challenge it. |
+| **Grow** | Skills, plugins and MCP servers; recurring routines; a profile in `USER.md` and a personality in `SOUL.md`. |
 
-## Start
+<p align="center"><img src="docs/screenshots/conversation-light.png" width="820" alt="The conversation in the light theme"></p>
+<p align="center"><sub>Light, dark or follow Windows.</sub></p>
 
-1. Start your existing Qwen launcher.
-2. Build from source with the Development commands below, then choose a generated Windows build:
-   - **Installer:** run `dist/0.10.1/Little-Bot-0.10.1-Setup.exe`. It installs per-user under LocalAppData, adds a Start Menu shortcut, and registers an uninstaller in Apps & Features.
-   - **Portable:** unzip `dist/0.10.1/Little-Bot-0.10.1-portable.zip` and run `Little Bot.exe`. Keep the extracted folder together.
-   - **Development package:** open **Launch Little Bot.cmd** after `npm run package`.
-3. Choose a working folder and send a message.
+## Runs on your machine
 
-**Local Qwen** is the default at `http://127.0.0.1:8080/v1`. Settings lets you change its address/model and check the connection. **Codex** is optional, using ChatGPT sign-in or an OpenAI API key. No cloud fallback occurs when the local model is offline.
+- **Local model first.** Any OpenAI-compatible local server works; Little Bot is tuned for [Strata](integrations/strata/README.md) with Qwen models, including reasoning levels and sampling controls (temperature, top-p, top-k, max tokens, seed). [Codex](CONNECTIONS.md) (ChatGPT sign-in or an OpenAI API key) is optional. There is no silent cloud fallback.
+- **Your data stays local.** Conversations, the dream diary and intentions are encrypted with Windows DPAPI. Memory is a local SQLite database, backed up daily with one-click restore. The phone relay only answers paired devices, ideally over Tailscale HTTPS.
+- **One lane at a time.** Your conversation always comes first; the heartbeat, goals, routines, memory learning and dreaming share a single background lane and step aside when you write.
 
-**Settings → Connection** also shows read-only provider usage for Codex or transient whole-turn performance for the selected local model. Codex values come from the pinned app-server rate-limit response; local output rates use engine-reported tokens and exclude tool turns from the rolling average. The panel does not estimate prices or change goal budgets. See [USAGE.md](USAGE.md).
+```mermaid
+flowchart LR
+  you(["You"]) --> app["Desktop app<br>and Glass widget"]
+  phone(["Phone page<br>and Android app"]) -->|Tailscale| relay["Phone relay"]
+  relay --> core["Controller"]
+  app --> core
+  core --> engine["Codex engine<br>(pinned app-server)"]
+  engine --> model[("Local model<br>Strata / Qwen")]
+  core --> memory[("Memory<br>SQLite + embeddings")]
+  events["Moments: back at the PC,<br>game started, got home"] --> lane
+  core --> lane["Background lane<br>heartbeat, goals, routines,<br>learning, dreaming"]
+  lane --> engine
+```
 
-**Strata reasoning** offers None, Low, Medium, and High beside the model picker. Other local servers use Thinking On/Off; Codex keeps its effort selector. Changes apply to the next run, after current work finishes.
+## Get started
 
-Tool calls appear in expandable groups, including progress messages between calls. Running and failed counts stay visible when collapsed.
+You need Windows 10 or 11 (x64), [Node.js 24](https://nodejs.org) to build, and either a local OpenAI-compatible server (Strata at `http://127.0.0.1:8080/v1` by default) or a Codex sign-in.
 
-Click **Thinking…** in a reply to expand the reasoning as it streams. The completed **Thoughts** remains available in that conversation. Qwen3.6 sampling follows the thinking mode, with output space reserved for the answer.
+```powershell
+git clone https://github.com/b7216309-jpg/little-bot.git
+cd little-bot
+npm install
+node node_modules/electron/install.js
+npm run package
+```
 
-Little Bot can ask a question during a normal chat, with optional choices or your own answer. Answer to continue, or skip. Autonomous goals save questions on their goal card; answering continues the goal within its existing access and remaining budget.
+Then run `dist/<version>/Little-Bot-<version>-Setup.exe`. It installs per user, needs no administrator rights and adds an uninstaller to Apps & Features. A portable ZIP is built next to it, and `npm start` runs from source.
 
-The Conversation view is one persistent timeline. Change its working folder, model, or connection between turns; Little Bot opens a fresh engine context when needed and carries forward recent conversation plus relevant memory. Autonomous tasks keep their saved execution settings. See [CONNECTIONS.md](CONNECTIONS.md).
+On first launch: check the connection in **Settings**, choose a working folder, and fill in **Profile** (`USER.md` for you, `SOUL.md` for its personality). To make it proactive, enable the **Heartbeat** with *Wild* initiative and, if you like, **awareness** of the app you are using. For the phone, open **Settings › Phone relay** and scan the QR code.
 
-## Files and images
+## Documentation
 
-**Glass widget mode:** click **Widget** or press **Ctrl+Shift+M** for a small floating conversation. Pin it, collapse it into a pill, or return to the full app with your unsent draft and files intact. See [WIDGET.md](WIDGET.md).
-
-Attach with the paperclip, drop files, or paste an image. Qwen can inspect photos. PDF, DOCX, and text files supply locally extracted text; scanned PDFs need OCR, which is not included. Other formats remain accessible as files.
-
-The agent can return documents, screenshots, and existing images as attachments with preview/save controls. This version does not add an image-generation model.
-
-Limits: eight files per message, 20 MiB each, 50 MiB total. See [ATTACHMENTS.md](ATTACHMENTS.md) for supported formats and extraction limits.
-
-Execute mode can perform file and terminal work with the app’s local permissions; Plan mode uses read-only execution. Choose a suitable working folder. This is a personal, experimental assistant with powerful local tools.
-
-## Browser and web services
-
-**Browser** opens Vercel agent-browser with a separate profile for browsing, forms, tabs, and screenshots. Sign in there manually when needed. It uses Chrome or Edge; Settings offers browser installation when neither is available.
-
-Optional **Firecrawl** and **Brave Search** keys go in **Settings → Web services** and are stored encrypted. Browser control needs neither key. Service queries/URLs go to that service and may consume credits. Direct chats can browse; goals with network permission can search and scrape.
-
-## Personal assistance
-
-- **Profile:** edit USER.md for your facts/preferences and SOUL.md for the assistant's voice. Changes apply on the next request.
-- **Memory:** SQLite stores preferences, project facts, decisions, discoveries, work episodes, and searchable source history. Automatic learning runs between tasks; explicit `memory_save` and `memory_forget` tools apply changes immediately. The Memory panel searches, edits, pins, forgets, and shows sources and the context used in the latest reply. Bundled quantized BGE-base adds offline CPU semantic search with no server setup; full-text search remains available. Tool traces are archived separately from recall, and the Memory panel opens on saved knowledge. See [MEMORY.md](MEMORY.md).
-- **Independent Check:** optional same-model anti-sycophancy review with Off, Selective, and Always modes plus a manual **Challenge this answer** action in the right-click menu on completed replies. It runs sequentially without tools and keeps the completed draft if review fails or is stopped. See [INDEPENDENT-CHECK.md](INDEPENDENT-CHECK.md).
-- **Goals:** choose a finite Task or an Ongoing goal that acts and coaches through your continuous chat. Reviews use fresh user messages and selected project evidence, and unchanged reviews stay quiet without model calls. Tasks need acceptance checks; advice is labelled as a recommendation. Define sources, permissions, and a budget. Every goal keeps a versioned one-active-step plan plus bounded assumptions, observations, decisions, and verification evidence that survive restart and chat compaction. Review undo records restored file evidence. See [GOALS.md](GOALS.md) and [LEDGER.md](LEDGER.md).
-- **Automations and standing intents:** repeat prompts by interval or exact PC-local time, or connect foreground events to an existing authorized goal or automation. Standing intents use one bounded in-process queue and stop with the app. See [EVENTS.md](EVENTS.md).
-- **Calendar:** a local Little Bot calendar with all-day or timed events. The UI and agent can create, edit, delete, and list events using the PC's local clock. External calendar sync is not included.
-- **Activity inbox:** a dedicated sidebar tab for Heartbeat and goal updates, with unread/error and source filters, read controls, and topic feedback.
-- **Heartbeat:** a bounded checklist, active hours, and run limits. Useful, Later, and Don't suggest this control attention. Goals and heartbeat share the notification budget.
-- **Extensions:** skills, plugins, and MCP connections. Four included skills cover app operations, web work, research briefs, and meeting preparation. Scheduling questions automatically include the enabled `little-bot` guide with heartbeat setup, routine examples, and troubleshooting. You can also invoke it with `$little-bot`.
-
-Autonomous work runs while the app is open and the PC is awake. **Pause all** pauses it across restarts. There is no tray worker, startup service, or wake-from-sleep mechanism. See [GOALS.md](GOALS.md), [EXTENSIONS.md](EXTENSIONS.md), and [NEXT.md](NEXT.md).
-
-Automations support repeating intervals and exact PC-local clock times on selected weekdays. They do not parse cron expressions or provide one-time timers. If Little Bot is closed when work becomes due, that occurrence is skipped and the next future occurrence is selected on reopening. If the app remains open but the single execution lane is busy, due work waits for that lane. If the PC sleeps while the process remains open, a due item may make one attempt after the process resumes. Standing intents follow the same foreground-only lifecycle and collect no events while the app is closed. The agent can create and enable automation schedules through chat, update them, or pause/resume them; heartbeat and standing-intent configuration use their panels. See [EVENTS.md](EVENTS.md) and the [built-in operating guide](resources/skills/little-bot/SKILL.md).
-
-Settings also controls automatic compaction: **20–95%**, default **80%**; **0** retains only native limits. **Compact now** summarizes older context while keeping the visible transcript. See [COMPACTION.md](COMPACTION.md).
-
-Recall and automatic learning require Memory on. Knowledge is shared across models and connections, with current-project relevance and cross-folder search. Link moved folders under Memory settings to retain project continuity. Corrections supersede earlier facts; forgotten memories are suppressed from automatic relearning. The model can use `memory_search` and `session_read` to retrieve older details after native context compaction. This searches Little Bot history, not other apps.
-
-Bundled skill updates preserve user edits, disabled state, IDs, and deletions. [Skill sources and licenses](resources/skills/SOURCES.md).
-
-## On your phone
-
-Turn on Settings › Phone relay to use the same live conversation from your phone. Pair it by scanning a QR code. Over [Tailscale](https://tailscale.com) HTTPS it works away from home and can send notifications.
-
-The Android companion app adds notifications without Google push and opt-in location sharing, so Little Bot knows when you are home or out. It lives in [little-bot-android](https://github.com/b7216309-jpg/little-bot-android). The PC serves the built APK at `/little-bot.apk`.
-
-## Strata conversation cache
-
-Little Bot works with official Strata releases. Chat, memory extraction, goals, heartbeat and independent checks send their own full histories through the standard Chat Completions API. The app no longer sends the custom slot IDs from [PR #175](https://github.com/Niko1221/Strata/pull/175).
-
-Strata 0.1.30 and later can automatically park conversations and restore a matching token/image prefix. Official releases store snapshots in RAM. The local 0.1.33 engine also supports SSD parking through the versioned patch in [the integration guide](integrations/strata/README.md). Its normal 262K launcher uses `--conversation-cache-storage ssd --conversation-cache-mib 16384 --conversation-cache-slots 8 --conversation-cache-min-free-mib 1024`: up to 16 GiB of temporary disk snapshots, eight histories and a 1 GiB free-RAM floor. Budgets are ceilings; oversized entries or insufficient memory cause ordinary prompt processing.
-
-Requests remain sequential. Compaction, changed instructions/tools/images/steering, eviction or restart can require a cold read. SSD files are deleted when their snapshots are evicted or the engine exits; active model state still needs RAM/VRAM. Whole-conversation parking currently requires a single GPU.
-
-Run diagnostic inference against a separate test server: other requests can evict parked conversations. Engine updates require rebuilding the local SSD addition against the new release; Little Bot continues to use the standard API.
-
-## Local data
-
-Data lives in `%APPDATA%/Little Bot/data`: the saved conversation, a local SQLite memory database, profile, attachments, browser state, service keys, and isolated engine state. The existing conversation state uses Windows DPAPI through Electron safeStorage; the new memory database is an ordinary local SQLite file. The app keeps one conversation timeline; legacy fact and episode arrays are not imported into the new database. Attachments, profile Markdown files, calendar, automation, and standing-intent metadata, and other local configuration remain ordinary local files. The app does not change your existing Codex or OpenClaw configuration. Streaming replies checkpoint about every two seconds and save immediately on completion or interruption; an abrupt power loss can lose the most recent unsaved text.
-
-Prompts and attachments go to the selected model connection: local Qwen stays on this computer; Codex sends them to its provider. Web services and MCP tools have their own destinations. Provider usage and local performance samples are transient and are not added to saved chats or Memory. The renderer has no Node access or remote scripts. This is an unsigned personal build.
-
-## System guide
-
-[docs/system-guide](docs/system-guide/README.md) explains each subsystem, its call path, storage, failure conditions and relevant tests. It includes a [complete source ownership map](docs/system-guide/source-map.md) and the [second functional review](docs/system-guide/review.md), with six remaining issues and isolated reproduction evidence.
+| Topic | Read |
+|---|---|
+| How every subsystem works, with a source map | [System guide](docs/system-guide/README.md) |
+| Models and connections | [CONNECTIONS.md](CONNECTIONS.md), [Strata integration](integrations/strata/README.md), [USAGE.md](USAGE.md) |
+| Memory, dreaming and intentions | [MEMORY.md](MEMORY.md), [system guide: memory](docs/system-guide/04-memory.md) |
+| Goals and their ledger | [GOALS.md](GOALS.md), [LEDGER.md](LEDGER.md) |
+| Heartbeat, events and routines | [EVENTS.md](EVENTS.md), [system guide: heartbeat](docs/system-guide/08-heartbeat-inbox.md) |
+| Browser, web services, files | [BROWSER.md](BROWSER.md), [WEB-SERVICES.md](WEB-SERVICES.md), [ATTACHMENTS.md](ATTACHMENTS.md) |
+| Widget, extensions, checks, compaction | [WIDGET.md](WIDGET.md), [EXTENSIONS.md](EXTENSIONS.md), [INDEPENDENT-CHECK.md](INDEPENDENT-CHECK.md), [COMPACTION.md](COMPACTION.md) |
+| What changed in each release | [VALIDATION.md](VALIDATION.md) |
 
 ## Development
 
-Node.js 24 or newer:
-
 ```powershell
-npm install
-node node_modules/electron/install.js
 npm run check:syntax
-npm test
-npm run test:electron
+npm test                 # about 90 Node tests, a few seconds
+npm run test:electron    # embedded browser and Glass widget
 npm start
-npm run package
-npm run package:portable
+npm run package          # unpacked app, portable ZIP and Setup EXE
 ```
 
-`npm run ci` runs the syntax, Node, and Electron checks used by the main CI workflow. The Windows distribution workflow separately verifies packaging, installation, and removal.
+The README screenshots are generated from the real interface with fictional demo data, with no model or personal profile involved: `npx electron scripts/readme-screenshots.cjs`.
 
-On Windows, `npm run package` produces the unpacked app folder, a portable ZIP, and a per-user Setup EXE. `npm run package:portable` skips installer creation and builds only the unpacked folder plus portable ZIP. The installer is a self-extracting Windows bootstrapper built with the .NET Framework compiler, needs no administrator rights, and can be removed from Apps & Features.
+Plain JavaScript and Electron with a strict renderer (no Node access, context isolation, sandbox). Pinned: Electron 44.4.5, Codex 0.157.1, ONNX Runtime 1.30.0, Mammoth 1.12.3, unpdf 1.8.1. Embedding models are fetched and verified at build time, then bundled, so the installed app downloads nothing.
 
-Pinned dependencies: Codex 0.157.1, agent-browser 0.38.1, Mammoth 1.12.3, unpdf 1.8.1, Electron 44.4.5, ONNX Runtime 1.30.0, and Hugging Face Tokenizers 0.2.0. Embedding assets are fetched and verified at build time, then bundled for offline use; the installed app downloads no models.
+## Status
 
-For focused checks and remaining limitations, see [VALIDATION.md](VALIDATION.md).
-
-References: [Codex app-server](https://learn.chatgpt.com/docs/app-server), [agent-browser](https://agent-browser.dev/), [Firecrawl](https://docs.firecrawl.dev/), [Electron security](https://www.electronjs.org/docs/latest/tutorial/security).
-
-To regenerate the anonymous screenshots: `npx electron scripts/readme-screenshots.cjs`. This uses a temporary demo profile and never connects to your model.
+Little Bot is a personal, experimental project and an unsigned build. In *Execute* mode it has your user account's access to the working folder and terminal, so choose that folder with care. Autonomous work runs only while the app is open and the PC is awake.
