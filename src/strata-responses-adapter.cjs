@@ -7,6 +7,83 @@ const { StringDecoder } = require('node:string_decoder');
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const id = prefix => `${prefix}_${randomBytes(12).toString('hex')}`;
 
+function stableValue(value) {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (!object(value)) return value;
+  return Object.fromEntries(Object.keys(value).sort().map(key => [key, stableValue(value[key])]));
+}
+const stableJson = value => JSON.stringify(stableValue(value));
+
+function closeJson(value) {
+  let raw = value.trim().replace(/,\s*$/, '');
+  if (/:\s*$/.test(raw)) raw += 'null';
+  const stack = [];
+  let quoted = false, escaped = false;
+  for (const char of raw) {
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') quoted = false;
+    } else if (char === '"') quoted = true;
+    else if (char === '{') stack.push('}');
+    else if (char === '[') stack.push(']');
+    else if ((char === '}' || char === ']') && stack.at(-1) === char) stack.pop();
+  }
+  return raw + (quoted ? '"' : '') + stack.reverse().join('');
+}
+
+function jsonValue(value) {
+  if (object(value) || Array.isArray(value)) return value;
+  if (typeof value !== 'string' || !value.trim()) return null;
+  let raw = value.trim().replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+  raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  const first = raw.indexOf('{'), last = raw.lastIndexOf('}');
+  const candidates = [raw, ...(first >= 0 ? [raw.slice(first, last >= first ? last + 1 : undefined)] : [])];
+  for (const candidate of candidates) {
+    for (const source of [candidate, closeJson(candidate)]) {
+      for (const repaired of [source, source
+        .replace(/([{,]\s*)([A-Za-z_$][\w$-]*)(\s*:)/g, '$1"$2"$3')
+        .replace(/(:\s*)([A-Za-z_][\w-]*)(\s*[,}\]])/g, (_match, before, text, after) => `${before}${/^(?:true|false|null)$/i.test(text) ? text : JSON.stringify(text)}${after}`)
+        .replace(/,\s*([}\]])/g, '$1'), source
+        .replace(/([{,]\s*)([A-Za-z_$][\w$-]*)(\s*:)/g, '$1"$2"$3')
+        .replace(/'((?:\\.|[^'\\])*)'/g, (_match, text) => JSON.stringify(text.replace(/\\'/g, "'")))
+        .replace(/(:\s*)([A-Za-z_][\w-]*)(\s*[,}\]])/g, (_match, before, text, after) => `${before}${/^(?:true|false|null)$/i.test(text) ? text : JSON.stringify(text)}${after}`)
+        .replace(/,\s*([}\]])/g, '$1')]) {
+        try { return JSON.parse(repaired); } catch { /* Try the next small repair. */ }
+      }
+    }
+  }
+  return null;
+}
+
+function toolArguments(value) {
+  if (object(value)) return stableJson(value);
+  const parsed = jsonValue(value);
+  return stableJson(object(parsed) ? parsed : { input: parsed === null ? String(value ?? '') : parsed });
+}
+
+function callFromJson(value, toolKinds) {
+  const parsed = jsonValue(value);
+  if (!object(parsed)) return null;
+  const fn = object(parsed.function) ? parsed.function : object(parsed.tool_call) ? parsed.tool_call : parsed;
+  const name = [fn.name, fn.tool, fn.tool_name, parsed.name, parsed.tool].find(item => typeof item === 'string' && item.trim())?.trim();
+  if (!name || !toolKinds.has(name)) return null;
+  const args = fn.arguments ?? fn.parameters ?? fn.input ?? parsed.arguments ?? parsed.parameters ?? parsed.input ?? {};
+  return { name, args };
+}
+
+function repeatedSuffix(value) {
+  const max = Math.min(32, Math.floor(value.length / 4));
+  for (let size = max; size >= 8; size--) {
+    const part = value.slice(-size);
+    if (part.trim().length < 8) continue;
+    let count = 1, end = value.length - size;
+    while (end >= size && value.slice(end - size, end) === part) { count++; end -= size; }
+    if (count >= 4) return { keep: end + size * 2 };
+  }
+  return null;
+}
+
 function contentText(content) {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return content == null ? '' : String(content);
@@ -87,27 +164,28 @@ function responsesToChat(body, thinking) {
   }
   const input = Array.isArray(body.input) ? body.input : (typeof body.input === 'string'
     ? [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: body.input }] }] : []);
-  for (const item of input) {
+  for (let inputIndex = 0; inputIndex < input.length; inputIndex++) {
+    const item = input[inputIndex];
     if (!object(item)) continue;
     if (item.type === 'reasoning') {
       pending.reasoning += reasoningText(item);
       continue;
     }
     if (item.type === 'function_call') {
-      pending.tool_calls.push({ id: item.call_id || item.id || id('call'), type: 'function', function: {
-        name: item.name || 'tool', arguments: typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments || {}),
+      pending.tool_calls.push({ id: item.call_id || item.id || `call_missing_${inputIndex}`, type: 'function', function: {
+        name: item.name || 'tool', arguments: toolArguments(item.arguments),
       } });
       continue;
     }
     if (item.type === 'custom_tool_call') {
-      pending.tool_calls.push({ id: item.call_id || item.id || id('call'), type: 'function', function: {
+      pending.tool_calls.push({ id: item.call_id || item.id || `call_missing_${inputIndex}`, type: 'function', function: {
         name: item.name || 'tool', arguments: JSON.stringify({ input: typeof item.input === 'string' ? item.input : '' }),
       } });
       continue;
     }
     if (item.type === 'tool_search_call') {
-      pending.tool_calls.push({ id: item.call_id || item.id || id('call'), type: 'function', function: {
-        name: 'tool_search', arguments: JSON.stringify(item.arguments || {}),
+      pending.tool_calls.push({ id: item.call_id || item.id || `call_missing_${inputIndex}`, type: 'function', function: {
+        name: 'tool_search', arguments: toolArguments(item.arguments || {}),
       } });
       continue;
     }
@@ -165,7 +243,7 @@ function responsesToChat(body, thinking) {
     out.response_format = { type: 'json_schema', json_schema: {
       name: format.name || 'result', strict: format.strict === true, schema: format.schema,
     } };
-    messages.unshift({ role: 'developer', content: 'Return the final answer as JSON matching this schema. Do not wrap it in Markdown.\n' + JSON.stringify(format.schema) });
+    messages.unshift({ role: 'developer', content: 'Return the final answer as JSON matching this schema. Do not wrap it in Markdown.\n' + stableJson(format.schema) });
   } else if (format?.type === 'json_object') {
     out.response_format = { type: 'json_object' };
     messages.unshift({ role: 'developer', content: 'Return the final answer as a valid JSON object. Do not wrap it in Markdown.' });
@@ -176,7 +254,7 @@ function responsesToChat(body, thinking) {
   for (const key of ['temperature', 'top_p', 'top_k', 'min_p', 'seed', 'presence_penalty', 'frequency_penalty', 'repetition_penalty', 'penalty_last_n']) {
     if (body[key] !== undefined) out[key] = body[key];
   }
-  if (object(body.reasoning)) out.reasoning = { ...body.reasoning };
+  if (object(body.reasoning)) out.reasoning = stableValue(body.reasoning);
   out.chat_template_kwargs = { ...(object(body.chat_template_kwargs) ? body.chat_template_kwargs : {}), enable_thinking: thinking !== false };
   return { body: out, toolKinds };
 }
@@ -191,15 +269,12 @@ function estimateResponsesInputTokens(body) {
 
 function parseArguments(value) {
   if (object(value)) return value;
-  if (typeof value !== 'string' || !value.trim()) return {};
-  try {
-    const parsed = JSON.parse(value);
-    return object(parsed) ? parsed : { input: value };
-  } catch { return { input: value }; }
+  const parsed = jsonValue(value);
+  return object(parsed) ? parsed : { input: parsed === null ? String(value ?? '') : parsed };
 }
 
 class StrataStreamAdapter extends Transform {
-  constructor({ model, toolKinds = new Map() } = {}) {
+  constructor({ model, toolKinds = new Map(), onDegenerate = () => {} } = {}) {
     super();
     this.model = model || 'strata';
     this.toolKinds = toolKinds;
@@ -209,17 +284,44 @@ class StrataStreamAdapter extends Transform {
     this.messageId = id('msg');
     this.reasoningId = id('rs');
     this.created = false;
+    this.started = false;
     this.messageAdded = false;
     this.reasoningAdded = false;
     this.reasoningDone = false;
     this.completed = false;
+    this.inThinking = false;
+    this.thinkingTag = '';
+    this.pendingText = '';
+    this.onDegenerate = onDegenerate;
+    this.degenerate = false;
     this.text = '';
     this.reasoning = '';
     this.calls = new Map();
     this.usage = null;
   }
 
-  _event(event) { this.push(Buffer.from(`data: ${JSON.stringify(event)}\n\n`)); }
+  _eventBytes(event) { return Buffer.from(`data: ${JSON.stringify(event)}\n\n`); }
+  _event(event) { this.push(this._eventBytes(event)); }
+
+  start() {
+    if (this.started) return Buffer.alloc(0);
+    this.started = true;
+    const events = [];
+    if (!this.created) {
+      this.created = true;
+      events.push(this._eventBytes({ type: 'response.created', response: { id: this.responseId, object: 'response', status: 'in_progress', model: this.model } }));
+    }
+    events.push(this._eventBytes({ type: 'response.in_progress', response: { id: this.responseId, object: 'response', status: 'in_progress', model: this.model } }));
+    return Buffer.concat(events);
+  }
+
+  failure(message, code = 'local_model_error') {
+    if (this.completed) return Buffer.alloc(0);
+    this.completed = true;
+    const initial = this.start();
+    return Buffer.concat([initial, this._eventBytes({ type: 'response.failed', response: { id: this.responseId, object: 'response', status: 'failed', model: this.model,
+      error: { code, message: String(message || 'The local model request failed.') } } })]);
+  }
 
   _created() {
     if (this.created) return;
@@ -248,16 +350,9 @@ class StrataStreamAdapter extends Transform {
 
   _textDelta(delta) {
     if (!delta) return;
-    this._created();
-    this._finishReasoning();
-    if (!this.messageAdded) {
-      this.messageAdded = true;
-      this._event({ type: 'response.output_item.added', output_index: this.reasoningAdded ? 1 : 0,
-        item: { type: 'message', id: this.messageId, role: 'assistant', content: [] } });
-    }
-    this.text += delta;
-    this._event({ type: 'response.output_text.delta', item_id: this.messageId,
-      output_index: this.reasoningAdded ? 1 : 0, content_index: 0, delta });
+    this.pendingText += delta;
+    this._drainText(false);
+    if (this.degenerate) this._complete('stop');
   }
 
   _toolDelta(tool) {
@@ -283,10 +378,124 @@ class StrataStreamAdapter extends Transform {
     if (kind.type === 'tool_search') {
       return { type: 'tool_search_call', call_id: call.id, execution: kind.execution || 'client', arguments: parseArguments(call.arguments) };
     }
-    return { type: 'function_call', call_id: call.id, name: call.name, arguments: call.arguments || '{}' };
+    return { type: 'function_call', call_id: call.id, name: call.name, arguments: toolArguments(call.arguments || '{}') };
+  }
+
+  _addTextCall(name, args) {
+    if (!this.toolKinds.has(name)) return false;
+    const index = Math.max(-1, ...this.calls.keys()) + 1;
+    this.calls.set(index, { id: id('call'), name, arguments: toolArguments(args) });
+    return true;
+  }
+
+  _parseTextCall(raw) {
+    const call = callFromJson(raw, this.toolKinds);
+    if (call) return this._addTextCall(call.name, call.args);
+    const name = /(?:["']?name["']?|tool_name)\s*:\s*["']([^"']+)["']/i.exec(raw)?.[1]?.trim();
+    if (name && this.toolKinds.has(name)) return this._addTextCall(name, raw);
+    return false;
+  }
+
+  _emitText(text) {
+    if (!text) return;
+    this._created();
+    this._finishReasoning();
+    if (!this.messageAdded) {
+      this.messageAdded = true;
+      this._event({ type: 'response.output_item.added', output_index: this.reasoningAdded ? 1 : 0,
+        item: { type: 'message', id: this.messageId, role: 'assistant', content: [] } });
+    }
+    this.text += text;
+    this._event({ type: 'response.output_text.delta', item_id: this.messageId,
+      output_index: this.reasoningAdded ? 1 : 0, content_index: 0, delta: text });
+  }
+
+  _drainText(final) {
+    const markers = [
+      ['think', /<(think|reasoning|analysis)\s*>/i],
+      ['tool', /<tool_call\s*>/i],
+      ['function', /<function\s*=\s*([^>]+)>/i],
+      ['fenced', /```json\s*/i],
+    ];
+    while (this.pendingText) {
+      if (this.inThinking) {
+        const close = new RegExp(`<\\/${this.thinkingTag}\\s*>`, 'i').exec(this.pendingText);
+        if (!close) { this.pendingText = ''; if (final) { this.inThinking = false; this.thinkingTag = ''; } return; }
+        this.pendingText = this.pendingText.slice(close.index + close[0].length);
+        this.inThinking = false;
+        this.thinkingTag = '';
+        continue;
+      }
+      const found = markers.map(([type, pattern]) => {
+        const match = pattern.exec(this.pendingText);
+        return match ? { type, match, index: match.index } : null;
+      }).filter(Boolean).sort((a, b) => a.index - b.index)[0];
+      if (!found) {
+        const repeated = repeatedSuffix(this.pendingText);
+        if (repeated) {
+          this.pendingText = this.pendingText.slice(0, repeated.keep);
+          this._emitText(this.pendingText);
+          this.pendingText = '';
+          this.degenerate = true;
+          setImmediate(() => this.onDegenerate());
+          return;
+        }
+        if (final) { this._emitText(this.pendingText); this.pendingText = ''; return; }
+        const safe = Math.max(0, this.pendingText.length - 128);
+        if (safe) { this._emitText(this.pendingText.slice(0, safe)); this.pendingText = this.pendingText.slice(safe); }
+        return;
+      }
+      if (found.index) this._emitText(this.pendingText.slice(0, found.index));
+      this.pendingText = this.pendingText.slice(found.index);
+      const opening = found.match[0];
+      if (found.type === 'think') {
+        this.pendingText = this.pendingText.slice(opening.length);
+        this.inThinking = true;
+        this.thinkingTag = found.match[1].toLowerCase();
+        continue;
+      }
+      if (found.type === 'tool') {
+        const innerStart = opening.length;
+        const close = /<\/tool_call\s*>/i.exec(this.pendingText.slice(innerStart));
+        if (!close && !final) return;
+        const inner = close ? this.pendingText.slice(innerStart, innerStart + close.index) : this.pendingText.slice(innerStart);
+        if (!this._parseTextCall(inner)) this._emitText(inner.trim());
+        this.pendingText = close ? this.pendingText.slice(innerStart + close.index + close[0].length) : '';
+        continue;
+      }
+      if (found.type === 'function') {
+        const name = found.match[1].trim().replace(/^(["'])(.*)\1$/, '$2');
+        const innerStart = opening.length;
+        const close = /<\/function\s*>/i.exec(this.pendingText.slice(innerStart));
+        if (!close && !final) return;
+        const inner = close ? this.pendingText.slice(innerStart, innerStart + close.index) : this.pendingText.slice(innerStart);
+        const args = {};
+        for (const param of inner.matchAll(/<parameter\s*=\s*([^>]+)>([\s\S]*?)<\/parameter\s*>/gi)) {
+          const key = param[1].trim().replace(/^(["'])(.*)\1$/, '$2');
+          const value = param[2].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').trim();
+          const parsed = jsonValue(value);
+          args[key] = parsed === null ? value : parsed;
+        }
+        if (!this._addTextCall(name, args)) this._emitText(inner.replace(/<\/?parameter(?:\s*=\s*[^>]+)?>/gi, '').trim());
+        this.pendingText = close ? this.pendingText.slice(innerStart + close.index + close[0].length) : '';
+        continue;
+      }
+      const closeIndex = this.pendingText.indexOf('```', opening.length);
+      if (closeIndex < 0) {
+        if (!final) return;
+        this._emitText(this.pendingText); this.pendingText = ''; return;
+      }
+      const end = closeIndex + 3;
+      const block = this.pendingText.slice(0, end);
+      const inner = this.pendingText.slice(opening.length, closeIndex);
+      if (!this._parseTextCall(inner)) this._emitText(block);
+      this.pendingText = this.pendingText.slice(end);
+    }
   }
 
   _complete(finishReason = 'stop') {
+    if (this.completed) return;
+    this._drainText(true);
     if (this.completed) return;
     this.completed = true;
     this._created();
@@ -310,23 +519,29 @@ class StrataStreamAdapter extends Transform {
     const limited = ['length', 'max_tokens', 'max_output_tokens'].includes(finishReason);
     // A cutoff may leave incomplete arguments. Never release those calls to the
     // engine as executable tools; preserve partial text and report the failure.
-    for (const index of (limited ? [] : [...this.calls.keys()].sort((a, b) => a - b))) {
-      const item = this._toolItem(this.calls.get(index));
+    const calls = limited ? [] : [...this.calls.keys()].sort((a, b) => a - b)
+      .map(index => this.calls.get(index)).filter(call => call.name && (!this.toolKinds.size || this.toolKinds.has(call.name)));
+    for (const call of calls) {
+      const item = this._toolItem(call);
       this._event({ type: 'response.output_item.done', output_index: outputIndex++, item });
       output.push(item);
     }
+    const empty = !this.text.trim() && !calls.length;
+    const failed = limited || empty;
     const inputTokens = Number(this.usage?.prompt_tokens) || 0;
     const outputTokens = Number(this.usage?.completion_tokens) || 0;
-    this._event({ type: limited ? 'response.failed' : 'response.completed', response: {
-      id: this.responseId, object: 'response', status: limited ? 'failed' : 'completed', model: this.model, output,
+    this._event({ type: failed ? 'response.failed' : 'response.completed', response: {
+      id: this.responseId, object: 'response', status: failed ? 'failed' : 'completed', model: this.model, output,
       ...(limited ? { incomplete_details: { reason: 'max_output_tokens' }, error: { code: 'max_output_tokens',
-        message: 'The local model reached its output token limit before finishing. Partial text was kept; ask it to continue.' } } : {}),
+        message: 'The local model reached its output token limit before finishing. Partial text was kept; ask it to continue.' } }
+        : empty ? { error: { code: 'empty_completion', message: 'The local model returned an empty response. Please try again.' } } : {}),
       usage: { input_tokens: inputTokens, input_tokens_details: this.usage?.prompt_tokens_details ? { cached_tokens: Math.min(inputTokens, Math.max(0, Number(this.usage.prompt_tokens_details.cached_tokens) || 0)) } : null, output_tokens: outputTokens,
         output_tokens_details: null, total_tokens: Number(this.usage?.total_tokens) || inputTokens + outputTokens },
     } });
   }
 
   _line(line) {
+    if (this.completed) return;
     if (!line) return;
     if (line.startsWith(':')) { this.push(Buffer.from(`${line}\n\n`)); return; }
     if (!line.startsWith('data:')) return;
@@ -366,8 +581,9 @@ class StrataStreamAdapter extends Transform {
   _flush(callback) {
     this.buffer += this.decoder.end();
     if (this.buffer) this._line(this.buffer.replace(/\r$/, ''));
+    if (!this.completed) this._complete();
     callback();
   }
 }
 
-module.exports = { StrataStreamAdapter, estimateResponsesInputTokens, responsesToChat, withoutImages, hasImages };
+module.exports = { StrataStreamAdapter, estimateResponsesInputTokens, responsesToChat, withoutImages, hasImages, stableJson };
