@@ -133,10 +133,10 @@ test('changed selected project files supply evidence outside the writable folder
   assert.ok(missing.coverage.some(x => x.includes('Absence does not establish user failure')));
 });
 
-test('unsupported evidence, fake progress and ongoing completion are rejected', async () => {
+test('unsupported evidence and ongoing completion are rejected; unsupported progress becomes a recommendation', async () => {
   const g = goal(process.cwd()), evidence = await contract.collect(g, data(g));
   assert.throws(() => contract.validateResult(g, result('recommendation', { evidenceRefs: ['invented'] }), evidence), /unavailable evidence/);
-  assert.throws(() => contract.validateResult(g, result('progress'), evidence), /observable progress/);
+  const claimed = result('progress'); contract.validateResult(g, claimed, evidence); assert.equal(claimed.outcome, 'recommendation');
   assert.throws(() => contract.validateResult(g, result('completed'), evidence, { checksPassed: true }), /ongoing/);
   assert.throws(() => contract.validateResult(g, result('no-change'), evidence, { changedFiles: 1 }), /must not change/);
   assert.throws(() => contract.validateResult(g, result('waiting'), evidence), /dependency/);
@@ -210,11 +210,10 @@ test('ongoing recommendation persists actions and posts to chat; unchanged revie
   assert.equal(d.chats[0].messages.length, 2); assert.equal(g.review.lastResult.outcome, 'no-change'); assert.equal(g.review.lastMeaningfulResult.outcome, 'recommendation');
 });
 
-test('runner rejects forged progress and preserves unconsumed evidence for retry', async t => {
+test('runner keeps an unsupported progress claim as a recommendation instead of retrying', async t => {
   const { runner, g } = await runnerFixture(t, async () => result('progress'));
-  await runner.execute(g); assert.equal(g.status, 'queued'); assert.equal(g.failureStreak, 1);
-  assert.equal(g.review.lastResult, null); assert.equal(g.review.chatCursor, '');
-  assert.match(g.history.at(-1).summary, /observable progress.*Retrying in 15 minutes/);
+  await runner.execute(g); assert.equal(g.status, 'queued'); assert.ok(!g.failureStreak);
+  assert.equal(g.review.lastResult.outcome, 'recommendation');
 });
 
 test('question posts in chat and explicit answer queues precisely that goal', async t => {
