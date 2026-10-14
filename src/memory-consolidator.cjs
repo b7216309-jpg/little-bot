@@ -97,7 +97,7 @@ class MemoryConsolidator {
     return !this.closed && !this.active && Date.now() >= this.notBefore && this.service
       && c.store.data.memory?.enabled !== false && !c.closing && c.runtime.status === 'ready'
       && c.account.status === 'connected' && !c.extensionsBusy && !c.goalChat && !c.heartbeatChat
-      && !c.independentCheck?.active && !c.manualCompactions?.size
+      && !c.independentCheck?.active && !c.manualCompactions?.size && !c.chatGoal?.holding()
       && !c.store.data.chats.some(chat => chat.status !== 'idle');
   }
   async tick() {

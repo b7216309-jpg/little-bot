@@ -335,6 +335,11 @@ html[data-theme=dark] .agent-browser-button.browser-active{border-color:#49513f;
 html[data-theme=dark] .goal-context-meta .goal-waiting{color:#b6853f}
 html[data-theme=dark] .goal-context-meta .goal-silent{color:#93aa97}
 html[data-theme=dark] .sampling-button{color:#99a490}
+html[data-theme=dark] .goal-bar[data-status=paused],html[data-theme=dark] .goal-bar[data-status=budget],html[data-theme=dark] .goal-bar[data-status=unmet]{border-left-color:#6a6353}
+html[data-theme=dark] .message.user .goal-label{color:#c07e64}
+html[data-theme=dark] .message.user.goal-set .message-content{border:1px solid rgba(192,126,100,0.333);background:rgba(192,126,100,0.051)}
+html[data-theme=dark] .message.user.goal-step .message-content{border:1px dashed #534841;color:#878b85}
+html[data-theme=dark] .message.goal-result.goal-unmet .message-content,html[data-theme=dark] .message.goal-result.goal-budget .message-content,html[data-theme=dark] .message.goal-result.goal-paused .message-content{border-left-color:#6a6353}
 html[data-theme=dark] .goal-ledger-current{border:1px solid #393d30;background:#21231b}
 html[data-theme=dark] .goal-ledger-plan-title h4{color:#a6b19d}
 html[data-theme=dark] .goal-ledger-version{border:1px solid #3c4234;background:#1a1a1a;color:#8d9786}

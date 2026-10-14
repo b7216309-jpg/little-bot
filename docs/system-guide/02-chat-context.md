@@ -10,6 +10,16 @@ Each accepted request builds context from current goals, continuity text, profil
 
 The controller reserves the public chat before asynchronous preparation. Engine notifications append streamed answers, reasoning, tool actions, plans and user questions. Delta UI updates are batched around 40 ms; stream persistence is throttled around two seconds. Completion records task timing and activity, resolves waiting schedules, and submits eligible completed direct turns for memory learning.
 
+## /goal: keep working until it is done
+
+`/goal <condition>` (in the conversation, the Quick session or on the phone) works like Claude Code's and Codex's goal mode. [ChatGoalRunner](../../src/chat-goal.cjs) starts an ordinary turn whose request asks the model to work autonomously toward the condition. When the turn ends, [Controller.finish](../../src/controller.cjs) hands it to the runner:
+
+1. An optional check command (`--check "npm test"`) runs in the working folder with the conversation's own access (Plan mode stays read-only), for up to five minutes.
+2. An independent checker, a separate tool-less, read-only model turn in its own ephemeral thread, reads the work since the goal was set (newest turn kept whole) and returns `met`, `impossible`, a one-line reason and the next step. The worker never grades itself, and a failing check command overrides a "met".
+3. If not met, the runner starts the next turn with that feedback (a "goal-step" message, shown as a dashed note, never learned as something the user said).
+
+It stops when the condition is met, judged impossible (it needs the user), the budget is used (default 20 turns and 90 minutes; `--turns N`, `--time 2h`), the same reason comes back three times in a row (paused as going in circles), a turn fails or the user presses Stop (paused). `/goal` shows the status; `/goal pause`, `resume` (another round after a budget stop) and `clear` control it, as do the goal bar above the composer and the phone's goal strip. A message the user sends mid-goal is answered first with the goal as context, then the loop continues. Only one goal runs at a time, the goal is saved with the chat, a goal that was running when the app closed comes back paused, and the heartbeat, background goals, routines, learning and dreaming wait while it runs.
+
 ## Plan, Execute and stopping
 
 Execute uses native full-access execution. Plan uses the engine's read-only sandbox and a reduced dynamic-tool set. Scheduled prompts carry their own origin labels and restore the previous conversation mode afterward. Private sessions and multiple public conversation creation are no longer supported.

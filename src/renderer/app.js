@@ -868,7 +868,13 @@ function conversationMessage(chat, message, index) {
   } else {
     if (!node) {
       node = element('article', `message ${variant}`);
-      if (variant === 'assistant' && (message.goalId || ['heartbeat', 'memory', 'watch', 'offer', 'goal'].includes(message.kind))) node.classList.add('proactive');
+      if (variant === 'assistant' && (message.goalId || ['heartbeat', 'memory', 'watch', 'offer', 'goal', 'goal-check'].includes(message.kind))) node.classList.add('proactive');
+      if (message.kind === 'goal-check') node.classList.add('goal-result', `goal-${message.goalStatus || 'achieved'}`);
+      // A /goal: the condition the user set, and the automatic "keep going" prompts between turns.
+      if (variant === 'user' && ['goal-set', 'goal-step'].includes(message.kind)) {
+        node.classList.add(message.kind);
+        node.append(element('div', 'message-label goal-label', message.kind === 'goal-set' ? 'Goal · keep working until' : 'Goal · not yet, keep going'));
+      }
       if (Number.isFinite(message.createdAt)) node.title = new Date(message.createdAt).toLocaleString();
       // A scheduled task's prompt was not typed by the user: give it its own look, not a "you" bubble.
       if (variant === 'user' && message.automationId) {
@@ -879,7 +885,7 @@ function conversationMessage(chat, message, index) {
         const label = element('div', 'message-label');
         let mark = element('span', 'mini-mark', 'P');
         if (variant !== 'plan') { mark = element('img', 'mini-mark wink-mark'); mark.src = './assets/wink.svg'; mark.alt = ''; }
-        label.append(mark, document.createTextNode(variant === 'plan' ? 'Plan' : message.goalId ? `Goal · ${message.goalName || 'Little Bot'}` : message.kind === 'heartbeat' ? `Little Bot · on its own${message.heartbeatTopic ? ` · ${message.heartbeatTopic}` : ''}` : message.kind === 'memory' ? 'Little Bot · learned' : message.kind === 'watch' ? 'Little Bot · web watch' : message.kind === 'offer' ? 'Little Bot · offer' : message.automationId ? `Little Bot · ${message.automationName || 'Automation'}` : 'Little Bot'));
+        label.append(mark, document.createTextNode(variant === 'plan' ? 'Plan' : message.goalId ? `Goal · ${message.goalName || 'Little Bot'}` : message.kind === 'heartbeat' ? `Little Bot · on its own${message.heartbeatTopic ? ` · ${message.heartbeatTopic}` : ''}` : message.kind === 'goal-check' ? 'Little Bot · goal' : message.kind === 'memory' ? 'Little Bot · learned' : message.kind === 'watch' ? 'Little Bot · web watch' : message.kind === 'offer' ? 'Little Bot · offer' : message.automationId ? `Little Bot · ${message.automationName || 'Automation'}` : 'Little Bot'));
         node.append(label);
       }
       node.append(element('div', 'message-content'));
@@ -1103,6 +1109,7 @@ function updateComposer() {
   const running = chat?.status === 'running' || chat?.status === 'waiting' || chat?.compaction?.status === 'running' || compactionPending.has(chat?.id);
   const canSend = Boolean(state && isConnected() && isReady() && !running && !sending && !thinkingSaving && !attachmentImportPending && ($('message-input').value.trim() || queuedAttachments().length));
   $('send-button').disabled = !canSend;
+  renderGoalBar();
   $('send-button').classList.toggle('hidden', Boolean(running));
   $('stop-button').classList.toggle('hidden', !running);
   $('message-input').disabled = sending;
@@ -1495,6 +1502,37 @@ function commandDraftName(value, fallback) {
   return (first || fallback).slice(0, 80);
 }
 
+// /goal: the goal bar above the composer and the commands behind it (see src/chat-goal.cjs).
+async function goalCommand(text) {
+  const result = await attempt(() => window.bot.chatGoal({ chatId: selectedChatId || undefined, quick: quickMode, text }));
+  if (result?.state) applyState(result.state);
+  return result;
+}
+function goalStatusLine(chat, goal) {
+  const elapsed = (goal.elapsedMs || 0) + (goal.status === 'pursuing' && goal.resumedAt ? Date.now() - goal.resumedAt : 0);
+  const budget = `turn ${Math.min(goal.turns + (chat.status !== 'idle' ? 1 : 0), goal.maxTurns)} of ${goal.maxTurns} · ${Math.round(elapsed / 60000)} min`;
+  if (goal.status === 'pursuing') {
+    const phase = chat.status !== 'idle' ? 'Working' : goal.phase === 'checking' ? (goal.check ? `Checking with ${goal.check}` : 'Checking the work') : 'Continuing';
+    const last = goal.lastVerdict && !goal.lastVerdict.met ? ` · last check: ${goal.lastVerdict.reason}` : '';
+    return `${phase} · ${budget}${last}`;
+  }
+  if (goal.status === 'paused') return `Paused · ${goal.pausedReason || 'Resume to continue.'}`;
+  return `${{ achieved: 'Reached', unmet: 'Can’t be finished', budget: 'Budget used' }[goal.status] || goal.status} · ${goal.endReason || ''}`;
+}
+function renderGoalBar() {
+  const chat = currentView === 'chat' ? currentChat() : null;
+  const goal = chat?.goal;
+  $('goal-bar').classList.toggle('hidden', !goal);
+  if (!goal) return;
+  $('goal-bar').dataset.status = goal.status;
+  $('goal-bar-condition').textContent = goal.condition;
+  $('goal-bar-status').textContent = goalStatusLine(chat, goal);
+  $('goal-bar').title = goal.check ? `Counts as met only when ${goal.check} passes.` : 'An independent check reviews the work after every turn.';
+  $('goal-bar-toggle').classList.toggle('hidden', goal.status === 'achieved');
+  $('goal-bar-toggle').textContent = goal.status === 'pursuing' ? 'Pause' : 'Resume';
+  $('goal-bar-clear').title = ['pursuing', 'paused'].includes(goal.status) ? 'Clear the goal' : 'Dismiss';
+}
+
 async function executeSlashCommand(parsed) {
   const chat = currentChat();
   const running = chat?.status === 'running' || chat?.status === 'waiting' || chat?.compaction?.status === 'running' || compactionPending.has(chat?.id);
@@ -1522,7 +1560,21 @@ async function executeSlashCommand(parsed) {
       updateComposer();
       notify(parsed.name === 'plan' ? 'Plan mode enabled for the next turn.' : 'Execute mode enabled for the next turn.');
       return true;
-    case 'goal':
+    case 'goal': {
+      clearComposerDraft();
+      const result = await goalCommand(args);
+      if (!result) {
+        // Keep what was typed so a typo can be fixed.
+        if (args && !$('message-input').value) { $('message-input').value = `/goal ${args}`; sizeComposer(); }
+        return true;
+      }
+      if (!args || /^status$/i.test(args)) notify(`Goal: ${result.goal.condition} · ${goalStatusLine(currentChat() || { status: 'idle' }, result.goal)}`);
+      else if (result.cleared) notify('Goal cleared.');
+      else if (/^(pause|stop)$/i.test(args)) notify('Goal paused. Use /goal resume to continue.');
+      else if (!/^(resume|continue)$/i.test(args)) scrollChatToBottom();
+      return true;
+    }
+    case 'goals':
       clearComposerDraft();
       showFeature('goals');
       editGoal();
@@ -3922,6 +3974,8 @@ function resolveConfirm(accepted) {
 }
 
 $('nav-conversation').addEventListener('click', () => selectChat(null));
+$('goal-bar-toggle').addEventListener('click', () => goalCommand(currentChat()?.goal?.status === 'pursuing' ? 'pause' : 'resume'));
+$('goal-bar-clear').addEventListener('click', () => goalCommand('clear'));
 $('dream-now').addEventListener('click', () => attempt(() => window.bot.dreamNow(), 'Little Bot will dream as soon as it is idle.'));
 $('nav-quick').addEventListener('click', () => selectChat(null, true));
 $('quick-end').addEventListener('click', async () => {

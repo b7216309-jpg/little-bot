@@ -381,6 +381,11 @@ class Relay {
         const text = String(input.text || '').trim();
         const attachmentIds = Array.isArray(input.attachmentIds) ? input.attachmentIds.filter(id => typeof id === 'string').slice(0, 8) : [];
         if ((!text && !attachmentIds.length) || text.length > 32000) throw new Error('Write a message first.');
+        // /goal on the phone works like on the desktop (see ChatGoalRunner).
+        if (/^\/goal(\s|$)/i.test(text)) {
+          await this.handlers.chatGoal({ quick: input.quick === true, chatId: input.quick === true ? snap.quick?.id : chatId, text: text.replace(/^\/goal/i, '').trim() });
+          return { ok: true };
+        }
         // The Quick session: a side chat with no memory, goals or follow-ups (see Controller.send).
         if (input.quick === true) await this.handlers.send({ quick: true, ...(snap.quick ? { chatId: snap.quick.id } : {}), text, ...(attachmentIds.length ? { attachmentIds } : {}) });
         else await this.handlers.send({ ...(chatId ? { chatId } : {}), text, ...(attachmentIds.length ? { attachmentIds } : {}) });
@@ -398,6 +403,12 @@ class Relay {
       case 'stop': {
         const target = input.quick === true ? snap.quick?.id : chatId;
         if (target) await this.handlers.stop({ chatId: target });
+        return { ok: true };
+      }
+      case 'chatGoal': {
+        const command = String(input.command || '');
+        if (!['pause', 'resume', 'clear'].includes(command)) throw new Error('Choose pause, resume or clear.');
+        await this.handlers.chatGoal({ quick: input.quick === true, chatId: input.quick === true ? snap.quick?.id : chatId, text: command });
         return { ok: true };
       }
       case 'endQuick': if (snap.quick) await this.handlers.deleteChat({ chatId: snap.quick.id }); return { ok: true };

@@ -312,11 +312,27 @@ function setQuickMode(on) {
   render();
   $('chat').scrollTop = $('chat').scrollHeight;
 }
+// A /goal running in this chat (set from the PC or by typing /goal here).
+function renderGoalStrip(active) {
+  const goal = active?.goal;
+  $('goal-strip').classList.toggle('hidden', !goal);
+  if (!goal) return;
+  $('goal-strip').dataset.status = goal.status;
+  $('goal-strip-condition').textContent = goal.condition;
+  const step = `turn ${Math.min(goal.turns + (active.status === 'running' ? 1 : 0), goal.maxTurns)}/${goal.maxTurns}`;
+  const label = goal.status === 'pursuing' ? (active.status === 'running' ? 'Working' : goal.phase === 'checking' ? 'Checking' : 'Continuing')
+    : { paused: 'Paused', achieved: 'Reached', unmet: 'Can’t be finished', budget: 'Budget used' }[goal.status] || goal.status;
+  $('goal-strip-status').textContent = [label, goal.status === 'pursuing' ? step : '', goal.reason].filter(Boolean).join(' · ');
+  $('goal-strip-toggle').classList.toggle('hidden', goal.status === 'achieved');
+  $('goal-strip-toggle').textContent = goal.status === 'pursuing' ? 'Pause' : 'Resume';
+  $('goal-strip-clear').textContent = ['pursuing', 'paused'].includes(goal.status) ? 'Clear' : 'Dismiss';
+}
 function render() {
   const active = quickMode ? snap?.quick : snap?.chat;
   const visible = quickMode ? quickOrder : order;
   const chatStatus = active?.status || 'idle';
   $('quick-bar').classList.toggle('hidden', !quickMode);
+  renderGoalStrip(active);
   $('quick-end').disabled = !snap?.quick;
   const running = chatStatus === 'running' || chatStatus === 'waiting';
   if (connected) {
@@ -490,6 +506,11 @@ window.littleBotDictated = text => {
 $('mic').addEventListener('click', () => native?.dictate?.());
 $('stop').addEventListener('click', () => attempt(() => api('stop', quickMode ? { quick: true } : {})));
 $('tab-main').addEventListener('click', () => setQuickMode(false));
+$('goal-strip-toggle').addEventListener('click', () => {
+  const goal = (quickMode ? snap?.quick : snap?.chat)?.goal;
+  attempt(() => api('chatGoal', { quick: quickMode, command: goal?.status === 'pursuing' ? 'pause' : 'resume' }));
+});
+$('goal-strip-clear').addEventListener('click', () => attempt(() => api('chatGoal', { quick: quickMode, command: 'clear' })));
 $('tab-quick').addEventListener('click', () => setQuickMode(true));
 $('quick-end').addEventListener('click', () => attempt(() => api('endQuick', {})));
 

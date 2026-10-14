@@ -18,6 +18,7 @@ const { LocalModelRelay } = require('./local-model-relay.cjs');
 const { questionInput, questionText } = require('./user-questions.cjs');
 const { SHELL_CONDUCT, commandTranscript, appendCommandDelta } = require('./shell-conduct.cjs');
 const { IndependentCheckRunner } = require('./independent-check-runner.cjs');
+const { ChatGoalRunner, turnInstructions, activeGoalNote } = require('./chat-goal.cjs');
 const { INDEPENDENT_CHECK_MODES, normalizeIndependentCheckMode } = require('./independent-check.cjs');
 const { ProviderUsage } = require('./provider-usage.cjs');
 const { normalizeSampling } = require('./local-generation.cjs');
@@ -147,6 +148,7 @@ class Controller extends EventEmitter {
     this.questionRequests = new Map();
     this.goalExecutor = new GoalExecutor(this);
     this.independentCheck = new IndependentCheckRunner(this);
+    this.chatGoal = new ChatGoalRunner(this);
     this.providerUsage = new ProviderUsage({
       client,
       connection: () => this.connection,
@@ -557,8 +559,12 @@ class Controller extends EventEmitter {
       this.threadInstructionSettings.set(chat.threadId, signature);
     }
   }
-  async send({ chatId, text = '', attachmentIds = [], mode, quick } = {}, override = null) {
+  // internal.goalTurn comes only from ChatGoalRunner: the opening or a continuation turn of a /goal.
+  async send({ chatId, text = '', attachmentIds = [], mode, quick } = {}, override = null, internal = {}) {
+    const goalTurn = override ? null : internal?.goalTurn || null;
     if (this.memoryConsolidator) await this.memoryConsolidator.pauseForUser();
+    // The user's own message always wins over a pending goal check.
+    if (!goalTurn) await this.chatGoal.stopEvaluation();
     this.ensureReady();
     if (this.memoryBusy) throw new Error('Memory is finishing an update. Try again in a moment.');
     if (this.extensionsBusy) throw new Error('Extensions are being updated. Try again in a moment.');
@@ -606,6 +612,7 @@ class Controller extends EventEmitter {
       if (turnPrivate) this.store.data.chats.push(chat); else this.store.data.chats.unshift(chat);
     }
     Object.assign(chat, binding, { workspace: folder, model: settings.model, toolMode });
+    if (goalTurn?.kind === 'start') chat.goal = goalTurn.goal;
     // Mark busy before awaiting RPC so two clicks cannot start overlapping turns.
     if (override?.automationId) chat.automationPreviousMode = chat.mode || 'execute';
     chat.mode = turnMode;
@@ -616,7 +623,9 @@ class Controller extends EventEmitter {
     else delete chat.automationId;
     if (chat.connection !== 'local') chat.model = settings.model || chat.model;
     chat.effort = settings.effort || 'low';
-    const userMessage = { id: randomUUID(), role: 'user', text, createdAt: Date.now(), workspace: folder, model: chat.model, connection: chat.connection, ...(override?.automationId ? { automationId: override.automationId, automationName: override.name || 'Scheduled task', kind: 'automation' } : {}) };
+    const userMessage = { id: randomUUID(), role: 'user', text, createdAt: Date.now(), workspace: folder, model: chat.model, connection: chat.connection, ...(override?.automationId ? { automationId: override.automationId, automationName: override.name || 'Scheduled task', kind: 'automation' } : {}),
+      ...(goalTurn ? { kind: goalTurn.kind === 'start' ? 'goal-set' : 'goal-step', chatGoalId: chat.goal?.id } : {}) };
+    if (goalTurn?.kind === 'start' && chat.goal) chat.goal.startMessageId = userMessage.id;
     let memoryContext = '';
     let inputAccepted = false;
     let finish;
@@ -641,7 +650,7 @@ class Controller extends EventEmitter {
         source: { sessionId: chat.id, messageId: userMessage.id }, updatedAt: Date.now(),
       });
       // Only accepted direct user messages may create durable facts.
-      if (!override && !chat.private) {
+      if (!override && !chat.private && !goalTurn) {
         try {
           const fact = automaticRemember(this.store.data.memory, text, { ...settings, workspace: folder }, chat.id, userMessage.id);
           if (fact) this.emit('event', { type: 'memory', message: 'Saved to workspace memory.' });
@@ -659,12 +668,14 @@ class Controller extends EventEmitter {
       const profile = this.profileContext();
       const requestBlock = override?.automationId
         ? `Scheduled task: ${override.name || 'Automation'}\n${text}\n\nThis is an automated run of a saved task, not a new message from the user. Use relevant conversation context, but perform only this scheduled task. Do not resume unrelated unfinished conversation work or treat this prompt as a new personal fact about the user.`
-        : `Current user request:\n${text || 'Examine the attached files.'}`;
-      const unseenProactive = override || chat.private ? [] : proactive.unseen(chat);
-      const intentionsDue = override || chat.private ? [] : companion.forChat(this.store.data.companion, text);
-      const quickNote = chat.private ? 'This is a Quick session: a side chat for one-off work. Saved memory, goals and follow-ups are off here, and nothing from it is remembered. Just do the task.' : '';
+        : goalTurn && chat.goal ? turnInstructions(chat.goal, goalTurn)
+          : `Current user request:\n${text || 'Examine the attached files.'}`;
+      const unseenProactive = override || chat.private || goalTurn ? [] : proactive.unseen(chat);
+      const intentionsDue = override || chat.private || goalTurn ? [] : companion.forChat(this.store.data.companion, text);
+      const quickNote = chat.private ? 'This is a Quick session: a side chat for one-off work. Saved memory, background goals and follow-ups are off here, and nothing from it is remembered. Just do the task.' : '';
       const inputBlocks = [
         quickNote ? { kind: 'quick', label: 'Quick session', text: quickNote } : null,
+        !override && !goalTurn && chat.goal?.status === 'pursuing' ? { kind: 'goal', label: 'Active goal', text: activeGoalNote(chat.goal) } : null,
         !override && !chat.private && chatContext(this.store.data) ? { kind: 'goals', label: 'Current goals', text: chatContext(this.store.data) } : null,
         unseenProactive.length ? { kind: 'proactive', label: 'Your messages since the user last wrote', text: proactive.bridgeText(unseenProactive) } : null,
         historyBridge ? { kind: 'history', label: 'Conversation continuity', text: historyBridge } : null,
@@ -676,7 +687,7 @@ class Controller extends EventEmitter {
         prepared.text ? { kind: 'attachments', label: 'Attachment excerpts', text: prepared.text } : null,
         { kind: 'shell', label: 'Shell conduct', text: SHELL_CONDUCT },
         { kind: 'time', label: 'Current time', text: timeContext() },
-        { kind: 'request', label: override?.automationId ? 'Scheduled task' : 'Current user request', text: requestBlock },
+        { kind: 'request', label: override?.automationId ? 'Scheduled task' : goalTurn ? 'Goal' : 'Current user request', text: requestBlock },
       ].filter(Boolean);
       const result = await this.client.request('turn/start', {
         threadId: chat.threadId, input: [{ type: 'text', text: inputBlocks.map(block => block.text).join('\n\n') }, ...prepared.input],
@@ -992,6 +1003,8 @@ class Controller extends EventEmitter {
     delete chat.automationId; delete chat.automationName; delete chat.automationPreviousMode;
     // After the turn's own bookkeeping, so a queued proactive message is never mistaken for this turn's answer.
     if (!chat.internal && !chat.private) proactive.flush(chat, finishedAt);
+    // A /goal decides here whether to check the work and continue.
+    if (!chat.internal && !manual) this.chatGoal.turnFinished(chat, error);
     if (!chat.internal) this.persistNow();
     this.changed();
   }
@@ -1054,6 +1067,7 @@ class Controller extends EventEmitter {
     if (this.closing) return;
     this.providerUsage.notification(method, params);
     if (this.independentCheck.notification(method, params)) return;
+    if (this.chatGoal.notification(method, params)) return;
     if (this.goalExecutor.notification(method, params)) return;
     if (method === 'account/login/completed') {
       this.emit('event', { type: 'login', success: !!params.success, error: params.error ? cleanError(params.error) : null });
@@ -1218,6 +1232,10 @@ class Controller extends EventEmitter {
   async serverRequest({ id, method, params = {} }) {
     if (this.memoryConsolidator?.ownsThread(params.threadId)) {
       await this.client.reject(id, 'Memory maintenance does not use tools.'); return;
+    }
+    if (this.chatGoal.ownsThread(params.threadId)) {
+      await this.client.reject(id, 'The goal check does not use tools or request user input.');
+      return;
     }
     if (this.independentCheck.ownsThread(params.threadId)) {
       await this.client.reject(id, 'Independent Check does not use tools or request user input.');
@@ -1408,6 +1426,7 @@ class Controller extends EventEmitter {
     this.closing = true;
     this.appManagement?.close();
     await this.memoryConsolidator?.close();
+    await this.chatGoal.close();
     this.eventRuntime?.stop();
     this.independentCheck.abort('interrupted', 'Independent Check stopped because Little Bot closed. The completed draft was kept.');
     for (const request of this.questionRequests.values()) request.cancelled = true;

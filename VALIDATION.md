@@ -1,3 +1,25 @@
+# Version 0.24.0 verification
+
+0.24.0 adds `/goal`, like Claude Code and Codex: Little Bot keeps working across turns until an independent check confirms the condition.
+
+- **How:** `/goal <condition> [--check "cmd"] [--turns N] [--time 90m]` works in the conversation, the Quick session and on the phone.
+  - Each goal turn is a normal chat turn. Afterwards an optional check command runs in the working folder, then a separate, tool-less checker model call returns met / impossible / reason / next.
+  - Not met: the next turn starts with that feedback, shown as a dashed note and never learned as the user's words.
+  - A failing check command overrides a "met"; the worker never grades itself.
+- **Stops:** when met, impossible (needs the user), out of budget (default 20 turns / 90 min), going in circles (same reason three times, paused), a failed turn or Stop (paused).
+  - `/goal`, `/goal pause`, `resume` (another round after a budget stop) and `clear` control it; so do the goal bar above the composer and the phone's goal strip.
+  - A message sent mid-goal is answered first, with the goal as context. Results notify like proactive messages; individual goal turns do not.
+- **Safety:** one goal runs at a time. It is saved with the chat and comes back paused after a restart. The heartbeat, background goals, routines, learning and dreaming wait while it runs.
+- `/goals` now opens a background goal draft (what `/goal` used to do).
+
+Checked end to end with the bundled engine and a mock Strata server playing worker and checker:
+- not met, then met, with the checker's feedback in the next turn; the phone shows the result with a notification;
+- a failing `--check` (`exit 1`) vetoed a "met" until the 2-turn budget ended it; a passing check reached the goal in one turn;
+- impossible ended it; three identical reasons paused it; pause stopped further turns and resume finished the goal;
+- a running goal came back paused after a reload; a user message mid-goal carried the active-goal note.
+
+Screenshots of the goal bar and messages in dark and light caught and fixed a renderer crash: chat-goal messages now use `chatGoalId`, because `goalId` means a background goal. Node tests (91), both Electron tests and validate-docs pass.
+
 # Version 0.23.0 verification
 
 0.23.0 gives Little Bot a night: dreaming and intentions, modeled on OpenClaw's dreaming and standing intents.

@@ -160,13 +160,13 @@ app.whenReady().then(async () => {
   const extensionRuntime = new ExtensionRuntime({ store, client, onChange: () => controller.changed() });
   controller.extensionRuntime = extensionRuntime;
   const publishEvent = event => eventRuntime?.publish(event) || { accepted: false, reason: 'stopped' };
-  scheduler = new Scheduler({ store, run: runAutomation, publish: publishEvent, canRun: () => !store.data.autonomy.paused && !goals?.activeId && !controller.goalChat && !heartbeat?.running && !controller.extensionsBusy && !controller.memoryBusy && !store.data.chats.some(chat => chat.status !== 'idle'), onChange: () => controller.changed() });
+  scheduler = new Scheduler({ store, run: runAutomation, publish: publishEvent, canRun: () => !store.data.autonomy.paused && !goals?.activeId && !controller.goalChat && !heartbeat?.running && !controller.extensionsBusy && !controller.memoryBusy && !store.data.chats.some(chat => chat.status !== 'idle') && !controller.chatGoal.holding(), onChange: () => controller.changed() });
   heartbeat = new Heartbeat({ store, run: config => controller.runHeartbeat(config),
     canNotify: () => !store.data.autonomy.paused && !desktopWindows?.isFocused() && Notification.isSupported()
       && !store.data.chats.some(chat => chat.status !== 'idle'),
     canRun: () => controller.runtime.status === 'ready' && controller.account.status === 'connected'
       && !store.data.autonomy.paused && !goals?.activeId && !controller.goalChat && !controller.extensionsBusy && !controller.memoryBusy && !scheduler.runningId && !controller.heartbeatChat && !store.data.chats.some(chat => chat.status !== 'idle')
-      && !controller.memoryConsolidator?.hasReadyWork(),
+      && !controller.memoryConsolidator?.hasReadyWork() && !controller.chatGoal.holding(),
     onChange: () => controller.changed(),
     publish: publishEvent,
     // Activity only tracks; every new heartbeat alert is delivered into the conversation.
@@ -190,10 +190,11 @@ app.whenReady().then(async () => {
     verifyCommand: (goal, check) => controller.verifyGoalCommand(goal, check),
     canRun: () => controller.runtime.status === 'ready' && controller.account.status === 'connected'
       && !controller.extensionsBusy && !controller.memoryBusy && !controller.goalChat && !controller.heartbeatChat && !heartbeat.running && !scheduler.runningId
-      && !store.data.chats.some(chat => chat.status !== 'idle') && !controller.memoryConsolidator?.hasReadyWork(),
+      && !store.data.chats.some(chat => chat.status !== 'idle') && !controller.memoryConsolidator?.hasReadyWork() && !controller.chatGoal.holding(),
     waitReason: () => controller.runtime.status !== 'ready' ? 'The engine is starting'
       : controller.account.status !== 'connected' ? 'Waiting for the model (it is offline or not loaded)'
       : store.data.chats.some(chat => chat.status !== 'idle') ? 'A conversation reply is in progress'
+      : controller.chatGoal.holding() ? 'A /goal is running in the conversation'
       : controller.memoryBusy || controller.memoryConsolidator?.hasReadyWork() ? 'Memory is learning from the conversation'
       : controller.goalChat || goals?.activeId ? 'Another goal is running'
       : heartbeat.running || controller.heartbeatChat ? 'The heartbeat check is running'
@@ -497,12 +498,19 @@ app.whenReady().then(async () => {
     if (result.authUrl && safeAuthUrl(result.authUrl)) await shell.openExternal(result.authUrl);
     return result;
   });
-  register('send', async payload => {
+  const sendTurn = async (payload, internal) => {
     if (goals.activeId) await goals.pause(goals.activeId);
     if (controller.goalChat) await controller.goalChat.settled;
     const active = controller.heartbeatChat;
     if (active) { await controller.stopHeartbeat(); await active.settled; }
-    return controller.send(payload);
+    return controller.send(payload, null, internal);
+  };
+  controller.chatGoal.sendTurn = sendTurn;
+  register('send', payload => sendTurn(payload));
+  register('chatGoal', async payload => {
+    const result = await controller.chatGoal.command({ chatId: typeof payload?.chatId === 'string' ? payload.chatId : undefined,
+      quick: payload?.quick === true, text: typeof payload?.text === 'string' ? payload.text.slice(0, 4000) : '' });
+    return { ...result, state: controller.state() };
   });
   register('stop', async payload => {
     const result = await controller.stop(payload);
@@ -768,7 +776,7 @@ app.whenReady().then(async () => {
     openLink: url => { if (safeWebUrl(url)) shell.openExternal(url).catch(error => logDiagnostic('widget-link', error)); } });
   window.webContents.on('will-navigate', (event, url) => { if (url !== rendererUrl) event.preventDefault(); });
   window.on('close', event => {
-    if (quitting || (!goals.activeId && !heartbeat.running && !store.data.chats.some(chat => chat.status !== 'idle'))) return;
+    if (quitting || (!goals.activeId && !heartbeat.running && !controller.chatGoal.holding() && !store.data.chats.some(chat => chat.status !== 'idle'))) return;
     const choice = dialog.showMessageBoxSync(window, { type: 'question', buttons: ['Keep working', 'Quit'],
       defaultId: 0, cancelId: 0, title: 'A task is still running',
       message: 'Quit Little Bot and stop its active tasks?' });
