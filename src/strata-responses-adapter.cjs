@@ -318,6 +318,8 @@ function errorCommand(name, toolKinds, detail = '') {
 }
 
 function repairToolCall(call, toolKinds) {
+  // Without exec_command (tool-less JSON turns) there is nothing to redirect to.
+  if (!toolKinds.has('exec_command')) return call;
   if (!toolKinds.has(call.name) && PATCH_TOOLS.has(call.name)) {
     const patch = patchFrom(jsonValue(call.arguments)) || patchFrom(call.arguments);
     return { ...call, name: 'exec_command', arguments: stableJson({ cmd: patch ? patchCommand(patch) : errorCommand(call.name, toolKinds, 'Could not read the patch.') }) };
