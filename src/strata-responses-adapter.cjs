@@ -76,10 +76,10 @@ function repeatedSuffix(value) {
   const max = Math.min(32, Math.floor(value.length / 4));
   for (let size = max; size >= 8; size--) {
     const part = value.slice(-size);
-    if (part.trim().length < 8) continue;
+    if (new Set(part.replace(/\s/g, '')).size < 4) continue; // banners, zero arrays and table rules repeat legitimately
     let count = 1, end = value.length - size;
     while (end >= size && value.slice(end - size, end) === part) { count++; end -= size; }
-    if (count >= 4) return { keep: end + size * 2 };
+    if (count >= 4 && count * size >= 96) return { keep: end + size * 2 };
   }
   return null;
 }
