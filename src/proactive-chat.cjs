@@ -2,11 +2,11 @@
 
 const { randomUUID } = require('node:crypto');
 const { localStamp } = require('./local-time.cjs');
+const { connectionBinding } = require('./connections.cjs');
 
 // The Activity inbox is a log; the conversation is where proactive work is delivered.
 // Messages that arrive while a turn is running or waiting wait in the chat's outbox,
 // and every proactive message stays unseen by the model until the user's next turn carries it.
-const MAX_PENDING = 20;
 const MAX_BRIDGE = 10;
 const PROACTIVE_KINDS = ['heartbeat', 'goal', 'memory', 'watch', 'offer'];
 const MAX_FEEDBACK = 200;
@@ -36,7 +36,7 @@ const text = (value, limit) => typeof value === 'string' ? value.slice(0, limit)
 
 function normalizePending(value) {
   return (Array.isArray(value) ? value : []).filter(item => object(item) && PROACTIVE_KINDS.includes(item.kind)
-    && typeof item.text === 'string' && item.text.trim()).slice(-MAX_PENDING).map(item => {
+    && typeof item.text === 'string' && item.text.trim()).map(item => {
     const entry = { id: text(item.id, 128) || randomUUID(), role: 'assistant', kind: item.kind, status: 'completed',
       text: text(item.text, 20000), createdAt: Number.isFinite(item.createdAt) ? item.createdAt : Date.now(), modelSeen: false };
     const actions = normalizeActions(item.actions);
@@ -50,8 +50,18 @@ function normalizePending(value) {
 
 // Posts into the idle conversation or queues for later. `duplicate` checks both delivered and queued messages.
 function post(data, fields, { duplicate = null, nowMs = Date.now() } = {}) {
-  const chat = data?.chats?.find(item => !item.private);
-  if (!chat || !Array.isArray(chat.messages)) return null;
+  if (!data || !Array.isArray(data.chats)) return null;
+  let chat = data.chats.find(item => !item.private);
+  if (!chat) {
+    const settings = data.settings || {};
+    const now = nowMs;
+    chat = { id: randomUUID(), title: 'Conversation', threadId: '', workspace: settings.workspace || '',
+      model: settings.connection === 'local' ? settings.localModel || '' : settings.model || '',
+      ...connectionBinding(settings), effort: settings.effort || 'low', mode: 'execute', toolMode: 'full',
+      createdAt: now, updatedAt: now, status: 'idle', messages: [] };
+    data.chats.unshift(chat);
+  }
+  if (!Array.isArray(chat.messages)) chat.messages = [];
   const pending = Array.isArray(chat.pendingProactive) ? chat.pendingProactive : [];
   if (duplicate && [...chat.messages, ...pending].some(duplicate)) return null;
   const message = { id: randomUUID(), role: 'assistant', status: 'completed', createdAt: nowMs, modelSeen: false,
@@ -60,7 +70,7 @@ function post(data, fields, { duplicate = null, nowMs = Date.now() } = {}) {
     chat.messages.push(message);
     chat.updatedAt = nowMs;
   } else {
-    chat.pendingProactive = [...pending, message].slice(-MAX_PENDING);
+    chat.pendingProactive = [...pending, message];
   }
   return message;
 }

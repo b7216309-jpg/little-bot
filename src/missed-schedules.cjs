@@ -1,7 +1,5 @@
 'use strict';
 
-const { nextAutomationRunAt } = require('./scheduler.cjs');
-
 const MINUTE = 60000;
 // A daily goal pushed a full interval past every reopening may never run; review once soon instead.
 const GOAL_CATCH_UP_MINUTES = 2;
@@ -14,7 +12,8 @@ function advanceMissedSchedules(data, nowMs = Date.now()) {
   for (const automation of Array.isArray(data.automations) ? data.automations : []) {
     if (!automation?.enabled || !Number.isFinite(automation.nextRunAt) || automation.nextRunAt > nowMs) continue;
     const dueAt = automation.nextRunAt;
-    automation.nextRunAt = nextAutomationRunAt(automation, nowMs);
+    // Leave the occurrence due until Scheduler.runNow starts it. A failed readiness
+    // check can then retry instead of silently consuming the missed run.
     result.automations.push({ id: automation.id, dueAt, nextRunAt: automation.nextRunAt });
   }
 
@@ -22,8 +21,7 @@ function advanceMissedSchedules(data, nowMs = Date.now()) {
   if (object(heartbeat) && heartbeat.enabled === true && typeof heartbeat.checklist === 'string' && heartbeat.checklist.trim()
     && Number.isFinite(heartbeat.nextRunAt) && heartbeat.nextRunAt <= nowMs) {
     const dueAt = heartbeat.nextRunAt;
-    const intervalMinutes = Number.isInteger(heartbeat.intervalMinutes) && heartbeat.intervalMinutes > 0 ? heartbeat.intervalMinutes : 30;
-    heartbeat.nextRunAt = nowMs + intervalMinutes * MINUTE;
+    // Heartbeat.tick owns advancing the schedule after a successful start.
     result.heartbeat = { dueAt, nextRunAt: heartbeat.nextRunAt };
   }
 
