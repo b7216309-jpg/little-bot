@@ -6,6 +6,7 @@ const { StringDecoder } = require('node:string_decoder');
 
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const id = prefix => `${prefix}_${randomBytes(12).toString('hex')}`;
+const PATCH_TOOLS = new Set(['apply_patch', 'applypatch', 'apply-patch']);
 
 function stableValue(value) {
   if (Array.isArray(value)) return value.map(stableValue);
@@ -66,12 +67,12 @@ function toolArguments(value) {
   return stableJson(object(parsed) ? parsed : { input: parsed === null ? String(value ?? '') : parsed });
 }
 
-function callFromJson(value, toolKinds) {
+function callFromJson(value) {
   const parsed = jsonValue(value);
   if (!object(parsed)) return null;
   const fn = object(parsed.function) ? parsed.function : object(parsed.tool_call) ? parsed.tool_call : parsed;
   const name = [fn.name, fn.tool, fn.tool_name, parsed.name, parsed.tool].find(item => typeof item === 'string' && item.trim())?.trim();
-  if (!name || !toolKinds.has(name)) return null;
+  if (!name) return null;
   const args = fn.arguments ?? fn.parameters ?? fn.input ?? parsed.arguments ?? parsed.parameters ?? parsed.input ?? {};
   return { name, args };
 }
@@ -283,6 +284,57 @@ function parseArguments(value) {
   return object(parsed) ? parsed : { input: parsed === null ? String(value ?? '') : parsed };
 }
 
+function patchText(value) {
+  if (typeof value !== 'string') return null;
+  const start = value.indexOf('*** Begin Patch');
+  if (start < 0) return null;
+  const end = /^\*\*\* End Patch\r?$/m.exec(value.slice(start));
+  return end ? value.slice(start, start + end.index + end[0].length) : value.slice(start).trim();
+}
+
+function patchFrom(value, seen = new Set()) {
+  if (typeof value === 'string') return patchText(value);
+  if (!value || typeof value !== 'object' || seen.has(value)) return null;
+  seen.add(value);
+  if (Array.isArray(value)) return patchText(value.join('\n')) || value.map(item => patchFrom(item, seen)).find(Boolean) || null;
+  for (const key of ['patch', 'input', 'cmd', 'command']) {
+    const found = patchFrom(value[key], seen);
+    if (found) return found;
+  }
+  return null;
+}
+
+function patchCommand(patch) {
+  let marker = 'LITTLE_BOT_PATCH';
+  while (patch.split(/\r?\n/).includes(marker)) marker += '_END';
+  return `apply_patch <<'${marker}'\n${patch}\n${marker}`;
+}
+
+function errorCommand(name, toolKinds, detail = '') {
+  const tools = [...toolKinds.keys()];
+  const label = String(name || 'unknown').replace(/[\r\n\0]/g, ' ').slice(0, 80);
+  const message = `${detail ? `${detail} ` : ''}Unknown tool "${label}". Valid tools: ${tools.length ? tools.join(', ') : 'none'}. Retry with a listed tool.`;
+  return `Write-Output '${message.replace(/'/g, "''")}'; exit 1`;
+}
+
+function repairToolCall(call, toolKinds) {
+  if (!toolKinds.has(call.name) && PATCH_TOOLS.has(call.name)) {
+    const patch = patchFrom(jsonValue(call.arguments)) || patchFrom(call.arguments);
+    return { ...call, name: 'exec_command', arguments: stableJson({ cmd: patch ? patchCommand(patch) : errorCommand(call.name, toolKinds, 'Could not read the patch.') }) };
+  }
+  if (!toolKinds.has(call.name)) {
+    return { ...call, name: 'exec_command', arguments: stableJson({ cmd: errorCommand(call.name, toolKinds) }) };
+  }
+  if (call.name === 'exec_command') {
+    const args = parseArguments(call.arguments);
+    if (Array.isArray(args.cmd) && /^apply_patch(?:\.bat)?$/i.test(String(args.cmd[0] || ''))) {
+      const patch = patchFrom(args.cmd.slice(1));
+      return { ...call, arguments: stableJson({ ...args, cmd: patch ? patchCommand(patch) : errorCommand('apply_patch', toolKinds, 'Could not read the patch.') }) };
+    }
+  }
+  return call;
+}
+
 class StrataStreamAdapter extends Transform {
   constructor({ model, toolKinds = new Map(), onDegenerate = () => {} } = {}) {
     super();
@@ -392,17 +444,17 @@ class StrataStreamAdapter extends Transform {
   }
 
   _addTextCall(name, args) {
-    if (!this.toolKinds.has(name)) return false;
+    if (typeof name !== 'string' || !name.trim()) return false;
     const index = Math.max(-1, ...this.calls.keys()) + 1;
     this.calls.set(index, { id: id('call'), name, arguments: toolArguments(args) });
     return true;
   }
 
   _parseTextCall(raw) {
-    const call = callFromJson(raw, this.toolKinds);
+    const call = callFromJson(raw);
     if (call) return this._addTextCall(call.name, call.args);
     const name = /(?:["']?name["']?|tool_name)\s*:\s*["']([^"']+)["']/i.exec(raw)?.[1]?.trim();
-    if (name && this.toolKinds.has(name)) return this._addTextCall(name, raw);
+    if (name) return this._addTextCall(name, raw);
     return false;
   }
 
@@ -530,7 +582,8 @@ class StrataStreamAdapter extends Transform {
     // A cutoff may leave incomplete arguments. Never release those calls to the
     // engine as executable tools; preserve partial text and report the failure.
     const calls = limited ? [] : [...this.calls.keys()].sort((a, b) => a - b)
-      .map(index => this.calls.get(index)).filter(call => call.name && (!this.toolKinds.size || this.toolKinds.has(call.name)));
+      .map(index => this.calls.get(index)).filter(call => call.name).map(call => repairToolCall(call, this.toolKinds))
+      .filter(call => call.name && (!this.toolKinds.size || this.toolKinds.has(call.name)));
     for (const call of calls) {
       const item = this._toolItem(call);
       this._event({ type: 'response.output_item.done', output_index: outputIndex++, item });
