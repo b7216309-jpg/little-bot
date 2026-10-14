@@ -18,6 +18,7 @@ const { normalizePending, normalizeActions, normalizeAnswer, normalizeFeedbackLo
 const { normalizeWatches } = require('./web-watch.cjs');
 const { normalizeSampling } = require('./local-generation.cjs');
 const { normalizeCompanion } = require('./companion.cjs');
+const { normalizeChatGoal } = require('./chat-goal.cjs');
 
 const INTERRUPTED = 'Interrupted because Little Bot closed before the task finished.';
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -130,7 +131,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
           };
           const attachments = attachmentDescriptors(message.attachments);
           if (attachments.length) entry.attachments = attachments;
-          for (const key of ['kind', 'status', 'phase', 'workspace', 'model', 'connection', 'automationId', 'automationName', 'goalId', 'goalName', 'goalRunId', 'goalQuestionId', 'heartbeatId', 'heartbeatTopic']) {
+          for (const key of ['kind', 'status', 'phase', 'workspace', 'model', 'connection', 'automationId', 'automationName', 'goalId', 'goalName', 'goalRunId', 'goalQuestionId', 'goalStatus', 'chatGoalId', 'heartbeatId', 'heartbeatTopic']) {
             if (typeof message[key] === 'string') entry[key] = message[key];
           }
           if (recovering && ['running', 'waiting', 'inProgress'].includes(entry.status)) {
@@ -158,6 +159,8 @@ function persistedData(data, defaultWorkspace, recovering = false) {
         }),
       };
       if (typeof chat.error === 'string') result.error = chat.error;
+      const goal = normalizeChatGoal(chat.goal, { recovering });
+      if (goal) result.goal = goal;
       const pendingProactive = normalizePending(chat.pendingProactive);
       if (pendingProactive.length) result.pendingProactive = pendingProactive;
       if (!recovering && typeof chat.automationId === 'string') {

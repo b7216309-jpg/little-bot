@@ -54,6 +54,7 @@ Most assistants wait for you to type. Little Bot keeps one continuous conversati
 
 | | |
 |---|---|
+| **Finish things** | Type `/goal <done when…>` and it keeps working across turns until an independent check (and an optional test command) confirms it, like Claude Code and Codex. Pause, resume or clear it any time, from the PC or the phone. |
 | **Work on your PC** | Files and terminal in a working folder (*Execute*), or read-only *Plan* mode. Attach images, PDFs, Word and text files; it can hand files back. |
 | **Use the web** | A built-in browser panel it drives while you watch (logins persist), plus optional Firecrawl or Brave Search keys for search and scraping. |
 | **Use your apps** | Windows UI Automation: list windows, read controls, click, type and select in ordinary desktop apps. |

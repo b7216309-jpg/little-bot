@@ -893,7 +893,7 @@ class MemoryService {
       start = messages.length - 1;
       while (start >= 0 && messages[start].role !== "user") start--;
     }
-    if (start < 0 || messages[start].automationId || messages[start].kind === "automation") return null;
+    if (start < 0 || messages[start].automationId || ["automation", "goal-step"].includes(messages[start].kind)) return null;
     const items = messages
       .slice(start)
       .map((m, i) => ({

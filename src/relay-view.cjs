@@ -10,6 +10,9 @@ const cut = (value, max) => String(value ?? '').slice(0, max);
 function messageLabel(message) {
   // A scheduled task's prompt is not something the user typed; label it like the desktop does.
   if (message.role === 'user' && message.automationId) return `Scheduled · ${message.automationName || 'Automation'}`;
+  if (message.kind === 'goal-set') return 'You · goal';
+  if (message.kind === 'goal-step') return 'Goal · keep going';
+  if (message.kind === 'goal-check') return 'Little Bot · goal';
   if (message.role === 'user') return message.kind === 'clarification' ? 'You · answer' : 'You';
   if (message.role === 'tool') return 'Action';
   if (message.goalId) return `Goal · ${message.goalName || 'Little Bot'}`;
@@ -25,7 +28,8 @@ function slimMessage(message) {
   const entry = { id: cut(message.id, 128), role: message.role, text: cut(message.text, MAX_TEXT), label: messageLabel(message) };
   for (const key of ['kind', 'status', 'phase']) if (typeof message[key] === 'string') entry[key] = cut(message[key], 40);
   for (const key of ['createdAt', 'updatedAt']) if (Number.isFinite(message[key])) entry[key] = message[key];
-  if (PROACTIVE_KINDS.includes(message.kind)) entry.proactive = true;
+  // A goal's final result is worth a notification, like a proactive message.
+  if (PROACTIVE_KINDS.includes(message.kind) || message.kind === 'goal-check') entry.proactive = true;
   if (message.role === 'user' && message.automationId) entry.scheduled = true;
   // The model's reasoning and commentary are folded away like on the desktop, never shown as a reply.
   if (message.role === 'assistant' && (message.kind === 'reasoning' || ['commentary', 'analysis'].includes(message.phase))) { entry.thinking = true; entry.label = 'Thinking'; }
@@ -46,6 +50,12 @@ function slimApproval(approval) {
   };
 }
 
+function slimGoal(goal) {
+  if (!goal) return null;
+  return { condition: cut(goal.condition, 300), status: goal.status, phase: goal.phase || '', turns: goal.turns, maxTurns: goal.maxTurns,
+    reason: cut(goal.status === 'pursuing' ? goal.lastVerdict?.reason : goal.endReason || goal.pausedReason || goal.lastVerdict?.reason, 300) };
+}
+
 function snapshot(state, { allowApprovals = false } = {}) {
   const chat = (state.chats || []).find(item => !item.private) || null;
   const messages = chat ? chat.messages.slice(-MAX_MESSAGES) : [];
@@ -55,9 +65,9 @@ function snapshot(state, { allowApprovals = false } = {}) {
     version: state.appVersion,
     ready: state.runtime?.status === 'ready' && state.account?.status === 'connected',
     runtimeError: state.runtime?.status === 'error' ? cut(state.runtime.error || 'The local engine could not start.', 400) : '',
-    chat: chat ? { id: chat.id, status: chat.status, error: cut(chat.error, 1000), more: chat.messages.length > messages.length } : null,
+    chat: chat ? { id: chat.id, status: chat.status, error: cut(chat.error, 1000), more: chat.messages.length > messages.length, goal: slimGoal(chat.goal) } : null,
     messages: messages.map(slimMessage),
-    quick: quick ? { id: quick.id, status: quick.status, error: cut(quick.error, 1000) } : null,
+    quick: quick ? { id: quick.id, status: quick.status, error: cut(quick.error, 1000), goal: slimGoal(quick.goal) } : null,
     quickMessages: quickMessages.map(slimMessage),
     approvals: (state.approvals || []).filter(item => !chat || item.chatId === chat.id || item.chatId === quick?.id).map(slimApproval),
     allowApprovals,
@@ -86,7 +96,7 @@ function notifications(previous, next) {
       ? { title: 'Little Bot has a question', body: excerpt(approval.question), tag: `approval-${approval.requestId}`, requestId: approval.requestId, options: (approval.options || []).slice(0, 3) }
       : { title: 'Little Bot needs your approval', body: excerpt(approval.title), tag: `approval-${approval.requestId}` });
   }
-  if (previous.chat?.status === 'running' && next.chat?.status === 'idle') {
+  if (previous.chat?.status === 'running' && next.chat?.status === 'idle' && next.chat?.goal?.status !== 'pursuing') {
     const latest = [...next.messages].reverse().find(message => message.role === 'user' || (message.role === 'assistant' && !message.proactive && !message.thinking && message.kind !== 'question'));
     const reply = latest?.role === 'assistant' ? latest : null;
     if (reply) result.push({ title: 'Little Bot replied', body: excerpt(reply.text) || 'Your reply is ready.', tag: 'reply' });

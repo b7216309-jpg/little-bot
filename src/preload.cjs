@@ -3,7 +3,7 @@ const invoke = name => data => ipcRenderer.invoke(`bot:${name}`, data);
 contextBridge.exposeInMainWorld('bot', {
   windowMode: process.argv.includes('--little-bot-widget') ? 'widget' : 'full',
   setTitleBarTheme: invoke('setTitleBarTheme'),
-  dreamNow: invoke('dreamNow'), cancelIntention: invoke('cancelIntention'),
+  dreamNow: invoke('dreamNow'), cancelIntention: invoke('cancelIntention'), chatGoal: invoke('chatGoal'),
   getDisplayState: invoke('getDisplayState'), setDisplayMode: invoke('setDisplayMode'), setWidgetState: invoke('setWidgetState'),
   getState: invoke('getState'), getContextUsed: invoke('getContextUsed'), reportError: invoke('reportError'), openLogs: invoke('openLogs'), chooseWorkspace: invoke('chooseWorkspace'),
   saveProfile: invoke('saveProfile'), openProfileFolder: invoke('openProfileFolder'),

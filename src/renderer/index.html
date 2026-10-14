@@ -123,6 +123,12 @@
             </div>
             <p class="sampling-note">For every Little Bot request to Strata, including goals and the heartbeat. Untouched values follow Strata.</p>
           </section>
+          <section id="goal-bar" class="goal-bar hidden" aria-label="Conversation goal" aria-live="polite">
+            <span class="icon goal-bar-icon" data-icon="goal"></span>
+            <div class="goal-bar-copy"><strong id="goal-bar-condition"></strong><span id="goal-bar-status"></span></div>
+            <button id="goal-bar-toggle" class="button text-button" type="button"></button>
+            <button id="goal-bar-clear" class="icon-button" type="button" aria-label="Clear the goal" title="Clear the goal"><span class="icon" data-icon="x"></span></button>
+          </section>
           <form id="composer" class="composer"><div id="attachment-queue" class="hidden" aria-label="Attached files"></div><p id="attachment-import-status" class="attachment-import-status hidden" role="status"></p>
             <label for="message-input" class="sr-only">Message Little Bot</label>
             <textarea id="message-input" rows="2" placeholder="Message Little Bot…" maxlength="32000"></textarea>

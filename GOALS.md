@@ -1,5 +1,7 @@
 # Goals: tasks and ongoing work
 
+> Two kinds of goals: this page covers **background goals**, which Little Bot works on by itself over days (open the Goals page, or type `/goals` in the chat). To have it keep working on something *right now in the conversation* until it is done, type `/goal <what must be true when it is done>`, like in Claude Code or Codex. See [the system guide](docs/system-guide/02-chat-context.md#goal-keep-working-until-it-is-done).
+
 Goals share Little Bot's continuous conversation. A **Task** has a finite outcome and acceptance checks. An **Ongoing** goal acts when Little Bot can do useful work and coaches when the user must act. An ongoing review ending does not complete the overall goal.
 
 ## Create a goal

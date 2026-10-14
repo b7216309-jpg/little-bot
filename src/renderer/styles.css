@@ -248,3 +248,20 @@
 .intention-copy{flex:1;min-width:0}
 .intention-text{margin:0 0 2px;font-size:13px}
 .intention-copy .field-hint{margin:0}
+/* /goal: the bar above the composer and the goal messages in the timeline. */
+.goal-bar{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:12px;background:var(--paper);padding:8px 8px 8px 12px;margin-bottom:8px}
+.goal-bar[data-status=achieved]{border-left-color:var(--green)}
+.goal-bar[data-status=paused],.goal-bar[data-status=budget],.goal-bar[data-status=unmet]{border-left-color:#b9b2a4}
+.goal-bar-icon{color:var(--accent);flex:none}
+.goal-bar[data-status=achieved] .goal-bar-icon{color:var(--green)}
+.goal-bar-copy{flex:1;min-width:0;display:grid;gap:2px}
+.goal-bar-copy strong{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.goal-bar-copy span{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.goal-bar .text-button{font-size:12px;padding:4px 8px}
+.goal-bar .icon-button{width:26px;height:26px;padding:5px;flex:none}
+.message.user .goal-label{color:#bc623f;font-weight:600}
+.message.user.goal-set .message-content{border:1px solid #bc623f55;background:#bc623f0d}
+.message.user.goal-step{margin-bottom:18px}
+.message.user.goal-step .message-content{background:transparent;border:1px dashed #d8c2b5;color:#7d827b;font-size:12.5px;white-space:pre-line}
+.message.goal-result .message-content{border-left:3px solid var(--green);padding-left:12px}
+.message.goal-result.goal-unmet .message-content,.message.goal-result.goal-budget .message-content,.message.goal-result.goal-paused .message-content{border-left-color:#b9b2a4}

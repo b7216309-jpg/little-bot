@@ -7,7 +7,8 @@
     { name: 'help', usage: '/help', description: 'Show available chat commands.' },
     { name: 'plan', usage: '/plan', description: 'Use Plan mode for the next turn.' },
     { name: 'execute', usage: '/execute', description: 'Use Execute mode for the next turn.' },
-    { name: 'goal', usage: '/goal [objective]', description: 'Open a new goal draft.' },
+    { name: 'goal', usage: '/goal <done when…> [--check "cmd"] [--turns N] [--time 90m]', description: 'Keep working until the condition is met. Also /goal status, pause, resume, clear.' },
+    { name: 'goals', usage: '/goals [objective]', description: 'Open a new background goal draft.' },
     { name: 'schedule', usage: '/schedule [task]', description: 'Open a new automation draft.' },
     { name: 'calendar', usage: '/calendar', description: 'Open the local calendar.' },
     { name: 'memory', usage: '/memory', description: 'Open saved memory.' },
@@ -17,7 +18,6 @@
   ]);
 
   const aliases = Object.freeze({
-    goals: 'goal',
     automation: 'schedule',
     automations: 'schedule',
     exec: 'execute',
