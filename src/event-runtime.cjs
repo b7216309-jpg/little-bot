@@ -71,6 +71,12 @@ class EventRuntime {
     this.bus.start();
     this.timer = this.setIntervalFn(() => { try { this.tickCalendar(); } catch (error) { this._error(error); } }, 15000);
     this.timer?.unref?.();
+    for (const item of skipped.automations) this.publish({ type: 'automation.due', source: 'scheduler', priority: 4,
+      dedupeKey: `automation:missed:${item.id}:${item.dueAt}`,
+      payload: { automationId: item.id, dueAt: item.dueAt, caughtUp: true } });
+    if (skipped.heartbeat) this.publish({ type: 'heartbeat.due', source: 'heartbeat', priority: 3,
+      dedupeKey: `heartbeat:missed:${skipped.heartbeat.dueAt}`,
+      payload: { dueAt: skipped.heartbeat.dueAt, caughtUp: true } });
     this.publish({ type: 'app.opened', source: 'app', payload: { openedAt: this.now() }, priority: 5 });
     this._changed(false);
     return true;
@@ -195,9 +201,8 @@ class EventRuntime {
     catch (error) { this._error(error, event); }
   }
 
-  async _runHeartbeatDue(event) {
-    try { await this.heartbeat.runNow(); }
-    catch (error) { this._error(error, event); }
+  _runHeartbeatDue(event) {
+    this.heartbeat.runNow().catch(error => this._error(error, event));
   }
 
   async _matchIntents(event, context) {
