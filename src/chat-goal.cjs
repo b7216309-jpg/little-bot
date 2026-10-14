@@ -5,7 +5,7 @@
 // folder, then a separate, tool-less model call decides "met / not yet / impossible" and its feedback
 // drives the next turn. The worker never grades itself.
 const { randomUUID } = require('node:crypto');
-const { parseModelJson } = require('./model-json.cjs');
+const { parseModelJson, normalizeModelOutput } = require('./model-json.cjs');
 
 const DEFAULT_TURNS = 20, MAX_TURNS = 100, DEFAULT_MINUTES = 90, MAX_MINUTES = 720;
 const EVAL_TIMEOUT_MS = 3 * 60000, CHECK_TIMEOUT_MS = 5 * 60000, OUTPUT_LIMIT = 100000;
@@ -123,7 +123,7 @@ function checkPrompt(goal, chat, check, { local = false } = {}) {
   return parts.join('\n\n');
 }
 function parseVerdict(output) {
-  const value = parseModelJson(output, 'The goal check did not return readable JSON.');
+  const value = normalizeModelOutput(parseModelJson(output, 'The goal check did not return readable JSON.'), GOAL_CHECK_SCHEMA);
   if (!value || typeof value !== 'object' || Array.isArray(value) || !('met' in value)) throw new Error('The goal check did not say whether the goal is met.');
   const flag = item => item === true || item === 'true';
   return { met: flag(value.met), impossible: flag(value.impossible),
@@ -303,7 +303,7 @@ class ChatGoalRunner {
   judge(chat, goal, check) {
     const controller = this.controller;
     return new Promise((resolve, reject) => {
-      const op = { chatId: chat.id, threadId: null, turnId: null, output: '', resolve, reject, done: false };
+      const op = { chatId: chat.id, threadId: null, turnId: null, output: '', resolve, reject, done: false, goal, chat, check, retryCount: 0 };
       op.timer = setTimeout(() => this.settle(op, new Error('The goal check timed out.')), EVAL_TIMEOUT_MS);
       op.timer.unref?.();
       this.op = op;
@@ -326,7 +326,7 @@ class ChatGoalRunner {
           const turn = await controller.client.request('turn/start', {
             threadId: op.threadId, input: [{ type: 'text', text: checkPrompt(goal, chat, check, { local }) }], cwd: chat.workspace,
             model: chat.model || undefined, effort: controller.effectiveEffort(chat.model, 'low'), approvalPolicy: 'never', approvalsReviewer: 'user',
-            ...(local ? {} : { outputSchema: GOAL_CHECK_SCHEMA }), sandboxPolicy: { type: 'readOnly' },
+            outputSchema: GOAL_CHECK_SCHEMA, sandboxPolicy: { type: 'readOnly' },
           }, 60000);
           op.turnId ||= turn?.turn?.id;
         } catch (error) { this.settle(op, error); }
@@ -342,9 +342,31 @@ class ChatGoalRunner {
     else if (method === 'error' && !params.willRetry) this.settle(op, new Error(params.error?.message || 'The goal check failed.'));
     else if (method === 'turn/completed') {
       if (['interrupted', 'failed'].includes(params.turn?.status) || params.turn?.error) this.settle(op, new Error(params.turn?.error?.message || 'The goal check was interrupted.'));
-      else { try { this.settle(op, null, parseVerdict(op.output)); } catch (error) { this.settle(op, error); } }
+      else {
+        try { this.settle(op, null, parseVerdict(op.output)); }
+        catch (error) {
+          if (!op.retryCount) op.retryStarting = this.retryMalformed(op, error);
+          else this.settle(op, error);
+        }
+      }
     }
     return true;
+  }
+  async retryMalformed(op, error) {
+    op.retryCount = 1;
+    op.output = '';
+    op.turnId = null;
+    try {
+      const turn = await this.controller.client.request('turn/start', {
+        threadId: op.threadId,
+        input: [{ type: 'text', text: `${checkPrompt(op.goal, op.chat, op.check, { local: op.chat.connection === 'local' })}\n\nYour previous answer failed validation: ${clean(error.message, 300)}. Return a corrected verdict object matching the required schema.` }],
+        cwd: op.chat.workspace, model: op.chat.model || undefined, effort: this.controller.effectiveEffort(op.chat.model, 'low'),
+        approvalPolicy: 'never', approvalsReviewer: 'user', outputSchema: GOAL_CHECK_SCHEMA, sandboxPolicy: { type: 'readOnly' },
+      }, 60000);
+      op.turnId ||= turn?.turn?.id;
+      if (!op.turnId) throw new Error('The corrected goal check did not start.');
+      if (op.done) await this.controller.client.request('turn/interrupt', { threadId: op.threadId, turnId: op.turnId }, 10000).catch(() => {});
+    } catch (failure) { this.settle(op, failure); }
   }
   settle(op, error, verdict) {
     if (op.done) return;

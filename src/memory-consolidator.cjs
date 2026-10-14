@@ -1,6 +1,6 @@
 'use strict';
 
-const { parseModelJson } = require('./model-json.cjs');
+const { parseModelJson, normalizeModelOutput } = require('./model-json.cjs');
 const proactive = require('./proactive-chat.cjs');
 const dreaming = require('./dreaming.cjs');
 
@@ -183,16 +183,12 @@ class MemoryConsolidator {
         messages.push({ ...message, text }); remaining -= text.length;
       }
       const prompt = { workspace: cwd, messages, existing: records };
-      // Local servers reject a structured response format while the engine's tools are attached; ask in the prompt instead.
-      const local = settings.connection === 'local';
-      const text = JSON.stringify(prompt) + (local ? `
-
-Return only one JSON object matching this schema, without Markdown: ${JSON.stringify(EXTRACTION_SCHEMA)}` : '');
+      const text = JSON.stringify(prompt);
       const result = await c.client.request('turn/start', {
         threadId: op.threadId, cwd, model: settings.model || undefined,
         input: [{ type: 'text', text }],
         effort: c.effectiveEffort(settings.model, 'low'), approvalPolicy: 'never',
-        sandboxPolicy: { type: 'readOnly' }, ...(local ? {} : { outputSchema: EXTRACTION_SCHEMA }),
+        sandboxPolicy: { type: 'readOnly' }, outputSchema: EXTRACTION_SCHEMA,
       }, 60000);
       op.turnId ||= result?.turn?.id;
       if (!op.turnId) throw new Error('No memory extraction turn was returned.');
@@ -219,14 +215,12 @@ Return only one JSON object matching this schema, without Markdown: ${JSON.strin
       if (op.cancelled || this.closed) return;
       await c.extensionRuntime?.verifyHeartbeat(op.threadId);
       if (op.cancelled || this.closed) return;
-      const local = settings.connection === 'local';
       const profile = c.profileContext?.() || '';
-      const text = [profile, `Material for tonight (reference data):\n${JSON.stringify(op.material)}`,
-        local ? `Return only one JSON object matching this schema, without Markdown: ${JSON.stringify(dreaming.DREAM_SCHEMA)}` : ''].filter(Boolean).join('\n\n');
+      const text = [profile, `Material for tonight (reference data):\n${JSON.stringify(op.material)}`].filter(Boolean).join('\n\n');
       const result = await c.client.request('turn/start', {
         threadId: op.threadId, cwd, model: settings.model || undefined, input: [{ type: 'text', text }],
         effort: c.effectiveEffort(settings.model, 'low'), approvalPolicy: 'never',
-        sandboxPolicy: { type: 'readOnly' }, ...(local ? {} : { outputSchema: dreaming.DREAM_SCHEMA }),
+        sandboxPolicy: { type: 'readOnly' }, outputSchema: dreaming.DREAM_SCHEMA,
       }, 60000);
       op.turnId ||= result?.turn?.id;
       if (!op.turnId) throw new Error('No dream turn was returned.');
@@ -245,11 +239,30 @@ Return only one JSON object matching this schema, without Markdown: ${JSON.strin
     else if (method === 'turn/completed') {
       try {
         if (['failed', 'interrupted'].includes(params.turn?.status) || params.turn?.error) throw new Error(params.turn?.error?.message || 'Memory extraction interrupted.');
-        const output = parseModelJson(op.output, op.kind === 'dream' ? 'The dream did not return readable JSON.' : 'Memory extraction did not return readable JSON.');
-        this.finish(op, op.kind === 'dream' ? output : normalizeCandidates(output, op.job));
-      } catch (error) { this.finish(op, null, error.message); }
+        const schema = op.kind === 'dream' ? dreaming.DREAM_SCHEMA : EXTRACTION_SCHEMA;
+        const output = normalizeModelOutput(parseModelJson(op.output, op.kind === 'dream' ? 'The dream did not return readable JSON.' : 'Memory extraction did not return readable JSON.'), schema);
+        this.finish(op, op.kind === 'dream' ? dreaming.normalizeDream(output) : normalizeCandidates(output, op.job));
+      } catch (error) {
+        if (!op.retryCount && !op.cancelled) { op.retryStarting = this.retryMalformed(op, error); return true; }
+        this.finish(op, null, error.message);
+      }
     }
     return true;
+  }
+  async retryMalformed(op, error) {
+    if (op.cancelled || this.active !== op) return;
+    op.retryCount = 1;
+    op.output = '';
+    op.turnId = null;
+    try {
+      const schema = op.kind === 'dream' ? dreaming.DREAM_SCHEMA : EXTRACTION_SCHEMA;
+      const result = await this.controller.client.request('turn/start', { threadId: op.threadId,
+        input: [{ type: 'text', text: `Your previous answer could not be used: ${error.message}. Correct only the JSON shape and return one valid object matching this schema. Preserve the useful content; use empty arrays for optional lists.\n${JSON.stringify(schema)}` }],
+        model: this.controller.store.data.settings.model || undefined, effort: 'low', approvalPolicy: 'never', sandboxPolicy: { type: 'readOnly' }, outputSchema: schema,
+      }, 60000);
+      op.turnId ||= result?.turn?.id;
+      if (!op.turnId) throw new Error('No repair turn was returned.');
+    } catch (failure) { this.finish(op, null, failure.message); }
   }
   finish(op, candidates, error = '') {
     if (this.active !== op) return;
@@ -302,6 +315,7 @@ Return only one JSON object matching this schema, without Markdown: ${JSON.strin
     op.stopError = error;
     op.stopping = (async () => {
       await op.starting;
+      await op.retryStarting;
       if (this.active !== op) return;
       if (!op.turnId) { this.finish(op, null, error); return; }
       await this.controller.client.request('turn/interrupt', { threadId: op.threadId, turnId: op.turnId }, 10000);

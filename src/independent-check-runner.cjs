@@ -170,7 +170,7 @@ class IndependentCheckRunner {
         effort: controller.effectiveEffort(chat.model, 'low'),
         approvalPolicy: 'never',
         approvalsReviewer: 'user',
-        ...(chat.connection === 'local' ? {} : { outputSchema: INDEPENDENT_CHECK_SCHEMA }),
+        outputSchema: INDEPENDENT_CHECK_SCHEMA,
         sandboxPolicy: { type: 'readOnly' },
       }, 60000);
       operation.turnId ||= turn?.turn?.id;

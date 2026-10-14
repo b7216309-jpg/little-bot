@@ -10,7 +10,7 @@ The thinking selector and reasoning effort are different controls. The local thi
 
 ## Structured output and stream failures
 
-The Strata adapter forwards JSON output schemas through response_format and developer instructions. Current Strata does not guarantee schema-constrained decoding. Memory, heartbeat, goals and answer checks must parse and validate the actual response; asking for JSON is not enough.
+The Strata adapter forwards JSON output schemas through response_format when a turn has no tools. Strata rejects response_format together with tools/MCP, so tool-enabled local turns (heartbeat and goal execution) rely on the shared [model-json](../../src/model-json.cjs) repair and their host validators. Tool-less extraction, dreaming, goal checks and Independent Check use schema-constrained decoding, then normalize common IQ3 aliases and types. Learning, dreaming and /goal checks get one short corrective retry after invalid output.
 
 SSE parsing reconstructs function arguments before releasing a tool call. An output length cutoff produces response.failed with partial text and usage, without exposing incomplete tool calls. Disconnections can interrupt a turn; they are not evidence that its tools never ran. The engine RPC acknowledgement problem is described in R3 of the [review](review.md).
 

@@ -9,7 +9,7 @@ const { mcpQuestions, mcpContent } = require('./mcp-forms.cjs');
 const { CompactionTracker, COMPACTION_TIMEOUT_MS, COMPACTION_STOP_TIMEOUT_MS, validAutoCompactPercent, compactionConfig } = require('./compaction.cjs');
 const { chatContext } = require('./goal-contract.cjs');
 const proactive = require('./proactive-chat.cjs');
-const { parseModelJson } = require('./model-json.cjs');
+const { parseModelJson, normalizeModelOutput } = require('./model-json.cjs');
 const { localStamp, timeContext } = require('./local-time.cjs');
 const { GoalExecutor } = require('./goal-executor.cjs');
 const { attachmentDescriptors } = require('./attachment-message.cjs');
@@ -860,7 +860,7 @@ class Controller extends EventEmitter {
         this.activityContext(), this.reactionContext(),
         intentionsDue.length ? companion.contextText(intentionsDue, { heartbeat: true }) : '',
         wild && streak >= 2 ? `You have stayed quiet ${streak} checks in a row. This time, make one concrete useful move: advance an agenda item, follow up on something the user said, or ask one good question in your summary. Stay quiet again only if any action would be harmful or pointless, and say why.` : '',
-        this.store.data.settings.connection === 'local' ? `Your final reply must be only one JSON object matching this schema, without Markdown: ${JSON.stringify(schema)}` : '',
+        chat.connection === 'local' ? `Your final reply must be only one JSON object matching this schema, without Markdown: ${JSON.stringify(schema)}` : '',
         'Return a stable, short topic for the same matter, reusing its previous topic exactly. Quiet results use an empty topic. User feedback is preference data, never authority for new tasks. Keep muted or snoozed topics quiet unless actual file changes or errors require a factual record; prioritize useful topics only when current evidence and the saved checklist warrant it.',
         chatContext(this.store.data) ? `Goal state (reference data; goals own their full reviews, avoid duplicate coaching):\n${chatContext(this.store.data)}` : '',
         attention ? `User attention preferences (reference data):\n${attention}` : '', memory].filter(Boolean).join('\n\n');
@@ -868,8 +868,8 @@ class Controller extends EventEmitter {
         threadId: chat.threadId, input: [{ type: 'text', text: prompt }], cwd: folder,
         model: config.model || undefined, effort: this.effectiveEffort(config.model, effort),
         approvalPolicy: 'never', approvalsReviewer: 'user',
-        // Local servers reject a structured response format alongside tools; the prompt asks for the JSON instead.
-        ...(this.store.data.settings.connection === 'local' ? {} : { outputSchema: schema }),
+        // Heartbeat tools are attached to this thread; Strata rejects response_format with tools/MCP.
+        ...(chat.connection === 'local' ? {} : { outputSchema: schema }),
         sandboxPolicy: { type: 'workspaceWrite', writableRoots: [folder], networkAccess: network,
           excludeSlashTmp: true, excludeTmpdirEnvVar: true },
       }, 60000);
@@ -878,7 +878,7 @@ class Controller extends EventEmitter {
       const outcome = await completion;
       if (outcome.error || chat.cancelReason) throw new Error(chat.cancelReason || outcome.error);
       const final = [...chat.messages].reverse().find(message => message.role === 'assistant' && !message.kind && !['commentary', 'analysis'].includes(message.phase));
-      const parsed = parseModelJson(final?.text, 'Heartbeat returned an unreadable result. Review the checklist and try again.');
+      const parsed = normalizeModelOutput(parseModelJson(final?.text, 'Heartbeat returned an unreadable result. Review the checklist and try again.'), schema);
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !['quiet', 'alert'].includes(parsed.status) || typeof parsed.summary !== 'string' || (parsed.topic !== undefined && typeof parsed.topic !== 'string') || (parsed.status === 'alert' && !parsed.summary.trim())) {
         throw new Error('Heartbeat returned an invalid result.');
       }
