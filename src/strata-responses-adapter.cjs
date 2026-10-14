@@ -52,14 +52,19 @@ function withoutImages(messages) {
 const hasImages = messages => messages.some(message => Array.isArray(message.content) && message.content.some(part => part?.type === 'image_url'));
 
 function toolOutputText(output) {
-  if (typeof output === 'string') return output;
+  let text;
+  if (typeof output === 'string') text = output;
   if (Array.isArray(output)) {
-    const text = output.filter(object).map(part => part.text || part.content || '').filter(Boolean).join('\n');
-    return text || JSON.stringify(output);
+    text = output.filter(object).map(part => part.text || part.content || '').filter(Boolean).join('\n') || JSON.stringify(output);
   }
-  if (object(output) && typeof output.content === 'string') return output.content;
-  if (output == null) return '';
-  try { return JSON.stringify(output); } catch { return String(output); }
+  if (object(output) && typeof output.content === 'string') text = output.content;
+  if (output == null) text = '';
+  if (text === undefined) { try { text = JSON.stringify(output); } catch { text = String(output); } }
+  const limit = 12000;
+  if (text.length <= limit) return text;
+  const side = Math.floor((limit - 80) / 2);
+  const marker = `\n\n[Tool output truncated: ${text.length - side * 2} middle characters omitted.]\n\n`;
+  return `${text.slice(0, side)}${marker}${text.slice(-side)}`;
 }
 
 function reasoningText(item) {

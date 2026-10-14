@@ -2,7 +2,7 @@
 
 const COMPACTION_TIMEOUT_MS = 10 * 60 * 1000;
 const COMPACTION_STOP_TIMEOUT_MS = 10000;
-const DEFAULT_AUTO_COMPACT_PERCENT = 80;
+const DEFAULT_AUTO_COMPACT_PERCENT = 50;
 const count = value => Number.isSafeInteger(value) && value >= 0;
 
 function validAutoCompactPercent(value) {
