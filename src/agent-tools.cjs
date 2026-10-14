@@ -15,6 +15,68 @@ const text = maxLength => ({ type: 'string', minLength: 1, maxLength });
 const checkSchema = { type: 'object', properties: { type: { type: 'string', enum: ['fileExists', 'fileContains', 'command'] }, path: text(500), contains: text(4000), command: text(4000) }, required: ['type'], additionalProperties: false };
 const actions = ['list', 'create', 'update', 'pause', 'resume'];
 const calendarActions = ['list', 'create', 'update', 'delete'];
+const keyAlias = key => ({ q: 'query', search: 'query', goalid: 'id', scheduleid: 'id', eventid: 'id', followupid: 'id', intentionid: 'id', memoryid: 'id', sessionid: 'sessionId', messageid: 'messageId', from: 'fromLocal', to: 'toLocal' })[key.toLowerCase().replace(/[_-]/g, '')];
+function normalizeObject(value, schema = {}) {
+  if (!object(value)) return value;
+  const properties = schema.properties || {}, result = {};
+  for (const [key, raw] of Object.entries(value)) {
+    let target = Object.hasOwn(properties, key) ? key : null;
+    if (!target) {
+      const alias = keyAlias(key), folded = key.toLowerCase().replace(/[_-]/g, '');
+      target = (alias && Object.keys(properties).find(name => name.toLowerCase().replace(/[_-]/g, '') === alias.toLowerCase()))
+        || Object.keys(properties).find(name => name.toLowerCase().replace(/[_-]/g, '') === folded)
+        || (['q', 'search', 'text'].includes(folded) && properties.query ? 'query' : null)
+        || (folded.endsWith('id') && properties.id ? 'id' : null);
+    }
+    if (!target || result[target] !== undefined) { if (target && result[target] !== undefined && result[target] === '') result[target] = raw; else result[key] = raw; continue; }
+    const shape = properties[target] || {};
+    let item = raw;
+    if (shape.type === 'integer' || shape.type === 'number') {
+      if (typeof item === 'string' && /^[-+]?\d+(?:\.\d+)?$/.test(item.trim())) item = Number(item);
+    } else if (shape.type === 'boolean' && typeof item === 'string' && /^(true|false)$/i.test(item.trim())) item = item.trim().toLowerCase() === 'true';
+    else if (shape.type === 'string' && typeof item === 'string' && shape.enum) {
+      const choice = shape.enum.find(option => option.toLowerCase() === item.trim().toLowerCase()); if (choice) item = choice;
+    } else if (shape.type === 'array' && !Array.isArray(item)) item = [item];
+    else if (shape.type === 'string' && typeof item === 'string' && /^(?:startLocal|endLocal|fromLocal|toLocal|atLocal|date)$/.test(target)) item = normalizeDate(item);
+    if (shape.type === 'array' && Array.isArray(item)) item = item.map(entry => normalizeScalar(entry, shape.items));
+    if (shape.type === 'object') item = normalizeObject(item, shape);
+    result[target] = item;
+  }
+  return result;
+}
+function normalizeScalar(value, schema = {}) {
+  if ((schema.type === 'integer' || schema.type === 'number') && typeof value === 'string' && /^[-+]?\d+(?:\.\d+)?$/.test(value.trim())) return Number(value);
+  if (schema.type === 'boolean' && typeof value === 'string' && /^(true|false)$/i.test(value.trim())) return value.trim().toLowerCase() === 'true';
+  if (schema.type === 'string' && schema.enum && typeof value === 'string') return schema.enum.find(option => option.toLowerCase() === value.trim().toLowerCase()) || value;
+  if (schema.type === 'object') return normalizeObject(value, schema);
+  return value;
+}
+function normalizeDate(value) {
+  const text = value.trim();
+  let match = /^(\d{4})[/.](\d{1,2})[/.](\d{1,2})(.*)$/.exec(text);
+  if (match) return `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}${match[4].replace(/^\s+/, 'T')}`;
+  match = /^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2,4})(.*)$/.exec(text);
+  if (!match) {
+    const monthNames = 'jan feb mar apr may jun jul aug sep oct nov dec'.split(' ');
+    match = /^(?:([A-Za-z]{3,9})\s+(\d{1,2}),?\s+(\d{4})|(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4}))(.*)$/.exec(text);
+    if (match) {
+      const month = monthNames.findIndex(name => (match[1] || match[5]).toLowerCase().startsWith(name)) + 1;
+      if (month) return `${match[3] || match[6]}-${String(month).padStart(2, '0')}-${String(match[2] || match[4]).padStart(2, '0')}${match[7] || ''}`;
+    }
+  }
+  if (match) { const [, a, b, rawYear, tail] = match; const year = rawYear.length === 2 ? `20${rawYear}` : rawYear; const day = Number(a) > 12 ? a : b, month = Number(a) > 12 ? b : a; return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}${tail.replace(/^\s+/, 'T')}`; }
+  match = /^(\d{4})-(\d{1,2})-(\d{1,2})(.*)$/.exec(text);
+  return match ? `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}${match[4]}` : text;
+}
+function correctedArgs(schema, input) {
+  const value = { ...input }, properties = schema.properties || {};
+  for (const key of schema.required || []) if (value[key] === undefined) {
+    const field = properties[key] || {};
+    value[key] = field.enum?.[0] ?? (field.type === 'integer' || field.type === 'number' ? field.minimum ?? 1 : field.type === 'boolean' ? true : field.type === 'array' ? ['<value>'] : '<value>');
+  }
+  return value;
+}
+function distance(a, b) { const row = Array.from({ length: b.length + 1 }, (_, i) => i); for (let i = 1; i <= a.length; i++) { let prev = row[0]; row[0] = i; for (let j = 1; j <= b.length; j++) { const old = row[j]; row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = old; } } return row[b.length]; }
 
 class AgentTools {
   constructor({ management, store, manageGoal, manageSchedule, manageCalendar, manageFollowup, manageWatch, manageIntention, proposeLaunch, phoneAction, browser, webServices, windowsUi, sendAttachment }) { this.manageIntention = manageIntention; this.phoneAction = phoneAction; this.management = management; this.store = store; this.manageGoal = manageGoal; this.manageSchedule = manageSchedule; this.manageCalendar = manageCalendar; this.manageFollowup = manageFollowup; this.manageWatch = manageWatch; this.proposeLaunch = proposeLaunch; this.browser = browser; this.webServices = webServices; this.windowsUi = windowsUi; this.sendAttachment = sendAttachment; }
@@ -103,7 +165,51 @@ class AgentTools {
     const extensions = this.store.data.extensions || {};
     return (extensions.skills || []).filter(skill => skill.enabled && (!skill.pluginId || (extensions.plugins || []).some(plugin => plugin.id === skill.pluginId && plugin.enabled)));
   }
-  async call(name, args, { chat } = {}) {
+  async call(name, args, options = {}) {
+    const chat = options.chat;
+    const specs = this.specs({ quick: Boolean(chat?.private) });
+    const spec = specs.find(tool => tool.name === name);
+    if (!spec) {
+      const suggestion = specs.map(tool => [tool.name, distance(String(name || ''), tool.name)]).sort((a, b) => a[1] - b[1])[0];
+      if (suggestion && suggestion[1] <= Math.max(2, String(name || '').length / 3)) throw new Error(`Unknown tool "${name}"; use ${suggestion[0]} instead. Corrected example: ${suggestion[0]}({}).`);
+      throw new Error(`Unknown tool "${name}". Corrected example: ${specs[0]?.name || 'skill_list'}({}).`);
+    }
+    let normalized = normalizeObject(args, spec.inputSchema);
+    if (!object(normalized)) throw new Error(`Arguments for ${name} must be an object; example: ${name}({}).`);
+    if (name === 'attachment_send' && typeof normalized.path === 'string') {
+      const path = require('node:path');
+      normalized.path = path.resolve(chat?.workspace || process.cwd(), normalized.path.replace(/^~(?=$|[\\/])/, require('node:os').homedir()));
+    }
+    try {
+      const required = spec.inputSchema?.required || [];
+      const missing = required.filter(key => normalized[key] === undefined);
+      if (missing.length) throw new Error(`Missing required argument${missing.length > 1 ? 's' : ''}: ${missing.join(', ')}.`);
+      if (spec.inputSchema?.additionalProperties === false && name !== 'memory_save') {
+        const extra = Object.keys(normalized).filter(key => !Object.hasOwn(spec.inputSchema.properties || {}, key));
+        if (extra.length) { for (const key of extra) delete normalized[key]; throw new Error(`Unsupported argument${extra.length > 1 ? 's' : ''}: ${extra.join(', ')}.`); }
+      }
+      const value = await this._dispatch(name, normalized, options);
+      if (value && Array.isArray(value.results) && !value.results.length && name === 'memory_search') value.message = 'No matching memory records found.';
+      const encoded = JSON.stringify(value ?? { ok: true });
+      if (encoded.length > 24000) return { truncated: true, content: `${encoded.slice(0, 11500)}\n[... tool output trimmed ...]\n${encoded.slice(-11500)}` };
+      return value;
+    }
+    catch (error) {
+      let message = String(error?.message || 'Tool call failed.').split(/[\r\n]/)[0].slice(0, 260);
+      const actionSchema = spec.inputSchema?.properties?.action;
+      if (/unsupported .*action|invalid .*action|unknown app action/i.test(message) && actionSchema?.enum && normalized.action) {
+        const closest = actionSchema.enum.map(value => [value, distance(String(normalized.action).toLowerCase(), value.toLowerCase())]).sort((a, b) => a[1] - b[1])[0];
+        if (closest && closest[1] <= 3) { message = `Unknown action "${normalized.action}"; use "${closest[0]}".`; normalized.action = closest[0]; }
+      }
+      const exampleArgs = correctedArgs(spec.inputSchema || {}, normalized);
+      if (/name and objective or prompt are required/i.test(message)) { exampleArgs.name ||= '<name>'; if (name === 'schedule_manage') exampleArgs.prompt ||= '<prompt>'; else exampleArgs.objective ||= '<objective>'; }
+      if (/title and start time/i.test(message)) { exampleArgs.title ||= '<title>'; exampleArgs.startLocal ||= '2026-01-01'; }
+      if (/existing record ID is required|existing calendar event ID is required/i.test(message)) exampleArgs.id ||= '<id>';
+      const example = JSON.stringify(exampleArgs).slice(0, 220);
+      throw new Error(`${message} Corrected example: ${name}(${example}).`);
+    }
+  }
+  async _dispatch(name, args, { chat } = {}) {
     if (!object(args) || JSON.stringify(args).length > 50000) throw new Error('Tool arguments must be a bounded object.');
     if (chat?.private && this.quickBlocked(name)) throw new Error('This tool is off in the Quick session.');
     if (this.management?.specs().some(tool => tool.name === name)) return this.management.call(name,args,{chat});

@@ -304,7 +304,7 @@ class WebServices {
       const rows = provider === 'brave' ? data.web?.results : data.data?.web;
       if (!Array.isArray(rows)) throw new Error('The search service returned an unexpected response.');
       const results = rows.slice(0, limit).filter(object).map(row => ({ title: text(row.title, 300), url: citation(row.url), description: text(row.description, 1500) })).filter(row => row.url);
-      return { provider, results, authority: UNTRUSTED };
+      return { provider, results, ...(!results.length ? { message: 'No search results were found.' } : {}), authority: UNTRUSTED };
     }
     this._key('firecrawl');
     const url = publicUrl(args.url);

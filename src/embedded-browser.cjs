@@ -390,7 +390,9 @@ class EmbeddedBrowser {
         default: throw new Error('Invalid browser action.');
       }
       check();
-      const response = { action: args.action, url: this.url, content: JSON.stringify(result).slice(0, 19000), untrusted: true };
+      const content = JSON.stringify(result);
+      const bounded = content.length > 19000 ? `${content.slice(0, 9000)}\n[... page output trimmed ...]\n${content.slice(-9000)}` : content;
+      const response = { action: args.action, url: this.url, content: bounded, untrusted: true };
       if (args.action === 'screenshot') response.screenshotPath = result.path;
       return response;
     }, isActive, owner);
