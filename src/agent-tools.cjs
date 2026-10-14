@@ -41,16 +41,16 @@ class AgentTools {
     const readTools = [...skills, ...recallSpecs(), calendarList, gamesList];
     if (readOnly) return readTools;
     return [...readTools, ...(this.management?.specs() || []), questionSpec(), ...(this.browser?.specs() || []), ...(this.webServices?.specs() || []), ...(this.windowsUi?.specs() || []),
-      functionSpec('memory_save', 'Save a durable fact, preference, decision, procedure, or unresolved issue. Use immediately when the user asks to remember something. Supply id to correct an existing record; its prior version remains historical. Memory is shared across models. Use global for personal preferences and workspace for project knowledge.', {
+      functionSpec('memory_save', 'Save a durable fact, preference, decision, procedure, or issue. Use when asked to remember something. Set id to correct a record; choose global for personal facts or workspace for project knowledge.', {
         id: text(200), text: text(20000), type: { type: 'string', enum: ['fact', 'preference', 'decision', 'procedure', 'discovery', 'issue'] },
         scope: { type: 'string', enum: ['global', 'workspace'] }, key: text(300), pinned: { type: 'boolean' },
       }, ['text']),
-      functionSpec('memory_forget', 'Forget a memory by its ID. Also suppress automatic relearning of that memory. Search first if the ID is unknown.', { id: text(200) }, ['id']),
-      ...(this.sendAttachment ? [functionSpec('attachment_send', 'Deliver an existing file or image to the user as a visible attachment with preview and save controls. Use for requested finished documents, images, browser screenshots and other files, instead of filesystem links. Path must be inside this chat workspace or the browser screenshot folder. Never send credential files. This does not send anything to another person.', { path: text(2000), caption: { type: 'string', maxLength: 1000 } }, ['path'])] : []),
-      functionSpec('goal_manage', 'Manage Little Bot goals: list, create a draft, update a draft, pause, or resume a previously user-authorized goal. Create never starts work. Resume only when the current user explicitly requests it. Tools cannot grant permissions, enlarge budgets, change folders, or restart a never-authorized draft. Completion checks should be concrete.', {
+      functionSpec('memory_forget', 'Forget a memory by ID and suppress automatic relearning. Search first if its ID is unknown.', { id: text(200) }, ['id']),
+      ...(this.sendAttachment ? [functionSpec('attachment_send', 'Deliver a finished workspace file or browser screenshot as a visible attachment. Use instead of filesystem links. Never send credentials or to another person.', { path: text(2000), caption: { type: 'string', maxLength: 1000 } }, ['path'])] : []),
+      functionSpec('goal_manage', 'List or edit goals, create a draft, pause, or resume an authorized goal. Drafts never start work; resume only when requested. Tools cannot raise permissions/budgets or change folders. Use concrete completion checks.', {
         action: { type: 'string', enum: [...actions, 'answer'] }, id: text(100), questionId: text(100), answer: text(2000), kind: { type: 'string', enum: ['task', 'ongoing'] }, name: text(80), objective: text(12000), steps: { type: 'array', maxItems: 20, items: text(1000) }, checks: { type: 'array', maxItems: 20, items: checkSchema },
       }, ['action']),
-      functionSpec('schedule_manage', 'Manage Little Bot recurring routines: list, create, update, pause, or resume. Set enabled:true when the user asks to schedule or enable a routine; enabled:false saves a draft or pauses it. Resume enables an existing routine, including a draft. Updates preserve enabled state unless specified. Schedules repeat by interval or at an exact PC-local clock time on selected weekdays. The current chat folder is used. Global Pause all still suspends execution.', {
+      functionSpec('schedule_manage', 'List or edit recurring routines. Set enabled:true only when asked; false saves a draft or pauses. Resume enables a draft. Updates preserve enabled state unless set. Schedules repeat by interval or PC-local weekday/time in this chat folder. Pause all suspends runs.', {
         action: { type: 'string', enum: actions }, id: text(100), name: text(80), prompt: text(32000),
         enabled: { type: 'boolean', description: 'Enable scheduled runs, or save disabled. Creation defaults to disabled; updates preserve the current state.' },
         scheduleType: { type: 'string', enum: ['interval', 'clock'] },
@@ -58,11 +58,11 @@ class AgentTools {
         clockTime: { type: 'string', minLength: 5, maxLength: 5, description: 'PC-local 24-hour time in HH:MM format.' },
         daysOfWeek: { type: 'array', minItems: 1, maxItems: 7, uniqueItems: true, items: { type: 'integer', minimum: 0, maximum: 6 }, description: 'Allowed local weekdays: 0=Sunday through 6=Saturday.' },
       }, ['action']),
-      ...(this.manageWatch ? [functionSpec('web_watch', 'Watch public web pages for changes: list, add, or remove. A watched page is checked every intervalHours (default 24) while Little Bot is open, and a change is posted to the chat with the new text. Use for patch notes, release dates, news pages the user cares about. Public http(s) pages only.', {
+      ...(this.manageWatch ? [functionSpec('web_watch', 'List, add, or remove public HTTP(S) page watches. Checks run while Little Bot is open; changes appear in chat.', {
         action: { type: 'string', enum: ['list', 'add', 'remove'] }, id: text(100), url: text(2000), label: text(80),
         intervalHours: { type: 'integer', minimum: 6, maximum: 168 },
       }, ['action'])] : []),
-      ...(this.proposeLaunch ? [functionSpec('launch_propose', 'Offer to start an installed Steam game: posts your short note in the chat with a Launch button. Nothing starts unless the user clicks it. Use games_list first to get the appid.', {
+      ...(this.proposeLaunch ? [functionSpec('launch_propose', 'Offer to launch an installed Steam game; it starts only if the user clicks. Get appid with games_list.', {
         appid: text(12), note: { type: 'string', maxLength: 600 },
       }, ['appid'])] : []),
       ...(this.phoneAction ? [functionSpec('phone_action', 'Act on the user\'s paired Android phone (Little Bot app): set an alarm at hour:minute phone time, start a timer, ring the phone loudly so they can find it, or show a navigation route. Use only when the user asks for it in this conversation.', {
@@ -71,12 +71,12 @@ class AgentTools {
         minutes: { type: 'integer', minimum: 1, maximum: 1440, description: 'Timer length.' },
         label: text(80), destination: text(200),
       }, ['action'])] : []),
-      ...(this.manageFollowup ? [functionSpec('followup_manage', 'Plan your own one-time check-in: create, list, or cancel. When it is due, your Heartbeat wakes with the note as its reason. Use it whenever you would say “I will check back on this”: after a promise, before an event, when something is in progress. Needs Heartbeat with Wild initiative. Not a reminder sent to other people.', {
+      ...(this.manageFollowup ? [functionSpec('followup_manage', 'Create, list, or cancel a one-time Heartbeat check-in. It is for your own follow-up, not a reminder to others; requires Wild initiative.', {
         action: { type: 'string', enum: ['create', 'list', 'cancel'] }, id: text(100), note: text(300),
         inMinutes: { type: 'integer', minimum: 5, maximum: 43200, description: 'Minutes from now. Use this or atLocal.' },
         atLocal: { type: 'string', minLength: 16, maxLength: 16, description: 'PC-local YYYY-MM-DDTHH:MM.' },
       }, ['action'])] : []),
-      ...(this.manageIntention ? [functionSpec('intention_manage', 'Your prospective memory: things to bring up with the user later. create when the user asks ("next time X comes up, remind me of Y") or when you want to follow up on something they shared (an exam, a trip, a worry, a release they are waiting for); list; done once you have brought it up; cancel when it no longer matters. trigger: next_chat (next conversation), topic (when one of 1-4 keywords comes up), date (local YYYY-MM-DD), moment (returned = back at the PC, home = got home, out = left home). Each is offered to you at most once a day, three times, and expires in 30 days, so it never nags.', {
+      ...(this.manageIntention ? [functionSpec('intention_manage', 'Create a future follow-up (when asked or useful), list, mark done after raising it, or cancel. Triggers: next chat, 1�4 topic keywords, local date, or moment. Offered at most daily, three times, then expires.', {
         action: { type: 'string', enum: ['list', 'create', 'done', 'cancel'] }, id: text(100), text: text(300), why: text(300),
         trigger: { type: 'string', enum: ['next_chat', 'topic', 'date', 'moment'] }, keywords: { type: 'array', maxItems: 6, items: text(40) },
         date: { type: 'string', minLength: 10, maxLength: 10, description: 'Local YYYY-MM-DD for a date trigger.' }, moment: { type: 'string', enum: ['returned', 'home', 'out'] },

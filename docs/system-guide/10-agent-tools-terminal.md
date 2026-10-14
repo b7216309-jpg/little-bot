@@ -31,6 +31,8 @@ A different enqueue failure remains: call adds the job before saving and does no
 
 Foreground Execute uses native Codex tools with full local access. [shell-conduct.cjs](../../src/shell-conduct.cjs) supplies Windows command guidance and keeps command-output transcripts coherent. Browser, web, goal file writes and MCP calls are separately owned; not every operation is a shell command.
 
+Tool results sent back to the local model are capped at 12,000 characters. Oversized command, file and web results keep their beginning and end with a note that the middle was omitted.
+
 Goal terminal use depends on its saved shell permission and budgets; completion commands are host-verified through the executor. Plan mode and heartbeat use different execution policies. Native terminal capability does not mean every desired application integration has a typed tool.
 
 ## Existing thread tool migration

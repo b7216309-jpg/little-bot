@@ -10,6 +10,7 @@ const path = require('node:path');
 const webPush = require('../src/web-push.cjs');
 const view = require('../src/relay-view.cjs');
 const { Relay } = require('../src/relay.cjs');
+const { responsesToChat } = require('../src/strata-responses-adapter.cjs');
 
 const protector = { encryptString: value => Buffer.from(`enc:${value}`), decryptString: value => value.toString().replace(/^enc:/, '') };
 function tempDir(t) {
@@ -49,6 +50,16 @@ function browserDecrypt(body, ua, authSecret) {
   assert.equal(plain[plain.length - 1], 2, 'last record delimiter');
   return plain.subarray(0, plain.length - 1).toString();
 }
+
+test('local tool results keep their edges and cap the middle sent back to the model', () => {
+  const output = `HEAD${'x'.repeat(30000)}TAIL`;
+  const { body } = responsesToChat({ input: [{ type: 'function_call_output', call_id: 'c1', output }] }, false);
+  const content = body.messages[0].content;
+  assert.ok(content.length <= 12000);
+  assert.ok(content.startsWith('HEAD'));
+  assert.ok(content.endsWith('TAIL'));
+  assert.match(content, /Tool output truncated: \d+ middle characters omitted/);
+});
 
 test('web push payloads decrypt in a browser and carry a valid VAPID signature', () => {
   const ua = crypto.createECDH('prime256v1'); ua.generateKeys();
