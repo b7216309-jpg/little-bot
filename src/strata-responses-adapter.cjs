@@ -56,8 +56,12 @@ function jsonValue(value) {
   return null;
 }
 
+// Valid argument text passes through byte for byte: Strata only reuses its cache when the
+// replayed history matches the tokens the model generated, and recurrent models cannot
+// fall back to a shorter prefix. Only text that needs repair is rewritten.
 function toolArguments(value) {
   if (object(value)) return stableJson(value);
+  if (typeof value === 'string') { try { if (object(JSON.parse(value))) return value; } catch { /* Repair below. */ } }
   const parsed = jsonValue(value);
   return stableJson(object(parsed) ? parsed : { input: parsed === null ? String(value ?? '') : parsed });
 }
