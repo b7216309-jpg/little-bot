@@ -188,7 +188,7 @@ class GoalExecutor {
         model: goal.model || undefined, effort: this.controller.effectiveEffort(goal.model, goal.effort || 'low'),
         approvalPolicy: 'never', approvalsReviewer: 'user', ...(goal.connection === 'local' ? {} : { outputSchema: contract.isV2(goal) ? resultSchema : schema }),
         sandboxPolicy: writableRoots.length ? { type: 'workspaceWrite', writableRoots, networkAccess: network, excludeSlashTmp: true, excludeTmpdirEnvVar: true } : { type: 'readOnly', networkAccess: network },
-      }, 60000);
+      }, goal.connection === 'local' ? 10 * 60 * 1000 : 60000);
       if (!operation.terminal) operation.turnId ||= turn?.turn?.id;
       operation.phase = 'running';
       if ((operation.cancelReason || operation.questionAcknowledged || operation.completionAcknowledged) && !operation.terminal) await this.interrupt(operation);

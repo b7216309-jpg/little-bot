@@ -4,7 +4,7 @@
 
 [ErrorLog](../../src/error-log.cjs) writes rotating JSONL under data/logs. Its default file budget is 2 MiB with three rotated backups. Main registers process/controller diagnostics and renderer error reporting; Settings can open the logs folder.
 
-Engine output, local-provider/Strata logs, UI errors and application state are different evidence sources. A generic idle timeout can originate from provider streaming or a failed engine RPC; inspect the turn ownership and timestamps before assuming nothing ran. R3 in the [review](review.md) documents one host-side recovery hole.
+Engine output, local-provider/Strata logs, UI errors and application state are different evidence sources. After an engine process crash, active chats settle with their accepted messages preserved and the app restarts the bundled engine with increasing delay. A generic idle timeout can originate from provider streaming or a failed engine RPC; inspect the turn ownership and timestamps before assuming nothing ran.
 
 The logger bounds and filters diagnostic payloads. It is not a complete transcript, and absence of a diagnostic line does not prove success. No new redaction/permission system was introduced by this review.
 

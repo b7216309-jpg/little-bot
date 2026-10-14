@@ -253,7 +253,8 @@ function responsesToChat(body, thinking) {
     out.response_format = { type: 'json_object' };
     messages.unshift({ role: 'developer', content: 'Return the final answer as a valid JSON object. Do not wrap it in Markdown.' });
   }
-  if (tools.length) out.tools = tools;
+  // Strata rejects response_format together with tools; the schema instruction above still applies.
+  if (tools.length) { out.tools = tools; delete out.response_format; }
   const max = [body.max_output_tokens, body.max_completion_tokens, body.max_tokens].find(value => Number.isSafeInteger(value) && value > 0);
   if (max) out.max_completion_tokens = max;
   for (const key of ['temperature', 'top_p', 'top_k', 'min_p', 'seed', 'presence_penalty', 'frequency_penalty', 'repetition_penalty', 'penalty_last_n']) {

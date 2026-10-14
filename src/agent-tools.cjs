@@ -21,7 +21,7 @@ class AgentTools {
   // The engine rejects a thread whose dynamic tools mix the canonical {type:'function'} form with the
   // legacy form, so every source (app management, browser, services) is normalized here.
   specs(options = {}) {
-    return this._specs(options).map(tool => tool.type ? tool : { type: 'function', ...tool });
+    return this._specs(options).map(tool => ({ ...tool, type: 'function' }));
   }
   _specs({ readOnly = false, quick = false } = {}) {
     // The Quick session keeps memory, goals, routines, follow-ups and app management out of reach.

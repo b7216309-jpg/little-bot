@@ -160,12 +160,12 @@ app.whenReady().then(async () => {
   const extensionRuntime = new ExtensionRuntime({ store, client, onChange: () => controller.changed() });
   controller.extensionRuntime = extensionRuntime;
   const publishEvent = event => eventRuntime?.publish(event) || { accepted: false, reason: 'stopped' };
-  scheduler = new Scheduler({ store, run: runAutomation, publish: publishEvent, canRun: () => !store.data.autonomy.paused && !goals?.activeId && !controller.goalChat && !heartbeat?.running && !controller.extensionsBusy && !controller.memoryBusy && !store.data.chats.some(chat => chat.status !== 'idle') && !controller.chatGoal.holding(), onChange: () => controller.changed() });
+  scheduler = new Scheduler({ store, run: runAutomation, publish: publishEvent, canRun: () => !store.data.autonomy.paused && !controller.userSendPending && !goals?.activeId && !controller.goalChat && !heartbeat?.running && !controller.extensionsBusy && !controller.memoryBusy && !store.data.chats.some(chat => chat.status !== 'idle') && !controller.chatGoal.holding(), onChange: () => controller.changed() });
   heartbeat = new Heartbeat({ store, run: config => controller.runHeartbeat(config),
     canNotify: () => !store.data.autonomy.paused && !desktopWindows?.isFocused() && Notification.isSupported()
       && !store.data.chats.some(chat => chat.status !== 'idle'),
     canRun: () => controller.runtime.status === 'ready' && controller.account.status === 'connected'
-      && !store.data.autonomy.paused && !goals?.activeId && !controller.goalChat && !controller.extensionsBusy && !controller.memoryBusy && !scheduler.runningId && !controller.heartbeatChat && !store.data.chats.some(chat => chat.status !== 'idle')
+      && !store.data.autonomy.paused && !controller.userSendPending && !goals?.activeId && !controller.goalChat && !controller.extensionsBusy && !controller.memoryBusy && !scheduler.runningId && !controller.heartbeatChat && !store.data.chats.some(chat => chat.status !== 'idle')
       && !controller.memoryConsolidator?.hasReadyWork() && !controller.chatGoal.holding(),
     onChange: () => controller.changed(),
     publish: publishEvent,
@@ -189,7 +189,7 @@ app.whenReady().then(async () => {
     run: (goal, options) => controller.runGoal(goal, options), stopRun: reason => controller.stopGoal(reason),
     verifyCommand: (goal, check) => controller.verifyGoalCommand(goal, check),
     canRun: () => controller.runtime.status === 'ready' && controller.account.status === 'connected'
-      && !controller.extensionsBusy && !controller.memoryBusy && !controller.goalChat && !controller.heartbeatChat && !heartbeat.running && !scheduler.runningId
+      && !controller.userSendPending && !controller.extensionsBusy && !controller.memoryBusy && !controller.goalChat && !controller.heartbeatChat && !heartbeat.running && !scheduler.runningId
       && !store.data.chats.some(chat => chat.status !== 'idle') && !controller.memoryConsolidator?.hasReadyWork() && !controller.chatGoal.holding(),
     waitReason: () => controller.runtime.status !== 'ready' ? 'The engine is starting'
       : controller.account.status !== 'connected' ? 'Waiting for the model (it is offline or not loaded)'
@@ -370,15 +370,26 @@ app.whenReady().then(async () => {
   });
 
   function ensureExtensionsIdle() {
-    if (controller.extensionsBusy || goals.activeId || controller.goalChat || heartbeat.running || scheduler.runningId || controller.heartbeatChat || store.data.chats.some(chat => chat.status !== 'idle')) {
+    if (controller.userSendPending || controller.extensionsBusy || goals.activeId || controller.goalChat || heartbeat.running || scheduler.runningId || controller.heartbeatChat || store.data.chats.some(chat => chat.status !== 'idle')) {
       throw new Error('Finish or stop active tasks before changing extensions.');
     }
+  }
+  function beginExtensionsUpdate() {
+    controller.extensionsBusy = true;
+    let settle;
+    controller.extensionsIdle = new Promise(resolve => { settle = resolve; });
+    return () => {
+      controller.extensionsBusy = false;
+      settle();
+      controller.extensionsIdle = Promise.resolve();
+      controller.changed();
+    };
   }
   async function updateExtensions(action) {
     await controller.memoryConsolidator.pauseForUser();
     ensureExtensionsIdle();
     const previous = structuredClone(store.data.extensions);
-    controller.extensionsBusy = true;
+    const finishExtensions = beginExtensionsUpdate();
     try {
       await action();
       // Release every idle engine context so removed tools cannot linger in an old chat.
@@ -388,7 +399,7 @@ app.whenReady().then(async () => {
       }
       store.save(); extensionRuntime.invalidate(); controller.changed(); return controller.state();
     } catch (error) { store.data.extensions = previous; throw error; }
-    finally { controller.extensionsBusy = false; controller.changed(); }
+    finally { finishExtensions(); }
   }
 
   register('setWorkspacePath', ({path:folder}) => controller.setWorkspace(folder));
@@ -424,7 +435,7 @@ app.whenReady().then(async () => {
     if (error) throw new Error(error);
     return { ok: true };
   });
-  register('saveSettings', async payload => { await controller.memoryConsolidator.pauseForUser(); return controller.saveSettings(payload); });
+  register('saveSettings', payload => controller.saveSettings(payload));
   register('saveConnection', payload => { ensureExtensionsIdle(); return controller.saveConnection(payload); });
   register('refreshConnection', () => controller.refreshConnection());
   register('refreshProviderUsage', () => controller.refreshProviderUsage());
@@ -499,11 +510,19 @@ app.whenReady().then(async () => {
     return result;
   });
   const sendTurn = async (payload, internal) => {
-    if (goals.activeId) await goals.pause(goals.activeId);
-    if (controller.goalChat) await controller.goalChat.settled;
-    const active = controller.heartbeatChat;
-    if (active) { await controller.stopHeartbeat(); await active.settled; }
-    return controller.send(payload, null, internal);
+    if (internal?.goalTurn) return controller.send(payload, null, internal);
+    controller.userSendPending = true;
+    try {
+      if (goals.activeId) await goals.pause(goals.activeId);
+      await controller.waitForUserLane();
+      await controller.waitForExtensions();
+      if (internal?.queueUntilIdle) {
+        const chat = controller.chat(payload?.chatId) || store.data.chats.find(item => !item.private);
+        if (chat && chat.status !== 'idle') await controller.waitForChat(chat.id);
+        await controller.waitForUserLane();
+      }
+      return await controller.send(payload, null, internal);
+    } finally { controller.userSendPending = false; }
   };
   controller.chatGoal.sendTurn = sendTurn;
   register('send', payload => sendTurn(payload));
@@ -613,9 +632,8 @@ app.whenReady().then(async () => {
     }
     store.save(); controller.changed(true);
     const chat = store.data.chats.find(item => !item.private);
-    if (choice === 'do' && chat?.status === 'idle') {
-      // Same path as a typed message: an active goal or heartbeat yields first instead of failing the send.
-      try { await appHandlers.get('send')({ chatId: chat.id, text: `✅ Yes, go ahead with this: "${entry.excerpt.slice(0, 280)}"` }); }
+    if (choice === 'do' && chat) {
+      try { await sendTurn({ chatId: chat.id, text: `✅ Yes, go ahead with this: "${entry.excerpt.slice(0, 280)}"` }, { queueUntilIdle: true }); }
       catch (error) { logDiagnostic('proactive-answer', error); }
     }
     return controller.state();
@@ -692,9 +710,9 @@ app.whenReady().then(async () => {
     server.disabledTools = [...disabled];
   }));
   register('refreshExtensions', async () => {
-    ensureExtensionsIdle(); controller.extensionsBusy = true;
+    ensureExtensionsIdle(); const finishExtensions = beginExtensionsUpdate();
     try { await extensionRuntime.refresh(store.data.settings.workspace); return controller.state(); }
-    finally { controller.extensionsBusy = false; controller.changed(); }
+    finally { finishExtensions(); }
   });
   register('loginMcpServer', async ({ id } = {}) => {
     ensureExtensionsIdle();

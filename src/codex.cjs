@@ -54,6 +54,8 @@ class CodexClient extends EventEmitter {
     this._secrets = new Set();
     this._startPromise = null;
     this._closePromise = null;
+    this._restartPromise = null;
+    this._lifecycle = 0;
     this._crashError = null;
     this._rememberSecrets(env);
   }
@@ -166,6 +168,32 @@ class CodexClient extends EventEmitter {
     if (!this._serverRequests.has(id)) throw new Error('This Codex request is no longer pending.');
     this._serverRequests.delete(id);
     await this._write({ id, error: { code, message: this._scrub(message) } });
+  }
+
+  restart() {
+    if (this._restartPromise) return this._restartPromise;
+    if (!['crashed', 'closed'].includes(this.state)) return Promise.reject(new Error('Codex client is not stopped.'));
+    const closing = this._closePromise || this.close();
+    const lifecycle = this._lifecycle;
+    const operation = (async () => {
+      await closing;
+      if (lifecycle !== this._lifecycle) return false;
+      this.child = null;
+      this.state = 'idle';
+      this._startPromise = null;
+      this._closePromise = null;
+      this._crashError = null;
+      this._stdout = '';
+      this._stderr = '';
+      this._stderrOverflow = false;
+      this._exited = null;
+      this._resolveExited = null;
+      this._serverRequests.clear();
+      this._rememberSecrets(this.env);
+      return this.start();
+    })();
+    this._restartPromise = operation;
+    return operation.finally(() => { if (this._restartPromise === operation) this._restartPromise = null; });
   }
 
   _write(message) {
@@ -307,6 +335,7 @@ class CodexClient extends EventEmitter {
   }
 
   close() {
+    this._lifecycle++;
     if (this._closePromise) return this._closePromise;
     this._closePromise = this._close();
     return this._closePromise;

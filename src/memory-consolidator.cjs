@@ -56,9 +56,10 @@ function normalizeCandidates(output, job = {}) {
 }
 
 class MemoryConsolidator {
-  constructor(controller, { intervalMs = 5000, timeoutMs = 90000, autoStart = true } = {}) {
+  constructor(controller, { intervalMs = 5000, timeoutMs = null, stopTimeoutMs = 10000, autoStart = true } = {}) {
     this.controller = controller;
     this.timeoutMs = timeoutMs;
+    this.stopTimeoutMs = stopTimeoutMs;
     this.active = null;
     this.closed = false;
     this.notBefore = 0;
@@ -95,7 +96,7 @@ class MemoryConsolidator {
   available() {
     const c = this.controller;
     return !this.closed && !this.active && Date.now() >= this.notBefore && this.service
-      && c.store.data.memory?.enabled !== false && !c.closing && c.runtime.status === 'ready'
+      && c.store.data.memory?.enabled !== false && !c.closing && !c.userSendPending && c.runtime.status === 'ready'
       && c.account.status === 'connected' && !c.extensionsBusy && !c.goalChat && !c.heartbeatChat
       && !c.independentCheck?.active && !c.manualCompactions?.size && !c.chatGoal?.holding()
       && !c.store.data.chats.some(chat => chat.status !== 'idle');
@@ -118,7 +119,8 @@ class MemoryConsolidator {
     this.active = op;
     this.controller.memoryBusy = true;
     this.controller.changed();
-    op.timer = setTimeout(() => { void this.stop('Memory extraction timed out.').catch(error => { this.lastError = error.message; }); }, this.timeoutMs);
+    const timeoutMs = this.timeoutMs ?? (this.controller.store.data.settings.connection === 'local' ? 10 * 60000 : 90000);
+    op.timer = setTimeout(() => { void this.stop('Memory extraction timed out.').catch(error => { this.lastError = error.message; }); }, timeoutMs);
     op.timer.unref?.();
     op.starting = this.run(op);
     await op.starting;
@@ -144,14 +146,15 @@ class MemoryConsolidator {
     this.active = op;
     c.memoryBusy = true;
     c.changed();
-    op.timer = setTimeout(() => { void this.stop('The dream took too long.').catch(error => { this.lastError = error.message; }); }, 5 * 60000);
+    const timeoutMs = this.timeoutMs ?? (this.controller.store.data.settings.connection === 'local' ? 10 * 60000 : 5 * 60000);
+    op.timer = setTimeout(() => { void this.stop('The dream took too long.').catch(error => { this.lastError = error.message; }); }, timeoutMs);
     op.timer.unref?.();
     op.starting = this.run(op);
     await op.starting;
     return true;
   }
   async run(op) {
-    const c = this.controller, settings = c.store.data.settings;
+    const c = this.controller, settings = c.store.data.settings, local = settings.connection === 'local';
     if (op.kind === 'dream') return this.runDream(op);
     try {
       const cwd = op.job.workspace || settings.workspace;
@@ -189,7 +192,7 @@ class MemoryConsolidator {
         input: [{ type: 'text', text }],
         effort: c.effectiveEffort(settings.model, 'low'), approvalPolicy: 'never',
         sandboxPolicy: { type: 'readOnly' }, outputSchema: EXTRACTION_SCHEMA,
-      }, 60000);
+      }, local ? 10 * 60 * 1000 : 60000);
       op.turnId ||= result?.turn?.id;
       if (!op.turnId) throw new Error('No memory extraction turn was returned.');
     } catch (error) {
@@ -197,7 +200,7 @@ class MemoryConsolidator {
     }
   }
   async runDream(op) {
-    const c = this.controller, settings = c.store.data.settings;
+    const c = this.controller, settings = c.store.data.settings, local = settings.connection === 'local';
     try {
       const cwd = settings.workspace;
       const disabled = await c.extensionRuntime?.heartbeatConfig(cwd) || {};
@@ -209,7 +212,7 @@ class MemoryConsolidator {
           'features.unified_exec': false, 'features.js_repl': false, 'features.code_mode': false,
           'features.multi_agent': false, 'features.skill_mcp_dependency_install': false,
           web_search: 'disabled', model_reasoning_effort: 'low' },
-      }, 60000);
+      }, local ? 10 * 60 * 1000 : 60000);
       op.threadId = started?.thread?.id;
       if (!op.threadId) throw new Error('No dream thread was returned.');
       if (op.cancelled || this.closed) return;
@@ -221,7 +224,7 @@ class MemoryConsolidator {
         threadId: op.threadId, cwd, model: settings.model || undefined, input: [{ type: 'text', text }],
         effort: c.effectiveEffort(settings.model, 'low'), approvalPolicy: 'never',
         sandboxPolicy: { type: 'readOnly' }, outputSchema: dreaming.DREAM_SCHEMA,
-      }, 60000);
+      }, local ? 10 * 60 * 1000 : 60000);
       op.turnId ||= result?.turn?.id;
       if (!op.turnId) throw new Error('No dream turn was returned.');
     } catch (error) {
@@ -322,11 +325,18 @@ class MemoryConsolidator {
       let timer;
       try {
         await Promise.race([op.completion, new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error('Memory extraction is still stopping. Try your message again shortly.')), 10000);
+          timer = setTimeout(() => reject(new Error('Memory extraction did not stop.')), this.stopTimeoutMs);
         })]);
       } finally { clearTimeout(timer); }
     })();
-    try { await op.stopping; } finally { op.stopping = null; }
+    try { await op.stopping; }
+    catch (error) {
+      if (this.active !== op) return;
+      if (this.controller.closing) { this.finish(op, null, error.message); return; }
+      this.controller.crashed(new Error(`The engine did not stop memory maintenance: ${error.message}`));
+      if (this.controller.client.close) await this.controller.client.close().catch(() => {});
+      await op.completion;
+    } finally { op.stopping = null; }
   }
   async pauseForUser() { await this.stop(); }
   async close() {

@@ -88,7 +88,7 @@ class IndependentCheckRunner {
     this.active = operation;
     operation.timer = setTimeout(() => {
       this.stop('Independent Check reached its five-minute time limit.').catch(() => {});
-    }, REVIEW_TIMEOUT_MS);
+    }, chat.connection === 'local' ? 10 * 60 * 1000 : REVIEW_TIMEOUT_MS);
     operation.timer.unref?.();
     this.controller.changed(true);
     void this.run(operation);
@@ -172,7 +172,7 @@ class IndependentCheckRunner {
         approvalsReviewer: 'user',
         outputSchema: INDEPENDENT_CHECK_SCHEMA,
         sandboxPolicy: { type: 'readOnly' },
-      }, 60000);
+      }, chat.connection === 'local' ? 10 * 60 * 1000 : 60000);
       operation.turnId ||= turn?.turn?.id;
       if (!operation.turnId) throw new Error('Independent Check did not receive a review turn.');
       if (operation.cancelReason && this.current(operation)) await this.stop(operation.cancelReason);

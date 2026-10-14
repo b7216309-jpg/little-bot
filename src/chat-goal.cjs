@@ -8,7 +8,7 @@ const { randomUUID } = require('node:crypto');
 const { parseModelJson, normalizeModelOutput } = require('./model-json.cjs');
 
 const DEFAULT_TURNS = 20, MAX_TURNS = 100, DEFAULT_MINUTES = 90, MAX_MINUTES = 720;
-const EVAL_TIMEOUT_MS = 3 * 60000, CHECK_TIMEOUT_MS = 5 * 60000, OUTPUT_LIMIT = 100000;
+const EVAL_TIMEOUT_MS = 10 * 60000, CODEX_EVAL_TIMEOUT_MS = 3 * 60000, CHECK_TIMEOUT_MS = 5 * 60000, OUTPUT_LIMIT = 100000;
 const STATUSES = ['pursuing', 'paused', 'achieved', 'unmet', 'budget'];
 const COMMANDS = { status: 'status', pause: 'pause', stop: 'pause', resume: 'resume', continue: 'resume', clear: 'clear', cancel: 'clear', off: 'clear', reset: 'clear' };
 
@@ -302,9 +302,11 @@ class ChatGoalRunner {
   // One tool-less, read-only model turn in its own ephemeral thread.
   judge(chat, goal, check) {
     const controller = this.controller;
+    const local = chat.connection === 'local';
+    const timeout = local ? EVAL_TIMEOUT_MS : CODEX_EVAL_TIMEOUT_MS;
     return new Promise((resolve, reject) => {
       const op = { chatId: chat.id, threadId: null, turnId: null, output: '', resolve, reject, done: false, goal, chat, check, retryCount: 0 };
-      op.timer = setTimeout(() => this.settle(op, new Error('The goal check timed out.')), EVAL_TIMEOUT_MS);
+      op.timer = setTimeout(() => this.settle(op, new Error('The goal check timed out.')), timeout);
       op.timer.unref?.();
       this.op = op;
       void (async () => {
@@ -322,12 +324,11 @@ class ChatGoalRunner {
           if (op.done) return void this.release(op);
           await controller.extensionRuntime?.verifyHeartbeat(op.threadId);
           if (op.done) return void this.release(op);
-          const local = chat.connection === 'local';
           const turn = await controller.client.request('turn/start', {
             threadId: op.threadId, input: [{ type: 'text', text: checkPrompt(goal, chat, check, { local }) }], cwd: chat.workspace,
             model: chat.model || undefined, effort: controller.effectiveEffort(chat.model, 'low'), approvalPolicy: 'never', approvalsReviewer: 'user',
             outputSchema: GOAL_CHECK_SCHEMA, sandboxPolicy: { type: 'readOnly' },
-          }, 60000);
+          }, timeout);
           op.turnId ||= turn?.turn?.id;
         } catch (error) { this.settle(op, error); }
       })();
