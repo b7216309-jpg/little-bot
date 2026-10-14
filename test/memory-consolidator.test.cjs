@@ -58,6 +58,10 @@ test('extraction does not overlap a live conversation and invalid output retries
   chat.status = 'idle'; await worker.tick();
   worker.notification('item/agentMessage/delta', { threadId: 'extract', delta: 'invalid' });
   worker.notification('turn/completed', { threadId: 'extract', turn: { status: 'completed' } });
+  await new Promise(resolve => setImmediate(resolve));
+  worker.notification('item/completed', { threadId: 'extract', item: { type: 'agentMessage', text: 'still invalid' } });
+  worker.notification('turn/completed', { threadId: 'extract', turn: { id: 'turn', status: 'completed' } });
+  await new Promise(resolve => setImmediate(resolve));
   assert(worker.lastError);
   assert.equal(service.db.prepare("SELECT status FROM extraction_jobs").get().status, 'pending');
   assert.equal(service.db.prepare("SELECT attempts FROM extraction_jobs").get().attempts, 1);
@@ -89,17 +93,20 @@ test('memory tools immediately save, correct, recall and forget across model con
   assert.equal(service.search({ query: 'pnpm', source: 'facts', scope: 'all' }).results.length, 0);
 });
 
-test('with a local model, extraction asks for JSON in the prompt instead of a structured response format', async t => {
-  // Local servers reject "structured response_format with tools/MCP"; every learning job failed three times.
+test('local extraction uses constrained JSON and repairs one malformed answer', async t => {
   const { service, worker, calls, c } = fixture(t);
   c.store.data.settings.connection = 'local';
   await worker.tick();
   const turn = calls.find(call => call.method === 'turn/start').params;
-  assert.equal(turn.outputSchema, undefined);
-  assert.match(turn.input[0].text, /Return only one JSON object matching this schema/);
-  worker.notification('item/completed', { threadId: 'extract', item: { type: 'agentMessage', text: '<think>pnpm is durable</think>\n```json\n' + JSON.stringify({ memories: [
-    { text: 'This project uses pnpm.', type: 'decision', scope: 'workspace', key: 'project.package-manager', sourceIds: ['u1'], supersedesId: null },
-  ] }) + '\n```' } });
+  assert.equal(turn.outputSchema.required[0], 'memories');
+  worker.notification('item/completed', { threadId: 'extract', item: { type: 'agentMessage', text: "{'memories': [}" } });
+  worker.notification('turn/completed', { threadId: 'extract', turn: { id: 'turn', status: 'completed' } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls.filter(call => call.method === 'turn/start').length, 2);
+  const sloppy = JSON.stringify({ memories: [
+    { content: 'This project uses pnpm.', category: 'Decision', scope: 'workspace', key: 'project.package-manager', sources: 'u1' },
+  ] }).replace(/\]\}$/, '],}');
+  worker.notification('item/completed', { threadId: 'extract', item: { type: 'agentMessage', text: '<think>pnpm is durable</think>\n```json\n' + sloppy + '\n```' } });
   worker.notification('turn/completed', { threadId: 'extract', turn: { id: 'turn', status: 'completed' } });
   assert.equal(service.pendingExtractions().length, 0);
   assert.deepEqual(service.snapshot().records.map(record => record.text), ['This project uses pnpm.']);

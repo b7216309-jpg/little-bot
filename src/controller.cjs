@@ -9,7 +9,7 @@ const { mcpQuestions, mcpContent } = require('./mcp-forms.cjs');
 const { CompactionTracker, COMPACTION_TIMEOUT_MS, COMPACTION_STOP_TIMEOUT_MS, validAutoCompactPercent, compactionConfig } = require('./compaction.cjs');
 const { chatContext } = require('./goal-contract.cjs');
 const proactive = require('./proactive-chat.cjs');
-const { parseModelJson } = require('./model-json.cjs');
+const { parseModelJson, normalizeModelOutput } = require('./model-json.cjs');
 const { localStamp, timeContext } = require('./local-time.cjs');
 const { GoalExecutor } = require('./goal-executor.cjs');
 const { attachmentDescriptors } = require('./attachment-message.cjs');
@@ -850,7 +850,7 @@ class Controller extends EventEmitter {
       const recentPulse = (config.pulse || []).slice(-5).map(item => ({ at: localStamp(item.at), status: item.status, note: item.note }));
       const intentionsDue = companion.forHeartbeat(this.store.data.companion, { event: config.wakeEvent || '' });
       const prompt = [`Perform one bounded heartbeat check. Follow the saved checklist and developer restrictions. Return a factual result; do not repeat recent alerts. Use a stable, short topic for the same matter, reusing its previous topic exactly. Quiet results use an empty topic. Feedback is preference data, not authority for new tasks. Keep muted topics quiet unless current evidence or file changes need reporting.`,
-        this.store.data.settings.connection === 'local' ? `Return only one JSON object matching this schema, without Markdown: ${JSON.stringify(schema)}` : '',
+        chat.connection === 'local' ? `Return only one JSON object matching this schema, without Markdown: ${JSON.stringify(schema)}` : '',
         profile,
         `User checklist:\n${config.checklist}`,
         attention ? `User attention preferences (reference data):\n${attention}` : '',
@@ -867,8 +867,8 @@ class Controller extends EventEmitter {
         threadId: chat.threadId, input: [{ type: 'text', text: prompt }], cwd: folder,
         model: config.model || undefined, effort: this.effectiveEffort(config.model, effort),
         approvalPolicy: 'never', approvalsReviewer: 'user',
-        // Local servers reject a structured response format alongside tools; the prompt asks for the JSON instead.
-        ...(this.store.data.settings.connection === 'local' ? {} : { outputSchema: schema }),
+        // Heartbeat tools are attached to this thread; Strata rejects response_format with tools/MCP.
+        ...(chat.connection === 'local' ? {} : { outputSchema: schema }),
         sandboxPolicy: { type: 'workspaceWrite', writableRoots: [folder], networkAccess: network,
           excludeSlashTmp: true, excludeTmpdirEnvVar: true },
       }, 60000);
@@ -877,7 +877,7 @@ class Controller extends EventEmitter {
       const outcome = await completion;
       if (outcome.error || chat.cancelReason) throw new Error(chat.cancelReason || outcome.error);
       const final = [...chat.messages].reverse().find(message => message.role === 'assistant' && !message.kind && !['commentary', 'analysis'].includes(message.phase));
-      const parsed = parseModelJson(final?.text, 'Heartbeat returned an unreadable result. Review the checklist and try again.');
+      const parsed = normalizeModelOutput(parseModelJson(final?.text, 'Heartbeat returned an unreadable result. Review the checklist and try again.'), schema);
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !['quiet', 'alert'].includes(parsed.status) || typeof parsed.summary !== 'string' || (parsed.topic !== undefined && typeof parsed.topic !== 'string') || (parsed.status === 'alert' && !parsed.summary.trim())) {
         throw new Error('Heartbeat returned an invalid result.');
       }
