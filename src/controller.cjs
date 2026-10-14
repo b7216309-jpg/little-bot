@@ -40,6 +40,7 @@ function bounded(value, max = 200000) { return String(value ?? '').slice(0, max)
 const REASONING_LIMIT = 200000;
 const STREAM_UPDATE_MS = 40;
 const STREAM_SAVE_MS = 2000;
+const LOCAL_TURN_START_TIMEOUT_MS = 10 * 60 * 1000;
 function reasoningText(parts) {
   return Array.isArray(parts) ? bounded(parts.filter(part => typeof part === 'string').join('\n\n'), REASONING_LIMIT) : '';
 }
@@ -136,6 +137,13 @@ class Controller extends EventEmitter {
     this.closing = false;
     this.heartbeatChat = null;
     this.extensionsBusy = false;
+    this.extensionsIdle = Promise.resolve();
+    this.userSendPending = false;
+    this.engineRestartTimer = null;
+    this.engineStableTimer = null;
+    this.engineRestartPromise = null;
+    this.engineRestartAttempt = 0;
+    this.engineReadyWaiters = new Set();
     this.extensionRuntime = null;
     this.agentTools = null;
     this.profileFiles = null;
@@ -286,6 +294,7 @@ class Controller extends EventEmitter {
       await this.client.start();
       await this.refreshConnection();
       this.runtime = { ...this.runtime, status: 'ready' };
+      this.resolveEngineReady();
       this.changed();
     } catch (error) { this.crashed(error); throw error; }
   }
@@ -368,7 +377,8 @@ class Controller extends EventEmitter {
   }
   async saveConnection(input = {}) {
     if (this.memoryConsolidator) await this.memoryConsolidator.pauseForUser();
-    if (this.connectionRefresh) throw new Error('Wait for the connection check to finish.');
+    if (this.connectionRefresh) await this.connectionRefresh.catch(() => {});
+    await this.waitForExtensions();
     if (this.extensionsBusy || this.goalChat || this.heartbeatChat || this.store.data.chats.some(chat => chat.status !== 'idle')) throw new Error('Finish or stop the current task before changing connections.');
     if (!['local', 'codex'].includes(input.connection)) throw new Error('Choose Local Qwen or Codex.');
     const previous = this.store.data.settings;
@@ -407,13 +417,7 @@ class Controller extends EventEmitter {
   saveSettings(input = {}) {
     if (input.localThinking !== undefined) {
       if (typeof input.localThinking !== 'boolean') throw new Error('Thinking must be on or off.');
-      if (input.localThinking !== (this.store.data.settings.localThinking !== false)
-        && (this.extensionsBusy || this.goalChat || this.heartbeatChat || this.manualCompactions.size
-          || this.store.data.chats.some(chat => chat.status !== 'idle' || chat.compaction?.status === 'running'))) {
-        throw new Error('Finish or stop the current task before changing thinking.');
-      }
     }
-    if (this.memoryBusy) throw new Error('Memory is finishing an update. Try again in a moment.');
     if (input.model !== undefined) {
       if (this.store.data.chats.some(chat => chat.status !== 'idle')) throw new Error('Finish or stop the current task before changing models.');
       if (!this.models.some(model => model.id === input.model)) throw new Error('Choose a model from the list.');
@@ -431,12 +435,6 @@ class Controller extends EventEmitter {
     if (input.systemPrompt !== undefined) {
       if (input.systemPrompt !== null && typeof input.systemPrompt !== 'string') throw new Error('System prompt must be text.');
       if (typeof input.systemPrompt === 'string' && input.systemPrompt.length > 100000) throw new Error('System prompt is too long.');
-      const nextPrompt = input.systemPrompt === null ? instructions : input.systemPrompt;
-      if (nextPrompt !== this.systemPrompt()
-        && (this.extensionsBusy || this.goalChat || this.heartbeatChat || this.manualCompactions.size
-          || this.store.data.chats.some(chat => chat.status !== 'idle' || chat.compaction?.status === 'running'))) {
-        throw new Error('Finish or stop the current task before changing the system prompt.');
-      }
     }
     const previous = this.store.data.settings;
     this.store.data.settings = { ...previous };
@@ -498,6 +496,32 @@ class Controller extends EventEmitter {
       settings.connection === 'local' ? this.localModelRelay.endpoint(settings.localBaseUrl, this.connection?.adapter) : undefined);
   }
   get goalChat() { return this.goalExecutor.active; }
+  waitForEngineReady() {
+    if (this.runtime.status === 'ready' || this.closing) return Promise.resolve();
+    return new Promise(resolve => this.engineReadyWaiters.add(resolve));
+  }
+  resolveEngineReady() {
+    for (const resolve of this.engineReadyWaiters) resolve();
+    this.engineReadyWaiters.clear();
+  }
+  async waitForExtensions() {
+    if (this.extensionsBusy) await this.extensionsIdle;
+  }
+  async waitForUserLane() {
+    const goal = this.goalChat;
+    if (goal) {
+      try { await this.goalExecutor.stop('Paused to handle your message.'); }
+      catch { /* A stop timeout settles through the engine crash recovery path. */ }
+      await goal.settled;
+    }
+    const heartbeat = this.heartbeatChat;
+    if (heartbeat) {
+      try { await this.stopHeartbeat('Paused to handle your message.'); }
+      catch { /* A stop timeout settles through the engine crash recovery path. */ }
+      await heartbeat.settled;
+    }
+    if (this.independentCheck.active) await this.independentCheck.stop('Interrupted by a new user message.');
+  }
   async runGoal(goal, options) { if (this.memoryConsolidator) await this.memoryConsolidator.pauseForUser(); return this.goalExecutor.run(goal, options); }
   stopGoal(reason) { return this.goalExecutor.stop(reason); }
   verifyGoalCommand(goal, check) { return this.goalExecutor.verifyCommand(goal, check); }
@@ -565,12 +589,12 @@ class Controller extends EventEmitter {
     if (this.memoryConsolidator) await this.memoryConsolidator.pauseForUser();
     // The user's own message always wins over a pending goal check.
     if (!goalTurn) await this.chatGoal.stopEvaluation();
+    if (!goalTurn) await this.waitForUserLane();
+    await this.waitForEngineReady();
     this.ensureReady();
     if (this.memoryBusy) throw new Error('Memory is finishing an update. Try again in a moment.');
-    if (this.extensionsBusy) throw new Error('Extensions are being updated. Try again in a moment.');
-    if (this.goalChat) throw new Error('The goal is still stopping. Try your message again in a moment.');
-    if (this.heartbeatChat) throw new Error('The heartbeat is still stopping. Try your message again in a moment.');
-    if (this.independentCheck.active) throw new Error('Wait for Independent Check to finish.');
+    await this.waitForExtensions();
+    if (this.extensionsBusy) throw new Error('Extensions are being updated.');
     if (!Array.isArray(attachmentIds) || attachmentIds.length > 8 || attachmentIds.some(id => typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(id)) || new Set(attachmentIds).size !== attachmentIds.length) throw new Error('Choose up to 8 attachments.');
     if (override && attachmentIds.length) throw new Error('Attachments are available in direct conversations.');
     if (mode !== undefined && !['execute', 'plan'].includes(mode)) throw new Error('Choose Execute or Plan mode.');
@@ -586,14 +610,15 @@ class Controller extends EventEmitter {
     if (this.store.data.chats.some(item => item.status !== 'idle')) throw new Error('Wait for the current reply, or stop it first.');
     let chat = this.store.data.chats.find(item => turnPrivate ? item.private : !item.private) || null;
     const settings = override || this.store.data.settings;
+    const selectedModel = !override && settings.connection === 'local' ? settings.localModel : settings.model;
     const turnMode = override ? 'execute' : (mode || chat?.mode || 'execute');
     if (override) this.ensureReady(override);
     const folder = workspacePath(settings.workspace);
     const binding = connectionBinding(settings, this.store.data.settings.connection);
     const toolMode = turnMode === 'plan' || Boolean(override?.automationId) ? 'readOnly' : 'full';
-    const rotate = chat && (chat.toolMode !== toolMode || chat.workspace !== folder || chat.model !== settings.model || chat.connection !== binding.connection || chat.localBaseUrl !== binding.localBaseUrl);
+    const rotate = chat && (chat.toolMode !== toolMode || chat.workspace !== folder || chat.model !== selectedModel || chat.connection !== binding.connection || chat.localBaseUrl !== binding.localBaseUrl);
     const retiredThreadId = rotate ? chat.threadId : null;
-    const historyBridge = (!chat?.threadId || rotate) && chat?.messages.length
+    let historyBridge = (!chat?.threadId || rotate) && chat?.messages.length
       ? 'Recent conversation before this engine session (historical context):\n' + chat.messages.filter(item => item.role !== 'tool' && item.kind !== 'reasoning').slice(-24).map(item => `${item.automationId ? (item.role === 'user' ? 'Scheduled task' : 'Automation result') + ' [' + (item.automationName || item.automationId) + ']' : item.role}: ${item.text}`).join('\n\n').slice(-24000) : '';
     if (rotate) {
       this.resumed.delete(chat.threadId);
@@ -606,12 +631,12 @@ class Controller extends EventEmitter {
     if (!chat) {
       const now = Date.now();
       chat = { id: randomUUID(), title: 'Conversation', threadId: null, workspace: folder,
-        model: settings.model, effort: settings.effort || 'low', createdAt: now, updatedAt: now,
+        model: selectedModel, effort: settings.effort || 'low', createdAt: now, updatedAt: now,
         ...connectionBinding(settings, this.store.data.settings.connection),
         mode: turnMode, ...(turnPrivate ? { private: true, title: 'Quick session' } : {}), status: 'idle', messages: [] };
       if (turnPrivate) this.store.data.chats.push(chat); else this.store.data.chats.unshift(chat);
     }
-    Object.assign(chat, binding, { workspace: folder, model: settings.model, toolMode });
+    Object.assign(chat, binding, { workspace: folder, model: selectedModel, toolMode });
     if (goalTurn?.kind === 'start') chat.goal = goalTurn.goal;
     // Mark busy before awaiting RPC so two clicks cannot start overlapping turns.
     if (override?.automationId) chat.automationPreviousMode = chat.mode || 'execute';
@@ -621,7 +646,7 @@ class Controller extends EventEmitter {
       independentCheckMode: normalizeIndependentCheckMode(settings.independentCheckMode) };
     if (override?.automationId) { chat.automationId = override.automationId; chat.automationName = override.name || 'Scheduled task'; }
     else delete chat.automationId;
-    if (chat.connection !== 'local') chat.model = settings.model || chat.model;
+    if (chat.connection !== 'local') chat.model = selectedModel || chat.model;
     chat.effort = settings.effort || 'low';
     const userMessage = { id: randomUUID(), role: 'user', text, createdAt: Date.now(), workspace: folder, model: chat.model, connection: chat.connection, ...(override?.automationId ? { automationId: override.automationId, automationName: override.name || 'Scheduled task', kind: 'automation' } : {}),
       ...(goalTurn ? { kind: goalTurn.kind === 'start' ? 'goal-set' : 'goal-step', chatGoalId: chat.goal?.id } : {}) };
@@ -658,12 +683,30 @@ class Controller extends EventEmitter {
       }
       this.persistNow(); this.changed();
       const common = this.threadOptions(chat, folder);
-      if (!chat.threadId) {
+      const startThread = async () => {
         const result = await this.client.request('thread/start', { ...common, ...(chat.private ? { ephemeral: true } : {}), ...(this.agentTools ? { dynamicTools: this.agentTools.specs({ readOnly: turnMode === 'plan' || Boolean(override?.automationId), quick: chat.private === true }) } : {}) }, 60000);
         chat.threadId = result.thread.id; chat.toolSchema = fingerprint(this.agentTools?.specs({ readOnly: toolMode === 'readOnly', quick: chat.private === true }) || []); this.resumed.add(chat.threadId);
         this.threadCompactionSettings.set(chat.threadId, common.config.model_post_turn_compact_threshold_percent);
         this.threadInstructionSettings.set(chat.threadId, this.threadSignature(common));
-      } else await this.resumeThread(chat, common);
+      };
+      if (!chat.threadId) await startThread();
+      else {
+        try { await this.resumeThread(chat, common); }
+        catch (error) {
+          if (!/saved engine conversation is missing|no rollout found for thread id|thread\b.*(?:not found|missing)|conversation\b.*(?:not found|missing)/i.test(error.message || '')) throw error;
+          const missingThreadId = chat.threadId;
+          this.onError('engine-thread-reset', error, { threadId: missingThreadId });
+          this.resumed.delete(missingThreadId);
+          this.threadCompactionSettings.delete(missingThreadId);
+          this.threadInstructionSettings.delete(missingThreadId);
+          chat.threadId = null;
+          if (chat.context) chat.context.stale = true;
+          const beforeRequest = chat.messages.filter(item => item.id !== userMessage.id && item.role !== 'tool' && item.kind !== 'reasoning').slice(-24);
+          historyBridge = beforeRequest.length ? 'Recent conversation before this engine session (historical context):\n'
+            + beforeRequest.map(item => `${item.automationId ? (item.role === 'user' ? 'Scheduled task' : 'Automation result') + ' [' + (item.automationName || item.automationId) + ']' : item.role}: ${item.text}`).join('\n\n').slice(-24000) : '';
+          await startThread();
+        }
+      }
       if (override?.automationId && this.store.data.autonomy?.paused) throw new Error('Autonomous work is paused.');
       const profile = this.profileContext();
       const requestBlock = override?.automationId
@@ -695,7 +738,7 @@ class Controller extends EventEmitter {
         effort: this.effectiveEffort(chat.model, chat.effort),
         approvalPolicy: 'never', approvalsReviewer: 'user',
         sandboxPolicy: turnMode === 'plan' ? { type: 'readOnly' } : { type: 'dangerFullAccess' },
-      }, 60000);
+      }, chat.connection === 'local' ? LOCAL_TURN_START_TIMEOUT_MS : 60000);
       proactive.markSeen(unseenProactive);
       if (intentionsDue.length) companion.markOffered(this.store.data.companion, intentionsDue.map(item => item.id));
       const capturedAt = Date.now();
@@ -720,11 +763,12 @@ class Controller extends EventEmitter {
       this.persistNow(); this.changed();
       return { chatId: chat.id };
     } catch (error) {
-      this.finish(chat, cleanError(error));
+      if (chat.status !== 'idle') this.finish(chat, cleanError(error));
       if (createdChat && !inputAccepted) {
         this.store.data.chats = this.store.data.chats.filter(item => item !== chat);
         this.outcomes.delete(chat.id); this.changed(true);
       }
+      if (inputAccepted) return { chatId: chat.id };
       throw error;
     }
   }
@@ -732,14 +776,16 @@ class Controller extends EventEmitter {
   async compact({ chatId } = {}) {
     if (this.memoryConsolidator) await this.memoryConsolidator.pauseForUser();
     this.ensureReady();
-    if (this.extensionsBusy) throw new Error('Extensions are being updated. Try again in a moment.');
+    await this.waitForExtensions();
+    if (this.extensionsBusy) throw new Error('Extensions are being updated.');
     if (this.goalChat) throw new Error('Wait for the goal to finish before compacting.');
     if (this.heartbeatChat) throw new Error('Wait for the heartbeat to finish before compacting.');
     const chat = this.chat(chatId);
     const settings = this.store.data.settings;
+    const selectedModel = settings.connection === 'local' ? settings.localModel : settings.model;
     // The public conversation follows the selected model. Keep the native
     // history for compaction, while saved autonomous tasks retain their binding.
-    if (chat) this.ensureReady({ ...chat, model: settings.model });
+    if (chat) this.ensureReady({ ...chat, model: selectedModel });
     if (!chat?.threadId || !chat.messages.some(message => message.role === 'user')) throw new Error('Start a conversation before compacting its context.');
     if (chat.status !== 'idle') throw new Error('Wait for this reply, or stop it before compacting.');
     const folder = workspacePath(chat.workspace);
@@ -756,7 +802,7 @@ class Controller extends EventEmitter {
     operation.timer.unref?.();
     this.changed(true);
     try {
-      const modelChanged = chat.model !== settings.model;
+      const modelChanged = chat.model !== selectedModel;
       if (modelChanged && this.resumed.has(chat.threadId)) {
         // A subscribed session ignores resume overrides. Reload the same
         // persisted history with the new model before requesting its summary.
@@ -766,10 +812,10 @@ class Controller extends EventEmitter {
         this.threadInstructionSettings.delete(chat.threadId);
       }
       if (this.manualCompactions.get(chat.id) !== operation || this.closing) return { chatId: chat.id };
-      await this.resumeThread(chat, this.threadOptions({ ...chat, model: settings.model, effort: settings.effort || 'low' }, folder));
+      await this.resumeThread(chat, this.threadOptions({ ...chat, model: selectedModel, effort: settings.effort || 'low' }, folder));
       if (this.manualCompactions.get(chat.id) !== operation || this.closing) return { chatId: chat.id };
       if (operation.cancelReason) { this.finish(chat, operation.cancelReason); return { chatId: chat.id }; }
-      chat.model = settings.model;
+      chat.model = selectedModel;
       chat.effort = settings.effort || 'low';
       this.persistNow();
       operation.phase = 'starting';
@@ -872,7 +918,7 @@ class Controller extends EventEmitter {
         ...(this.store.data.settings.connection === 'local' ? {} : { outputSchema: schema }),
         sandboxPolicy: { type: 'workspaceWrite', writableRoots: [folder], networkAccess: network,
           excludeSlashTmp: true, excludeTmpdirEnvVar: true },
-      }, 60000);
+      }, config.connection === 'local' ? LOCAL_TURN_START_TIMEOUT_MS : 60000);
       if (chat.status !== 'idle') this.turns.set(chat.id, result.turn.id);
       if (chat.cancelReason && chat.status !== 'idle') await this.stopHeartbeat(chat.cancelReason);
       const outcome = await completion;
@@ -1412,18 +1458,67 @@ class Controller extends EventEmitter {
   crashed(error) {
     if (this.closing) return;
     this.onError('engine-crash', error);
-    this.runtime = { status: 'error', error: cleanError(error) };
+    const stopped = 'The assistant engine stopped during this turn. Your saved message is safe; Little Bot is reconnecting.';
+    this.runtime = { status: 'starting', error: cleanError(error) };
+    this.resumed.clear();
+    this.threadCompactionSettings.clear();
+    this.threadInstructionSettings.clear();
     if (this.memoryConsolidator?.active) this.memoryConsolidator.finish(this.memoryConsolidator.active, null, 'The assistant engine stopped during memory maintenance.');
     this.independentCheck.abort('failed', 'Independent Check stopped because the assistant engine stopped. The completed draft was kept.');
-    this.goalExecutor.abort('The assistant engine stopped. Reopen Little Bot to reconnect.');
-    for (const chat of this.store.data.chats) if (chat.status !== 'idle') this.finish(chat, 'The assistant engine stopped. Reopen Little Bot to reconnect.');
-    if (this.heartbeatChat) this.finish(this.heartbeatChat, 'The assistant engine stopped. Reopen Little Bot to reconnect.');
+    this.goalExecutor.abort('The assistant engine stopped during this goal step. Review the saved result before resuming.');
+    for (const chat of this.store.data.chats) if (chat.status !== 'idle') this.finish(chat, stopped);
+    if (this.heartbeatChat) this.finish(this.heartbeatChat, 'The assistant engine stopped during the heartbeat check. Little Bot is reconnecting.');
     this.persistNow();
     this.changed();
+    this.scheduleEngineRestart();
+  }
+  scheduleEngineRestart() {
+    if (this.closing || this.engineRestartTimer || this.engineRestartPromise) return;
+    const delay = Math.min(1000 * (2 ** Math.min(this.engineRestartAttempt, 5)), 30000);
+    this.engineRestartAttempt++;
+    this.engineRestartTimer = setTimeout(() => {
+      this.engineRestartTimer = null;
+      void this.restartEngine();
+    }, delay);
+    this.engineRestartTimer.unref?.();
+  }
+  async restartEngine() {
+    if (this.closing || this.engineRestartPromise) return;
+    let retry = false;
+    const operation = (async () => {
+      try {
+        const result = await this.client.restart();
+        if (result === false || this.closing) return;
+        if (this.client.ready === false) throw new Error('The assistant engine stopped while reconnecting.');
+        await this.refreshConnection().catch(error => this.onError('engine-restart-connection', error));
+        if (this.closing) return;
+        this.runtime = { status: 'ready' };
+        this.resolveEngineReady();
+        clearTimeout(this.engineStableTimer);
+        this.engineStableTimer = setTimeout(() => { this.engineRestartAttempt = 0; }, 60000);
+        this.engineStableTimer.unref?.();
+        this.changed();
+      } catch (restartError) {
+        if (this.closing) return;
+        this.onError('engine-restart', restartError);
+        this.runtime = { status: 'starting', error: cleanError(restartError) };
+        this.changed();
+        retry = true;
+      }
+    })();
+    this.engineRestartPromise = operation;
+    try { await operation; }
+    finally {
+      if (this.engineRestartPromise === operation) this.engineRestartPromise = null;
+      if (retry) this.scheduleEngineRestart();
+    }
   }
   async close() {
     if (this.closing) return;
     this.closing = true;
+    clearTimeout(this.engineRestartTimer); this.engineRestartTimer = null;
+    clearTimeout(this.engineStableTimer); this.engineStableTimer = null;
+    this.resolveEngineReady();
     this.appManagement?.close();
     await this.memoryConsolidator?.close();
     await this.chatGoal.close();

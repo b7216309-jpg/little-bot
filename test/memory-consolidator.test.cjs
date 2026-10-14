@@ -78,6 +78,22 @@ test('interrupt RPC acknowledgement alone cannot release the execution lane', as
   assert.equal(c.memoryBusy, false);
 });
 
+test('a memory job that will not stop restarts the engine before the user turn continues', async t => {
+  const { worker, c } = fixture(t);
+  worker.stopTimeoutMs = 5;
+  await worker.tick();
+  c.client.request = async method => method === 'turn/interrupt' ? {} : {};
+  c.client.close = async () => {};
+  c.crashed = error => {
+    c.crashError = error;
+    worker.finish(worker.active, null, 'Engine restarted before user work.');
+  };
+  await worker.pauseForUser();
+  assert.match(c.crashError.message, /did not stop memory maintenance/);
+  assert.equal(c.memoryBusy, false);
+  assert.equal(worker.active, null);
+});
+
 test('memory tools immediately save, correct, recall and forget across model connections', async t => {
   const { c, chat, service } = fixture(t);
   const tools = new AgentTools({ store: c.store });
