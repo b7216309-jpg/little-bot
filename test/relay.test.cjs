@@ -479,6 +479,45 @@ test('the Strata adapter turns Qwen text calls into JSON tool events and repairs
   assert.deepEqual(JSON.parse(barewordCall.arguments), { q: 'hi' });
 });
 
+test('the Strata adapter repairs missing patch tools and returns unknown-tool errors through exec_command', async () => {
+  const tools = new Map([['exec_command', { type: 'function' }], ['write_stdin', { type: 'function' }]]);
+  const patch = '*** Begin Patch\n*** Update File: math.js\n@@\n-const value = 1;\n+const value = 2;\n*** End Patch';
+  const shapes = [
+    ['apply_patch', { input: patch }],
+    ['applypatch', { patch }],
+    ['apply-patch', patch],
+    ['apply_patch', { cmd: `apply_patch <<'EOF'\n${patch}\nEOF` }],
+    ['apply_patch', { command: `apply_patch <<'EOF'\n${patch}\nEOF` }],
+    ['apply_patch', { command: ['apply_patch', patch] }],
+    ['apply_patch', { cmd: ['apply_patch', patch] }],
+    ['exec_command', { cmd: ['apply_patch', patch] }],
+  ];
+  for (const [name, args] of shapes) {
+    const rawArguments = JSON.stringify(args);
+    const { events } = await collectAdapter([chatChunk({ tool_calls: [{ index: 0, id: 'call-patch', function: { name, arguments: rawArguments } }] }, 'tool_calls')], { toolKinds: tools });
+    const call = events.find(event => event.type === 'response.completed')?.response.output.find(item => item.type === 'function_call');
+    assert.equal(call?.name, 'exec_command', name);
+    assert.match(JSON.parse(call.arguments).cmd, /apply_patch <<'LITTLE_BOT_PATCH'/, name);
+    assert.ok(JSON.parse(call.arguments).cmd.includes(patch), name);
+  }
+
+  const unknown = await collectAdapter([chatChunk({ tool_calls: [{ index: 0, id: 'call-unknown', function: { name: 'missing_tool', arguments: '{"value":1}' } }] }, 'tool_calls')], { toolKinds: tools });
+  const feedback = unknown.events.find(event => event.type === 'response.completed')?.response.output.find(item => item.type === 'function_call');
+  assert.equal(feedback?.name, 'exec_command');
+  assert.match(JSON.parse(feedback.arguments).cmd, /Unknown tool "missing_tool"/);
+  assert.match(JSON.parse(feedback.arguments).cmd, /Valid tools: exec_command, write_stdin/);
+
+  const rawArguments = '{ "cmd": "Write-Output ok", "yield_time_ms": 1000 }';
+  const valid = await collectAdapter([chatChunk({ tool_calls: [{ index: 0, id: 'call-valid', function: { name: 'exec_command', arguments: rawArguments } }] }, 'tool_calls')], { toolKinds: tools });
+  const unchanged = valid.events.find(event => event.type === 'response.completed')?.response.output.find(item => item.type === 'function_call');
+  assert.equal(unchanged.arguments, rawArguments);
+
+  const tagged = await collectAdapter([chatChunk({ content: `<tool_call>{"name":"apply-patch","arguments":{"input":"${patch.replace(/\n/g, '\\n')}"}}</tool_call>` }, 'stop')], { toolKinds: tools });
+  const taggedCall = tagged.events.find(event => event.type === 'response.completed')?.response.output.find(item => item.type === 'function_call');
+  assert.equal(taggedCall?.name, 'exec_command');
+  assert.ok(JSON.parse(taggedCall.arguments).cmd.includes(patch));
+});
+
 test('the Strata adapter removes think tags, fails empty and truncated tool completions, and trims loops', async () => {
   const tools = new Map([['lookup', { type: 'function' }]]);
   const thought = await collectAdapter([chatChunk({ content: '<think>private thought</think><reasoning>hidden reasoning</reasoning>Answer.' }, 'stop')], { toolKinds: tools });
