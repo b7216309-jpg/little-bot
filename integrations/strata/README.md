@@ -1,19 +1,24 @@
 # Strata conversation cache for Little Bot
 
-Little Bot sends standard Chat Completions requests with complete histories. Strata automatically matches compatible token/image prefixes; no custom `strata_cache_slot` is sent. Official releases since 0.1.30 support RAM parking. The local **0.1.33** engine adds SSD storage through [ssd-conversation-cache-0.1.33.patch](ssd-conversation-cache-0.1.33.patch), built on the release's shared snapshot code. The old PR #175 slot protocol remains retired.
+Little Bot sends standard Chat Completions requests with complete histories. Strata automatically matches compatible token/image prefixes; no custom `strata_cache_slot` is sent. Official releases since 0.1.30 support RAM parking. The local **0.1.44.1** engine adds SSD storage through [ssd-conversation-cache-0.1.44.1.patch](ssd-conversation-cache-0.1.44.1.patch), built on the release's shared snapshot code; [the 0.1.33 patch](ssd-conversation-cache-0.1.33.patch) is the original. The old PR #175 slot protocol remains retired.
+
+Strata 0.1.40 and later answer `tool_choice: "none"` by leaving the tools out of the prompt. Little Bot 0.27.1 and later no longer send it, so compaction keeps its cached prefix; earlier versions lose it on these engines.
 
 ## Current local configuration
 
-The normal `C:\Strata\Strata-main\run-iq2_xs.bat` keeps 262,144 context tokens, int8 KV with a 32,768-token resident window, MTP, vision and the experimental speed projection at strength 1.0. Its config includes:
+The normal `C:\Strata\Strata-main\run-iq3_s.bat` keeps 262,144 context tokens, int8 KV with a 32,768-token resident window, MTP, vision and the experimental speed projection at strength 1.0. Its config includes:
 
 ```json
 "--conversation-cache-storage", "ssd",
 "--conversation-cache-mib", "16384",
 "--conversation-cache-slots", "8",
-"--conversation-cache-min-free-mib", "1024"
+"--conversation-cache-min-free-mib", "512",
+"--conversation-cache-min-tokens", "12000"
 ```
 
-In SSD mode this is a 16 GiB snapshot-storage ceiling, up to eight parked histories and a 1 GiB free physical RAM floor. It does not reserve 16 GiB at startup or guarantee eight long conversations fit. Before saving, the engine checks free disk space and evicts older parked snapshots as needed, leaving a 512 MiB disk floor. If the snapshot still cannot fit, it skips parking. Other applications can consume disk space concurrently; write failures also fall back to a normal prompt read.
+In SSD mode this is a 16 GiB snapshot-storage ceiling, up to eight parked histories and a 512 MiB free physical RAM floor. `--conversation-cache-min-tokens` (Strata 0.1.42+) parks only conversations of at least 12,000 tokens. Little Bot's heartbeats, goal steps and memory passes (about 2,000 to 11,000 tokens, never resumed) then stop taking slots from the long conversation. Without it, eight of them evict the chat, and the next message reads the whole chat again: 25 s for 44,000 tokens on this PC instead of 0.6 s.
+
+Every parked conversation keeps dozens of temporary files open, and the Windows C runtime allows 512 open streams by default. The 0.1.33 and 0.1.39 builds therefore failed to park ("SSD cache: file stream failed") once about seven conversations were parked, and nothing parked again until a restart. Any background request then evicted the chat. The 0.1.44.1 patch raises the limit to 8,192 with `_setmaxstdio`. It does not reserve 16 GiB at startup or guarantee eight long conversations fit. Before saving, the engine checks free disk space and evicts older parked snapshots as needed, leaving a 512 MiB disk floor. If the snapshot still cannot fit, it skips parking. Other applications can consume disk space concurrently; write failures also fall back to a normal prompt read.
 
 Inactive K/V, GDN/PLE/index state and prefix checkpoints go into private delete-on-close files under Windows `%TEMP%`, on this machine's C: NVMe SSD. Matching metadata stays in RAM. Transfers use 1 MiB chunks; each checkpoint is copied and offloaded separately. File size and chunk checksums are checked before a GPU restore. A failed capture keeps the active state and falls back to ordinary processing. A transfer failure during restore ends that engine session instead of generating from partial state.
 
@@ -23,18 +28,18 @@ Omitting `--conversation-cache-storage` or setting it to `ram` keeps the officia
 
 ## Rebuild and update
 
-This is a local addition, not a feature of the official 0.1.33 executable. Keep the patch and config when updating Strata. Back up the engine, source and run config first. Use matching tagged source/server files, preserve models, tokenizer, MTP, vision, the Python environment and control-vector settings, and rebuild the SSD addition against the new source. An official prebuilt replacement cannot accept the SSD argument until rebuilt. `START-HERE.bat --setup` may rewrite configuration.
+This is a local addition, not a feature of the official executable. Keep the patch and config when updating Strata. Back up the engine, source and run config first. Use matching tagged source/server files, preserve models, tokenizer, MTP, vision, the Python environment and control-vector settings, and rebuild the SSD addition against the new source. An official prebuilt replacement cannot accept the SSD argument until rebuilt. `START-HERE.bat --setup` may rewrite configuration.
 
-For the tested base, use a clean **v0.1.33** source checkout and an MSVC developer shell with CUDA, CMake and Ninja:
+For the tested base, use a clean **v0.1.44.1** source tree and an MSVC developer shell with CUDA, CMake and Ninja:
 
 ```powershell
-git apply --check C:\path\to\ssd-conversation-cache-0.1.33.patch
-git apply C:\path\to\ssd-conversation-cache-0.1.33.patch
+git apply --check C:\path\to\ssd-conversation-cache-0.1.44.1.patch
+git apply C:\path\to\ssd-conversation-cache-0.1.44.1.patch
 cmake -S . -B ssd-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSTRATA_ENABLE_CUDA=ON -DSTRATA_BUILD_TESTS=OFF -DSTRATA_BUILD_CONVERSATION_TESTS=ON -DCMAKE_CUDA_ARCHITECTURES=89
-cmake --build ssd-build --target strata conversation_cache_test conversation_snapshot_test conversation_validation_test conversation_memory_test --parallel 4
+cmake --build ssd-build --target conversation_cache_test conversation_memory_test conversation_split_failure_test strata --parallel 3
 ```
 
-Architecture 89 is for this RTX 4070 Ti; use your GPU's architecture. This build used CUDA 13.3 and was tested with the existing cu13 runtime libraries; the official vision executable remains unchanged. Stop Strata before replacing its executable. Update `engine/BUILD.json` to describe the local build rather than the old release binary. Source and build work are preserved under `C:\Strata\ssd-v0.1.33`; the pre-install rollback copy is `C:\Strata\backups\before-ssd-0.1.33`.
+Architecture 89 is for this RTX 4070 Ti; use your GPU's architecture. This build used CUDA 13.3 and the existing cu13 runtime libraries, with the official 0.1.44.1 vision executable. With about 45 GB of RAM held by the running engine, three parallel jobs built it and its tests in about seven minutes. Stop Strata before replacing its executable, and describe the local build in `engine/BUILD.json`. The 0.1.44.1 source, build and patch are under `C:\Strata\update-v0.1.44.1`; the 0.1.39 install is kept whole as `C:\Strata\Strata-main-0.1.39`.
 
 ## Verification
 

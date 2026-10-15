@@ -310,7 +310,8 @@ class LocalModelRelay {
         strataTools = translated.toolKinds;
         // Qwen's template renders the tool block at the very top of the prompt. A tool-less follow-up in the
         // same conversation (the engine's compaction request) would lose Strata's whole cache without it
-        // (live: 0 of 55k tokens reused, 49 s, versus 99.8% and 13 s). Keep the block and forbid calls.
+        // (live: 0 of 55k tokens reused, 49 s, versus 99.8% and 13 s). Keep the block and drop any call here:
+        // Strata 0.1.40+ answers tool_choice "none" by leaving the tools out, which changes the prompt again.
         if (Array.isArray(body.tools) && body.tools.length) {
           this.toolBlocks.push({ count: body.messages.length, hash: messagesHash(body.messages), tools: body.tools });
           if (this.toolBlocks.length > 16) this.toolBlocks.shift();
@@ -318,7 +319,7 @@ class LocalModelRelay {
           // Only a request that extends a recent tool request byte for byte: the same conversation, continued.
           const extended = [...this.toolBlocks].reverse().find(block => block.count <= body.messages.length
             && messagesHash(body.messages.slice(0, block.count)) === block.hash);
-          if (extended) { body.tools = extended.tools; body.tool_choice = 'none'; noToolCalls = true; }
+          if (extended) { body.tools = extended.tools; noToolCalls = true; }
         }
         upstreamPath = 'chat/completions';
       } else if (match[3] === 'responses') {

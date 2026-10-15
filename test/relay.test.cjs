@@ -465,7 +465,7 @@ test('a tool-less follow-up keeps the conversation tool block so Strata reuses i
   const { tools, ...toolless } = localRequest([...input, responseInput('Summarize for a handoff.')]);
   await post(toolless);
   assert.deepEqual(bodies[1].tools, bodies[0].tools);
-  assert.equal(bodies[1].tool_choice, 'none');
+  assert.equal(bodies[1].tool_choice, undefined, 'Strata 0.1.40+ drops the tools for "none"');
   const { tools: unused, ...unrelated } = localRequest([responseInput('another conversation')]);
   await post(unrelated);
   assert.equal(bodies[2].tools, undefined, 'only the same conversation gets the block back');

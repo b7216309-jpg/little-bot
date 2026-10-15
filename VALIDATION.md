@@ -1,3 +1,16 @@
+# Version 0.27.1 verification
+
+0.27.1 keeps compaction cached on Strata 0.1.40 and later. The Strata integration now covers 0.1.44.1 with an SSD cache that keeps working.
+
+- **Compaction cache on newer Strata.** Strata 0.1.40 and later answer `tool_choice: "none"` by leaving the tools out of the prompt (`serve/server.py`). Qwen renders the tools at the top, so the compaction request no longer matched the conversation's cached prefix. The relay keeps the tool block, sends no `tool_choice` and drops any call itself, which is what 0.1.39 effectively did by ignoring `tool_choice`. Live on 0.1.44.1: compaction reused 59,579 of 59,681 tokens and took 16.9 s, and both planted facts were recalled.
+- **Strata 0.1.44.1 with a working SSD cache** ([integrations/strata](integrations/strata/README.md)):
+  - **The bug:** the local SSD parking patch opened every parked file as a C runtime stream, and Windows allows 512 by default. Once about seven conversations were parked, parking failed with "SSD cache: file stream failed" until a restart, and any background request then evicted the chat.
+  - **Its cost, measured on 0.1.39:** after one background job, the next message re-read a 44,000-token chat in 25.4 s instead of 0.65 s.
+  - **The fix:** the patch is ported to 0.1.44.1 with `_setmaxstdio(8192)`. The config adds `--conversation-cache-min-tokens 12000`, so Little Bot's short background requests stop taking slots.
+  - **On 0.1.44.1:** the chat survived eight background jobs; it was restored in 0.24 s and the next message took 0.63 s. Ten 29,000-token conversations parked with oldest-first eviction and no failures, and returning to a parked one took 0.7 to 1.2 s instead of 16 s. The conversation cache test (4,241 checks) includes holding 600 temporary files open at once.
+
+Live evaluation on Strata 0.1.44.1 (qwen3.8-flash-next-iq3_s): compaction, read, bug, quick, memory, goal, tools-calendar and long-paste all passed (8/8). Node tests (124), both Electron tests and validate-docs pass.
+
 # Version 0.27.0 verification
 
 0.27.0 adds night shift and fixes two goal problems that its live checks exposed.
