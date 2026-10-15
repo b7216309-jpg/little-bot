@@ -318,7 +318,10 @@ class GoalExecutor {
       operation.turnId = params.turn?.id;
       if (operation.cancelReason || operation.questionAcknowledged || operation.completionAcknowledged) this.interrupt(operation).catch(() => {});
     } else if (method === 'thread/tokenUsage/updated') {
-      const tokens = params.tokenUsage?.total?.totalTokens;
+      const total = params.tokenUsage?.total;
+      // A local model rereads its cached prompt at no cost: there only new prompt tokens and output count against the budget.
+      const cached = operation.goal.connection === 'local' && Number.isSafeInteger(total?.cachedInputTokens) ? total.cachedInputTokens : 0;
+      const tokens = total?.totalTokens - cached;
       if (Number.isSafeInteger(tokens) && tokens >= 0) operation.tokens = Math.max(operation.tokens, tokens);
       operation.tokenDetails ||= {};
       for (const key of ['inputTokens', 'outputTokens']) {

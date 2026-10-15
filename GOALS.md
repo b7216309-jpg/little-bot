@@ -44,7 +44,7 @@ The optional **Night shift** setting (off by default in Heartbeat) can chain use
 
 ## Access, budgets and history
 
-Existing saved access and budget controls remain. Goals can read/write selected workspace paths, use terminal and network when enabled, and call individually granted MCP tools. Goal model threads remain internal bounded execution threads; the public conversation and evidence are shared, without injecting the entire audit history into each model request.
+Existing saved access and budget controls remain. On a local model the token budget counts new prompt tokens and output; rereading the cached prompt is free and does not count. Goals can read/write selected workspace paths, use terminal and network when enabled, and call individually granted MCP tools. A writable folder that does not exist yet, such as `reports/`, is created inside the working folder before the first step. Goal model threads remain internal bounded execution threads; the public conversation and evidence are shared, without injecting the entire audit history into each model request.
 
 Input + output limits count cumulative reported usage across model requests. Cards and history show generated tokens separately when available. Each activation is bounded by token, action, time and model-run limits. An ongoing review resets its activation usage after a valid result; failure preserves usage. A request already in flight can exceed the last displayed limit before cancellation settles.
 

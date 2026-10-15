@@ -171,7 +171,15 @@ async function retainLatestSnapshots(backupRoot, goalId, currentRunId) {
   return retired;
 }
 
+// A writable folder the goal is meant to fill (reports/, notes/) may not exist before its first step.
+async function ensureWriteRoots(goal) {
+  if (!goal.permissions?.write) return;
+  const root = await workspaceRoot(goal);
+  for (const relative of goal.permissions.writePaths || []) await fs.mkdir(await checkedPath(root, relative, { missing: true }), { recursive: true });
+}
+
 async function createSnapshot(goal, backupRoot, runId) {
+  await ensureWriteRoots(goal);
   const roots = await resolveWriteRoots(goal);
   if (!roots.length) return null;
   const captured = await scan(goal, roots, { contents: true });

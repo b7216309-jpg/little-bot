@@ -31,7 +31,7 @@ function normalizeSession(value) {
   return { id: clean(value.id, 128) || randomUUID(), startedAt: number(value.startedAt), workedMs: Math.min(DAY * 365, number(value.workedMs)),
     results, goalIds: ids(value.goalIds), intentionIds: ids(value.intentionIds), followupIds: ids(value.followupIds),
     attemptedChats: ids(value.attemptedChats), attemptedEvents: ids(value.attemptedEvents), chainGoalId: clean(value.chainGoalId, 128), currentGoalId: clean(value.currentGoalId, 128),
-    failedGoalId: clean(value.failedGoalId, 128), failedTaskIds: ids(value.failedTaskIds), taskSteps: Math.min(10000, Math.floor(number(value.taskSteps))),
+    failedGoalId: clean(value.failedGoalId, 128), failedTaskIds: ids(value.failedTaskIds), deliveredGoalIds: ids(value.deliveredGoalIds), taskSteps: Math.min(10000, Math.floor(number(value.taskSteps))),
     processedGoalRuns: object(value.processedGoalRuns) ? Object.fromEntries(Object.entries(value.processedGoalRuns).filter(([id, count]) => typeof id === 'string' && Number.isInteger(count) && count >= 0).slice(-50)) : {} };
 }
 
@@ -92,13 +92,13 @@ class NightShift {
     this.lastIdle = idle;
     if (previous !== null && idle < previous) {
       this.sawActivity = true;
-      if (this.away || this.session) void this.ownerReturned('input');
+      if (this.away || this.session) this.background(this.ownerReturned('input'));
       return;
     }
     if (idle < AWAY_MS / 1000) { this.sawActivity = true; return; }
     if (this.sawActivity && !this.away && !this.locked) void this.ownerAway('idle');
     else if (this.away && !this.active && this.canStart()) this.begin('idle');
-    else if (this.away && this.now() - this.lastPumpAt >= 15000) void this.pump();
+    else if (this.away && this.now() - this.lastPumpAt >= 15000) this.background(this.pump());
     if (this.active && this.segmentAt && this.now() - this.lastStatusUpdate >= MINUTE) {
       const now = this.now(); this.session.workedMs += now - this.segmentAt; this.segmentAt = now; this.lastStatusUpdate = now;
       this.save(); this.changed();
@@ -143,7 +143,7 @@ class NightShift {
 
   setLocked(locked) {
     if (locked) { this.locked = true; this.ownerAway('lock'); }
-    else { this.locked = false; void this.ownerReturned('unlock'); }
+    else { this.locked = false; this.background(this.ownerReturned('unlock')); }
   }
 
   async setEnabled(enabled) {
@@ -157,7 +157,7 @@ class NightShift {
   begin() {
     if (this.active || !this.away || this.closing || !this.canStart()) return false;
     const now = this.now();
-    if (!this.session) this.data.session = { id: randomUUID(), startedAt: now, workedMs: 0, results: [], goalIds: [], intentionIds: [], followupIds: [], attemptedChats: [], attemptedEvents: [], chainGoalId: '', currentGoalId: '', failedGoalId: '', failedTaskIds: [], taskSteps: 0, processedGoalRuns: {} };
+    this.ensureSession(now);
     const session = this.session;
     session.attemptedChats = []; session.attemptedEvents = []; session.failedGoalId = ''; session.failedTaskIds = [];
     for (const goal of this.store.data.autonomy.goals) session.processedGoalRuns[goal.id] ??= runCount(goal);
@@ -165,7 +165,7 @@ class NightShift {
     this.lastPumpAt = now;
     this.refreshSignals(now);
     this.save(); this.changed();
-    void this.pump();
+    this.background(this.pump());
     return true;
   }
 
@@ -205,7 +205,8 @@ class NightShift {
       const index = messages.indexOf(message), nextUser = messages.findIndex((item, at) => at > index && item.role === 'user' && !item.kind);
       const reply = messages.slice(index + 1, nextUser < 0 ? messages.length : nextUser).filter(item => item.role === 'assistant' && !item.kind).map(item => item.text).join('\n');
       if (resolved.test(reply)) return null;
-      return { type: 'task', source: 'chat', id: message.id, title: `Follow-up: ${message.text.slice(0, 90)}`,
+      const request = message.text.trim().replace(/\s+/g, ' ');
+      return { type: 'task', source: 'chat', id: message.id, title: `Your request “${request.length > 60 ? `${request.slice(0, 60).replace(/\s+\S*$/, '')}…` : request}”`,
         text: `The owner explicitly assigned this in chat and said it could wait. Do one bounded, useful step on only this request.\n\nOriginal request: ${message.text.slice(0, 3000)}\n\nUse local workspace context only. Do not invent adjacent work, use the network, contact anyone, access credentials, or change unrelated files. If it is already complete or no useful step is clear, stay quiet. If the owner must decide something, return one concise question.` };
     }).filter(Boolean);
   }
@@ -285,11 +286,13 @@ class NightShift {
 
   async runGoal(goal, generation) {
     if (!this.canContinue(generation) || !this.goals.awake(goal, this.now())) return false;
-    this.goals.runNow(goal.id);
+    // A step that needs no model call can finish between two polls; a new history entry marks it done.
+    const last = goal.history.at(-1);
+    if (!this.goals.runEarly(goal.id)) return false;
     while (generation === this.generation && this.active) {
       if (this.goals.activeId === goal.id && this.goals.execution) { await this.goals.execution; return true; }
       if (this.goals.activeId && this.goals.activeId !== goal.id && this.goals.execution) await this.goals.execution;
-      else if (goal.status !== 'queued') return true;
+      else if (goal.status !== 'queued' || goal.history.at(-1) !== last) return true;
       await new Promise(resolve => setTimeout(resolve, 50));
     }
     return false;
@@ -358,18 +361,36 @@ class NightShift {
     this.save();
   }
 
+  ensureSession(now = this.now()) {
+    this.data.session ||= { id: randomUUID(), startedAt: now, workedMs: 0, results: [], goalIds: [], intentionIds: [], followupIds: [], attemptedChats: [], attemptedEvents: [], chainGoalId: '', currentGoalId: '', failedGoalId: '', failedTaskIds: [], deliveredGoalIds: [], taskSteps: 0, processedGoalRuns: {} };
+    return this.data.session;
+  }
+
+  // From the moment the owner is away, goal posts wait for the return summary, even a step that began before night shift did.
+  holding() { return this.active || this.yielding || (this.away && this.enabled() && this.store.data.settings.connection === 'local'); }
+
   deferGoalDelivery(goal, _data, details = {}) {
-    if (!this.session || !(this.active || this.yielding)) return undefined;
+    if (!this.holding()) return undefined;
+    const session = this.ensureSession();
+    // An empty message means nothing is for the owner; it still settles this goal's line.
+    session.deliveredGoalIds = ids([...session.deliveredGoalIds, goal.id]);
     const text = details.summary || details.question?.question;
     if (text) this.refreshGoalResult(goal.id, text, Boolean(details.question));
     return null;
   }
 
+  // Goal alerts carry the work log and would notify while the owner is away. They are held, and only reach the
+  // summary for a blocked goal or a goal that sent no message of its own.
   captureGoalAlert(item) {
-    if (!this.session || !(this.active || this.yielding) || !item?.goalId) return false;
-    this.refreshGoalResult(item.goalId, item.message, false);
+    if (!this.holding() || !item?.goalId) return false;
+    const session = this.ensureSession();
+    const goal = this.store.data.autonomy.goals.find(entry => entry.id === item.goalId);
+    if (goal?.status === 'blocked' || !session.deliveredGoalIds.includes(item.goalId)) this.refreshGoalResult(item.goalId, item.message, false);
     return true;
   }
+
+  // Timer-driven work has no caller to report to; an error goes to the app log instead of an unhandled rejection.
+  background(promise) { promise.catch(error => this.controller.onError?.('night-shift', error)); }
 
   save() { this.store.save(); }
   changed() { this.onChange(); }
@@ -379,12 +400,16 @@ class NightShift {
     if (!session) return '';
     const lines = ['While you were away'];
     const resultLines = [];
-    for (const item of session.results) {
+    const label = item => item.type === 'goal' ? `Goal · ${this.store.data.autonomy.goals.find(entry => entry.id === item.goalId)?.name || item.title}` : item.title;
+    // A result that needs the owner is listed once, under "Needs you".
+    for (const item of session.results.filter(entry => !entry.needsOwner)) {
       const goal = item.goalId && this.store.data.autonomy.goals.find(entry => entry.id === item.goalId);
-      const title = item.type === 'goal' ? `Goal · ${goal?.name || item.title}` : item.title;
+      const title = label(item);
+      // A run's snapshot keeps only a count of changed paths; the paths themselves are in its actions.
       const paths = (goal?.history || []).filter(entry => entry.kind === 'run' && entry.at >= session.startedAt)
-        .flatMap(entry => [...(entry.actions || []), ...(entry.snapshot?.changes || []).map(change => typeof change === 'string' ? change : change.path)]).filter(Boolean);
-      const files = [...new Set([...paths, ...item.actions])].filter(text => /(?:Files \(completed\):|[\\/]|\.md\b|\.txt\b|\.json\b)/i.test(text)).slice(-4);
+        .flatMap(entry => entry.actions || []).filter(Boolean);
+      // Only written paths; reads and shell commands stay in the goal card's log.
+      const files = [...new Set([...paths, ...item.actions].flatMap(text => /^(?:Files \(completed\)|workspace_write):\s*(.+)$/i.exec(text)?.[1].split(', ') || []))].slice(-4);
       resultLines.push(`- ${title}: ${item.summary}${files.length ? `\n  Files: ${files.join(', ')}` : ''}`);
     }
     if (resultLines.length) lines.push('', 'Done', ...resultLines);
@@ -392,19 +417,15 @@ class NightShift {
     const intentions = session.intentionIds.map(id => this.store.data.companion.intentions.find(item => item.id === id))
       .filter(item => item?.status === 'active' && item.expiresAt > now && item.fires < 3);
     const followups = session.followupIds.map(id => (this.store.data.heartbeat.followups || []).find(item => item.id === id)).filter(Boolean);
-    const questions = session.results.filter(item => item.needsOwner).map(item => `${item.title}: ${item.summary}`);
+    const questions = session.results.filter(item => item.needsOwner).map(item => `${label(item)}: ${item.summary}`);
     if (intentions.length || followups.length || questions.length) {
       lines.push('', 'Needs you');
       for (const item of intentions) lines.push(`- ${item.text}`);
       for (const item of followups) lines.push(`- Follow-up: ${item.note}`);
       for (const question of questions) lines.push(`- ${question}`);
     }
-    const next = [...session.goalIds, session.currentGoalId].map(id => this.store.data.autonomy.goals.find(goal => goal.id === id))
-      .filter(goal => goal && goal.status === 'queued' && goal.nextStep && !goal.pendingQuestion)
-      .map(goal => `${goal.name}: ${goal.nextStep}`);
-    const nextItems = [...new Set(next)].slice(0, 4);
-    if (nextItems.length) lines.push('', 'Next', ...nextItems.map(item => `- ${item}`));
-    return resultLines.length || intentions.length || followups.length || nextItems.length
+    // Goal next steps are the goal's own plan; they stay on its card, out of the message.
+    return resultLines.length || intentions.length || followups.length
       ? lines.join('\n').slice(0, 12000) : '';
   }
 

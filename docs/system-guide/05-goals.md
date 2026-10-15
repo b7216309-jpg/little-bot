@@ -4,7 +4,7 @@
 
 [GoalRunner](../../src/goals.cjs) owns saved goals, status, triggers, dependencies, budgets and recovery. [goal-contract.cjs](../../src/goal-contract.cjs) defines the v2 task/ongoing contract and evidence collection. [GoalExecutor](../../src/goal-executor.cjs) runs the model step and mediates goal tools. See [GOALS.md](../../GOALS.md) for user controls and [the design record](../GOALS-V2-DESIGN.md) for rationale.
 
-A goal names an objective, workspace, saved model binding, sources, review policy, checks, tool permissions and token/time/action/run/retry budgets. Drafts do not run. User Run authorizes a goal; tool-created drafts cannot silently enlarge permissions or budgets. Only one goal step executes at a time, sharing the lane with chat, memory, heartbeat and answer checks.
+A goal names an objective, workspace, saved model binding, sources, review policy, checks, tool permissions and token/time/action/run/retry budgets. On a local connection the token budget excludes cached prompt tokens, which Strata rereads at no cost. Drafts do not run. User Run authorizes a goal; tool-created drafts cannot silently enlarge permissions or budgets. Only one goal step executes at a time, sharing the lane with chat, memory, heartbeat and answer checks.
 
 Task goals aim at a finite result. Their completion checks are evaluated by the host, and v2 execution must provide observable evidence. An ongoing goal performs bounded reviews and stays available for later reviews; it does not become completed merely because one cycle finishes. Ongoing goals cannot be completion dependencies for other tasks.
 

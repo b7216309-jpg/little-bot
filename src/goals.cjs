@@ -261,6 +261,14 @@ class GoalRunner {
     if (this.activeId) { this.stopReason = 'All goals are paused.'; await this.stopRun?.(this.stopReason); await this.execution; }
     return this.data;
   }
+  // Night shift starts a step now that its schedule would allow later. Unlike the owner's Run, it keeps scheduled
+  // semantics: no fresh-run override, no "Queued by you", and an unchanged review still costs no model call.
+  runEarly(id) {
+    const goal = this.goal(id);
+    if (goal.status !== 'queued' || !goal.authorized || goal.pendingQuestion || id === this.activeId) return null;
+    if (!(goal.nextRunAt <= Date.now())) goal.nextRunAt = Date.now();
+    this.changed(); this.wake(); return goal;
+  }
   async yieldForNightShift(reason = 'Night shift yielded because the owner returned.') {
     const id = this.activeId;
     if (!id) return { ok: true };

@@ -1,3 +1,27 @@
+# Version 0.27.0 verification
+
+0.27.0 adds night shift and fixes two goal problems that its live checks exposed.
+
+- **Night shift** (opt-in, off by default, in the Heartbeat panel). While the owner is away (ten minutes without input, or a locked screen), the local model works on what they already asked for: due goals, with useful steps chained back to back, calendar events in the next day, and requests addressed to Little Bot with a waiting cue ("could you … later"). It never starts at app startup and never runs on Codex. It posts nothing while the owner is away and sends one "While you were away" message on return. Returning cancels the in-flight request.
+- **Found by live runs on the local Qwen** (the deterministic acceptance checks use fakes), all fixed before release:
+  - The return message crashed whenever a goal step had changed a file. It read the snapshot's change count as a list, so the message was never delivered. Errors from night shift's timer now go to the app log instead of an unhandled rejection.
+  - A goal step that started just before night shift posted its message into the chat while the owner was away. Goal posts are now held from the moment the owner is away.
+  - The message carried goal work logs ("…(n1); No write permission in this run…") because the runner's log alert overwrote the goal's message to the owner. Each goal now contributes its own message; an alert only counts for a blocked goal or one that sent nothing. Questions appear once, under "Needs you". Next-step plans and shell commands stay out; only written file paths are listed.
+  - Night shift started steps the way the Run button does: each logged "Queued by you" and forced a fresh run, so an unchanged review still cost a model call. Pulled-forward steps now keep scheduled semantics.
+- **Goals, outside night shift too:**
+  - A goal allowed to write into a folder that did not exist yet (`notes/`) stopped at its first step with a raw `ENOENT`. The folder is now created inside the working folder, with the usual path, link and protected-name checks.
+  - On a local model the 50,000-token goal budget counted the cached prompt on every request (about 10,000 tokens each), so a goal stopped after about five requests. The live reading-log goal hit the limit right after writing its file. Local goals now count new prompt tokens and output only; Codex accounting is unchanged.
+
+Live check with the local Qwen (qwen3.8-flash-next-iq3_s). The owner goes away with four items: an ongoing review, a writing task, an event tomorrow at 10:00 and a "could you … later" request.
+
+- 14 Strata requests in about two minutes, with 90% of prompt tokens served from cache.
+- The task goal wrote `notes/reading-log.md` and completed in one step.
+- The event got a prep note that reused the insurance-card reminder from the owner's notes.
+- The packing list was saved.
+- Nothing was posted while the owner was away. On return, one message arrived with each goal's message to the owner.
+
+Node tests (124), both Electron tests, validate-docs and the six deterministic acceptance checks pass.
+
 # Version 0.26.2 verification
 
 0.26.2 keeps heartbeat posts about the user's world instead of Little Bot's internals.
