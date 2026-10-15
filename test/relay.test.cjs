@@ -468,6 +468,12 @@ test('the Strata adapter turns Qwen text calls into JSON tool events and repairs
     assert.deepEqual(JSON.parse(call.arguments), { q: 'hi' });
   }
 
+  const spaced = await collectAdapter([chatChunk({ content: '<tool_call>{ "name":"lookup", "arguments": { "q" : "hi" } }</tool_call>' }, 'stop')], { toolKinds: tools });
+  const spacedCall = spaced.events.find(event => event.type === 'response.completed')?.response.output.find(item => item.type === 'function_call');
+  assert.equal(spacedCall.arguments, '{ "q" : "hi" }');
+  const replay = responsesToChat({ input: [{ type: 'function_call', call_id: spacedCall.call_id, name: spacedCall.name, arguments: spacedCall.arguments }] });
+  assert.equal(replay.body.messages[0].tool_calls[0].function.arguments, spacedCall.arguments);
+
   const { events } = await collectAdapter([chatChunk({ tool_calls: [{ index: 0, id: 'call-1', function: { name: 'lookup', arguments: "{q: 'hi',}" } }] }, 'stop')], { toolKinds: tools });
   const call = events.find(event => event.type === 'response.completed')?.response.output.find(item => item.type === 'function_call');
   assert.deepEqual(JSON.parse(call.arguments), { q: 'hi' });
@@ -479,7 +485,22 @@ test('the Strata adapter turns Qwen text calls into JSON tool events and repairs
   assert.deepEqual(JSON.parse(barewordCall.arguments), { q: 'hi' });
 });
 
-test('the Strata adapter repairs missing patch tools and returns unknown-tool errors through exec_command', async () => {
+test('tagged text tool calls replay their generated assistant text before tool output', async () => {
+  const history = new Map();
+  const tools = new Map([['lookup', { type: 'function' }]]);
+  const raw = 'Let me check. <tool_call>{ "name":"lookup", "arguments": { "q" : "hi" } }</tool_call>';
+  const first = await collectAdapter([chatChunk({ content: raw }, 'stop')], { toolKinds: tools, textCallHistory: history });
+  const output = first.events.find(event => event.type === 'response.completed').response.output;
+  const call = output.find(item => item.type === 'function_call');
+  assert.ok(call);
+  const replay = responsesToChat({ input: [...output, { type: 'function_call_output', call_id: call.call_id, output: 'Found it.' }] }, false, history);
+  assert.equal(replay.body.messages[0].content, raw);
+  assert.equal(replay.body.messages[0].tool_calls, undefined);
+  assert.deepEqual(replay.body.messages[1], { role: 'assistant', content: 'Tool output for lookup (reference data):\nFound it.' });
+  assert.equal(history.size, 2);
+});
+
+test('the Strata adapter repairs patch aliases and unknown calls while replaying the original tagged text', async () => {
   const tools = new Map([['exec_command', { type: 'function' }], ['write_stdin', { type: 'function' }]]);
   const patch = '*** Begin Patch\n*** Update File: math.js\n@@\n-const value = 1;\n+const value = 2;\n*** End Patch';
   const shapes = [
@@ -493,8 +514,7 @@ test('the Strata adapter repairs missing patch tools and returns unknown-tool er
     ['exec_command', { cmd: ['apply_patch', patch] }],
   ];
   for (const [name, args] of shapes) {
-    const rawArguments = JSON.stringify(args);
-    const { events } = await collectAdapter([chatChunk({ tool_calls: [{ index: 0, id: 'call-patch', function: { name, arguments: rawArguments } }] }, 'tool_calls')], { toolKinds: tools });
+    const { events } = await collectAdapter([chatChunk({ tool_calls: [{ index: 0, id: 'call-patch', function: { name, arguments: JSON.stringify(args) } }] }, 'tool_calls')], { toolKinds: tools });
     const call = events.find(event => event.type === 'response.completed')?.response.output.find(item => item.type === 'function_call');
     assert.equal(call?.name, 'exec_command', name);
     assert.match(JSON.parse(call.arguments).cmd, /apply_patch <<'LITTLE_BOT_PATCH'/, name);
@@ -512,19 +532,42 @@ test('the Strata adapter repairs missing patch tools and returns unknown-tool er
   const unchanged = valid.events.find(event => event.type === 'response.completed')?.response.output.find(item => item.type === 'function_call');
   assert.equal(unchanged.arguments, rawArguments);
 
-  const tagged = await collectAdapter([chatChunk({ content: `<tool_call>{"name":"apply-patch","arguments":{"input":"${patch.replace(/\n/g, '\\n')}"}}</tool_call>` }, 'stop')], { toolKinds: tools });
-  const taggedCall = tagged.events.find(event => event.type === 'response.completed')?.response.output.find(item => item.type === 'function_call');
+  const noExec = await collectAdapter([chatChunk({ tool_calls: [{ index: 0, id: 'call-no-exec', function: { name: 'apply_patch', arguments: JSON.stringify({ input: patch }) } }] }, 'tool_calls')], { toolKinds: new Map([['lookup', { type: 'function' }]]) });
+  assert.equal(noExec.events.some(event => event.item?.type === 'function_call' && event.item.name === 'exec_command'), false);
+
+  const raw = `Editing. <tool_call>{ "name":"apply-patch", "arguments": {"patch": ${JSON.stringify(patch)} } }</tool_call>`;
+  const history = new Map();
+  const tagged = await collectAdapter([chatChunk({ content: raw }, 'stop')], { toolKinds: tools, textCallHistory: history });
+  const output = tagged.events.find(event => event.type === 'response.completed').response.output;
+  const taggedCall = output.find(item => item.type === 'function_call');
   assert.equal(taggedCall?.name, 'exec_command');
-  assert.ok(JSON.parse(taggedCall.arguments).cmd.includes(patch));
+  assert.match(JSON.parse(taggedCall.arguments).cmd, /apply_patch <<'LITTLE_BOT_PATCH'/);
+  const replay = responsesToChat({ input: [...output, { type: 'function_call_output', call_id: taggedCall.call_id, output: 'Applied.' }] }, false, history);
+  assert.equal(replay.body.messages[0].content, raw);
+  assert.equal(Buffer.from(replay.body.messages[0].content).compare(Buffer.from(raw)), 0);
+  assert.equal(replay.body.messages[0].tool_calls, undefined);
+  assert.deepEqual(replay.body.messages[1], { role: 'assistant', content: 'Tool output for apply-patch (reference data):\nApplied.' });
 });
 
-test('the Strata adapter removes think tags, fails empty and truncated tool completions, and trims loops', async () => {
+test('the Strata adapter preserves hidden thought for replay, fails empty and truncated calls, and trims loops', async () => {
   const tools = new Map([['lookup', { type: 'function' }]]);
-  const thought = await collectAdapter([chatChunk({ content: '<think>private thought</think><reasoning>hidden reasoning</reasoning>Answer.' }, 'stop')], { toolKinds: tools });
+  const history = new Map();
+  const raw = '<think>private thought</think   ><reasoning>hidden reasoning</reasoning>Answer.';
+  const thought = await collectAdapter([
+    chatChunk({ content: '<think>private thought</think   ' }),
+    chatChunk({ content: '><reasoning>hidden reasoning</reasoning>Answer.' }, 'stop'),
+  ], { toolKinds: tools, textCallHistory: history });
   const completed = thought.events.find(event => event.type === 'response.completed');
   assert.equal(completed.response.output.find(item => item.type === 'message').content[0].text, 'Answer.');
-  assert.equal(JSON.stringify(thought.events).includes('private thought'), false);
-  assert.equal(JSON.stringify(thought.events).includes('hidden reasoning'), false);
+  const reasoning = completed.response.output.find(item => item.type === 'reasoning');
+  assert.match(reasoning.content[0].text, /private thought/);
+  assert.match(reasoning.content[0].text, /hidden reasoning/);
+  const replayed = responsesToChat({ input: completed.response.output });
+  assert.match(replayed.body.messages[0].reasoning_content, /private thought/);
+  assert.match(replayed.body.messages[0].reasoning_content, /hidden reasoning/);
+  const stableReplay = responsesToChat({ input: completed.response.output }, false, history);
+  assert.equal(stableReplay.body.messages[0].content, raw);
+  assert.equal(stableReplay.body.messages[0].reasoning_content, undefined);
 
   const empty = await collectAdapter([chatChunk({}, 'stop')]);
   assert.equal(empty.events.at(-1).type, 'response.failed');

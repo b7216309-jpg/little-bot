@@ -10,6 +10,19 @@ const sourceRoot = process.env.LITTLE_BOT_TEST_SOURCE_ROOT || path.join(__dirnam
 const { Controller } = require(path.join(sourceRoot, 'controller.cjs'));
 const { Store } = require(path.join(sourceRoot, 'store.cjs'));
 const { AgentTools } = require(path.join(sourceRoot, 'agent-tools.cjs'));
+const { compactionConfig } = require(path.join(sourceRoot, 'compaction.cjs'));
+
+test('default compaction thresholds remain connection-specific', () => {
+  assert.equal(compactionConfig({ connection: 'local' }).model_post_turn_compact_threshold_percent, 50);
+  assert.equal(compactionConfig({ connection: 'codex' }).model_post_turn_compact_threshold_percent, 80);
+  assert.equal(compactionConfig({ connection: 'codex', autoCompactPercent: 45 }).model_post_turn_compact_threshold_percent, 45);
+});
+
+test('saved local chats keep their compaction default after switching the active connection', async t => {
+  const { controller, chat } = await fixture(t);
+  chat.connection = 'local';
+  assert.equal(controller.threadOptions(chat, chat.workspace).config.model_post_turn_compact_threshold_percent, 50);
+});
 class FakeClient extends EventEmitter {
   constructor() { super(); this.calls = []; this.responses = []; this.hooks = new Map(); this.serial = 0; this.closed = false; this.restartCount = 0; }
   async start() {}
@@ -127,6 +140,11 @@ test('system prompt and local thinking changes apply without waiting for an acti
   assert.equal(calls[1].params.developerInstructions, prompt);
 });
 
+test('the local-only multi-agent setting does not change Codex thread configuration', async t => {
+  const { controller, chat } = await fixture(t);
+  assert.equal(controller.threadOptions(chat, chat.workspace).config['features.multi_agent'], undefined);
+});
+
 test('a user message waits for a stopping goal and is sent once the lane is free', async t => {
   const { controller, client } = await fixture(t);
   let settle;
@@ -152,4 +170,35 @@ test('engine crashes settle active chat and restart with the real client lifecyc
   while (!client.restartCount && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
   assert.equal(client.restartCount, 1);
   assert.equal(controller.runtime.status, 'ready');
+});
+
+test('a lost turn start acknowledgement interrupts the owned turn before releasing the chat', async t => {
+  const { controller, client } = await fixture(t);
+  client.hooks.set('turn/start', () => {
+    client.notice('turn/started', { threadId: 'thread-1', turn: { id: 'uncertain-turn', status: 'inProgress' } });
+    throw new Error('Codex request timed out: turn/start. The server may still be processing it.');
+  });
+  client.hooks.set('turn/interrupt', params => {
+    client.notice('turn/completed', { threadId: 'thread-1', turn: { id: params.turnId, status: 'interrupted' } });
+    return {};
+  });
+
+  const result = await controller.send({ text: 'Keep ownership if the start acknowledgement is lost.' });
+  const chat = controller.chat(result.chatId);
+  assert.ok(client.calls.some(call => call.method === 'turn/interrupt' && call.params.turnId === 'uncertain-turn'));
+  assert.equal(chat.status, 'idle');
+  assert.equal(chat.error, 'Stopped by you.');
+  assert.equal(client.restartCount, 0);
+});
+
+test('a lost start acknowledgement without a turn id restarts the engine to clear uncertainty', async t => {
+  const { controller, client } = await fixture(t);
+  client.hooks.set('turn/start', () => { throw new Error('Codex request timed out: turn/start.'); });
+
+  const result = await controller.send({ text: 'Do not release an unowned engine turn.' });
+  const chat = controller.chat(result.chatId);
+  assert.equal(chat.status, 'idle');
+  assert.match(chat.error, /saved message is safe/);
+  assert.equal(client.closed, true);
+  assert.equal(controller.runtime.status, 'starting');
 });

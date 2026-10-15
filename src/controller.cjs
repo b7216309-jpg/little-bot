@@ -133,7 +133,8 @@ class Controller extends EventEmitter {
     this.heartbeatChat = null;
     this.extensionsBusy = false;
     this.extensionsIdle = Promise.resolve();
-    this.userSendPending = false;
+    this.userSendPending = 0;
+    this.turnRecoveries = new WeakMap();
     this.engineRestartTimer = null;
     this.engineStableTimer = null;
     this.engineRestartPromise = null;
@@ -502,6 +503,35 @@ class Controller extends EventEmitter {
   async waitForExtensions() {
     if (this.extensionsBusy) await this.extensionsIdle;
   }
+  async recoverUncertainTurnStart({ threadId, turnId, completion, timeoutMs = 15000, owner, reason = 'The engine did not confirm whether a turn started.' } = {}) {
+    if (owner && this.turnRecoveries.has(owner)) return this.turnRecoveries.get(owner);
+    const recovery = (async () => {
+      if (threadId && turnId) {
+        if (!owner?.interruptSent) {
+          if (owner) owner.interruptSent = true;
+          try { await this.client.request('turn/interrupt', { threadId, turnId }, 10000); }
+          catch {
+            if (owner) owner.interruptSent = false;
+          }
+        }
+        let timer;
+        const stopped = await Promise.race([
+          completion ? Promise.resolve(completion).then(() => true, () => true) : new Promise(() => {}),
+          new Promise(resolve => { timer = setTimeout(() => resolve(false), timeoutMs); }),
+        ]);
+        clearTimeout(timer);
+        if (stopped) return true;
+      }
+      if (!this.closing && this.runtime.status === 'ready') {
+        this.crashed(new Error(reason));
+        this.client.close().catch(() => {});
+      }
+      return false;
+    })();
+    if (owner) this.turnRecoveries.set(owner, recovery);
+    try { return await recovery; }
+    finally { if (owner && this.turnRecoveries.get(owner) === recovery) this.turnRecoveries.delete(owner); }
+  }
   async waitForUserLane() {
     const goal = this.goalChat;
     if (goal) {
@@ -551,8 +581,8 @@ class Controller extends EventEmitter {
       cwd: folder, model: chat.model || undefined, approvalPolicy: 'never',
       approvalsReviewer: 'user', sandbox: planning ? 'read-only' : 'danger-full-access',
       developerInstructions: planning ? planInstructions(this.systemPrompt()) : this.systemPrompt(),
-      config: { ...this.extensionRuntime?.config({ heartbeat: planning }), ...compactionConfig(this.store.data.settings), ...this.providerConfig(),
-        'features.multi_agent': false, 'model_reasoning_effort': chat.effort || 'low' },
+      config: { ...this.extensionRuntime?.config({ heartbeat: planning }), ...compactionConfig({ ...this.store.data.settings, connection: chat.connection }), ...this.providerConfig(),
+        ...(chat.connection === 'local' ? { 'features.multi_agent': false } : {}), 'model_reasoning_effort': chat.effort || 'low' },
     };
   }
   threadSignature(common) {
@@ -727,6 +757,7 @@ class Controller extends EventEmitter {
         { kind: 'time', label: 'Current time', text: timeContext() },
         { kind: 'request', label: override?.automationId ? 'Scheduled task' : goalTurn ? 'Goal' : 'Current user request', text: requestBlock },
       ].filter(Boolean);
+      chat.turnStartPending = true;
       const result = await this.client.request('turn/start', {
         threadId: chat.threadId, input: [{ type: 'text', text: inputBlocks.map(block => block.text).join('\n\n') }, ...prepared.input],
         cwd: folder, model: chat.model || undefined,
@@ -755,9 +786,19 @@ class Controller extends EventEmitter {
         this.turns.set(chat.id, result.turn.id);
         this.latestTurns.set(chat.id, result.turn.id);
       }
+      delete chat.turnStartPending;
       this.persistNow(); this.changed();
       return { chatId: chat.id };
     } catch (error) {
+      // A timed out turn/start can still be running in the engine. If its
+      // notification established ownership, interrupt and wait for a terminal
+      // event before releasing the user lane. Without an id, restart the owned
+      // engine process so an untracked turn cannot outlive this chat state.
+      if (inputAccepted && chat.status !== 'idle' && !Number.isInteger(error?.code)) {
+        await this.recoverUncertainTurnStart({ threadId: chat.threadId, turnId: this.turns.get(chat.id), completion, owner: chat,
+          reason: 'The engine did not stop after a turn start acknowledgement was lost.' });
+      }
+      delete chat.turnStartPending;
       if (chat.status !== 'idle') this.finish(chat, cleanError(error));
       if (createdChat && !inputAccepted) {
         this.store.data.chats = this.store.data.chats.filter(item => item !== chat);
@@ -873,6 +914,7 @@ class Controller extends EventEmitter {
       this.stopHeartbeat('Heartbeat reached its ten-minute time limit.').catch(() => {});
     }, timeoutMs);
     timeout.unref?.();
+    let turnStartAttempted = false;
     try {
       const extensionConfig = this.extensionRuntime ? await this.extensionRuntime.heartbeatConfig(folder) : {};
       const started = await this.client.request('thread/start', {
@@ -913,6 +955,7 @@ class Controller extends EventEmitter {
         intentionsDue.length ? companion.contextText(intentionsDue, { heartbeat: true }) : '',
         wild && streak >= 2 ? `You stayed quiet ${streak} checks in a row. This time make one concrete useful move: advance an agenda item, follow up on something the user said, or ask one good question. Stay quiet only if every option would be noise.` : '',
         memory].filter(Boolean).join('\n\n');
+      turnStartAttempted = true;
       const result = await this.client.request('turn/start', {
         threadId: chat.threadId, input: [{ type: 'text', text: prompt }], cwd: folder,
         model: config.model || undefined, effort: this.effectiveEffort(config.model, effort),
@@ -923,11 +966,13 @@ class Controller extends EventEmitter {
           excludeSlashTmp: true, excludeTmpdirEnvVar: true },
       }, config.connection === 'local' ? LOCAL_TURN_START_TIMEOUT_MS : 60000);
       if (chat.status !== 'idle') this.turns.set(chat.id, result.turn.id);
+      turnStartAttempted = false;
       if (chat.cancelReason && chat.status !== 'idle') await this.stopHeartbeat(chat.cancelReason);
       const outcome = await completion;
       if (outcome.error || chat.cancelReason) throw new Error(chat.cancelReason || outcome.error);
       const final = [...chat.messages].reverse().find(message => message.role === 'assistant' && !message.kind && !['commentary', 'analysis'].includes(message.phase));
-      const parsed = normalizeModelOutput(parseModelJson(final?.text, 'Heartbeat returned an unreadable result. Review the checklist and try again.'), schema);
+      const parsedJson = parseModelJson(final?.text, 'Heartbeat returned an unreadable result. Review the checklist and try again.', { local: chat.connection === 'local' });
+      const parsed = chat.connection === 'local' ? normalizeModelOutput(parsedJson, schema) : parsedJson;
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !['quiet', 'alert'].includes(parsed.status) || typeof parsed.summary !== 'string' || (parsed.topic !== undefined && typeof parsed.topic !== 'string') || (parsed.status === 'alert' && !parsed.summary.trim())) {
         throw new Error('Heartbeat returned an invalid result.');
       }
@@ -944,6 +989,10 @@ class Controller extends EventEmitter {
       }
       return outcomeResult;
     } catch (error) {
+      if (turnStartAttempted && chat.status !== 'idle' && !Number.isInteger(error?.code)) {
+        await this.recoverUncertainTurnStart({ threadId: chat.threadId, turnId: this.turns.get(chat.id), completion, owner: chat,
+          reason: 'The engine did not stop after the heartbeat start acknowledgement was lost.' });
+      }
       // Preserve actual operations even when the model failed after making a change.
       error.actions = [...chat.actions.values()].slice(-20);
       throw error;
@@ -1019,6 +1068,8 @@ class Controller extends EventEmitter {
       if (chat.automationPreviousMode) chat.mode = chat.automationPreviousMode;
     }
     delete chat.taskRun;
+    delete chat.interruptSent;
+    delete chat.turnStartPending;
     chat.status = 'idle'; chat.error = error; chat.updatedAt = finishedAt;
     for (const message of chat.messages) {
       if (['running', 'inProgress', 'waiting'].includes(message.status)) message.status = error ? (message.kind === 'reasoning' ? 'interrupted' : 'failed') : 'completed';
@@ -1066,8 +1117,19 @@ class Controller extends EventEmitter {
       if (approval.chatId === chatId) await this.respondApproval({ requestId: approval.requestId, decision: 'decline' });
     }
     const turnId = this.turns.get(chatId);
-    if (!turnId) throw new Error('The turn is still starting. Try Stop again in a moment.');
-    await this.client.request('turn/interrupt', { threadId: chat.threadId, turnId });
+    if (!turnId) {
+      if (chat.turnStartPending) {
+        await this.recoverUncertainTurnStart({ threadId: chat.threadId, completion: this.outcomes.get(chatId)?.completion, owner: chat,
+          reason: 'The engine did not confirm whether the turn started.' });
+        return { ok: true };
+      }
+      throw new Error('The turn is still starting. Try Stop again in a moment.');
+    }
+    if (!chat.interruptSent) {
+      chat.interruptSent = true;
+      try { await this.client.request('turn/interrupt', { threadId: chat.threadId, turnId }); }
+      catch (error) { chat.interruptSent = false; throw error; }
+    }
     this.persistNow();
   }
   async challengeIndependentCheck(payload = {}) {

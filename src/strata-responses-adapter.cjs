@@ -7,6 +7,38 @@ const { StringDecoder } = require('node:string_decoder');
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const id = prefix => `${prefix}_${randomBytes(12).toString('hex')}`;
 const PATCH_TOOLS = new Set(['apply_patch', 'applypatch', 'apply-patch']);
+const MAX_TEXT_CALL_HISTORY_ENTRIES = 2048, MAX_TEXT_CALL_HISTORY_BYTES = 8 * 1024 * 1024;
+
+function rememberTranscript(history, historyId, value) {
+  if (!(history instanceof Map) || !historyId) return;
+  const bytes = Buffer.byteLength(value.text) + Buffer.byteLength(value.reasoning);
+  if (bytes > MAX_TEXT_CALL_HISTORY_BYTES) return;
+  const previous = history.get(historyId);
+  if (previous) history.byteLength = Math.max(0, (history.byteLength || 0) - previous.bytes);
+  history.delete(historyId);
+  history.set(historyId, { ...value, bytes });
+  history.byteLength = (history.byteLength || 0) + bytes;
+  while (history.size > MAX_TEXT_CALL_HISTORY_ENTRIES || history.byteLength > MAX_TEXT_CALL_HISTORY_BYTES) {
+    const oldest = history.keys().next().value, entry = history.get(oldest);
+    history.delete(oldest);
+    history.byteLength = Math.max(0, history.byteLength - (entry?.bytes || 0));
+  }
+}
+
+function recentTranscript(history, historyId) {
+  const value = history instanceof Map && historyId ? history.get(historyId) : null;
+  if (value) { history.delete(historyId); history.set(historyId, value); }
+  return value || null;
+}
+
+function restoreSourceTranscript(pending, source) {
+  if (!source) return false;
+  if (pending.sourceResponseId === source.responseId) return true;
+  pending.content = source.text;
+  pending.reasoning = source.reasoning;
+  pending.sourceResponseId = source.responseId;
+  return true;
+}
 
 function stableValue(value) {
   if (Array.isArray(value)) return value.map(stableValue);
@@ -67,14 +99,55 @@ function toolArguments(value) {
   return stableJson(object(parsed) ? parsed : { input: parsed === null ? String(value ?? '') : parsed });
 }
 
+function rawJsonProperty(raw, key) {
+  if (typeof raw !== 'string') return undefined;
+  const match = new RegExp(`(?:\"${key}\"|'${key}')\\s*:\\s*`).exec(raw);
+  if (!match) return undefined;
+  let start = match.index + match[0].length;
+  while (/\s/.test(raw[start] || '')) start++;
+  let end = start;
+  if (raw[start] === '"') {
+    end++;
+    let escaped = false;
+    while (end < raw.length) {
+      const char = raw[end++];
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') break;
+    }
+  } else if (raw[start] === '{' || raw[start] === '[') {
+    const stack = [raw[start] === '{' ? '}' : ']'];
+    let quoted = false, escaped = false;
+    for (end = start + 1; end < raw.length && stack.length; end++) {
+      const char = raw[end];
+      if (quoted) {
+        if (escaped) escaped = false;
+        else if (char === '\\') escaped = true;
+        else if (char === '"') quoted = false;
+      } else if (char === '"') quoted = true;
+      else if (char === '{') stack.push('}');
+      else if (char === '[') stack.push(']');
+      else if (char === stack.at(-1)) stack.pop();
+    }
+  } else {
+    while (end < raw.length && !/[,}\]]/.test(raw[end])) end++;
+  }
+  const source = raw.slice(start, end);
+  try {
+    const value = JSON.parse(source);
+    return object(value) || Array.isArray(value) ? source : value;
+  } catch { return undefined; }
+}
+
 function callFromJson(value) {
   const parsed = jsonValue(value);
   if (!object(parsed)) return null;
   const fn = object(parsed.function) ? parsed.function : object(parsed.tool_call) ? parsed.tool_call : parsed;
   const name = [fn.name, fn.tool, fn.tool_name, parsed.name, parsed.tool].find(item => typeof item === 'string' && item.trim())?.trim();
   if (!name) return null;
-  const args = fn.arguments ?? fn.parameters ?? fn.input ?? parsed.arguments ?? parsed.parameters ?? parsed.input ?? {};
-  return { name, args };
+  const key = ['arguments', 'parameters', 'input'].find(item => fn[item] !== undefined) || ['arguments', 'parameters', 'input'].find(item => parsed[item] !== undefined);
+  const args = fn[key] ?? parsed[key] ?? {};
+  return { name, args, argumentSource: rawJsonProperty(value, key) };
 }
 
 function repeatedSuffix(value) {
@@ -155,10 +228,10 @@ function reasoningText(item) {
   return Array.isArray(item.summary) ? item.summary.filter(object).map(part => part.text || '').join('') : '';
 }
 
-function responsesToChat(body, thinking) {
+function responsesToChat(body, thinking, textCallHistory = null) {
   if (!object(body)) throw new TypeError('Responses request must be an object.');
   const messages = [];
-  const pending = { content: '', reasoning: '', tool_calls: [] };
+  const pending = { content: '', reasoning: '', tool_calls: [], sourceResponseId: null };
   const hasPending = () => pending.content || pending.reasoning || pending.tool_calls.length;
   const flush = () => {
     if (!hasPending()) return;
@@ -166,7 +239,7 @@ function responsesToChat(body, thinking) {
     if (pending.reasoning) message.reasoning_content = pending.reasoning;
     if (pending.tool_calls.length) message.tool_calls = pending.tool_calls.splice(0);
     messages.push(message);
-    pending.content = ''; pending.reasoning = '';
+    pending.content = ''; pending.reasoning = ''; pending.sourceResponseId = null;
   };
 
   if (typeof body.instructions === 'string' && body.instructions.trim()) {
@@ -178,10 +251,17 @@ function responsesToChat(body, thinking) {
     const item = input[inputIndex];
     if (!object(item)) continue;
     if (item.type === 'reasoning') {
-      pending.reasoning += reasoningText(item);
+      const source = recentTranscript(textCallHistory, item.id);
+      if (!restoreSourceTranscript(pending, source)) pending.reasoning += reasoningText(item);
       continue;
     }
     if (item.type === 'function_call') {
+      const textCall = recentTranscript(textCallHistory, item.call_id || item.id);
+      if (textCall) {
+        restoreSourceTranscript(pending, textCall);
+        pending.tool_calls.length = 0;
+        continue;
+      }
       pending.tool_calls.push({ id: item.call_id || item.id || `call_missing_${inputIndex}`, type: 'function', function: {
         name: item.name || 'tool', arguments: toolArguments(item.arguments),
       } });
@@ -203,12 +283,15 @@ function responsesToChat(body, thinking) {
       flush();
       const output = item.type === 'tool_search_output' ? (item.tools ?? item.output ?? item) : item.output;
       messages.push({ role: 'tool', tool_call_id: item.call_id || '', content: toolOutputText(output) });
+      const textCall = recentTranscript(textCallHistory, item.call_id);
+      if (textCall?.name) messages[messages.length - 1] = { role: 'assistant', content: `Tool output for ${textCall.name} (reference data):\n${toolOutputText(output)}` };
       continue;
     }
     if (item.type === 'message') {
       const role = item.role || 'user';
       if (role === 'assistant') {
-        pending.content += contentText(item.content);
+        const source = recentTranscript(textCallHistory, item.id);
+        if (!restoreSourceTranscript(pending, source)) pending.content += contentText(item.content);
       } else {
         flush();
         messages.push({ role, content: role === 'user' ? chatContent(item.content) : contentText(item.content) });
@@ -338,10 +421,11 @@ function repairToolCall(call, toolKinds) {
 }
 
 class StrataStreamAdapter extends Transform {
-  constructor({ model, toolKinds = new Map(), onDegenerate = () => {} } = {}) {
+  constructor({ model, toolKinds = new Map(), textCallHistory = null, onDegenerate = () => {} } = {}) {
     super();
     this.model = model || 'strata';
     this.toolKinds = toolKinds;
+    this.textCallHistory = textCallHistory;
     this.decoder = new StringDecoder('utf8');
     this.buffer = '';
     this.responseId = id('resp');
@@ -359,7 +443,9 @@ class StrataStreamAdapter extends Transform {
     this.onDegenerate = onDegenerate;
     this.degenerate = false;
     this.text = '';
+    this.sourceText = '';
     this.reasoning = '';
+    this.sourceReasoning = '';
     this.calls = new Map();
     this.usage = null;
   }
@@ -414,6 +500,7 @@ class StrataStreamAdapter extends Transform {
 
   _textDelta(delta) {
     if (!delta) return;
+    this.sourceText += delta;
     this.pendingText += delta;
     this._drainText(false);
     if (this.degenerate) this._complete('stop');
@@ -445,16 +532,16 @@ class StrataStreamAdapter extends Transform {
     return { type: 'function_call', call_id: call.id, name: call.name, arguments: toolArguments(call.arguments || '{}') };
   }
 
-  _addTextCall(name, args) {
+  _addTextCall(name, args, argumentSource) {
     if (typeof name !== 'string' || !name.trim()) return false;
     const index = Math.max(-1, ...this.calls.keys()) + 1;
-    this.calls.set(index, { id: id('call'), name, arguments: toolArguments(args) });
+    this.calls.set(index, { id: id('call'), name, sourceName: name, arguments: toolArguments(argumentSource ?? args), textCall: true });
     return true;
   }
 
   _parseTextCall(raw) {
     const call = callFromJson(raw);
-    if (call) return this._addTextCall(call.name, call.args);
+    if (call) return this._addTextCall(call.name, call.args, call.argumentSource);
     const name = /(?:["']?name["']?|tool_name)\s*:\s*["']([^"']+)["']/i.exec(raw)?.[1]?.trim();
     if (name) return this._addTextCall(name, raw);
     return false;
@@ -483,8 +570,25 @@ class StrataStreamAdapter extends Transform {
     ];
     while (this.pendingText) {
       if (this.inThinking) {
+        const closing = `</${this.thinkingTag}>`;
         const close = new RegExp(`<\\/${this.thinkingTag}\\s*>`, 'i').exec(this.pendingText);
-        if (!close) { this.pendingText = ''; if (final) { this.inThinking = false; this.thinkingTag = ''; } return; }
+        if (!close) {
+          if (final) {
+            this._reasoningDelta(this.pendingText);
+            this.pendingText = ''; this.inThinking = false; this.thinkingTag = '';
+          } else {
+            let keep = 0;
+            const lower = this.pendingText.toLowerCase(), prefix = closing.slice(0, -1).toLowerCase();
+            for (let size = 1; size <= prefix.length; size++) if (lower.endsWith(prefix.slice(0, size))) keep = size;
+            const partialClose = new RegExp(`<\\/${this.thinkingTag}\\s*$`, 'i').exec(this.pendingText);
+            if (partialClose) keep = Math.max(keep, this.pendingText.length - partialClose.index);
+            const safe = this.pendingText.length - keep;
+            if (safe) this._reasoningDelta(this.pendingText.slice(0, safe));
+            this.pendingText = this.pendingText.slice(safe);
+          }
+          return;
+        }
+        this._reasoningDelta(this.pendingText.slice(0, close.index));
         this.pendingText = this.pendingText.slice(close.index + close[0].length);
         this.inThinking = false;
         this.thinkingTag = '';
@@ -523,7 +627,8 @@ class StrataStreamAdapter extends Transform {
         const close = /<\/tool_call\s*>/i.exec(this.pendingText.slice(innerStart));
         if (!close && !final) return;
         const inner = close ? this.pendingText.slice(innerStart, innerStart + close.index) : this.pendingText.slice(innerStart);
-        if (!this._parseTextCall(inner)) this._emitText(inner.trim());
+        const block = close ? this.pendingText.slice(0, innerStart + close.index + close[0].length) : this.pendingText;
+        if (!this._parseTextCall(inner)) this._emitText(block);
         this.pendingText = close ? this.pendingText.slice(innerStart + close.index + close[0].length) : '';
         continue;
       }
@@ -540,7 +645,8 @@ class StrataStreamAdapter extends Transform {
           const parsed = jsonValue(value);
           args[key] = parsed === null ? value : parsed;
         }
-        if (!this._addTextCall(name, args)) this._emitText(inner.replace(/<\/?parameter(?:\s*=\s*[^>]+)?>/gi, '').trim());
+        const block = close ? this.pendingText.slice(0, innerStart + close.index + close[0].length) : this.pendingText;
+        if (!this._addTextCall(name, args)) this._emitText(block);
         this.pendingText = close ? this.pendingText.slice(innerStart + close.index + close[0].length) : '';
         continue;
       }
@@ -586,6 +692,14 @@ class StrataStreamAdapter extends Transform {
     const calls = limited ? [] : [...this.calls.keys()].sort((a, b) => a - b)
       .map(index => this.calls.get(index)).filter(call => call.name).map(call => repairToolCall(call, this.toolKinds))
       .filter(call => call.name && (!this.toolKinds.size || this.toolKinds.has(call.name)));
+    const transcript = { responseId: this.responseId, text: this.sourceText, reasoning: this.sourceReasoning };
+    if (!limited && (this.sourceText !== this.text || this.sourceReasoning !== this.reasoning)) {
+      if (this.reasoningAdded) rememberTranscript(this.textCallHistory, this.reasoningId, transcript);
+      if (this.messageAdded || this.text) rememberTranscript(this.textCallHistory, this.messageId, transcript);
+    }
+    if (!limited && calls.length && calls.every(call => call.textCall)) for (const call of calls) {
+      rememberTranscript(this.textCallHistory, call.id, { ...transcript, name: call.sourceName || call.name });
+    }
     for (const call of calls) {
       const item = this._toolItem(call);
       this._event({ type: 'response.output_item.done', output_index: outputIndex++, item });
@@ -625,7 +739,7 @@ class StrataStreamAdapter extends Transform {
     if (!choice) return;
     this.model = chunk.model || this.model;
     const delta = object(choice.delta) ? choice.delta : {};
-    if (typeof delta.reasoning_content === 'string') this._reasoningDelta(delta.reasoning_content);
+    if (typeof delta.reasoning_content === 'string') { this.sourceReasoning += delta.reasoning_content; this._reasoningDelta(delta.reasoning_content); }
     if (typeof delta.content === 'string') this._textDelta(delta.content);
     for (const tool of Array.isArray(delta.tool_calls) ? delta.tool_calls : []) this._toolDelta(tool);
     if (object(chunk.usage)) this.usage = chunk.usage;

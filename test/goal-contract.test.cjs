@@ -21,7 +21,9 @@ const result = (outcome, extra = {}) => ({ outcome, summary: outcome === 'no-cha
   checkpoint: '', nextStep: '', evidenceRefs: outcome === 'no-change' ? [] : ['objective'], actionUpdates: [], ...extra });
 
 test('/goal verdict parsing repairs IQ3 syntax, aliases and boolean strings', () => {
-  assert.deepEqual(parseVerdict("Answer: {'complete':'yes','explanation':23,'suggestion':null,}"), { met: true, impossible: false, reason: '23', next: '' });
+  const output = "Answer: {'complete':'yes','explanation':23,'suggestion':null,}";
+  assert.deepEqual(parseVerdict(output, { local: true }), { met: true, impossible: false, reason: '23', next: '' });
+  assert.throws(() => parseVerdict(output), /readable JSON/);
 });
 
 test('/goal checker retries one malformed verdict with validation feedback', async () => {
@@ -38,7 +40,8 @@ test('/goal checker retries one malformed verdict with validation feedback', asy
   await op.retryStarting;
   assert.equal(calls.length, 1);
   assert.match(calls[0].params.input[0].text, /failed validation/);
-  assert.equal(calls[0].params.outputSchema.required[0], 'met');
+  assert.equal(calls[0].params.outputSchema, undefined);
+  assert.match(calls[0].params.input[0].text, /matching this schema/);
   runner.notification('item/completed', { threadId: 'thread', item: { type: 'agentMessage', text: "{'complete':'yes','explanation':'Verified','suggestion':'',}" } });
   runner.notification('turn/completed', { threadId: 'thread', turn: { id: 'repair', status: 'completed' } });
   assert.deepEqual(await result, { met: true, impossible: false, reason: 'Verified', next: '' });

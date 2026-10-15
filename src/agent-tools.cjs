@@ -174,7 +174,8 @@ class AgentTools {
       if (suggestion && suggestion[1] <= Math.max(2, String(name || '').length / 3)) throw new Error(`Unknown tool "${name}"; use ${suggestion[0]} instead. Corrected example: ${suggestion[0]}({}).`);
       throw new Error(`Unknown tool "${name}". Corrected example: ${specs[0]?.name || 'skill_list'}({}).`);
     }
-    let normalized = normalizeObject(args, spec.inputSchema);
+    const local = chat?.connection === 'local';
+    let normalized = local ? normalizeObject(args, spec.inputSchema) : args;
     if (!object(normalized)) throw new Error(`Arguments for ${name} must be an object; example: ${name}({}).`);
     if (name === 'attachment_send' && typeof normalized.path === 'string') {
       const path = require('node:path');
@@ -197,7 +198,7 @@ class AgentTools {
     catch (error) {
       let message = String(error?.message || 'Tool call failed.').split(/[\r\n]/)[0].slice(0, 260);
       const actionSchema = spec.inputSchema?.properties?.action;
-      if (/unsupported .*action|invalid .*action|unknown app action/i.test(message) && actionSchema?.enum && normalized.action) {
+      if (local && /unsupported .*action|invalid .*action|unknown app action/i.test(message) && actionSchema?.enum && normalized.action) {
         const closest = actionSchema.enum.map(value => [value, distance(String(normalized.action).toLowerCase(), value.toLowerCase())]).sort((a, b) => a[1] - b[1])[0];
         if (closest && closest[1] <= 3) { message = `Unknown action "${normalized.action}"; use "${closest[0]}".`; normalized.action = closest[0]; }
       }

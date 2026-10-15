@@ -22,6 +22,20 @@ function fixture(t) {
     } },
   };
   const worker = new MemoryConsolidator(c, { autoStart: false });
+  c.crashed = error => { c.crashError = error; if (worker.active) worker.finish(worker.active, null, error.message); };
+  c.recoverUncertainTurnStart = async ({ threadId, turnId, completion, timeoutMs = 15000, owner, reason }) => {
+    if (!threadId || !turnId) { if (c.runtime.status === 'ready') c.crashed(new Error(reason)); return false; }
+    if (turnId && !owner?.interruptSent) {
+      if (owner) owner.interruptSent = true;
+      try { await c.client.request('turn/interrupt', { threadId, turnId }); }
+      catch { if (owner) owner.interruptSent = false; }
+    }
+    let timer;
+    const stopped = await Promise.race([completion.then(() => true), new Promise(resolve => { timer = setTimeout(() => resolve(false), timeoutMs); })]);
+    clearTimeout(timer);
+    if (!stopped && c.runtime.status === 'ready') c.crashed(new Error(reason));
+    return stopped;
+  };
   t.after(async () => { await worker.close(); service.close(); });
   service.indexChat(chat); service.enqueueExtraction(chat);
   return { service, chat, calls, c, worker };
@@ -82,6 +96,26 @@ test('interrupt RPC acknowledgement alone cannot release the execution lane', as
   assert.equal(c.memoryBusy, false);
 });
 
+test('stopping a memory turn with a pending start acknowledgement releases its lane', async t => {
+  const { worker, c } = fixture(t);
+  let entered, rejectStart, recovered = false;
+  const started = new Promise(resolve => { entered = resolve; });
+  c.client.request = async method => method === 'thread/start' ? { thread: { id: 'extract' } } : method === 'turn/start'
+    ? (entered(), new Promise((resolve, reject) => { rejectStart = reject; })) : {};
+  c.recoverUncertainTurnStart = async ({ owner }) => {
+    recovered = owner.turnStartAttempted;
+    worker.finish(owner, null, 'Memory work was stopped.');
+    return false;
+  };
+  const ticking = worker.tick();
+  await started;
+  await worker.pauseForUser();
+  assert.equal(recovered, true);
+  assert.equal(c.memoryBusy, false);
+  rejectStart(new Error('Engine request closed.'));
+  await ticking;
+});
+
 test('a memory job that will not stop restarts the engine before the user turn continues', async t => {
   const { worker, c } = fixture(t);
   worker.stopTimeoutMs = 5;
@@ -93,7 +127,7 @@ test('a memory job that will not stop restarts the engine before the user turn c
     worker.finish(worker.active, null, 'Engine restarted before user work.');
   };
   await worker.pauseForUser();
-  assert.match(c.crashError.message, /did not stop memory maintenance/);
+  assert.match(c.crashError.message, /did not stop after memory maintenance/);
   assert.equal(c.memoryBusy, false);
   assert.equal(worker.active, null);
 });
@@ -114,11 +148,13 @@ test('local extraction uses constrained JSON and repairs one malformed answer', 
   c.store.data.settings.connection = 'local';
   await worker.tick();
   const turn = calls.find(call => call.method === 'turn/start').params;
-  assert.equal(turn.outputSchema.required[0], 'memories');
+  assert.equal(turn.outputSchema, undefined);
+  assert.match(turn.input[0].text, /matching this schema/);
   worker.notification('item/completed', { threadId: 'extract', item: { type: 'agentMessage', text: "{'memories': [}" } });
   worker.notification('turn/completed', { threadId: 'extract', turn: { id: 'turn', status: 'completed' } });
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(calls.filter(call => call.method === 'turn/start').length, 2);
+  assert.equal(calls.filter(call => call.method === 'turn/start')[1].params.outputSchema, undefined);
   const sloppy = JSON.stringify({ memories: [
     { content: 'This project uses pnpm.', category: 'Decision', scope: 'workspace', key: 'project.package-manager', sources: 'u1' },
   ] }).replace(/\]\}$/, '],}');

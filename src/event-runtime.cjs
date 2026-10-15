@@ -175,11 +175,10 @@ class EventRuntime {
     };
   }
 
-  async _runAutomationDue(event) {
+  _runAutomationDue(event) {
     const id = event.payload?.automationId;
-    if (typeof id !== 'string') return;
-    try { await this.scheduler.runNow(id); }
-    catch (error) { this._error(error, event); }
+    if (typeof id !== 'string' || !this.store.data.automations.some(item => item.id === id && item.enabled)) return;
+    this.scheduler.runNow(id).catch(error => this._error(error, event));
   }
 
   // A wild heartbeat should speak when the user is around, not only on its timer.
@@ -202,7 +201,7 @@ class EventRuntime {
   }
 
   _runHeartbeatDue(event) {
-    this.heartbeat.runNow().catch(error => this._error(error, event));
+    this.heartbeat.runNow({ scheduled: true }).catch(error => this._error(error, event));
   }
 
   async _matchIntents(event, context) {
@@ -265,29 +264,31 @@ class EventRuntime {
         if (automation.authorized !== true) throw new Error('Run or enable this automation once before a standing intent can start it.');
         this._pending(this.pendingAutomations, automation.id).set(id, event.intentTrace || [id]);
         this.intents.record(id, { status: 'queued', event });
-        await this.scheduler.runNow(automation.id);
+        this.scheduler.runNow(automation.id).catch(error => this._intentActionError(event, id, intent, action, error));
         return;
       }
       throw new Error('Unsupported standing-intent action.');
-    } catch (error) {
-      const retryCount = Number.isInteger(event.payload?.retryCount) ? event.payload.retryCount : 0;
-      const busy = /wait for|already running|waiting for|current task|finish or stop/i.test(cleanError(error));
-      if (busy && retryCount < 20 && this.bus.state.started) {
-        this.publish({
-          type: 'standing_intent.action', source: 'standing_intents', priority: intent.priority,
-          debounceKey: `standing-intent:${intent.id}`, debounceMs: 15000,
-          correlationId: event.correlationId,
-          intentTrace: event.intentTrace,
-          expiresAt: this.now() + 60 * MINUTE,
-          payload: { ...event.payload, retryCount: retryCount + 1 },
-        });
-        return;
-      }
-      this._removePending(this.pendingGoals, action.goalId, id);
-      this._removePending(this.pendingAutomations, action.automationId, id);
-      this.intents.record(id, { status: 'error', event, error: cleanError(error) });
-      this._error(error, event);
+    } catch (error) { this._intentActionError(event, id, intent, action, error); }
+  }
+
+  _intentActionError(event, id, intent, action, error) {
+    const retryCount = Number.isInteger(event.payload?.retryCount) ? event.payload.retryCount : 0;
+    const busy = /wait for|already running|waiting for|current task|finish or stop/i.test(cleanError(error));
+    if (busy && retryCount < 20 && this.bus.state.started) {
+      this.publish({
+        type: 'standing_intent.action', source: 'standing_intents', priority: intent.priority,
+        debounceKey: `standing-intent:${intent.id}`, debounceMs: 15000,
+        correlationId: event.correlationId,
+        intentTrace: event.intentTrace,
+        expiresAt: this.now() + 60 * MINUTE,
+        payload: { ...event.payload, retryCount: retryCount + 1 },
+      });
+      return;
     }
+    this._removePending(this.pendingGoals, action.goalId, id);
+    this._removePending(this.pendingAutomations, action.automationId, id);
+    this.intents.record(id, { status: 'error', event, error: cleanError(error) });
+    this._error(error, event);
   }
 
   _cancelQueuedGoalActions() {

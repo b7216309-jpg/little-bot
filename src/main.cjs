@@ -511,7 +511,7 @@ app.whenReady().then(async () => {
   });
   const sendTurn = async (payload, internal) => {
     if (internal?.goalTurn) return controller.send(payload, null, internal);
-    controller.userSendPending = true;
+    controller.userSendPending++;
     try {
       if (goals.activeId) await goals.pause(goals.activeId);
       await controller.waitForUserLane();
@@ -522,7 +522,7 @@ app.whenReady().then(async () => {
         await controller.waitForUserLane();
       }
       return await controller.send(payload, null, internal);
-    } finally { controller.userSendPending = false; }
+    } finally { controller.userSendPending = Math.max(0, controller.userSendPending - 1); }
   };
   controller.chatGoal.sendTurn = sendTurn;
   register('send', payload => sendTurn(payload));

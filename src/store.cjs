@@ -8,7 +8,7 @@ const { MemoryService } = require('./memory-service.cjs');
 const { normalizeHeartbeat } = require('./heartbeat.cjs');
 const { normalizeExtensions } = require('./extensions.cjs');
 const { normalizeAutonomy } = require('./goals.cjs');
-const { normalizeAutoCompactPercent } = require('./compaction.cjs');
+const { validAutoCompactPercent } = require('./compaction.cjs');
 const { normalizeCalendar } = require('./calendar.cjs');
 const { attachmentDescriptors } = require('./attachment-message.cjs');
 const { normalizeConnectionSettings, connectionBinding } = require('./connections.cjs');
@@ -102,7 +102,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
       workspace: string(settings.workspace, defaultWorkspace),
       model: string(settings.model),
       effort: effort(settings.effort),
-      autoCompactPercent: normalizeAutoCompactPercent(settings.autoCompactPercent),
+      autoCompactPercent: validAutoCompactPercent(settings.autoCompactPercent) ? settings.autoCompactPercent : undefined,
       independentCheckMode: normalizeIndependentCheckMode(settings.independentCheckMode),
       activityAwareness: settings.activityAwareness === true,
       localSampling: normalizeSampling(settings.localSampling),
