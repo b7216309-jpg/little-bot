@@ -6,6 +6,161 @@ const { StringDecoder } = require('node:string_decoder');
 
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const id = prefix => `${prefix}_${randomBytes(12).toString('hex')}`;
+const PATCH_TOOLS = new Set(['apply_patch', 'applypatch', 'apply-patch']);
+const MAX_TEXT_CALL_HISTORY_ENTRIES = 2048, MAX_TEXT_CALL_HISTORY_BYTES = 8 * 1024 * 1024;
+
+function rememberTranscript(history, historyId, value) {
+  if (!(history instanceof Map) || !historyId) return;
+  const bytes = Buffer.byteLength(value.text) + Buffer.byteLength(value.reasoning);
+  if (bytes > MAX_TEXT_CALL_HISTORY_BYTES) return;
+  const previous = history.get(historyId);
+  if (previous) history.byteLength = Math.max(0, (history.byteLength || 0) - previous.bytes);
+  history.delete(historyId);
+  history.set(historyId, { ...value, bytes });
+  history.byteLength = (history.byteLength || 0) + bytes;
+  while (history.size > MAX_TEXT_CALL_HISTORY_ENTRIES || history.byteLength > MAX_TEXT_CALL_HISTORY_BYTES) {
+    const oldest = history.keys().next().value, entry = history.get(oldest);
+    history.delete(oldest);
+    history.byteLength = Math.max(0, history.byteLength - (entry?.bytes || 0));
+  }
+}
+
+function recentTranscript(history, historyId) {
+  const value = history instanceof Map && historyId ? history.get(historyId) : null;
+  if (value) { history.delete(historyId); history.set(historyId, value); }
+  return value || null;
+}
+
+function restoreSourceTranscript(pending, source) {
+  if (!source) return false;
+  if (pending.sourceResponseId === source.responseId) return true;
+  pending.content = source.text;
+  pending.reasoning = source.reasoning;
+  pending.sourceResponseId = source.responseId;
+  return true;
+}
+
+function stableValue(value) {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (!object(value)) return value;
+  return Object.fromEntries(Object.keys(value).sort().map(key => [key, stableValue(value[key])]));
+}
+const stableJson = value => JSON.stringify(stableValue(value));
+
+function closeJson(value) {
+  let raw = value.trim().replace(/,\s*$/, '');
+  if (/:\s*$/.test(raw)) raw += 'null';
+  const stack = [];
+  let quoted = false, escaped = false;
+  for (const char of raw) {
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') quoted = false;
+    } else if (char === '"') quoted = true;
+    else if (char === '{') stack.push('}');
+    else if (char === '[') stack.push(']');
+    else if ((char === '}' || char === ']') && stack.at(-1) === char) stack.pop();
+  }
+  return raw + (quoted ? '"' : '') + stack.reverse().join('');
+}
+
+function jsonValue(value) {
+  if (object(value) || Array.isArray(value)) return value;
+  if (typeof value !== 'string' || !value.trim()) return null;
+  let raw = value.trim().replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+  raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  const first = raw.indexOf('{'), last = raw.lastIndexOf('}');
+  const candidates = [raw, ...(first >= 0 ? [raw.slice(first, last >= first ? last + 1 : undefined)] : [])];
+  for (const candidate of candidates) {
+    for (const source of [candidate, closeJson(candidate)]) {
+      for (const repaired of [source, source
+        .replace(/([{,]\s*)([A-Za-z_$][\w$-]*)(\s*:)/g, '$1"$2"$3')
+        .replace(/(:\s*)([A-Za-z_][\w-]*)(\s*[,}\]])/g, (_match, before, text, after) => `${before}${/^(?:true|false|null)$/i.test(text) ? text : JSON.stringify(text)}${after}`)
+        .replace(/,\s*([}\]])/g, '$1'), source
+        .replace(/([{,]\s*)([A-Za-z_$][\w$-]*)(\s*:)/g, '$1"$2"$3')
+        .replace(/'((?:\\.|[^'\\])*)'/g, (_match, text) => JSON.stringify(text.replace(/\\'/g, "'")))
+        .replace(/(:\s*)([A-Za-z_][\w-]*)(\s*[,}\]])/g, (_match, before, text, after) => `${before}${/^(?:true|false|null)$/i.test(text) ? text : JSON.stringify(text)}${after}`)
+        .replace(/,\s*([}\]])/g, '$1')]) {
+        try { return JSON.parse(repaired); } catch { /* Try the next small repair. */ }
+      }
+    }
+  }
+  return null;
+}
+
+// Valid argument text passes through byte for byte: Strata only reuses its cache when the
+// replayed history matches the tokens the model generated, and recurrent models cannot
+// fall back to a shorter prefix. Only text that needs repair is rewritten.
+function toolArguments(value) {
+  if (object(value)) return stableJson(value);
+  if (typeof value === 'string') { try { if (object(JSON.parse(value))) return value; } catch { /* Repair below. */ } }
+  const parsed = jsonValue(value);
+  return stableJson(object(parsed) ? parsed : { input: parsed === null ? String(value ?? '') : parsed });
+}
+
+function rawJsonProperty(raw, key) {
+  if (typeof raw !== 'string') return undefined;
+  const match = new RegExp(`(?:\"${key}\"|'${key}')\\s*:\\s*`).exec(raw);
+  if (!match) return undefined;
+  let start = match.index + match[0].length;
+  while (/\s/.test(raw[start] || '')) start++;
+  let end = start;
+  if (raw[start] === '"') {
+    end++;
+    let escaped = false;
+    while (end < raw.length) {
+      const char = raw[end++];
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') break;
+    }
+  } else if (raw[start] === '{' || raw[start] === '[') {
+    const stack = [raw[start] === '{' ? '}' : ']'];
+    let quoted = false, escaped = false;
+    for (end = start + 1; end < raw.length && stack.length; end++) {
+      const char = raw[end];
+      if (quoted) {
+        if (escaped) escaped = false;
+        else if (char === '\\') escaped = true;
+        else if (char === '"') quoted = false;
+      } else if (char === '"') quoted = true;
+      else if (char === '{') stack.push('}');
+      else if (char === '[') stack.push(']');
+      else if (char === stack.at(-1)) stack.pop();
+    }
+  } else {
+    while (end < raw.length && !/[,}\]]/.test(raw[end])) end++;
+  }
+  const source = raw.slice(start, end);
+  try {
+    const value = JSON.parse(source);
+    return object(value) || Array.isArray(value) ? source : value;
+  } catch { return undefined; }
+}
+
+function callFromJson(value) {
+  const parsed = jsonValue(value);
+  if (!object(parsed)) return null;
+  const fn = object(parsed.function) ? parsed.function : object(parsed.tool_call) ? parsed.tool_call : parsed;
+  const name = [fn.name, fn.tool, fn.tool_name, parsed.name, parsed.tool].find(item => typeof item === 'string' && item.trim())?.trim();
+  if (!name) return null;
+  const key = ['arguments', 'parameters', 'input'].find(item => fn[item] !== undefined) || ['arguments', 'parameters', 'input'].find(item => parsed[item] !== undefined);
+  const args = fn[key] ?? parsed[key] ?? {};
+  return { name, args, argumentSource: rawJsonProperty(value, key) };
+}
+
+function repeatedSuffix(value) {
+  const max = Math.min(32, Math.floor(value.length / 4));
+  for (let size = max; size >= 8; size--) {
+    const part = value.slice(-size);
+    if (new Set(part.replace(/\s/g, '')).size < 4) continue; // banners, zero arrays and table rules repeat legitimately
+    let count = 1, end = value.length - size;
+    while (end >= size && value.slice(end - size, end) === part) { count++; end -= size; }
+    if (count >= 4 && count * size >= 96) return { keep: end + size * 2 };
+  }
+  return null;
+}
 
 function contentText(content) {
   if (typeof content === 'string') return content;
@@ -52,14 +207,19 @@ function withoutImages(messages) {
 const hasImages = messages => messages.some(message => Array.isArray(message.content) && message.content.some(part => part?.type === 'image_url'));
 
 function toolOutputText(output) {
-  if (typeof output === 'string') return output;
+  let text;
+  if (typeof output === 'string') text = output;
   if (Array.isArray(output)) {
-    const text = output.filter(object).map(part => part.text || part.content || '').filter(Boolean).join('\n');
-    return text || JSON.stringify(output);
+    text = output.filter(object).map(part => part.text || part.content || '').filter(Boolean).join('\n') || JSON.stringify(output);
   }
-  if (object(output) && typeof output.content === 'string') return output.content;
-  if (output == null) return '';
-  try { return JSON.stringify(output); } catch { return String(output); }
+  if (object(output) && typeof output.content === 'string') text = output.content;
+  if (output == null) text = '';
+  if (text === undefined) { try { text = JSON.stringify(output); } catch { text = String(output); } }
+  const limit = 12000;
+  if (text.length <= limit) return text;
+  const side = Math.floor((limit - 80) / 2);
+  const marker = `\n\n[Tool output truncated: ${text.length - side * 2} middle characters omitted.]\n\n`;
+  return `${text.slice(0, side)}${marker}${text.slice(-side)}`;
 }
 
 function reasoningText(item) {
@@ -68,10 +228,10 @@ function reasoningText(item) {
   return Array.isArray(item.summary) ? item.summary.filter(object).map(part => part.text || '').join('') : '';
 }
 
-function responsesToChat(body, thinking) {
+function responsesToChat(body, thinking, textCallHistory = null) {
   if (!object(body)) throw new TypeError('Responses request must be an object.');
   const messages = [];
-  const pending = { content: '', reasoning: '', tool_calls: [] };
+  const pending = { content: '', reasoning: '', tool_calls: [], sourceResponseId: null };
   const hasPending = () => pending.content || pending.reasoning || pending.tool_calls.length;
   const flush = () => {
     if (!hasPending()) return;
@@ -79,7 +239,7 @@ function responsesToChat(body, thinking) {
     if (pending.reasoning) message.reasoning_content = pending.reasoning;
     if (pending.tool_calls.length) message.tool_calls = pending.tool_calls.splice(0);
     messages.push(message);
-    pending.content = ''; pending.reasoning = '';
+    pending.content = ''; pending.reasoning = ''; pending.sourceResponseId = null;
   };
 
   if (typeof body.instructions === 'string' && body.instructions.trim()) {
@@ -87,27 +247,35 @@ function responsesToChat(body, thinking) {
   }
   const input = Array.isArray(body.input) ? body.input : (typeof body.input === 'string'
     ? [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: body.input }] }] : []);
-  for (const item of input) {
+  for (let inputIndex = 0; inputIndex < input.length; inputIndex++) {
+    const item = input[inputIndex];
     if (!object(item)) continue;
     if (item.type === 'reasoning') {
-      pending.reasoning += reasoningText(item);
+      const source = recentTranscript(textCallHistory, item.id);
+      if (!restoreSourceTranscript(pending, source)) pending.reasoning += reasoningText(item);
       continue;
     }
     if (item.type === 'function_call') {
-      pending.tool_calls.push({ id: item.call_id || item.id || id('call'), type: 'function', function: {
-        name: item.name || 'tool', arguments: typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments || {}),
+      const textCall = recentTranscript(textCallHistory, item.call_id || item.id);
+      if (textCall) {
+        restoreSourceTranscript(pending, textCall);
+        pending.tool_calls.length = 0;
+        continue;
+      }
+      pending.tool_calls.push({ id: item.call_id || item.id || `call_missing_${inputIndex}`, type: 'function', function: {
+        name: item.name || 'tool', arguments: toolArguments(item.arguments),
       } });
       continue;
     }
     if (item.type === 'custom_tool_call') {
-      pending.tool_calls.push({ id: item.call_id || item.id || id('call'), type: 'function', function: {
+      pending.tool_calls.push({ id: item.call_id || item.id || `call_missing_${inputIndex}`, type: 'function', function: {
         name: item.name || 'tool', arguments: JSON.stringify({ input: typeof item.input === 'string' ? item.input : '' }),
       } });
       continue;
     }
     if (item.type === 'tool_search_call') {
-      pending.tool_calls.push({ id: item.call_id || item.id || id('call'), type: 'function', function: {
-        name: 'tool_search', arguments: JSON.stringify(item.arguments || {}),
+      pending.tool_calls.push({ id: item.call_id || item.id || `call_missing_${inputIndex}`, type: 'function', function: {
+        name: 'tool_search', arguments: toolArguments(item.arguments || {}),
       } });
       continue;
     }
@@ -115,12 +283,15 @@ function responsesToChat(body, thinking) {
       flush();
       const output = item.type === 'tool_search_output' ? (item.tools ?? item.output ?? item) : item.output;
       messages.push({ role: 'tool', tool_call_id: item.call_id || '', content: toolOutputText(output) });
+      const textCall = recentTranscript(textCallHistory, item.call_id);
+      if (textCall?.name) messages[messages.length - 1] = { role: 'assistant', content: `Tool output for ${textCall.name} (reference data):\n${toolOutputText(output)}` };
       continue;
     }
     if (item.type === 'message') {
       const role = item.role || 'user';
       if (role === 'assistant') {
-        pending.content += contentText(item.content);
+        const source = recentTranscript(textCallHistory, item.id);
+        if (!restoreSourceTranscript(pending, source)) pending.content += contentText(item.content);
       } else {
         flush();
         messages.push({ role, content: role === 'user' ? chatContent(item.content) : contentText(item.content) });
@@ -165,18 +336,19 @@ function responsesToChat(body, thinking) {
     out.response_format = { type: 'json_schema', json_schema: {
       name: format.name || 'result', strict: format.strict === true, schema: format.schema,
     } };
-    messages.unshift({ role: 'developer', content: 'Return the final answer as JSON matching this schema. Do not wrap it in Markdown.\n' + JSON.stringify(format.schema) });
+    messages.unshift({ role: 'developer', content: 'Return the final answer as JSON matching this schema. Do not wrap it in Markdown.\n' + stableJson(format.schema) });
   } else if (format?.type === 'json_object') {
     out.response_format = { type: 'json_object' };
     messages.unshift({ role: 'developer', content: 'Return the final answer as a valid JSON object. Do not wrap it in Markdown.' });
   }
-  if (tools.length) out.tools = tools;
+  // Strata rejects response_format together with tools; the schema instruction above still applies.
+  if (tools.length) { out.tools = tools; delete out.response_format; }
   const max = [body.max_output_tokens, body.max_completion_tokens, body.max_tokens].find(value => Number.isSafeInteger(value) && value > 0);
   if (max) out.max_completion_tokens = max;
   for (const key of ['temperature', 'top_p', 'top_k', 'min_p', 'seed', 'presence_penalty', 'frequency_penalty', 'repetition_penalty', 'penalty_last_n']) {
     if (body[key] !== undefined) out[key] = body[key];
   }
-  if (object(body.reasoning)) out.reasoning = { ...body.reasoning };
+  if (object(body.reasoning)) out.reasoning = stableValue(body.reasoning);
   out.chat_template_kwargs = { ...(object(body.chat_template_kwargs) ? body.chat_template_kwargs : {}), enable_thinking: thinking !== false };
   return { body: out, toolKinds };
 }
@@ -191,35 +363,115 @@ function estimateResponsesInputTokens(body) {
 
 function parseArguments(value) {
   if (object(value)) return value;
-  if (typeof value !== 'string' || !value.trim()) return {};
-  try {
-    const parsed = JSON.parse(value);
-    return object(parsed) ? parsed : { input: value };
-  } catch { return { input: value }; }
+  const parsed = jsonValue(value);
+  return object(parsed) ? parsed : { input: parsed === null ? String(value ?? '') : parsed };
+}
+
+function patchText(value) {
+  if (typeof value !== 'string') return null;
+  const start = value.indexOf('*** Begin Patch');
+  if (start < 0) return null;
+  const end = /^\*\*\* End Patch\r?$/m.exec(value.slice(start));
+  return end ? value.slice(start, start + end.index + end[0].length) : value.slice(start).trim();
+}
+
+function patchFrom(value, seen = new Set()) {
+  if (typeof value === 'string') return patchText(value);
+  if (!value || typeof value !== 'object' || seen.has(value)) return null;
+  seen.add(value);
+  if (Array.isArray(value)) return patchText(value.join('\n')) || value.map(item => patchFrom(item, seen)).find(Boolean) || null;
+  for (const key of ['patch', 'input', 'cmd', 'command']) {
+    const found = patchFrom(value[key], seen);
+    if (found) return found;
+  }
+  return null;
+}
+
+function patchCommand(patch) {
+  let marker = 'LITTLE_BOT_PATCH';
+  while (patch.split(/\r?\n/).includes(marker)) marker += '_END';
+  return `apply_patch <<'${marker}'\n${patch}\n${marker}`;
+}
+
+function errorCommand(name, toolKinds, detail = '') {
+  const tools = [...toolKinds.keys()];
+  const label = String(name || 'unknown').replace(/[\r\n\0]/g, ' ').slice(0, 80);
+  const message = `${detail ? `${detail} ` : ''}Unknown tool "${label}". Valid tools: ${tools.length ? tools.join(', ') : 'none'}. Retry with a listed tool.`;
+  return `Write-Output '${message.replace(/'/g, "''")}'; exit 1`;
+}
+
+function repairToolCall(call, toolKinds) {
+  // Without exec_command (tool-less JSON turns) there is nothing to redirect to.
+  if (!toolKinds.has('exec_command')) return call;
+  if (!toolKinds.has(call.name) && PATCH_TOOLS.has(call.name)) {
+    const patch = patchFrom(jsonValue(call.arguments)) || patchFrom(call.arguments);
+    return { ...call, name: 'exec_command', arguments: stableJson({ cmd: patch ? patchCommand(patch) : errorCommand(call.name, toolKinds, 'Could not read the patch.') }) };
+  }
+  if (!toolKinds.has(call.name)) {
+    return { ...call, name: 'exec_command', arguments: stableJson({ cmd: errorCommand(call.name, toolKinds) }) };
+  }
+  if (call.name === 'exec_command') {
+    const args = parseArguments(call.arguments);
+    if (Array.isArray(args.cmd) && /^apply_patch(?:\.bat)?$/i.test(String(args.cmd[0] || ''))) {
+      const patch = patchFrom(args.cmd.slice(1));
+      return { ...call, arguments: stableJson({ ...args, cmd: patch ? patchCommand(patch) : errorCommand('apply_patch', toolKinds, 'Could not read the patch.') }) };
+    }
+  }
+  return call;
 }
 
 class StrataStreamAdapter extends Transform {
-  constructor({ model, toolKinds = new Map() } = {}) {
+  constructor({ model, toolKinds = new Map(), textCallHistory = null, onDegenerate = () => {} } = {}) {
     super();
     this.model = model || 'strata';
     this.toolKinds = toolKinds;
+    this.textCallHistory = textCallHistory;
     this.decoder = new StringDecoder('utf8');
     this.buffer = '';
     this.responseId = id('resp');
     this.messageId = id('msg');
     this.reasoningId = id('rs');
     this.created = false;
+    this.started = false;
     this.messageAdded = false;
     this.reasoningAdded = false;
     this.reasoningDone = false;
     this.completed = false;
+    this.inThinking = false;
+    this.thinkingTag = '';
+    this.pendingText = '';
+    this.onDegenerate = onDegenerate;
+    this.degenerate = false;
     this.text = '';
+    this.sourceText = '';
     this.reasoning = '';
+    this.sourceReasoning = '';
     this.calls = new Map();
     this.usage = null;
   }
 
-  _event(event) { this.push(Buffer.from(`data: ${JSON.stringify(event)}\n\n`)); }
+  _eventBytes(event) { return Buffer.from(`data: ${JSON.stringify(event)}\n\n`); }
+  _event(event) { this.push(this._eventBytes(event)); }
+
+  start() {
+    if (this.started) return Buffer.alloc(0);
+    this.started = true;
+    const events = [];
+    if (!this.created) {
+      this.created = true;
+      events.push(this._eventBytes({ type: 'response.created', response: { id: this.responseId, object: 'response', status: 'in_progress', model: this.model } }));
+    }
+    events.push(this._eventBytes({ type: 'response.in_progress', response: { id: this.responseId, object: 'response', status: 'in_progress', model: this.model } }));
+    return Buffer.concat(events);
+  }
+
+  failure(message, code = 'local_model_error') {
+    if (this.completed) return Buffer.alloc(0);
+    this.completed = true;
+    const initial = this.start();
+    return Buffer.concat([initial, this._eventBytes({ type: 'response.failed', response: { id: this.responseId, object: 'response', status: 'failed', model: this.model,
+      error: { code, message: String(message || 'The local model request failed.') } } })]);
+  }
 
   _created() {
     if (this.created) return;
@@ -248,16 +500,10 @@ class StrataStreamAdapter extends Transform {
 
   _textDelta(delta) {
     if (!delta) return;
-    this._created();
-    this._finishReasoning();
-    if (!this.messageAdded) {
-      this.messageAdded = true;
-      this._event({ type: 'response.output_item.added', output_index: this.reasoningAdded ? 1 : 0,
-        item: { type: 'message', id: this.messageId, role: 'assistant', content: [] } });
-    }
-    this.text += delta;
-    this._event({ type: 'response.output_text.delta', item_id: this.messageId,
-      output_index: this.reasoningAdded ? 1 : 0, content_index: 0, delta });
+    this.sourceText += delta;
+    this.pendingText += delta;
+    this._drainText(false);
+    if (this.degenerate) this._complete('stop');
   }
 
   _toolDelta(tool) {
@@ -283,10 +529,143 @@ class StrataStreamAdapter extends Transform {
     if (kind.type === 'tool_search') {
       return { type: 'tool_search_call', call_id: call.id, execution: kind.execution || 'client', arguments: parseArguments(call.arguments) };
     }
-    return { type: 'function_call', call_id: call.id, name: call.name, arguments: call.arguments || '{}' };
+    return { type: 'function_call', call_id: call.id, name: call.name, arguments: toolArguments(call.arguments || '{}') };
+  }
+
+  _addTextCall(name, args, argumentSource) {
+    if (typeof name !== 'string' || !name.trim()) return false;
+    const index = Math.max(-1, ...this.calls.keys()) + 1;
+    this.calls.set(index, { id: id('call'), name, sourceName: name, arguments: toolArguments(argumentSource ?? args), textCall: true });
+    return true;
+  }
+
+  _parseTextCall(raw) {
+    const call = callFromJson(raw);
+    if (call) return this._addTextCall(call.name, call.args, call.argumentSource);
+    const name = /(?:["']?name["']?|tool_name)\s*:\s*["']([^"']+)["']/i.exec(raw)?.[1]?.trim();
+    if (name) return this._addTextCall(name, raw);
+    return false;
+  }
+
+  _emitText(text) {
+    if (!text) return;
+    this._created();
+    this._finishReasoning();
+    if (!this.messageAdded) {
+      this.messageAdded = true;
+      this._event({ type: 'response.output_item.added', output_index: this.reasoningAdded ? 1 : 0,
+        item: { type: 'message', id: this.messageId, role: 'assistant', content: [] } });
+    }
+    this.text += text;
+    this._event({ type: 'response.output_text.delta', item_id: this.messageId,
+      output_index: this.reasoningAdded ? 1 : 0, content_index: 0, delta: text });
+  }
+
+  _drainText(final) {
+    const markers = [
+      ['think', /<(think|reasoning|analysis)\s*>/i],
+      ['tool', /<tool_call\s*>/i],
+      ['function', /<function\s*=\s*([^>]+)>/i],
+      ['fenced', /```json\s*/i],
+    ];
+    while (this.pendingText) {
+      if (this.inThinking) {
+        const closing = `</${this.thinkingTag}>`;
+        const close = new RegExp(`<\\/${this.thinkingTag}\\s*>`, 'i').exec(this.pendingText);
+        if (!close) {
+          if (final) {
+            this._reasoningDelta(this.pendingText);
+            this.pendingText = ''; this.inThinking = false; this.thinkingTag = '';
+          } else {
+            let keep = 0;
+            const lower = this.pendingText.toLowerCase(), prefix = closing.slice(0, -1).toLowerCase();
+            for (let size = 1; size <= prefix.length; size++) if (lower.endsWith(prefix.slice(0, size))) keep = size;
+            const partialClose = new RegExp(`<\\/${this.thinkingTag}\\s*$`, 'i').exec(this.pendingText);
+            if (partialClose) keep = Math.max(keep, this.pendingText.length - partialClose.index);
+            const safe = this.pendingText.length - keep;
+            if (safe) this._reasoningDelta(this.pendingText.slice(0, safe));
+            this.pendingText = this.pendingText.slice(safe);
+          }
+          return;
+        }
+        this._reasoningDelta(this.pendingText.slice(0, close.index));
+        this.pendingText = this.pendingText.slice(close.index + close[0].length);
+        this.inThinking = false;
+        this.thinkingTag = '';
+        continue;
+      }
+      const found = markers.map(([type, pattern]) => {
+        const match = pattern.exec(this.pendingText);
+        return match ? { type, match, index: match.index } : null;
+      }).filter(Boolean).sort((a, b) => a.index - b.index)[0];
+      if (!found) {
+        const repeated = repeatedSuffix(this.pendingText);
+        if (repeated) {
+          this.pendingText = this.pendingText.slice(0, repeated.keep);
+          this._emitText(this.pendingText);
+          this.pendingText = '';
+          this.degenerate = true;
+          setImmediate(() => this.onDegenerate());
+          return;
+        }
+        if (final) { this._emitText(this.pendingText); this.pendingText = ''; return; }
+        const safe = Math.max(0, this.pendingText.length - 128);
+        if (safe) { this._emitText(this.pendingText.slice(0, safe)); this.pendingText = this.pendingText.slice(safe); }
+        return;
+      }
+      if (found.index) this._emitText(this.pendingText.slice(0, found.index));
+      this.pendingText = this.pendingText.slice(found.index);
+      const opening = found.match[0];
+      if (found.type === 'think') {
+        this.pendingText = this.pendingText.slice(opening.length);
+        this.inThinking = true;
+        this.thinkingTag = found.match[1].toLowerCase();
+        continue;
+      }
+      if (found.type === 'tool') {
+        const innerStart = opening.length;
+        const close = /<\/tool_call\s*>/i.exec(this.pendingText.slice(innerStart));
+        if (!close && !final) return;
+        const inner = close ? this.pendingText.slice(innerStart, innerStart + close.index) : this.pendingText.slice(innerStart);
+        const block = close ? this.pendingText.slice(0, innerStart + close.index + close[0].length) : this.pendingText;
+        if (!this._parseTextCall(inner)) this._emitText(block);
+        this.pendingText = close ? this.pendingText.slice(innerStart + close.index + close[0].length) : '';
+        continue;
+      }
+      if (found.type === 'function') {
+        const name = found.match[1].trim().replace(/^(["'])(.*)\1$/, '$2');
+        const innerStart = opening.length;
+        const close = /<\/function\s*>/i.exec(this.pendingText.slice(innerStart));
+        if (!close && !final) return;
+        const inner = close ? this.pendingText.slice(innerStart, innerStart + close.index) : this.pendingText.slice(innerStart);
+        const args = {};
+        for (const param of inner.matchAll(/<parameter\s*=\s*([^>]+)>([\s\S]*?)<\/parameter\s*>/gi)) {
+          const key = param[1].trim().replace(/^(["'])(.*)\1$/, '$2');
+          const value = param[2].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').trim();
+          const parsed = jsonValue(value);
+          args[key] = parsed === null ? value : parsed;
+        }
+        const block = close ? this.pendingText.slice(0, innerStart + close.index + close[0].length) : this.pendingText;
+        if (!this._addTextCall(name, args)) this._emitText(block);
+        this.pendingText = close ? this.pendingText.slice(innerStart + close.index + close[0].length) : '';
+        continue;
+      }
+      const closeIndex = this.pendingText.indexOf('```', opening.length);
+      if (closeIndex < 0) {
+        if (!final) return;
+        this._emitText(this.pendingText); this.pendingText = ''; return;
+      }
+      const end = closeIndex + 3;
+      const block = this.pendingText.slice(0, end);
+      const inner = this.pendingText.slice(opening.length, closeIndex);
+      if (!this._parseTextCall(inner)) this._emitText(block);
+      this.pendingText = this.pendingText.slice(end);
+    }
   }
 
   _complete(finishReason = 'stop') {
+    if (this.completed) return;
+    this._drainText(true);
     if (this.completed) return;
     this.completed = true;
     this._created();
@@ -310,23 +689,38 @@ class StrataStreamAdapter extends Transform {
     const limited = ['length', 'max_tokens', 'max_output_tokens'].includes(finishReason);
     // A cutoff may leave incomplete arguments. Never release those calls to the
     // engine as executable tools; preserve partial text and report the failure.
-    for (const index of (limited ? [] : [...this.calls.keys()].sort((a, b) => a - b))) {
-      const item = this._toolItem(this.calls.get(index));
+    const calls = limited ? [] : [...this.calls.keys()].sort((a, b) => a - b)
+      .map(index => this.calls.get(index)).filter(call => call.name).map(call => repairToolCall(call, this.toolKinds))
+      .filter(call => call.name && (!this.toolKinds.size || this.toolKinds.has(call.name)));
+    const transcript = { responseId: this.responseId, text: this.sourceText, reasoning: this.sourceReasoning };
+    if (!limited && (this.sourceText !== this.text || this.sourceReasoning !== this.reasoning)) {
+      if (this.reasoningAdded) rememberTranscript(this.textCallHistory, this.reasoningId, transcript);
+      if (this.messageAdded || this.text) rememberTranscript(this.textCallHistory, this.messageId, transcript);
+    }
+    if (!limited && calls.length && calls.every(call => call.textCall)) for (const call of calls) {
+      rememberTranscript(this.textCallHistory, call.id, { ...transcript, name: call.sourceName || call.name });
+    }
+    for (const call of calls) {
+      const item = this._toolItem(call);
       this._event({ type: 'response.output_item.done', output_index: outputIndex++, item });
       output.push(item);
     }
+    const empty = !this.text.trim() && !calls.length;
+    const failed = limited || empty;
     const inputTokens = Number(this.usage?.prompt_tokens) || 0;
     const outputTokens = Number(this.usage?.completion_tokens) || 0;
-    this._event({ type: limited ? 'response.failed' : 'response.completed', response: {
-      id: this.responseId, object: 'response', status: limited ? 'failed' : 'completed', model: this.model, output,
+    this._event({ type: failed ? 'response.failed' : 'response.completed', response: {
+      id: this.responseId, object: 'response', status: failed ? 'failed' : 'completed', model: this.model, output,
       ...(limited ? { incomplete_details: { reason: 'max_output_tokens' }, error: { code: 'max_output_tokens',
-        message: 'The local model reached its output token limit before finishing. Partial text was kept; ask it to continue.' } } : {}),
+        message: 'The local model reached its output token limit before finishing. Partial text was kept; ask it to continue.' } }
+        : empty ? { error: { code: 'empty_completion', message: 'The local model returned an empty response. Please try again.' } } : {}),
       usage: { input_tokens: inputTokens, input_tokens_details: this.usage?.prompt_tokens_details ? { cached_tokens: Math.min(inputTokens, Math.max(0, Number(this.usage.prompt_tokens_details.cached_tokens) || 0)) } : null, output_tokens: outputTokens,
         output_tokens_details: null, total_tokens: Number(this.usage?.total_tokens) || inputTokens + outputTokens },
     } });
   }
 
   _line(line) {
+    if (this.completed) return;
     if (!line) return;
     if (line.startsWith(':')) { this.push(Buffer.from(`${line}\n\n`)); return; }
     if (!line.startsWith('data:')) return;
@@ -345,7 +739,7 @@ class StrataStreamAdapter extends Transform {
     if (!choice) return;
     this.model = chunk.model || this.model;
     const delta = object(choice.delta) ? choice.delta : {};
-    if (typeof delta.reasoning_content === 'string') this._reasoningDelta(delta.reasoning_content);
+    if (typeof delta.reasoning_content === 'string') { this.sourceReasoning += delta.reasoning_content; this._reasoningDelta(delta.reasoning_content); }
     if (typeof delta.content === 'string') this._textDelta(delta.content);
     for (const tool of Array.isArray(delta.tool_calls) ? delta.tool_calls : []) this._toolDelta(tool);
     if (object(chunk.usage)) this.usage = chunk.usage;
@@ -366,8 +760,9 @@ class StrataStreamAdapter extends Transform {
   _flush(callback) {
     this.buffer += this.decoder.end();
     if (this.buffer) this._line(this.buffer.replace(/\r$/, ''));
+    if (!this.completed) this._complete();
     callback();
   }
 }
 
-module.exports = { StrataStreamAdapter, estimateResponsesInputTokens, responsesToChat, withoutImages, hasImages };
+module.exports = { StrataStreamAdapter, estimateResponsesInputTokens, responsesToChat, withoutImages, hasImages, stableJson };

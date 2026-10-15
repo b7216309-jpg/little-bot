@@ -2,18 +2,19 @@
 
 const COMPACTION_TIMEOUT_MS = 10 * 60 * 1000;
 const COMPACTION_STOP_TIMEOUT_MS = 10000;
-const DEFAULT_AUTO_COMPACT_PERCENT = 80;
+const DEFAULT_AUTO_COMPACT_PERCENT = 50;
 const count = value => Number.isSafeInteger(value) && value >= 0;
 
 function validAutoCompactPercent(value) {
   return Number.isInteger(value) && (value === 0 || (value >= 20 && value <= 95));
 }
-function normalizeAutoCompactPercent(value) {
-  return validAutoCompactPercent(value) ? value : DEFAULT_AUTO_COMPACT_PERCENT;
+function normalizeAutoCompactPercent(value, fallback = DEFAULT_AUTO_COMPACT_PERCENT) {
+  return validAutoCompactPercent(value) ? value : fallback;
 }
 function compactionConfig(settings) {
   // Supported by the pinned engine. Keep its model-specific hard limits intact.
-  return { model_post_turn_compact_threshold_percent: normalizeAutoCompactPercent(settings?.autoCompactPercent) };
+  const fallback = settings?.connection === 'local' ? DEFAULT_AUTO_COMPACT_PERCENT : 80;
+  return { model_post_turn_compact_threshold_percent: normalizeAutoCompactPercent(settings?.autoCompactPercent, fallback) };
 }
 
 function ensureCompaction(chat) {

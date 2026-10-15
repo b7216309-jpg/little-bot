@@ -24,7 +24,7 @@ Absence of a source or an empty search does not establish user failure, avoidanc
 
 ## Results and chat
 
-Runs have explicit outcomes: **update**, **progress**, **completed**, **recommendation**, **waiting**, **no-change** or **failed**. Only Tasks can be completed. Updates correct stale facts or priorities. Recommendations are advice, not proof that the user acted. The host checks source IDs and acceptance checks; unsupported progress or completion records are rejected. Source references make claims inspectable but do not mechanically prove that coaching advice is useful.
+Runs have explicit outcomes: **update**, **progress**, **completed**, **recommendation**, **waiting**, **no-change** or **failed**. Only Tasks can be completed. Updates correct stale facts or priorities. Recommendations are advice, not proof that the user acted. The host checks source IDs and acceptance checks; progress without observable evidence is kept as a recommendation, and unsupported completion records are rejected. Source references make claims inspectable but do not mechanically prove that coaching advice is useful.
 
 Useful outcomes and questions appear as labelled goal messages in the existing chat. Quiet reviews remain in the goal's history. Cards show the latest meaningful result, last review outcome, proposed actions and upcoming activation. Agent messages cannot trigger their own review as user evidence.
 

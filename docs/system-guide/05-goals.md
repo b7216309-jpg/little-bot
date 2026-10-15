@@ -14,6 +14,8 @@ A review collects configured chat, calendar and text-file evidence, compares ver
 
 A cycle can act through the permitted tools, deliver a finding/action/coaching summary, ask one persisted question, or report no change. The host checks citations and progress rather than accepting a repeated motivational report as completed work. A failed, unreadable or over-budget ongoing cycle retries after 15 minutes, 1 hour and 4 hours, then blocks for attention. Each retry starts a fresh cycle budget. Questions, possible external effects and save failures block immediately. Questions are answered by exact goal/question ID and can appear in the shared chat. Results and questions are delivered into the conversation, queued while a turn is busy, and carried to the model with the next user message (see [delivery](08-heartbeat-inbox.md#delivery-into-the-conversation)). Goal context is also supplied to ordinary foreground messages.
 
+The separate `/goal` checker has no tools and uses schema-constrained decoding on Strata. It accepts common verdict aliases and retries once with the validation error, so one malformed IQ3 answer does not end the goal check.
+
 Ongoing reviews emit goal.reviewed so waiting standing intents settle. New source changes or an authorized later run can cause another review. “No change” is an intentional result when evidence has not changed, not a promise of daily new advice. Set **Speak up after · hours quiet** (`maxQuietHours`, 0–720, 0 = off) so that an ongoing goal with no meaningful result for that long reviews anyway, even without new evidence. That run is told to make one concrete contribution.
 
 ## Recovery and failure conditions

@@ -22,6 +22,20 @@ function fixture(t) {
     } },
   };
   const worker = new MemoryConsolidator(c, { autoStart: false });
+  c.crashed = error => { c.crashError = error; if (worker.active) worker.finish(worker.active, null, error.message); };
+  c.recoverUncertainTurnStart = async ({ threadId, turnId, completion, timeoutMs = 15000, owner, reason }) => {
+    if (!threadId || !turnId) { if (c.runtime.status === 'ready') c.crashed(new Error(reason)); return false; }
+    if (turnId && !owner?.interruptSent) {
+      if (owner) owner.interruptSent = true;
+      try { await c.client.request('turn/interrupt', { threadId, turnId }); }
+      catch { if (owner) owner.interruptSent = false; }
+    }
+    let timer;
+    const stopped = await Promise.race([completion.then(() => true), new Promise(resolve => { timer = setTimeout(() => resolve(false), timeoutMs); })]);
+    clearTimeout(timer);
+    if (!stopped && c.runtime.status === 'ready') c.crashed(new Error(reason));
+    return stopped;
+  };
   t.after(async () => { await worker.close(); service.close(); });
   service.indexChat(chat); service.enqueueExtraction(chat);
   return { service, chat, calls, c, worker };
@@ -58,6 +72,10 @@ test('extraction does not overlap a live conversation and invalid output retries
   chat.status = 'idle'; await worker.tick();
   worker.notification('item/agentMessage/delta', { threadId: 'extract', delta: 'invalid' });
   worker.notification('turn/completed', { threadId: 'extract', turn: { status: 'completed' } });
+  await new Promise(resolve => setImmediate(resolve));
+  worker.notification('item/completed', { threadId: 'extract', item: { type: 'agentMessage', text: 'still invalid' } });
+  worker.notification('turn/completed', { threadId: 'extract', turn: { id: 'turn', status: 'completed' } });
+  await new Promise(resolve => setImmediate(resolve));
   assert(worker.lastError);
   assert.equal(service.db.prepare("SELECT status FROM extraction_jobs").get().status, 'pending');
   assert.equal(service.db.prepare("SELECT attempts FROM extraction_jobs").get().attempts, 1);
@@ -78,6 +96,42 @@ test('interrupt RPC acknowledgement alone cannot release the execution lane', as
   assert.equal(c.memoryBusy, false);
 });
 
+test('stopping a memory turn with a pending start acknowledgement releases its lane', async t => {
+  const { worker, c } = fixture(t);
+  let entered, rejectStart, recovered = false;
+  const started = new Promise(resolve => { entered = resolve; });
+  c.client.request = async method => method === 'thread/start' ? { thread: { id: 'extract' } } : method === 'turn/start'
+    ? (entered(), new Promise((resolve, reject) => { rejectStart = reject; })) : {};
+  c.recoverUncertainTurnStart = async ({ owner }) => {
+    recovered = owner.turnStartAttempted;
+    worker.finish(owner, null, 'Memory work was stopped.');
+    return false;
+  };
+  const ticking = worker.tick();
+  await started;
+  await worker.pauseForUser();
+  assert.equal(recovered, true);
+  assert.equal(c.memoryBusy, false);
+  rejectStart(new Error('Engine request closed.'));
+  await ticking;
+});
+
+test('a memory job that will not stop restarts the engine before the user turn continues', async t => {
+  const { worker, c } = fixture(t);
+  worker.stopTimeoutMs = 5;
+  await worker.tick();
+  c.client.request = async method => method === 'turn/interrupt' ? {} : {};
+  c.client.close = async () => {};
+  c.crashed = error => {
+    c.crashError = error;
+    worker.finish(worker.active, null, 'Engine restarted before user work.');
+  };
+  await worker.pauseForUser();
+  assert.match(c.crashError.message, /did not stop after memory maintenance/);
+  assert.equal(c.memoryBusy, false);
+  assert.equal(worker.active, null);
+});
+
 test('memory tools immediately save, correct, recall and forget across model connections', async t => {
   const { c, chat, service } = fixture(t);
   const tools = new AgentTools({ store: c.store });
@@ -89,17 +143,22 @@ test('memory tools immediately save, correct, recall and forget across model con
   assert.equal(service.search({ query: 'pnpm', source: 'facts', scope: 'all' }).results.length, 0);
 });
 
-test('with a local model, extraction asks for JSON in the prompt instead of a structured response format', async t => {
-  // Local servers reject "structured response_format with tools/MCP"; every learning job failed three times.
+test('local extraction uses constrained JSON and repairs one malformed answer', async t => {
   const { service, worker, calls, c } = fixture(t);
   c.store.data.settings.connection = 'local';
   await worker.tick();
   const turn = calls.find(call => call.method === 'turn/start').params;
   assert.equal(turn.outputSchema, undefined);
-  assert.match(turn.input[0].text, /Return only one JSON object matching this schema/);
-  worker.notification('item/completed', { threadId: 'extract', item: { type: 'agentMessage', text: '<think>pnpm is durable</think>\n```json\n' + JSON.stringify({ memories: [
-    { text: 'This project uses pnpm.', type: 'decision', scope: 'workspace', key: 'project.package-manager', sourceIds: ['u1'], supersedesId: null },
-  ] }) + '\n```' } });
+  assert.match(turn.input[0].text, /matching this schema/);
+  worker.notification('item/completed', { threadId: 'extract', item: { type: 'agentMessage', text: "{'memories': [}" } });
+  worker.notification('turn/completed', { threadId: 'extract', turn: { id: 'turn', status: 'completed' } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls.filter(call => call.method === 'turn/start').length, 2);
+  assert.equal(calls.filter(call => call.method === 'turn/start')[1].params.outputSchema, undefined);
+  const sloppy = JSON.stringify({ memories: [
+    { content: 'This project uses pnpm.', category: 'Decision', scope: 'workspace', key: 'project.package-manager', sources: 'u1' },
+  ] }).replace(/\]\}$/, '],}');
+  worker.notification('item/completed', { threadId: 'extract', item: { type: 'agentMessage', text: '<think>pnpm is durable</think>\n```json\n' + sloppy + '\n```' } });
   worker.notification('turn/completed', { threadId: 'extract', turn: { id: 'turn', status: 'completed' } });
   assert.equal(service.pendingExtractions().length, 0);
   assert.deepEqual(service.snapshot().records.map(record => record.text), ['This project uses pnpm.']);

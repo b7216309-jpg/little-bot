@@ -15,13 +15,75 @@ const text = maxLength => ({ type: 'string', minLength: 1, maxLength });
 const checkSchema = { type: 'object', properties: { type: { type: 'string', enum: ['fileExists', 'fileContains', 'command'] }, path: text(500), contains: text(4000), command: text(4000) }, required: ['type'], additionalProperties: false };
 const actions = ['list', 'create', 'update', 'pause', 'resume'];
 const calendarActions = ['list', 'create', 'update', 'delete'];
+const keyAlias = key => ({ q: 'query', search: 'query', goalid: 'id', scheduleid: 'id', eventid: 'id', followupid: 'id', intentionid: 'id', memoryid: 'id', sessionid: 'sessionId', messageid: 'messageId', from: 'fromLocal', to: 'toLocal' })[key.toLowerCase().replace(/[_-]/g, '')];
+function normalizeObject(value, schema = {}) {
+  if (!object(value)) return value;
+  const properties = schema.properties || {}, result = {};
+  for (const [key, raw] of Object.entries(value)) {
+    let target = Object.hasOwn(properties, key) ? key : null;
+    if (!target) {
+      const alias = keyAlias(key), folded = key.toLowerCase().replace(/[_-]/g, '');
+      target = (alias && Object.keys(properties).find(name => name.toLowerCase().replace(/[_-]/g, '') === alias.toLowerCase()))
+        || Object.keys(properties).find(name => name.toLowerCase().replace(/[_-]/g, '') === folded)
+        || (['q', 'search', 'text'].includes(folded) && properties.query ? 'query' : null)
+        || (folded.endsWith('id') && properties.id ? 'id' : null);
+    }
+    if (!target || result[target] !== undefined) { if (target && result[target] !== undefined && result[target] === '') result[target] = raw; else result[key] = raw; continue; }
+    const shape = properties[target] || {};
+    let item = raw;
+    if (shape.type === 'integer' || shape.type === 'number') {
+      if (typeof item === 'string' && /^[-+]?\d+(?:\.\d+)?$/.test(item.trim())) item = Number(item);
+    } else if (shape.type === 'boolean' && typeof item === 'string' && /^(true|false)$/i.test(item.trim())) item = item.trim().toLowerCase() === 'true';
+    else if (shape.type === 'string' && typeof item === 'string' && shape.enum) {
+      const choice = shape.enum.find(option => option.toLowerCase() === item.trim().toLowerCase()); if (choice) item = choice;
+    } else if (shape.type === 'array' && !Array.isArray(item)) item = [item];
+    else if (shape.type === 'string' && typeof item === 'string' && /^(?:startLocal|endLocal|fromLocal|toLocal|atLocal|date)$/.test(target)) item = normalizeDate(item);
+    if (shape.type === 'array' && Array.isArray(item)) item = item.map(entry => normalizeScalar(entry, shape.items));
+    if (shape.type === 'object') item = normalizeObject(item, shape);
+    result[target] = item;
+  }
+  return result;
+}
+function normalizeScalar(value, schema = {}) {
+  if ((schema.type === 'integer' || schema.type === 'number') && typeof value === 'string' && /^[-+]?\d+(?:\.\d+)?$/.test(value.trim())) return Number(value);
+  if (schema.type === 'boolean' && typeof value === 'string' && /^(true|false)$/i.test(value.trim())) return value.trim().toLowerCase() === 'true';
+  if (schema.type === 'string' && schema.enum && typeof value === 'string') return schema.enum.find(option => option.toLowerCase() === value.trim().toLowerCase()) || value;
+  if (schema.type === 'object') return normalizeObject(value, schema);
+  return value;
+}
+function normalizeDate(value) {
+  const text = value.trim();
+  let match = /^(\d{4})[/.](\d{1,2})[/.](\d{1,2})(.*)$/.exec(text);
+  if (match) return `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}${match[4].replace(/^\s+/, 'T')}`;
+  match = /^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2,4})(.*)$/.exec(text);
+  if (!match) {
+    const monthNames = 'jan feb mar apr may jun jul aug sep oct nov dec'.split(' ');
+    match = /^(?:([A-Za-z]{3,9})\s+(\d{1,2}),?\s+(\d{4})|(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4}))(.*)$/.exec(text);
+    if (match) {
+      const month = monthNames.findIndex(name => (match[1] || match[5]).toLowerCase().startsWith(name)) + 1;
+      if (month) return `${match[3] || match[6]}-${String(month).padStart(2, '0')}-${String(match[2] || match[4]).padStart(2, '0')}${match[7] || ''}`;
+    }
+  }
+  if (match) { const [, a, b, rawYear, tail] = match; const year = rawYear.length === 2 ? `20${rawYear}` : rawYear; const day = Number(a) > 12 ? a : b, month = Number(a) > 12 ? b : a; return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}${tail.replace(/^\s+/, 'T')}`; }
+  match = /^(\d{4})-(\d{1,2})-(\d{1,2})(.*)$/.exec(text);
+  return match ? `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}${match[4]}` : text;
+}
+function correctedArgs(schema, input) {
+  const value = { ...input }, properties = schema.properties || {};
+  for (const key of schema.required || []) if (value[key] === undefined) {
+    const field = properties[key] || {};
+    value[key] = field.enum?.[0] ?? (field.type === 'integer' || field.type === 'number' ? field.minimum ?? 1 : field.type === 'boolean' ? true : field.type === 'array' ? ['<value>'] : '<value>');
+  }
+  return value;
+}
+function distance(a, b) { const row = Array.from({ length: b.length + 1 }, (_, i) => i); for (let i = 1; i <= a.length; i++) { let prev = row[0]; row[0] = i; for (let j = 1; j <= b.length; j++) { const old = row[j]; row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = old; } } return row[b.length]; }
 
 class AgentTools {
   constructor({ management, store, manageGoal, manageSchedule, manageCalendar, manageFollowup, manageWatch, manageIntention, proposeLaunch, phoneAction, browser, webServices, windowsUi, sendAttachment }) { this.manageIntention = manageIntention; this.phoneAction = phoneAction; this.management = management; this.store = store; this.manageGoal = manageGoal; this.manageSchedule = manageSchedule; this.manageCalendar = manageCalendar; this.manageFollowup = manageFollowup; this.manageWatch = manageWatch; this.proposeLaunch = proposeLaunch; this.browser = browser; this.webServices = webServices; this.windowsUi = windowsUi; this.sendAttachment = sendAttachment; }
   // The engine rejects a thread whose dynamic tools mix the canonical {type:'function'} form with the
   // legacy form, so every source (app management, browser, services) is normalized here.
   specs(options = {}) {
-    return this._specs(options).map(tool => tool.type ? tool : { type: 'function', ...tool });
+    return this._specs(options).map(tool => ({ ...tool, type: 'function' }));
   }
   _specs({ readOnly = false, quick = false } = {}) {
     // The Quick session keeps memory, goals, routines, follow-ups and app management out of reach.
@@ -41,16 +103,16 @@ class AgentTools {
     const readTools = [...skills, ...recallSpecs(), calendarList, gamesList];
     if (readOnly) return readTools;
     return [...readTools, ...(this.management?.specs() || []), questionSpec(), ...(this.browser?.specs() || []), ...(this.webServices?.specs() || []), ...(this.windowsUi?.specs() || []),
-      functionSpec('memory_save', 'Save a durable fact, preference, decision, procedure, or unresolved issue. Use immediately when the user asks to remember something. Supply id to correct an existing record; its prior version remains historical. Memory is shared across models. Use global for personal preferences and workspace for project knowledge.', {
+      functionSpec('memory_save', 'Save a durable fact, preference, decision, procedure, or issue. Use when asked to remember something. Set id to correct a record; choose global for personal facts or workspace for project knowledge.', {
         id: text(200), text: text(20000), type: { type: 'string', enum: ['fact', 'preference', 'decision', 'procedure', 'discovery', 'issue'] },
         scope: { type: 'string', enum: ['global', 'workspace'] }, key: text(300), pinned: { type: 'boolean' },
       }, ['text']),
-      functionSpec('memory_forget', 'Forget a memory by its ID. Also suppress automatic relearning of that memory. Search first if the ID is unknown.', { id: text(200) }, ['id']),
-      ...(this.sendAttachment ? [functionSpec('attachment_send', 'Deliver an existing file or image to the user as a visible attachment with preview and save controls. Use for requested finished documents, images, browser screenshots and other files, instead of filesystem links. Path must be inside this chat workspace or the browser screenshot folder. Never send credential files. This does not send anything to another person.', { path: text(2000), caption: { type: 'string', maxLength: 1000 } }, ['path'])] : []),
-      functionSpec('goal_manage', 'Manage Little Bot goals: list, create a draft, update a draft, pause, or resume a previously user-authorized goal. Create never starts work. Resume only when the current user explicitly requests it. Tools cannot grant permissions, enlarge budgets, change folders, or restart a never-authorized draft. Completion checks should be concrete.', {
+      functionSpec('memory_forget', 'Forget a memory by ID and suppress automatic relearning. Search first if its ID is unknown.', { id: text(200) }, ['id']),
+      ...(this.sendAttachment ? [functionSpec('attachment_send', 'Deliver a finished workspace file or browser screenshot as a visible attachment. Use instead of filesystem links. Never send credentials or to another person.', { path: text(2000), caption: { type: 'string', maxLength: 1000 } }, ['path'])] : []),
+      functionSpec('goal_manage', 'List or edit goals, create a draft, pause, or resume an authorized goal. Drafts never start work; resume only when requested. Tools cannot raise permissions/budgets or change folders. Use concrete completion checks.', {
         action: { type: 'string', enum: [...actions, 'answer'] }, id: text(100), questionId: text(100), answer: text(2000), kind: { type: 'string', enum: ['task', 'ongoing'] }, name: text(80), objective: text(12000), steps: { type: 'array', maxItems: 20, items: text(1000) }, checks: { type: 'array', maxItems: 20, items: checkSchema },
       }, ['action']),
-      functionSpec('schedule_manage', 'Manage Little Bot recurring routines: list, create, update, pause, or resume. Set enabled:true when the user asks to schedule or enable a routine; enabled:false saves a draft or pauses it. Resume enables an existing routine, including a draft. Updates preserve enabled state unless specified. Schedules repeat by interval or at an exact PC-local clock time on selected weekdays. The current chat folder is used. Global Pause all still suspends execution.', {
+      functionSpec('schedule_manage', 'List or edit recurring routines. Set enabled:true only when asked; false saves a draft or pauses. Resume enables a draft. Updates preserve enabled state unless set. Schedules repeat by interval or PC-local weekday/time in this chat folder. Pause all suspends runs.', {
         action: { type: 'string', enum: actions }, id: text(100), name: text(80), prompt: text(32000),
         enabled: { type: 'boolean', description: 'Enable scheduled runs, or save disabled. Creation defaults to disabled; updates preserve the current state.' },
         scheduleType: { type: 'string', enum: ['interval', 'clock'] },
@@ -58,11 +120,11 @@ class AgentTools {
         clockTime: { type: 'string', minLength: 5, maxLength: 5, description: 'PC-local 24-hour time in HH:MM format.' },
         daysOfWeek: { type: 'array', minItems: 1, maxItems: 7, uniqueItems: true, items: { type: 'integer', minimum: 0, maximum: 6 }, description: 'Allowed local weekdays: 0=Sunday through 6=Saturday.' },
       }, ['action']),
-      ...(this.manageWatch ? [functionSpec('web_watch', 'Watch public web pages for changes: list, add, or remove. A watched page is checked every intervalHours (default 24) while Little Bot is open, and a change is posted to the chat with the new text. Use for patch notes, release dates, news pages the user cares about. Public http(s) pages only.', {
+      ...(this.manageWatch ? [functionSpec('web_watch', 'List, add, or remove public HTTP(S) page watches. Checks run while Little Bot is open; changes appear in chat.', {
         action: { type: 'string', enum: ['list', 'add', 'remove'] }, id: text(100), url: text(2000), label: text(80),
         intervalHours: { type: 'integer', minimum: 6, maximum: 168 },
       }, ['action'])] : []),
-      ...(this.proposeLaunch ? [functionSpec('launch_propose', 'Offer to start an installed Steam game: posts your short note in the chat with a Launch button. Nothing starts unless the user clicks it. Use games_list first to get the appid.', {
+      ...(this.proposeLaunch ? [functionSpec('launch_propose', 'Offer to launch an installed Steam game; it starts only if the user clicks. Get appid with games_list.', {
         appid: text(12), note: { type: 'string', maxLength: 600 },
       }, ['appid'])] : []),
       ...(this.phoneAction ? [functionSpec('phone_action', 'Act on the user\'s paired Android phone (Little Bot app): set an alarm at hour:minute phone time, start a timer, ring the phone loudly so they can find it, or show a navigation route. Use only when the user asks for it in this conversation.', {
@@ -71,12 +133,12 @@ class AgentTools {
         minutes: { type: 'integer', minimum: 1, maximum: 1440, description: 'Timer length.' },
         label: text(80), destination: text(200),
       }, ['action'])] : []),
-      ...(this.manageFollowup ? [functionSpec('followup_manage', 'Plan your own one-time check-in: create, list, or cancel. When it is due, your Heartbeat wakes with the note as its reason. Use it whenever you would say “I will check back on this”: after a promise, before an event, when something is in progress. Needs Heartbeat with Wild initiative. Not a reminder sent to other people.', {
+      ...(this.manageFollowup ? [functionSpec('followup_manage', 'Create, list, or cancel a one-time Heartbeat check-in. It is for your own follow-up, not a reminder to others; requires Wild initiative.', {
         action: { type: 'string', enum: ['create', 'list', 'cancel'] }, id: text(100), note: text(300),
         inMinutes: { type: 'integer', minimum: 5, maximum: 43200, description: 'Minutes from now. Use this or atLocal.' },
         atLocal: { type: 'string', minLength: 16, maxLength: 16, description: 'PC-local YYYY-MM-DDTHH:MM.' },
       }, ['action'])] : []),
-      ...(this.manageIntention ? [functionSpec('intention_manage', 'Your prospective memory: things to bring up with the user later. create when the user asks ("next time X comes up, remind me of Y") or when you want to follow up on something they shared (an exam, a trip, a worry, a release they are waiting for); list; done once you have brought it up; cancel when it no longer matters. trigger: next_chat (next conversation), topic (when one of 1-4 keywords comes up), date (local YYYY-MM-DD), moment (returned = back at the PC, home = got home, out = left home). Each is offered to you at most once a day, three times, and expires in 30 days, so it never nags.', {
+      ...(this.manageIntention ? [functionSpec('intention_manage', 'Create a future follow-up (when asked or useful), list, mark done after raising it, or cancel. Triggers: next chat, 1�4 topic keywords, local date, or moment. Offered at most daily, three times, then expires.', {
         action: { type: 'string', enum: ['list', 'create', 'done', 'cancel'] }, id: text(100), text: text(300), why: text(300),
         trigger: { type: 'string', enum: ['next_chat', 'topic', 'date', 'moment'] }, keywords: { type: 'array', maxItems: 6, items: text(40) },
         date: { type: 'string', minLength: 10, maxLength: 10, description: 'Local YYYY-MM-DD for a date trigger.' }, moment: { type: 'string', enum: ['returned', 'home', 'out'] },
@@ -103,7 +165,52 @@ class AgentTools {
     const extensions = this.store.data.extensions || {};
     return (extensions.skills || []).filter(skill => skill.enabled && (!skill.pluginId || (extensions.plugins || []).some(plugin => plugin.id === skill.pluginId && plugin.enabled)));
   }
-  async call(name, args, { chat } = {}) {
+  async call(name, args, options = {}) {
+    const chat = options.chat;
+    const specs = this.specs({ quick: Boolean(chat?.private) });
+    const spec = specs.find(tool => tool.name === name);
+    if (!spec) {
+      const suggestion = specs.map(tool => [tool.name, distance(String(name || ''), tool.name)]).sort((a, b) => a[1] - b[1])[0];
+      if (suggestion && suggestion[1] <= Math.max(2, String(name || '').length / 3)) throw new Error(`Unknown tool "${name}"; use ${suggestion[0]} instead. Corrected example: ${suggestion[0]}({}).`);
+      throw new Error(`Unknown tool "${name}". Corrected example: ${specs[0]?.name || 'skill_list'}({}).`);
+    }
+    const local = chat?.connection === 'local';
+    let normalized = local ? normalizeObject(args, spec.inputSchema) : args;
+    if (!object(normalized)) throw new Error(`Arguments for ${name} must be an object; example: ${name}({}).`);
+    if (name === 'attachment_send' && typeof normalized.path === 'string') {
+      const path = require('node:path');
+      normalized.path = path.resolve(chat?.workspace || process.cwd(), normalized.path.replace(/^~(?=$|[\\/])/, require('node:os').homedir()));
+    }
+    try {
+      const required = spec.inputSchema?.required || [];
+      const missing = required.filter(key => normalized[key] === undefined);
+      if (missing.length) throw new Error(`Missing required argument${missing.length > 1 ? 's' : ''}: ${missing.join(', ')}.`);
+      if (spec.inputSchema?.additionalProperties === false && name !== 'memory_save') {
+        const extra = Object.keys(normalized).filter(key => !Object.hasOwn(spec.inputSchema.properties || {}, key));
+        if (extra.length) { for (const key of extra) delete normalized[key]; throw new Error(`Unsupported argument${extra.length > 1 ? 's' : ''}: ${extra.join(', ')}.`); }
+      }
+      const value = await this._dispatch(name, normalized, options);
+      if (value && Array.isArray(value.results) && !value.results.length && name === 'memory_search') value.message = 'No matching memory records found.';
+      const encoded = JSON.stringify(value ?? { ok: true });
+      if (encoded.length > 24000) return { truncated: true, content: `${encoded.slice(0, 11500)}\n[... tool output trimmed ...]\n${encoded.slice(-11500)}` };
+      return value;
+    }
+    catch (error) {
+      let message = String(error?.message || 'Tool call failed.').split(/[\r\n]/)[0].slice(0, 260);
+      const actionSchema = spec.inputSchema?.properties?.action;
+      if (local && /unsupported .*action|invalid .*action|unknown app action/i.test(message) && actionSchema?.enum && normalized.action) {
+        const closest = actionSchema.enum.map(value => [value, distance(String(normalized.action).toLowerCase(), value.toLowerCase())]).sort((a, b) => a[1] - b[1])[0];
+        if (closest && closest[1] <= 3) { message = `Unknown action "${normalized.action}"; use "${closest[0]}".`; normalized.action = closest[0]; }
+      }
+      const exampleArgs = correctedArgs(spec.inputSchema || {}, normalized);
+      if (/name and objective or prompt are required/i.test(message)) { exampleArgs.name ||= '<name>'; if (name === 'schedule_manage') exampleArgs.prompt ||= '<prompt>'; else exampleArgs.objective ||= '<objective>'; }
+      if (/title and start time/i.test(message)) { exampleArgs.title ||= '<title>'; exampleArgs.startLocal ||= '2026-01-01'; }
+      if (/existing record ID is required|existing calendar event ID is required/i.test(message)) exampleArgs.id ||= '<id>';
+      const example = JSON.stringify(exampleArgs).slice(0, 220);
+      throw new Error(`${message} Corrected example: ${name}(${example}).`);
+    }
+  }
+  async _dispatch(name, args, { chat } = {}) {
     if (!object(args) || JSON.stringify(args).length > 50000) throw new Error('Tool arguments must be a bounded object.');
     if (chat?.private && this.quickBlocked(name)) throw new Error('This tool is off in the Quick session.');
     if (this.management?.specs().some(tool => tool.name === name)) return this.management.call(name,args,{chat});

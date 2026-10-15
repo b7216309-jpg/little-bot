@@ -208,7 +208,7 @@ function validateResult(goal, result, evidence, { changedFiles = 0, checksPassed
     const action = { id: previous?.id || randomUUID(), text: input.text, owner: input.owner, status: input.status, evidenceRefs: input.evidenceRefs };
     if (previous) Object.assign(previous, action); else actions.push(action);
   }
-  if (!provisional && result.outcome === 'progress' && !changedFiles && !confirmed && !(checksPassed && !preflightPassed && goal.checks.length)) throw new Error('No observable progress supports this result; use recommendation or no-change.');
+  if (!provisional && result.outcome === 'progress' && !changedFiles && !confirmed && !(checksPassed && !preflightPassed && goal.checks.length)) result.outcome = 'recommendation'; // the update is still useful; a retry would only repeat it
   if (result.outcome === 'no-change' && (updates.length || changedFiles)) throw new Error('A no-change review must not change actions or files.');
   return { actions: actions.slice(-30), refs };
 }

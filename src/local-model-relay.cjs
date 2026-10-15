@@ -8,10 +8,12 @@ const { pipeline } = require('node:stream/promises');
 const { localBaseUrl, LOCAL_STREAM_IDLE_TIMEOUT_MS } = require('./connections.cjs');
 const { applyQwenGeneration, applySampling } = require('./local-generation.cjs');
 const { prepareNamespaceTools, restoreNamespaceCalls } = require('./responses-namespace-compat.cjs');
-const { StrataStreamAdapter, estimateResponsesInputTokens, responsesToChat, withoutImages, hasImages } = require('./strata-responses-adapter.cjs');
+const { StrataStreamAdapter, estimateResponsesInputTokens, responsesToChat, withoutImages, hasImages, stableJson } = require('./strata-responses-adapter.cjs');
 
 // A 50 MiB attachment turn can exceed 64 MiB after base64 encoding.
 const MAX_BODY_BYTES = 96 * 1024 * 1024;
+const KEEPALIVE_INTERVAL_MS = 15000;
+const CONNECT_RETRY_DELAYS_MS = [100, 250, 500, 750];
 const HOP_HEADERS = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade']);
 const token = () => randomBytes(24).toString('hex');
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -73,6 +75,43 @@ function replyError(response, status, message) {
   if (response.headersSent) { response.destroy(); return; }
   response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', connection: 'close' });
   response.end(JSON.stringify({ error: { message, type: 'local_model_error', code: status } }));
+}
+
+function streamAdapted(result, adapter, namespaceTools, response) {
+  const events = responseEvents(namespaceTools);
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = error => {
+      if (settled) return;
+      settled = true;
+      response.off('finish', onFinish);
+      response.off('close', onClose);
+      response.off('error', onResponseError);
+      adapter.off('error', onAdapterError);
+      events.off('error', onAdapterError);
+      if (error) { adapter.unpipe(events); events.unpipe(response); }
+      if (error) reject(error); else resolve();
+    };
+    const onFinish = () => finish();
+    const onClose = () => finish(response.writableFinished ? null : Object.assign(new Error('Premature close'), { code: 'ERR_STREAM_PREMATURE_CLOSE' }));
+    const onResponseError = error => finish(error);
+    const onAdapterError = error => finish(error);
+    const onResultError = error => {
+      if (adapter.degenerate && adapter.completed) return;
+      result.unpipe(adapter);
+      finish(error);
+    };
+    response.once('finish', onFinish);
+    response.once('close', onClose);
+    response.once('error', onResponseError);
+    adapter.once('error', onAdapterError);
+    events.once('error', onAdapterError);
+    result.on('error', onResultError);
+    result.once('close', () => result.off('error', onResultError));
+    adapter.pipe(events);
+    events.pipe(response);
+    result.pipe(adapter);
+  });
 }
 
 function responseEvents(namespaceTools) {
@@ -142,6 +181,7 @@ class LocalModelRelay {
     this.routes = new Map();
     this.upstreams = new Map();
     this.adapters = new Map();
+    this.textCallHistory = new Map();
     this.sockets = new Set();
     this.requests = new Set();
   }
@@ -160,6 +200,7 @@ class LocalModelRelay {
   async _listen() {
     const server = http.createServer((request, response) => {
       this._handle(request, response).catch(error => {
+        if (request.aborted || response.destroyed) return;
         const status = error instanceof RequestError ? error.status : 502;
         if (!(error instanceof RequestError) || status >= 500) this.onError('request', error, { method: request.method, status });
         replyError(response, status,
@@ -206,95 +247,179 @@ class LocalModelRelay {
   }
 
   async _handle(request, response) {
-    // Native clients have no Origin. Browser requests, including null origins,
-    // are rejected; no CORS headers or preflight endpoint are provided.
-    if (request.headers.origin !== undefined || request.headers.host !== new URL(this.origin).host) {
-      throw new RequestError(403, 'This connection is only available to Little Bot.');
-    }
-    const match = /^\/([a-f0-9]{48})\/([a-f0-9]{48})\/v1\/(responses(?:\/input_tokens)?)$/.exec(request.url || '');
-    const base = match?.[1] === this.secret ? this.routes.get(match[2]) : null;
-    const adapter = base ? this.adapters.get(match[2]) : null;
-    if (!base || request.method !== 'POST') throw new RequestError(404, 'Local model route not found.');
-    if (!/^application\/json(?:\s*;|$)/i.test(request.headers['content-type'] || '')) throw new RequestError(415, 'The local model request must be JSON.');
-    // Pinned Codex only compresses authenticated OpenAI-backend requests; local
-    // providers send plain JSON. Fail clearly if that transport contract changes.
-    if (request.headers['content-encoding'] && request.headers['content-encoding'] !== 'identity') throw new RequestError(415, 'Compressed local model requests are not supported.');
-    if (Number(request.headers['content-length'] || 0) > MAX_BODY_BYTES) throw new RequestError(413, 'Local model request is too large.');
-    const thinking = this.thinking() !== false;
-    let body;
-    try { body = JSON.parse((await readBody(request)).toString('utf8')); }
-    catch (error) {
-      if (error instanceof RequestError) throw error;
-      throw new RequestError(400, 'The local model request contains invalid JSON.');
-    }
-    if (!object(body) || (body.chat_template_kwargs !== undefined && !object(body.chat_template_kwargs))) throw new RequestError(400, 'The local model request has invalid template settings.');
-    body.chat_template_kwargs = { ...body.chat_template_kwargs, enable_thinking: thinking };
-    const namespaceTools = prepareNamespaceTools(body);
-    if (adapter === 'strata' && match[3] === 'responses/input_tokens') {
-      const data = Buffer.from(JSON.stringify({ object: 'response.input_tokens', input_tokens: estimateResponsesInputTokens(body) }));
-      response.writeHead(200, { 'content-type': 'application/json', 'content-length': String(data.length), 'cache-control': 'no-store' });
-      response.end(data);
-      return;
-    }
-    let upstreamPath = match[3], strataTools = null;
-    if (adapter === 'strata') {
-      const translated = responsesToChat(body, thinking);
-      body = translated.body;
-      applySampling(body, this.sampling());
-      if (hasImages(body.messages) && await strataImages(base) === false) {
-        const removed = withoutImages(body.messages);
-        this.onError('images-omitted', new Error(`Removed ${removed} image(s): the local server has no vision encoder.`), { removed });
-      }
-      // Official Strata matches complete token/image prefixes automatically.
-      // Slot metadata belongs to the retired PR #175 server protocol.
-      strataTools = translated.toolKinds;
-      upstreamPath = 'chat/completions';
-    } else if (match[3] === 'responses') {
-      applyQwenGeneration(body, thinking);
-    }
-    const data = Buffer.from(JSON.stringify(body));
-    const headers = headersWithoutHopByHop(request.headers);
-    for (const name of ['host', 'content-length', 'content-encoding', 'origin', 'referer', 'cookie', 'authorization', 'expect']) delete headers[name];
-    headers['content-length'] = String(data.length);
-    headers['accept-encoding'] = 'identity';
-    const target = new URL(`${base}/${upstreamPath}`);
-    const transport = target.protocol === 'https:' ? https : http;
-    let upstream;
-    const cancelled = () => upstream?.destroy();
-    response.once('close', cancelled);
+    let cancelled = false, upstream, upstreamResponse, heartbeat, streamStarted = false, strataAdapter = null;
+    const stopHeartbeat = () => { if (heartbeat) clearInterval(heartbeat); heartbeat = null; };
+    const cancelUpstream = () => {
+      cancelled = true;
+      stopHeartbeat();
+      upstream?.destroy();
+      upstreamResponse?.destroy();
+    };
+    const requestAborted = () => cancelUpstream();
+    const responseClosed = () => { if (!response.writableFinished) cancelUpstream(); };
+    request.once('aborted', requestAborted);
+    response.once('close', responseClosed);
+    response.once('finish', stopHeartbeat);
     try {
-      if (response.destroyed || !this.server?.listening || this.closing) return;
-      const result = await new Promise((resolve, reject) => {
-        upstream = transport.request(target, { method: 'POST', headers, agent: false }, resolve);
-        this.requests.add(upstream);
-        upstream.once('error', reject);
-        upstream.once('close', () => this.requests.delete(upstream));
-        upstream.setTimeout(LOCAL_STREAM_IDLE_TIMEOUT_MS, () => upstream.destroy(new Error('Local model server timed out.')));
-        upstream.end(data);
-      });
-      if (response.destroyed) { result.destroy(); return; }
-      // Do not pass a redirect back to a client that might follow it elsewhere.
-      if (result.statusCode >= 300 && result.statusCode < 400) {
-        result.destroy();
-        throw new RequestError(502, 'The local model server returned an unexpected redirect.');
+      // Native clients have no Origin. Browser requests, including null origins,
+      // are rejected; no CORS headers or preflight endpoint are provided.
+      if (request.headers.origin !== undefined || request.headers.host !== new URL(this.origin).host) {
+        throw new RequestError(403, 'This connection is only available to Little Bot.');
       }
-      if ((result.statusCode || 0) >= 500) this.onError('upstream-status', new Error(`Local model server returned HTTP ${result.statusCode}.`), { status: result.statusCode });
-      const resultHeaders = headersWithoutHopByHop(result.headers);
-      for (const name of Object.keys(resultHeaders)) if (name.startsWith('access-control-') || name === 'set-cookie') delete resultHeaders[name];
-      const repairEvents = /^text\/event-stream(?:\s*;|$)/i.test(result.headers['content-type'] || '')
-        && (!result.headers['content-encoding'] || result.headers['content-encoding'] === 'identity');
-      if (repairEvents) delete resultHeaders['content-length'];
-      response.writeHead(result.statusCode || 502, resultHeaders);
-      if (repairEvents && adapter === 'strata') {
-        await pipeline(result, new StrataStreamAdapter({ model: body.model, toolKinds: strataTools }), responseEvents(namespaceTools), response);
-      } else if (repairEvents) {
-        await pipeline(result, responseEvents(namespaceTools), response);
-      } else {
-        await pipeline(result, response);
+      const match = /^\/([a-f0-9]{48})\/([a-f0-9]{48})\/v1\/(responses(?:\/input_tokens)?)$/.exec(request.url || '');
+      const base = match?.[1] === this.secret ? this.routes.get(match[2]) : null;
+      const adapter = base ? this.adapters.get(match[2]) : null;
+      if (!base || request.method !== 'POST') throw new RequestError(404, 'Local model route not found.');
+      if (!/^application\/json(?:\s*;|$)/i.test(request.headers['content-type'] || '')) throw new RequestError(415, 'The local model request must be JSON.');
+      // Pinned Codex only compresses authenticated OpenAI-backend requests; local
+      // providers send plain JSON. Fail clearly if that transport contract changes.
+      if (request.headers['content-encoding'] && request.headers['content-encoding'] !== 'identity') throw new RequestError(415, 'Compressed local model requests are not supported.');
+      if (Number(request.headers['content-length'] || 0) > MAX_BODY_BYTES) throw new RequestError(413, 'Local model request is too large.');
+      const thinking = this.thinking() !== false;
+      let body;
+      try { body = JSON.parse((await readBody(request)).toString('utf8')); }
+      catch (error) {
+        if (error instanceof RequestError) throw error;
+        throw new RequestError(400, 'The local model request contains invalid JSON.');
+      }
+      if (!object(body) || (body.chat_template_kwargs !== undefined && !object(body.chat_template_kwargs))) throw new RequestError(400, 'The local model request has invalid template settings.');
+      body.chat_template_kwargs = { ...body.chat_template_kwargs, enable_thinking: thinking };
+      const namespaceTools = prepareNamespaceTools(body);
+      if (adapter === 'strata' && match[3] === 'responses/input_tokens') {
+        const data = Buffer.from(JSON.stringify({ object: 'response.input_tokens', input_tokens: estimateResponsesInputTokens(body) }));
+        response.writeHead(200, { 'content-type': 'application/json', 'content-length': String(data.length), 'cache-control': 'no-store' });
+        response.end(data);
+        return;
+      }
+      let upstreamPath = match[3], strataTools = null;
+      if (adapter === 'strata') {
+        const translated = responsesToChat(body, thinking, this.textCallHistory);
+        body = translated.body;
+        applySampling(body, this.sampling());
+        if (hasImages(body.messages) && await strataImages(base) === false) {
+          const removed = withoutImages(body.messages);
+          this.onError('images-omitted', new Error(`Removed ${removed} image(s): the local server has no vision encoder.`), { removed });
+        }
+        // Official Strata matches complete token/image prefixes automatically.
+        // Slot metadata belongs to the retired PR #175 server protocol.
+        strataTools = translated.toolKinds;
+        upstreamPath = 'chat/completions';
+      } else if (match[3] === 'responses') {
+        applyQwenGeneration(body, thinking);
+      }
+      const data = Buffer.from(stableJson(body));
+      const headers = headersWithoutHopByHop(request.headers);
+      for (const name of ['host', 'content-length', 'content-encoding', 'origin', 'referer', 'cookie', 'authorization', 'expect']) delete headers[name];
+      headers['content-length'] = String(data.length);
+      headers['accept-encoding'] = 'identity';
+      const target = new URL(`${base}/${upstreamPath}`);
+      const transport = target.protocol === 'https:' ? https : http;
+      if (adapter === 'strata' && match[3] === 'responses') {
+        strataAdapter = new StrataStreamAdapter({ model: body.model, toolKinds: strataTools, textCallHistory: this.textCallHistory, onDegenerate: () => {
+          if (!upstreamResponse || !strataAdapter?.completed) return;
+          upstreamResponse.unpipe(strataAdapter);
+          upstreamResponse.on('error', () => {});
+          upstreamResponse.destroy();
+          if (!strataAdapter.writableEnded) strataAdapter.end();
+        } });
+      }
+      const beginResponseStream = () => {
+        if (!strataAdapter || streamStarted || cancelled || response.destroyed) return;
+        streamStarted = true;
+        response.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache, no-transform', connection: 'keep-alive', 'x-accel-buffering': 'no' });
+        response.write(strataAdapter.start());
+        heartbeat = setInterval(() => { if (!response.destroyed && !response.writableEnded) response.write(': keep-alive\n\n'); }, KEEPALIVE_INTERVAL_MS);
+        heartbeat.unref?.();
+      };
+      try {
+        if (cancelled || response.destroyed || !this.server?.listening || this.closing) return;
+        let retries = 0;
+        for (;;) {
+          try {
+            upstreamResponse = await new Promise((resolve, reject) => {
+              upstream = transport.request(target, { method: 'POST', headers, agent: false }, resolve);
+              this.requests.add(upstream);
+              upstream.once('error', reject);
+              upstream.once('close', () => this.requests.delete(upstream));
+              if (strataAdapter) upstream.once('socket', socket => {
+                const event = target.protocol === 'https:' ? 'secureConnect' : 'connect';
+                if (socket.connecting) socket.once(event, beginResponseStream);
+                else setImmediate(beginResponseStream);
+              });
+              upstream.setTimeout(LOCAL_STREAM_IDLE_TIMEOUT_MS, () => {
+                const error = Object.assign(new Error('Local model server timed out.'), { code: 'ETIMEDOUT' });
+                upstream.destroy(error);
+              });
+              upstream.end(data);
+            });
+            break;
+          } catch (error) {
+            if (cancelled || response.destroyed) return;
+            if (error.code !== 'ECONNREFUSED' || retries >= CONNECT_RETRY_DELAYS_MS.length) throw error;
+            await new Promise(resolve => setTimeout(resolve, CONNECT_RETRY_DELAYS_MS[retries++]));
+            if (cancelled || response.destroyed || !this.server?.listening || this.closing) return;
+          }
+        }
+        if (cancelled || response.destroyed) { upstreamResponse.destroy(); return; }
+        // Do not pass a redirect back to a client that might follow it elsewhere.
+        if (strataAdapter) {
+          beginResponseStream();
+          const status = upstreamResponse.statusCode || 502;
+          if (status >= 300 && status < 400) {
+            upstreamResponse.destroy();
+            response.end(strataAdapter.failure('The local model server returned an unexpected redirect.', 'upstream_redirect'));
+            return;
+          }
+          if (status >= 400) {
+            if (status >= 500) this.onError('upstream-status', new Error(`Local model server returned HTTP ${status}.`), { status });
+            upstreamResponse.resume();
+            response.end(strataAdapter.failure(`The local model server returned HTTP ${status}.`, 'upstream_status'));
+            return;
+          }
+          if (!/^text\/event-stream(?:\s*;|$)/i.test(upstreamResponse.headers['content-type'] || '')) {
+            upstreamResponse.resume();
+            response.end(strataAdapter.failure('The local model server returned an invalid streaming response.', 'invalid_upstream_response'));
+            return;
+          }
+          try { await streamAdapted(upstreamResponse, strataAdapter, namespaceTools, response); }
+          catch (error) {
+            if (cancelled || request.aborted || response.destroyed) return;
+            this.onError('request', error, { method: request.method, status: 502 });
+            if (!response.destroyed && !response.writableEnded) {
+              response.end(strataAdapter.failure('The local model stream ended unexpectedly.', 'upstream_stream_error'));
+            }
+          }
+          return;
+        }
+        if ((upstreamResponse.statusCode || 0) >= 500) this.onError('upstream-status', new Error(`Local model server returned HTTP ${upstreamResponse.statusCode}.`), { status: upstreamResponse.statusCode });
+        const resultHeaders = headersWithoutHopByHop(upstreamResponse.headers);
+        for (const name of Object.keys(resultHeaders)) if (name.startsWith('access-control-') || name === 'set-cookie') delete resultHeaders[name];
+        const repairEvents = /^text\/event-stream(?:\s*;|$)/i.test(upstreamResponse.headers['content-type'] || '')
+          && (!upstreamResponse.headers['content-encoding'] || upstreamResponse.headers['content-encoding'] === 'identity');
+        if (repairEvents) delete resultHeaders['content-length'];
+        response.writeHead(upstreamResponse.statusCode || 502, resultHeaders);
+        if (repairEvents) {
+          await pipeline(upstreamResponse, responseEvents(namespaceTools), response);
+        } else {
+          await pipeline(upstreamResponse, response);
+        }
+      } catch (error) {
+        if (cancelled || request.aborted || response.destroyed) return;
+        const status = error instanceof RequestError ? error.status : 502;
+        if (!(error instanceof RequestError) || status >= 500) this.onError('request', error, { method: request.method, status });
+        if (strataAdapter && streamStarted && !response.writableEnded) {
+          response.end(strataAdapter.failure('Could not reach the local model server.', 'upstream_unavailable'));
+        } else {
+          replyError(response, status, error instanceof RequestError ? error.message : 'Could not reach the local model server.');
+        }
       }
     } finally {
-      response.off('close', cancelled);
+      stopHeartbeat();
+      request.off('aborted', requestAborted);
+      response.off('close', responseClosed);
+      response.off('finish', stopHeartbeat);
       upstream?.destroy();
+      upstreamResponse?.destroy();
     }
   }
 
@@ -309,6 +434,7 @@ class LocalModelRelay {
       for (const request of this.requests) request.destroy();
       for (const socket of this.sockets) socket.destroy();
       if (server?.listening) await new Promise(resolve => server.close(resolve));
+      this.textCallHistory = new Map();
       this.requests.clear(); this.sockets.clear();
     })();
     try { await this.closing; } finally { this.closing = null; }

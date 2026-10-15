@@ -14,13 +14,13 @@ A completed direct turn can create an extraction job. [MemoryConsolidator](../..
 
 Failures retry at most three times with backoff, then remain visible as failed learning jobs. UI controls and memory_manage expose Retry and Discard. The extraction model is the selected language model, not the embedding encoder. Foreground work pauses/cancels extraction.
 
-A valid response with no candidates is allowed. Candidates without valid provenance or with unusable supersession targets are skipped. Consequently, a completed job is not a guarantee that every important fact was extracted. Raw conversation recall remains available. Automated selection is a quality limit, not proof of perfect memory curation.
+A valid response with no candidates is allowed. Tool-less local extraction uses Strata schema-constrained decoding; a malformed or invalid result gets one corrective turn before the normal three-attempt job backoff. Candidates without valid provenance or with unusable supersession targets are skipped. Consequently, a completed job is not a guarantee that every important fact was extracted. Raw conversation recall remains available. Automated selection is a quality limit, not proof of perfect memory curation.
 
 ## Learning quality and visibility
 
 Each turn saves at most three memories, and the prompt asks only for what will still matter weeks later. In real use before this change, users removed almost half of the automatically learned records. Newly learned memories appear in the conversation as a "Little Bot · learned" message showing each memory's ID. The next user turn carries that message to the model, so "that's wrong" can be corrected with memory_save or memory_forget. These notes are not recalled as history and are not goal evidence.
 
-Learning output wrapped in reasoning tags or prose is parsed through the shared [model-json](../../src/model-json.cjs) helper. Heartbeat and goal runs yield the idle lane while a learning job is ready; a job waiting in backoff does not hold them back.
+Learning output wrapped in reasoning tags, prose or code fences is parsed through the shared [model-json](../../src/model-json.cjs) helper, which also repairs trailing commas and single-quoted strings. Dreaming uses the same schema-constrained and repair path. Heartbeat and goal runs yield the idle lane while a learning job is ready; a job waiting in backoff does not hold them back.
 
 ## Backups and resets
 

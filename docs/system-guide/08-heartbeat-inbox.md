@@ -2,7 +2,7 @@
 
 ## How it works
 
-[Heartbeat](../../src/heartbeat.cjs) performs small proactive checks from a saved checklist; it does not own an ongoing goal's full review. It polls every 15 seconds and honors enable state, nonempty checklist, interval, PC-local active hours, maximum daily runs, global pause and execution-lane availability. Active hours can cross midnight; equal start/end represents all-day availability.
+[Heartbeat](../../src/heartbeat.cjs) performs small proactive checks from a saved checklist; it does not own an ongoing goal's full review. It polls every 15 seconds and honors enable state, nonempty checklist, interval, global pause and execution-lane availability. Local checks may run outside active hours; Codex checks honor the configured hours. Active hours also quiet Windows notifications. A local model is not held back by the daily run cap.
 
 [Controller.runHeartbeat](../../src/controller.cjs) creates an ephemeral engine thread in cache slot 2. It supplies current time, checklist, relevant profile/memory, recent local heartbeat summaries, goal state and attention preferences. Read-only Little Bot recall/skill/calendar tools are available. Native execution is workspace-write with network disabled, and MCP is disabled and verified for this thread. Therefore a checklist needing remote APIs or a GitHub action cannot simply use ordinary chat's integrations.
 
@@ -19,13 +19,13 @@ Heartbeat has two initiative levels. **Calm** is the behavior above. **Wild** ch
 
 Turning wild on schedules a check within a minute. Presence events (`app.opened`, `user.returned` after 90 minutes away, and `chat.completed`, debounced to 10 minutes) pull the next check forward and tell the agent why it woke.
 
-The agent can also plan one-time check-ins with the `followup_manage` tool, from the wild heartbeat or a direct conversation. A follow-up can be due up to 30 days ahead, and at most 20 can be pending. When one is due, the heartbeat wakes with its note as the reason. Active hours and the daily run cap still apply. Follow-ups require wild initiative to be enabled.
+The agent can also plan one-time check-ins with the `followup_manage` tool, from the wild heartbeat or a direct conversation. A follow-up can be due up to 30 days ahead, and at most 20 can be pending. When one is due, the heartbeat wakes with its note as the reason. Follow-ups require wild initiative to be enabled.
 
-Every finished run, including quiet ones, is kept in a bounded `pulse` log (30 entries) shown under Latest check. Small local models that wrap their JSON in `<think>` tags or Markdown fences are parsed instead of failing. Pause all, active hours and the daily run cap still apply.
+Every finished run, including quiet ones, is kept in a bounded `pulse` log (30 entries) shown under Latest check. Small local models that wrap their JSON in `<think>` tags or Markdown fences are parsed instead of failing. Pause all still applies; active hours quiet notifications and Codex checks honor the daily run cap.
 
 ## Delivery into the conversation
 
-The Activity inbox is a tracking log. Every new heartbeat alert, Calm or Wild, is delivered into the conversation as a "Little Bot · on its own" message. Goal results with the chat source arrive the same way. If a turn is running, waiting for approval, or under Independent Check, the message waits in the chat's outbox. That outbox is saved with the encrypted conversation, holds up to 20 messages, and is flushed when the turn finishes or the app starts.
+The Activity inbox is a tracking log. Every new heartbeat alert, Calm or Wild, is delivered into the conversation as a "Little Bot · on its own" message; an empty conversation is created when needed. Goal results with the chat source arrive the same way. If a turn is running, waiting for approval, or under Independent Check, the message waits in the chat's saved outbox and is flushed when the turn finishes or the app starts.
 
 The engine thread never contains these messages. The next user message therefore carries, once, every proactive message the model has not yet seen, so a reply such as "yes, do that" has its context. Scheduled automation turns do not consume this bridge.
 
@@ -59,11 +59,11 @@ An inbox record and a Windows notification are different outcomes. Notifications
 
 ## What can prevent operation
 
-App closed/asleep, disabled heartbeat, empty checklist, active hours, daily run cap, paused autonomy, missing workspace, offline or unselected model, other work, repeated invalid JSON, muted subject, snooze, daily notification cap or unavailable Windows notifications.
+App closed/asleep, disabled heartbeat, empty checklist, paused autonomy, missing workspace, offline or unselected model, other work, repeated invalid JSON, muted subject, snooze, daily notification cap or unavailable Windows notifications. A busy engine lane delays a check until it is free; it does not consume its due schedule. On restart, overdue automations and heartbeat checks are each caught up once.
 
-Manual Run bypasses enable/hours checks but still honors daily run limits and lane readiness. A quiet check is a successful outcome, not a new advice message. Full coaching reviews belong to the goal system.
+Manual Run bypasses enable checks and still honors lane readiness. Remote-model checks honor the configured daily run limit. A quiet check is a successful outcome, not a new advice message. Full coaching reviews belong to the goal system.
 
-Event-runtime-triggered checks currently hold the whole event dispatch lane until the heartbeat finishes (R4 in the [review](review.md)). This can delay unrelated intent matching even when those events do not need the model.
+Heartbeat work runs outside the event dispatch lane, so unrelated standing intents and presence events continue while the model checks its list.
 
 ## Verification
 

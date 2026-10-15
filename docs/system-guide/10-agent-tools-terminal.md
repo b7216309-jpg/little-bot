@@ -4,6 +4,8 @@
 
 [AgentTools](../../src/agent-tools.cjs) defines dynamic tools registered with the native engine. It validates inputs and dispatches them to their application owners.
 
+At dispatch, inputs are normalized against each live tool schema: numeric and boolean strings, case-insensitive enum values, scalar-to-list values, common field aliases, and common local date formats are repaired before validation. Attachment paths expand `~` and resolve relative to the current workspace. When a call still fails, its tool error is returned to the model as short text with a corrected example; unknown tool and action names include the closest valid name. Large tool results are capped while keeping their beginning and end, and empty memory/web searches say that no results were found.
+
 | Family | Implementation |
 | --- | --- |
 | memory_search / session_read | Recall / MemoryService |
@@ -30,6 +32,8 @@ A different enqueue failure remains: call adds the job before saving and does no
 ## Terminal and file actions
 
 Foreground Execute uses native Codex tools with full local access. [shell-conduct.cjs](../../src/shell-conduct.cjs) supplies Windows command guidance and keeps command-output transcripts coherent. Browser, web, goal file writes and MCP calls are separately owned; not every operation is a shell command.
+
+Tool results sent back to the local model are capped at 25,000 characters by the controller; oversized AgentTools results keep their beginning and end with a trim note. Browser page output has its own head-and-tail cap.
 
 Goal terminal use depends on its saved shell permission and budgets; completion commands are host-verified through the executor. Plan mode and heartbeat use different execution policies. Native terminal capability does not mean every desired application integration has a typed tool.
 

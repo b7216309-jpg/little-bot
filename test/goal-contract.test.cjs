@@ -5,6 +5,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
 const contract = require('../src/goal-contract.cjs');
+const { parseVerdict, ChatGoalRunner } = require('../src/chat-goal.cjs');
 const { validateGoal, GoalRunner, normalizeAutonomy } = require('../src/goals.cjs');
 
 function goal(workspace, extra = {}) {
@@ -18,6 +19,33 @@ function data(g, messages = []) {
 const user = (id, text = 'Laundry is done') => ({ id, role: 'user', text });
 const result = (outcome, extra = {}) => ({ outcome, summary: outcome === 'no-change' ? '' : 'Useful result',
   checkpoint: '', nextStep: '', evidenceRefs: outcome === 'no-change' ? [] : ['objective'], actionUpdates: [], ...extra });
+
+test('/goal verdict parsing repairs IQ3 syntax, aliases and boolean strings', () => {
+  const output = "Answer: {'complete':'yes','explanation':23,'suggestion':null,}";
+  assert.deepEqual(parseVerdict(output, { local: true }), { met: true, impossible: false, reason: '23', next: '' });
+  assert.throws(() => parseVerdict(output), /readable JSON/);
+});
+
+test('/goal checker retries one malformed verdict with validation feedback', async () => {
+  const calls = [];
+  const runner = new ChatGoalRunner({ client: { async request(method, params) { calls.push({ method, params }); return method === 'turn/start' ? { turn: { id: 'repair' } } : {}; } },
+    effectiveEffort: () => 'low', providerConfig: () => ({}), extensionRuntime: null, closing: false });
+  let resolve;
+  const result = new Promise(done => { resolve = done; });
+  const op = { chatId: 'chat', threadId: 'thread', turnId: 'first', output: 'not JSON', resolve, reject: error => { throw error; }, done: false,
+    goal: { condition: 'report.md exists', turns: 1, maxTurns: 3, history: [] },
+    chat: { id: 'chat', connection: 'local', workspace: 'C:\\work', messages: [] }, check: null, retryCount: 0 };
+  runner.op = op;
+  runner.notification('turn/completed', { threadId: 'thread', turn: { id: 'first', status: 'completed' } });
+  await op.retryStarting;
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].params.input[0].text, /failed validation/);
+  assert.equal(calls[0].params.outputSchema, undefined);
+  assert.match(calls[0].params.input[0].text, /matching this schema/);
+  runner.notification('item/completed', { threadId: 'thread', item: { type: 'agentMessage', text: "{'complete':'yes','explanation':'Verified','suggestion':'',}" } });
+  runner.notification('turn/completed', { threadId: 'thread', turn: { id: 'repair', status: 'completed' } });
+  assert.deepEqual(await result, { met: true, impossible: false, reason: 'Verified', next: '' });
+});
 
 test('goal types preserve legacy contract and round-trip v2 evidence/actions', () => {
   const g = goal(process.cwd());
@@ -108,10 +136,10 @@ test('changed selected project files supply evidence outside the writable folder
   assert.ok(missing.coverage.some(x => x.includes('Absence does not establish user failure')));
 });
 
-test('unsupported evidence, fake progress and ongoing completion are rejected', async () => {
+test('unsupported evidence and ongoing completion are rejected; unsupported progress becomes a recommendation', async () => {
   const g = goal(process.cwd()), evidence = await contract.collect(g, data(g));
   assert.throws(() => contract.validateResult(g, result('recommendation', { evidenceRefs: ['invented'] }), evidence), /unavailable evidence/);
-  assert.throws(() => contract.validateResult(g, result('progress'), evidence), /observable progress/);
+  const claimed = result('progress'); contract.validateResult(g, claimed, evidence); assert.equal(claimed.outcome, 'recommendation');
   assert.throws(() => contract.validateResult(g, result('completed'), evidence, { checksPassed: true }), /ongoing/);
   assert.throws(() => contract.validateResult(g, result('no-change'), evidence, { changedFiles: 1 }), /must not change/);
   assert.throws(() => contract.validateResult(g, result('waiting'), evidence), /dependency/);
@@ -185,11 +213,10 @@ test('ongoing recommendation persists actions and posts to chat; unchanged revie
   assert.equal(d.chats[0].messages.length, 2); assert.equal(g.review.lastResult.outcome, 'no-change'); assert.equal(g.review.lastMeaningfulResult.outcome, 'recommendation');
 });
 
-test('runner rejects forged progress and preserves unconsumed evidence for retry', async t => {
+test('runner keeps an unsupported progress claim as a recommendation instead of retrying', async t => {
   const { runner, g } = await runnerFixture(t, async () => result('progress'));
-  await runner.execute(g); assert.equal(g.status, 'queued'); assert.equal(g.failureStreak, 1);
-  assert.equal(g.review.lastResult, null); assert.equal(g.review.chatCursor, '');
-  assert.match(g.history.at(-1).summary, /observable progress.*Retrying in 15 minutes/);
+  await runner.execute(g); assert.equal(g.status, 'queued'); assert.ok(!g.failureStreak);
+  assert.equal(g.review.lastResult.outcome, 'recommendation');
 });
 
 test('question posts in chat and explicit answer queues precisely that goal', async t => {

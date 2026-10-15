@@ -6,7 +6,7 @@
 
 A workspace must resolve to an existing directory. A model/workspace/tool-mode change can rotate the native session while preserving the public conversation. Existing goals and automations retain their own saved bindings; changing the foreground setting does not silently rebind every task.
 
-Settings updates that affect the engine need an idle execution lane. The agent can queue such changes after its reply. AppManagement operation status is the evidence that a queued change actually finished. Settings/connection persistence has rollback handling, unlike the confirmed calendar/goal/schedule paths in R2.
+Changing the provider, model or workspace still needs an idle execution lane because it changes the task binding. System prompt, reasoning effort and local thinking changes can be saved during a turn; the active request keeps the settings it already started with, and the next turn picks up the change. System prompt changes reload the idle engine thread before that next turn. Background memory learning continues while ordinary settings are saved.
 
 ## Profile files
 

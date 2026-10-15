@@ -2,12 +2,13 @@
 
 const { randomUUID } = require('node:crypto');
 const { localStamp } = require('./local-time.cjs');
+const { connectionBinding } = require('./connections.cjs');
 
 // The Activity inbox is a log; the conversation is where proactive work is delivered.
 // Messages that arrive while a turn is running or waiting wait in the chat's outbox,
 // and every proactive message stays unseen by the model until the user's next turn carries it.
-const MAX_PENDING = 20;
 const MAX_BRIDGE = 10;
+const MAX_PENDING = 20;
 const PROACTIVE_KINDS = ['heartbeat', 'goal', 'memory', 'watch', 'offer'];
 const MAX_FEEDBACK = 200;
 // Proactive messages carry buttons only for a concrete offer (a game launch). Notes, tips and check-ins get none:
@@ -50,8 +51,18 @@ function normalizePending(value) {
 
 // Posts into the idle conversation or queues for later. `duplicate` checks both delivered and queued messages.
 function post(data, fields, { duplicate = null, nowMs = Date.now() } = {}) {
-  const chat = data?.chats?.find(item => !item.private);
-  if (!chat || !Array.isArray(chat.messages)) return null;
+  if (!data || !Array.isArray(data.chats)) return null;
+  let chat = data.chats.find(item => !item.private);
+  if (!chat) {
+    const settings = data.settings || {};
+    const now = nowMs;
+    chat = { id: randomUUID(), title: 'Conversation', threadId: '', workspace: settings.workspace || '',
+      model: settings.connection === 'local' ? settings.localModel || '' : settings.model || '',
+      ...connectionBinding(settings), effort: settings.effort || 'low', mode: 'execute', toolMode: 'full',
+      createdAt: now, updatedAt: now, status: 'idle', messages: [] };
+    data.chats.unshift(chat);
+  }
+  if (!Array.isArray(chat.messages)) chat.messages = [];
   const pending = Array.isArray(chat.pendingProactive) ? chat.pendingProactive : [];
   if (duplicate && [...chat.messages, ...pending].some(duplicate)) return null;
   const message = { id: randomUUID(), role: 'assistant', status: 'completed', createdAt: nowMs, modelSeen: false,

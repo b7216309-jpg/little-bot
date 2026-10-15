@@ -9,10 +9,25 @@ const os = require('node:os');
 const sourceRoot = process.env.LITTLE_BOT_TEST_SOURCE_ROOT || path.join(__dirname, '..', 'src');
 const { Controller } = require(path.join(sourceRoot, 'controller.cjs'));
 const { Store } = require(path.join(sourceRoot, 'store.cjs'));
+const { AgentTools } = require(path.join(sourceRoot, 'agent-tools.cjs'));
+const { compactionConfig } = require(path.join(sourceRoot, 'compaction.cjs'));
+
+test('default compaction thresholds remain connection-specific', () => {
+  assert.equal(compactionConfig({ connection: 'local' }).model_post_turn_compact_threshold_percent, 50);
+  assert.equal(compactionConfig({ connection: 'codex' }).model_post_turn_compact_threshold_percent, 80);
+  assert.equal(compactionConfig({ connection: 'codex', autoCompactPercent: 45 }).model_post_turn_compact_threshold_percent, 45);
+});
+
+test('saved local chats keep their compaction default after switching the active connection', async t => {
+  const { controller, chat } = await fixture(t);
+  chat.connection = 'local';
+  assert.equal(controller.threadOptions(chat, chat.workspace).config.model_post_turn_compact_threshold_percent, 50);
+});
 class FakeClient extends EventEmitter {
-  constructor() { super(); this.calls = []; this.responses = []; this.hooks = new Map(); this.serial = 0; this.closed = false; }
+  constructor() { super(); this.calls = []; this.responses = []; this.hooks = new Map(); this.serial = 0; this.closed = false; this.restartCount = 0; }
   async start() {}
   async close() { this.closed = true; }
+  async restart() { this.closed = false; this.restartCount++; return {}; }
   async request(method, params = {}) {
     this.calls.push({ method, params: structuredClone(params) });
     if (this.hooks.has(method)) return this.hooks.get(method)(params);
@@ -52,8 +67,8 @@ for (const subscribed of [true, false]) test(`compaction switches IQ2_XS to IQ3_
   const { controller, client, chat, store } = await fixture(t);
   const baseUrl = 'http://127.0.0.1:8080/v1';
   Object.assign(chat, { connection: 'local', localBaseUrl: baseUrl, model: 'qwen3.8-flash-next-iq2_xs' });
-  Object.assign(store.data.settings, { connection: 'local', localBaseUrl: baseUrl, model: 'qwen3.8-flash-next-iq3_s', localModel: 'qwen3.8-flash-next-iq3_s', effort: 'high' });
-  controller.models = [{ id: store.data.settings.model }];
+  Object.assign(store.data.settings, { connection: 'local', localBaseUrl: baseUrl, model: 'qwen3.8-flash-next-iq2_xs', localModel: 'qwen3.8-flash-next-iq3_s', effort: 'high' });
+  controller.models = [{ id: store.data.settings.localModel }];
   controller.connection = { adapter: 'strata', contextWindow: 262144 };
   await controller.localModelRelay.start();
   if (!subscribed) controller.resumed.clear();
@@ -70,11 +85,11 @@ for (const subscribed of [true, false]) test(`compaction switches IQ2_XS to IQ3_
   started(client, chat); item(client, chat, true); finished(client, chat);
   assert.equal(chat.compaction.count, 1);
   assert.equal(chat.threadId, threadId);
-  assert.equal(chat.model, store.data.settings.model);
+  assert.equal(chat.model, store.data.settings.localModel);
   assert.deepEqual(chat.messages, transcript);
   await controller.send({ text: 'Continue after switching quantization.' });
   assert.equal(chat.threadId, threadId);
-  assert.equal(client.calls.at(-1).params.model, store.data.settings.model);
+  assert.equal(client.calls.at(-1).params.model, store.data.settings.localModel);
   assert.equal(client.calls.slice(before).some(call => call.method === 'thread/start'), false);
 });
 
@@ -86,4 +101,104 @@ test('failed model reload keeps the original conversation binding and releases c
   assert.equal(chat.model, 'test-model');
   assert.equal(chat.status, 'idle');
   assert.equal(client.calls.some(call => call.method === 'thread/compact/start'), false);
+});
+
+test('a missing saved engine thread is replaced with recent chat history and the current message', async t => {
+  const { controller, client, chat } = await fixture(t);
+  controller.resumed.clear();
+  client.hooks.set('thread/resume', () => { throw new Error('The saved engine conversation is missing.'); });
+  const result = await controller.send({ chatId: chat.id, text: 'Continue from the saved conversation.' });
+  assert.equal(result.chatId, chat.id);
+  assert.equal(chat.status, 'running');
+  assert.equal(client.calls.filter(call => call.method === 'thread/start').length, 2);
+  const request = client.calls.filter(call => call.method === 'turn/start').at(-1).params;
+  assert.match(request.input[0].text, /Recent conversation before this engine session/);
+  assert.match(request.input[0].text, /Help with the project/);
+  assert.match(request.input[0].text, /Start with the README/);
+  assert.match(request.input[0].text, /Continue from the saved conversation/);
+});
+
+test('agent tool sources are normalized to one engine format', () => {
+  const store = { data: { settings: {}, extensions: {} } };
+  const tools = new AgentTools({ store, management: { specs: () => [{ type: 'legacy', name: 'legacy_tool', description: 'Legacy source', inputSchema: { type: 'object', properties: {} } }] } }).specs();
+  assert.ok(tools.length > 1);
+  assert.ok(tools.every(tool => tool.type === 'function' && tool.inputSchema));
+});
+
+test('system prompt and local thinking changes apply without waiting for an active turn', async t => {
+  const { controller, client, chat, store } = await fixture(t);
+  await controller.send({ text: 'Keep this first turn running while settings change.' });
+  const prompt = 'Use the new system prompt on the next turn.';
+  controller.saveSettings({ systemPrompt: prompt, localThinking: false });
+  assert.equal(store.data.settings.systemPrompt, prompt);
+  assert.equal(store.data.settings.localThinking, false);
+  finished(client, chat, 'completed', 'turn-2');
+  const before = client.calls.length;
+  await controller.send({ text: 'Use the updated prompt.' });
+  const calls = client.calls.slice(before);
+  assert.deepEqual(calls.map(call => call.method), ['thread/unsubscribe', 'thread/resume', 'turn/start']);
+  assert.equal(calls[1].params.developerInstructions, prompt);
+});
+
+test('the local-only multi-agent setting does not change Codex thread configuration', async t => {
+  const { controller, chat } = await fixture(t);
+  assert.equal(controller.threadOptions(chat, chat.workspace).config['features.multi_agent'], undefined);
+});
+
+test('a user message waits for a stopping goal and is sent once the lane is free', async t => {
+  const { controller, client } = await fixture(t);
+  let settle;
+  const operation = { settled: new Promise(resolve => { settle = resolve; }) };
+  controller.goalExecutor.active = operation;
+  controller.goalExecutor.stop = async () => {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    controller.goalExecutor.active = null;
+    settle();
+  };
+  const result = await controller.send({ text: 'Queue this while the goal stops.' });
+  assert.equal(controller.chat(result.chatId).messages.at(-1).text, 'Queue this while the goal stops.');
+  assert.equal(client.calls.filter(call => call.method === 'turn/start').length, 2);
+});
+
+test('engine crashes settle active chat and restart with the real client lifecycle hook', async t => {
+  const { controller, client, chat } = await fixture(t);
+  await controller.send({ text: 'Keep this request if the engine stops.' });
+  controller.crashed(new Error('Codex exited unexpectedly (code 1073807364).'));
+  assert.equal(chat.status, 'idle');
+  assert.match(chat.error, /saved message is safe/);
+  const deadline = Date.now() + 5000;
+  while (!client.restartCount && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(client.restartCount, 1);
+  assert.equal(controller.runtime.status, 'ready');
+});
+
+test('a lost turn start acknowledgement interrupts the owned turn before releasing the chat', async t => {
+  const { controller, client } = await fixture(t);
+  client.hooks.set('turn/start', () => {
+    client.notice('turn/started', { threadId: 'thread-1', turn: { id: 'uncertain-turn', status: 'inProgress' } });
+    throw new Error('Codex request timed out: turn/start. The server may still be processing it.');
+  });
+  client.hooks.set('turn/interrupt', params => {
+    client.notice('turn/completed', { threadId: 'thread-1', turn: { id: params.turnId, status: 'interrupted' } });
+    return {};
+  });
+
+  const result = await controller.send({ text: 'Keep ownership if the start acknowledgement is lost.' });
+  const chat = controller.chat(result.chatId);
+  assert.ok(client.calls.some(call => call.method === 'turn/interrupt' && call.params.turnId === 'uncertain-turn'));
+  assert.equal(chat.status, 'idle');
+  assert.equal(chat.error, 'Stopped by you.');
+  assert.equal(client.restartCount, 0);
+});
+
+test('a lost start acknowledgement without a turn id restarts the engine to clear uncertainty', async t => {
+  const { controller, client } = await fixture(t);
+  client.hooks.set('turn/start', () => { throw new Error('Codex request timed out: turn/start.'); });
+
+  const result = await controller.send({ text: 'Do not release an unowned engine turn.' });
+  const chat = controller.chat(result.chatId);
+  assert.equal(chat.status, 'idle');
+  assert.match(chat.error, /saved message is safe/);
+  assert.equal(client.closed, true);
+  assert.equal(controller.runtime.status, 'starting');
 });

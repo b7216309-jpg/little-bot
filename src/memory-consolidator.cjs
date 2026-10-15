@@ -1,6 +1,6 @@
 'use strict';
 
-const { parseModelJson } = require('./model-json.cjs');
+const { parseModelJson, normalizeModelOutput } = require('./model-json.cjs');
 const proactive = require('./proactive-chat.cjs');
 const dreaming = require('./dreaming.cjs');
 
@@ -56,9 +56,10 @@ function normalizeCandidates(output, job = {}) {
 }
 
 class MemoryConsolidator {
-  constructor(controller, { intervalMs = 5000, timeoutMs = 90000, autoStart = true } = {}) {
+  constructor(controller, { intervalMs = 5000, timeoutMs = null, stopTimeoutMs = 10000, autoStart = true } = {}) {
     this.controller = controller;
     this.timeoutMs = timeoutMs;
+    this.stopTimeoutMs = stopTimeoutMs;
     this.active = null;
     this.closed = false;
     this.notBefore = 0;
@@ -95,7 +96,7 @@ class MemoryConsolidator {
   available() {
     const c = this.controller;
     return !this.closed && !this.active && Date.now() >= this.notBefore && this.service
-      && c.store.data.memory?.enabled !== false && !c.closing && c.runtime.status === 'ready'
+      && c.store.data.memory?.enabled !== false && !c.closing && !c.userSendPending && c.runtime.status === 'ready'
       && c.account.status === 'connected' && !c.extensionsBusy && !c.goalChat && !c.heartbeatChat
       && !c.independentCheck?.active && !c.manualCompactions?.size && !c.chatGoal?.holding()
       && !c.store.data.chats.some(chat => chat.status !== 'idle');
@@ -113,12 +114,13 @@ class MemoryConsolidator {
     }
     const job = this.service.pendingExtractions(1)[0];
     if (!job) return this.maybeDream();
-    const op = { kind: 'extract', job, output: '', threadId: null, turnId: null, cancelled: false };
+    const op = { kind: 'extract', job, local: this.controller.store.data.settings.connection === 'local', output: '', threadId: null, turnId: null, turnStartAttempted: false, cancelled: false };
     op.completion = new Promise(resolve => { op.resolve = resolve; });
     this.active = op;
     this.controller.memoryBusy = true;
     this.controller.changed();
-    op.timer = setTimeout(() => { void this.stop('Memory extraction timed out.').catch(error => { this.lastError = error.message; }); }, this.timeoutMs);
+    const timeoutMs = this.timeoutMs ?? (this.controller.store.data.settings.connection === 'local' ? 10 * 60000 : 90000);
+    op.timer = setTimeout(() => { void this.stop('Memory extraction timed out.').catch(error => { this.lastError = error.message; }); }, timeoutMs);
     op.timer.unref?.();
     op.starting = this.run(op);
     await op.starting;
@@ -139,19 +141,20 @@ class MemoryConsolidator {
       state.lastDreamError = 'Nothing new to reflect on yet.'; c.changed(true);
       return false;
     }
-    const op = { kind: 'dream', material, output: '', threadId: null, turnId: null, cancelled: false };
+    const op = { kind: 'dream', material, local: c.store.data.settings.connection === 'local', output: '', threadId: null, turnId: null, turnStartAttempted: false, cancelled: false };
     op.completion = new Promise(resolve => { op.resolve = resolve; });
     this.active = op;
     c.memoryBusy = true;
     c.changed();
-    op.timer = setTimeout(() => { void this.stop('The dream took too long.').catch(error => { this.lastError = error.message; }); }, 5 * 60000);
+    const timeoutMs = this.timeoutMs ?? (this.controller.store.data.settings.connection === 'local' ? 10 * 60000 : 5 * 60000);
+    op.timer = setTimeout(() => { void this.stop('The dream took too long.').catch(error => { this.lastError = error.message; }); }, timeoutMs);
     op.timer.unref?.();
     op.starting = this.run(op);
     await op.starting;
     return true;
   }
   async run(op) {
-    const c = this.controller, settings = c.store.data.settings;
+    const c = this.controller, settings = c.store.data.settings, local = op.local;
     if (op.kind === 'dream') return this.runDream(op);
     try {
       const cwd = op.job.workspace || settings.workspace;
@@ -167,9 +170,9 @@ class MemoryConsolidator {
       }, 60000);
       op.threadId = started?.thread?.id;
       if (!op.threadId) throw new Error('No memory extraction thread was returned.');
-      if (op.cancelled || this.closed) return;
+      if (op.cancelled || this.closed) return this.release(op);
       await c.extensionRuntime?.verifyHeartbeat(op.threadId);
-      if (op.cancelled || this.closed) return;
+      if (op.cancelled || this.closed) return this.release(op);
       const existing = this.service.search({ query: '', source: 'facts', workspace: cwd, scope: 'workspace', limit: 20 });
       const records = (existing.records || existing.results || []).map(({ id, key, text, type }) => ({ id, key, text: text.slice(0, 1500), type }));
       const messages = [];
@@ -183,25 +186,27 @@ class MemoryConsolidator {
         messages.push({ ...message, text }); remaining -= text.length;
       }
       const prompt = { workspace: cwd, messages, existing: records };
-      // Local servers reject a structured response format while the engine's tools are attached; ask in the prompt instead.
-      const local = settings.connection === 'local';
-      const text = JSON.stringify(prompt) + (local ? `
-
-Return only one JSON object matching this schema, without Markdown: ${JSON.stringify(EXTRACTION_SCHEMA)}` : '');
+      const text = JSON.stringify(prompt) + (local ? `\n\nReturn only one JSON object matching this schema, without Markdown: ${JSON.stringify(EXTRACTION_SCHEMA)}` : '');
+      op.turnStartAttempted = true;
       const result = await c.client.request('turn/start', {
         threadId: op.threadId, cwd, model: settings.model || undefined,
         input: [{ type: 'text', text }],
-        effort: c.effectiveEffort(settings.model, 'low'), approvalPolicy: 'never',
-        sandboxPolicy: { type: 'readOnly' }, ...(local ? {} : { outputSchema: EXTRACTION_SCHEMA }),
-      }, 60000);
+        effort: c.effectiveEffort(settings.model, 'low'), approvalPolicy: 'never', sandboxPolicy: { type: 'readOnly' },
+        ...(local ? {} : { outputSchema: EXTRACTION_SCHEMA }),
+      }, local ? 10 * 60 * 1000 : 60000);
       op.turnId ||= result?.turn?.id;
       if (!op.turnId) throw new Error('No memory extraction turn was returned.');
+      op.turnStartAttempted = false;
     } catch (error) {
+      if (this.active === op && op.turnStartAttempted && !Number.isInteger(error?.code)) {
+        await c.recoverUncertainTurnStart({ threadId: op.threadId, turnId: op.turnId, completion: op.completion, owner: op,
+          reason: 'The engine did not stop after the memory extraction start acknowledgement was lost.' });
+      }
       if (this.active === op && !op.cancelled) this.finish(op, null, error.message);
     }
   }
   async runDream(op) {
-    const c = this.controller, settings = c.store.data.settings;
+    const c = this.controller, settings = c.store.data.settings, local = op.local;
     try {
       const cwd = settings.workspace;
       const disabled = await c.extensionRuntime?.heartbeatConfig(cwd) || {};
@@ -213,24 +218,29 @@ Return only one JSON object matching this schema, without Markdown: ${JSON.strin
           'features.unified_exec': false, 'features.js_repl': false, 'features.code_mode': false,
           'features.multi_agent': false, 'features.skill_mcp_dependency_install': false,
           web_search: 'disabled', model_reasoning_effort: 'low' },
-      }, 60000);
+      }, local ? 10 * 60 * 1000 : 60000);
       op.threadId = started?.thread?.id;
       if (!op.threadId) throw new Error('No dream thread was returned.');
-      if (op.cancelled || this.closed) return;
+      if (op.cancelled || this.closed) return this.release(op);
       await c.extensionRuntime?.verifyHeartbeat(op.threadId);
-      if (op.cancelled || this.closed) return;
-      const local = settings.connection === 'local';
+      if (op.cancelled || this.closed) return this.release(op);
       const profile = c.profileContext?.() || '';
       const text = [profile, `Material for tonight (reference data):\n${JSON.stringify(op.material)}`,
         local ? `Return only one JSON object matching this schema, without Markdown: ${JSON.stringify(dreaming.DREAM_SCHEMA)}` : ''].filter(Boolean).join('\n\n');
+      op.turnStartAttempted = true;
       const result = await c.client.request('turn/start', {
         threadId: op.threadId, cwd, model: settings.model || undefined, input: [{ type: 'text', text }],
-        effort: c.effectiveEffort(settings.model, 'low'), approvalPolicy: 'never',
-        sandboxPolicy: { type: 'readOnly' }, ...(local ? {} : { outputSchema: dreaming.DREAM_SCHEMA }),
-      }, 60000);
+        effort: c.effectiveEffort(settings.model, 'low'), approvalPolicy: 'never', sandboxPolicy: { type: 'readOnly' },
+        ...(local ? {} : { outputSchema: dreaming.DREAM_SCHEMA }),
+      }, local ? 10 * 60 * 1000 : 60000);
       op.turnId ||= result?.turn?.id;
       if (!op.turnId) throw new Error('No dream turn was returned.');
+      op.turnStartAttempted = false;
     } catch (error) {
+      if (this.active === op && op.turnStartAttempted && !Number.isInteger(error?.code)) {
+        await c.recoverUncertainTurnStart({ threadId: op.threadId, turnId: op.turnId, completion: op.completion, owner: op,
+          reason: 'The engine did not stop after the dream start acknowledgement was lost.' });
+      }
       if (this.active === op && !op.cancelled) this.finish(op, null, error.message);
     }
   }
@@ -245,11 +255,40 @@ Return only one JSON object matching this schema, without Markdown: ${JSON.strin
     else if (method === 'turn/completed') {
       try {
         if (['failed', 'interrupted'].includes(params.turn?.status) || params.turn?.error) throw new Error(params.turn?.error?.message || 'Memory extraction interrupted.');
-        const output = parseModelJson(op.output, op.kind === 'dream' ? 'The dream did not return readable JSON.' : 'Memory extraction did not return readable JSON.');
-        this.finish(op, op.kind === 'dream' ? output : normalizeCandidates(output, op.job));
-      } catch (error) { this.finish(op, null, error.message); }
+        const schema = op.kind === 'dream' ? dreaming.DREAM_SCHEMA : EXTRACTION_SCHEMA;
+        const parsed = parseModelJson(op.output, op.kind === 'dream' ? 'The dream did not return readable JSON.' : 'Memory extraction did not return readable JSON.', { local: op.local });
+        const output = op.local ? normalizeModelOutput(parsed, schema) : parsed;
+        this.finish(op, op.kind === 'dream' ? (op.local ? dreaming.normalizeDream(output) : output) : normalizeCandidates(output, op.job));
+      } catch (error) {
+        if (op.local && !op.retryCount && !op.cancelled) { op.retryStarting = this.retryMalformed(op, error); return true; }
+        this.finish(op, null, error.message);
+      }
     }
     return true;
+  }
+  async retryMalformed(op, error) {
+    if (op.cancelled || this.active !== op) return;
+    op.retryCount = 1;
+    op.output = '';
+    op.turnId = null;
+    try {
+      const schema = op.kind === 'dream' ? dreaming.DREAM_SCHEMA : EXTRACTION_SCHEMA;
+      op.turnStartAttempted = true;
+      const result = await this.controller.client.request('turn/start', { threadId: op.threadId,
+        input: [{ type: 'text', text: `Your previous answer could not be used: ${error.message}. Correct only the JSON shape and return one valid object matching this schema. Preserve the useful content; use empty arrays for optional lists.\n${JSON.stringify(schema)}` }],
+        model: this.controller.store.data.settings.model || undefined, effort: 'low', approvalPolicy: 'never', sandboxPolicy: { type: 'readOnly' },
+        ...(op.local ? {} : { outputSchema: schema }),
+      }, op.local ? 10 * 60 * 1000 : 60000);
+      op.turnId ||= result?.turn?.id;
+      if (!op.turnId) throw new Error('No repair turn was returned.');
+      op.turnStartAttempted = false;
+    } catch (failure) {
+      if (this.active === op && op.turnStartAttempted && !Number.isInteger(failure?.code)) {
+        await this.controller.recoverUncertainTurnStart({ threadId: op.threadId, turnId: op.turnId, completion: op.completion, owner: op,
+          reason: 'The engine did not stop after the memory repair acknowledgement was lost.' });
+      }
+      if (this.active === op) this.finish(op, null, failure.message);
+    }
   }
   finish(op, candidates, error = '') {
     if (this.active !== op) return;
@@ -301,18 +340,21 @@ Return only one JSON object matching this schema, without Markdown: ${JSON.strin
     op.cancelled = true;
     op.stopError = error;
     op.stopping = (async () => {
-      await op.starting;
       if (this.active !== op) return;
-      if (!op.turnId) { this.finish(op, null, error); return; }
-      await this.controller.client.request('turn/interrupt', { threadId: op.threadId, turnId: op.turnId }, 10000);
-      let timer;
-      try {
-        await Promise.race([op.completion, new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error('Memory extraction is still stopping. Try your message again shortly.')), 10000);
-        })]);
-      } finally { clearTimeout(timer); }
+      if (op.turnId || op.turnStartAttempted) {
+        await this.controller.recoverUncertainTurnStart({ threadId: op.threadId, turnId: op.turnId, completion: op.completion, timeoutMs: this.stopTimeoutMs, owner: op,
+          reason: 'The engine did not stop after memory maintenance was interrupted.' });
+      }
+      if (this.active === op) this.finish(op, null, error);
     })();
-    try { await op.stopping; } finally { op.stopping = null; }
+    try { await op.stopping; }
+    catch (error) {
+      if (this.active !== op) return;
+      if (this.controller.closing) { this.finish(op, null, error.message); return; }
+      this.controller.crashed(new Error(`The engine did not stop memory maintenance: ${error.message}`));
+      if (this.controller.client.close) await this.controller.client.close().catch(() => {});
+      await op.completion;
+    } finally { op.stopping = null; }
   }
   async pauseForUser() { await this.stop(); }
   async close() {

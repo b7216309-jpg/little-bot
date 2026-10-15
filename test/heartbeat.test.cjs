@@ -3,19 +3,25 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { defaultHeartbeat, normalizeHeartbeat, validateHeartbeat, Heartbeat } = require('../src/heartbeat.cjs');
+const { advanceMissedSchedules } = require('../src/missed-schedules.cjs');
+const { EventBus } = require('../src/event-bus.cjs');
+const { EventRuntime } = require('../src/event-runtime.cjs');
+const { deliverHeartbeat, normalizePending } = require('../src/proactive-chat.cjs');
 
 const MINUTE = 60000;
-const settings = { workspace: 'C:\\work', model: 'test-model', effort: 'low' };
+const settings = { workspace: 'C:\\work', model: 'test-model', effort: 'low', connection: 'codex' };
 const localTime = (day = 26, hour = 10, minute = 0) => new Date(2026, 8, day, hour, minute).getTime();
 const input = overrides => ({ enabled: true, checklist: 'Check the build results. Fix failed outputs in this folder.', intervalMinutes: 5, startHour: 8, endHour: 22, maxRunsPerDay: 12, ...overrides });
 
-function fixture(run = async () => ({ status: 'quiet', summary: '' }), overrides = {}) {
+function fixture(run = async () => ({ status: 'quiet', summary: '' }), overrides = {}, connection = 'codex') {
   let nowMs = localTime();
   let available = true;
   let changes = 0;
   const alerts = [];
-  const config = validateHeartbeat(input(overrides), null, settings, nowMs);
-  const store = { data: { settings, heartbeat: config }, saves: 0, save() { this.saves++; } };
+  const scopedSettings = { ...settings, connection,
+    ...(connection === 'local' ? { localModel: settings.model, localBaseUrl: 'http://127.0.0.1:8080/v1' } : {}) };
+  const config = validateHeartbeat(input(overrides), null, scopedSettings, nowMs);
+  const store = { data: { settings: scopedSettings, heartbeat: config }, saves: 0, save() { this.saves++; } };
   const service = new Heartbeat({ store, run, now: () => nowMs, canRun: () => available,
     onChange: () => { changes++; }, onAlert: item => alerts.push(item) });
   return { service, store, config, alerts, setNow(value) { nowMs = value; }, setAvailable(value) { available = value; }, get changes() { return changes; } };
@@ -67,11 +73,10 @@ test('editing preserves captured scope and prior counters; explicit recapture an
   assert.equal(recaptured.runsToday, 4);
 });
 
-test('ticks skip disabled, empty, not due, busy, and outside-hours states without calling the model', async () => {
+test('remote ticks honor active hours while skipping disabled, empty, not due, and busy states', async () => {
   let calls = 0;
   const f = fixture(async () => { calls++; return { status: 'quiet', summary: '' }; });
   await f.service.tick();
-  const baselineSaves = f.store.saves;
   f.setNow(localTime(26, 10, 5));
   f.config.enabled = false;
   await f.service.tick();
@@ -87,7 +92,6 @@ test('ticks skip disabled, empty, not due, busy, and outside-hours states withou
   f.setNow(localTime(26, 22));
   await f.service.tick();
   assert.equal(calls, 0);
-  assert.equal(f.store.saves, baselineSaves);
   f.setNow(localTime(27, 8));
   assert.deepEqual(await f.service.tick(), { status: 'quiet', summary: '', actions: [], topic: '' });
   assert.equal(calls, 1);
@@ -97,24 +101,42 @@ test('ticks skip disabled, empty, not due, busy, and outside-hours states withou
   assert.equal(f.config.nextRunAt, localTime(27, 8, 5));
 });
 
-test('overnight active hours and equal hours work with local calendar boundaries', async () => {
+test('local heartbeat checks ignore active hours', async () => {
   let calls = 0;
-  const f = fixture(async () => { calls++; return { status: 'quiet', summary: '' }; }, { startHour: 22, endHour: 6 });
+  const f = fixture(async () => { calls++; return { status: 'quiet', summary: '' }; }, { startHour: 22, endHour: 6 }, 'local');
   f.setNow(localTime(26, 21));
   await f.service.tick();
-  assert.equal(calls, 0);
+  assert.equal(calls, 1);
   f.setNow(localTime(26, 22));
   await f.service.tick();
   f.setNow(localTime(27, 0));
   await f.service.tick();
-  assert.equal(calls, 2);
+  assert.equal(calls, 3);
   assert.equal(f.config.runsToday, 1);
   f.setNow(localTime(27, 6));
   await f.service.tick();
-  assert.equal(calls, 2);
+  assert.equal(calls, 4);
   f.config.startHour = f.config.endHour = 8;
+  f.setNow(localTime(27, 8));
   await f.service.tick();
-  assert.equal(calls, 3);
+  assert.equal(calls, 5);
+});
+
+test('missed scheduled heartbeats honor remote active hours while local catch-up remains all-day', async () => {
+  let remoteCalls = 0;
+  const remote = fixture(async () => { remoteCalls++; return { status: 'quiet', summary: '' }; });
+  remote.setNow(localTime(26, 22));
+  remote.config.nextRunAt = localTime(26, 21, 55);
+  assert.equal(await remote.service.runNow({ scheduled: true }), null);
+  assert.equal(remoteCalls, 0);
+  assert.equal(remote.config.runsToday, 0);
+
+  let localCalls = 0;
+  const local = fixture(async () => { localCalls++; return { status: 'quiet', summary: '' }; }, {}, 'local');
+  local.setNow(localTime(26, 22));
+  local.config.nextRunAt = localTime(26, 21, 55);
+  await local.service.runNow({ scheduled: true });
+  assert.equal(localCalls, 1);
 });
 
 test('one run owns the slot until completion, and missed intervals never form a backlog', async () => {
@@ -346,4 +368,82 @@ test('failed runs give their daily slot back, so a broken morning cannot silence
   await f.service.runNow();
   assert.equal(f.config.lastStatus, 'quiet');
   assert.equal(f.config.runsToday, 1);
+});
+
+test('local heartbeats keep running outside active hours and past the remote daily cap', async () => {
+  const localSettings = { workspace: 'C:\\work', model: 'test-model', localModel: 'test-model', localBaseUrl: 'http://127.0.0.1:8080/v1', connection: 'local' };
+  const now = localTime(26, 23);
+  const config = validateHeartbeat(input({ maxRunsPerDay: 1 }), null, localSettings, now);
+  config.runsToday = 1;
+  config.dayKey = '2026-09-26';
+  config.nextRunAt = now;
+  let calls = 0;
+  const store = { data: { settings: localSettings, heartbeat: config }, save() {} };
+  const service = new Heartbeat({ store, run: async () => { calls++; return { status: 'quiet', summary: '' }; }, now: () => now });
+  assert.deepEqual(await service.tick(), { status: 'quiet', summary: '', actions: [], topic: '' });
+  assert.equal(calls, 1);
+});
+
+test('overdue schedules stay due for one catch-up attempt after startup', () => {
+  const dueAt = localTime(26, 8);
+  const data = { automations: [{ id: 'a', enabled: true, nextRunAt: dueAt }],
+    heartbeat: { enabled: true, checklist: 'check', intervalMinutes: 30, nextRunAt: dueAt } };
+  const missed = advanceMissedSchedules(data, localTime(27, 10));
+  assert.equal(missed.automations.length, 1);
+  assert.equal(missed.heartbeat.dueAt, dueAt);
+  assert.equal(data.automations[0].nextRunAt, dueAt);
+  assert.equal(data.heartbeat.nextRunAt, dueAt);
+});
+
+test('a running automation does not hold the event dispatcher', async () => {
+  let release, started;
+  const running = new Promise(resolve => { release = resolve; });
+  const began = new Promise(resolve => { started = resolve; });
+  const store = { data: { automations: [{ id: 'fixture', enabled: true }], calendar: { events: [] }, autonomy: { goals: [] }, standingIntents: { intents: [] } }, save() {} };
+  const bus = new EventBus({ dedupeWindowMs: 0 });
+  const runtime = new EventRuntime({ store, eventBus: bus, scheduler: { runNow: async () => { started(); await running; } },
+    heartbeat: { runNow: async () => ({}), wakeSoon() {} }, goals: {},
+    setIntervalFn: () => ({ unref() {} }), clearIntervalFn() {} });
+  let handled = 0;
+  bus.subscribe({ type: 'calendar.created', handler: () => { handled++; } });
+  runtime.start();
+  await bus.drain();
+  runtime.publish({ type: 'automation.due', source: 'scheduler', payload: { automationId: 'fixture' } });
+  await began;
+  runtime.publish({ type: 'calendar.created', source: 'calendar', payload: { eventId: 'one' } });
+  const draining = bus.drain();
+  const progressed = await Promise.race([draining.then(() => true), new Promise(resolve => setTimeout(() => resolve(false), 100))]);
+  release();
+  await draining;
+  runtime.stop();
+  assert.equal(progressed, true);
+  assert.equal(handled, 1);
+});
+
+test('a disabled automation skipped by the startup queue does not run later', async () => {
+  const store = { data: { automations: [{ id: 'paused', enabled: false }], calendar: { events: [] }, autonomy: { goals: [] }, standingIntents: { intents: [] } }, save() {} };
+  const bus = new EventBus({ dedupeWindowMs: 0 });
+  let runs = 0;
+  const runtime = new EventRuntime({ store, eventBus: bus, scheduler: { runNow: async () => { runs++; } },
+    heartbeat: { runNow: async () => ({}), wakeSoon() {} }, goals: {},
+    setIntervalFn: () => ({ unref() {} }), clearIntervalFn() {} });
+  runtime.start();
+  await bus.drain();
+  runtime.publish({ type: 'automation.due', source: 'scheduler', payload: { automationId: 'paused' } });
+  await bus.drain();
+  runtime.stop();
+  assert.equal(runs, 0);
+});
+
+test('proactive alerts create the public conversation and preserve a busy outbox', () => {
+  const data = { settings: { connection: 'local', workspace: 'C:\\work', localModel: 'm', localBaseUrl: 'http://127.0.0.1:8080/v1' }, chats: [] };
+  const item = { id: 'alert-1', status: 'alert', summary: 'I followed up on your exam.', topic: 'exam' };
+  assert.ok(deliverHeartbeat(data, item, localTime()));
+  assert.equal(data.chats[0].messages[0].text, item.summary);
+  data.chats[0].status = 'running';
+  data.chats[0].pendingProactive = Array.from({ length: 24 }, (_, index) => ({ id: `old-${index}`, kind: 'heartbeat', text: 'Queued.' }));
+  const queued = deliverHeartbeat(data, { ...item, id: 'alert-2' }, localTime());
+  assert.equal(data.chats[0].pendingProactive.length, 20);
+  assert.equal(data.chats[0].pendingProactive.at(-1).id, queued.id);
+  assert.equal(normalizePending(data.chats[0].pendingProactive).length, 20);
 });

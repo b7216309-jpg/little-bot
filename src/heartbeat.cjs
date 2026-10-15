@@ -250,8 +250,8 @@ class Heartbeat {
       if (!this.running) this._dueFollowups(nowMs);
       if (!isConnectionSelected(config, this.store.data.settings)) return null;
       if (this.running || !config.enabled || !config.checklist.trim() || !Number.isFinite(config.nextRunAt)
-        || config.nextRunAt > nowMs || !inActiveHours(config, nowMs) || !this.canRun()) return null;
-      if (config.dayKey === localDay(nowMs) && config.runsToday >= config.maxRunsPerDay) return null;
+        || config.nextRunAt > nowMs || (config.connection !== 'local' && !inActiveHours(config, nowMs)) || !this.canRun()) return null;
+      if (config.connection !== 'local' && config.dayKey === localDay(nowMs) && config.runsToday >= config.maxRunsPerDay) return null;
       if (this.publish) return this.publish({
         type: 'heartbeat.due', source: 'heartbeat', priority: 3,
         dedupeKey: `heartbeat:due:${config.nextRunAt}`,
@@ -265,17 +265,19 @@ class Heartbeat {
     }
   }
 
-  async runNow() {
+  async runNow({ scheduled = false } = {}) {
     if (this.running) throw new Error('Heartbeat is already running.');
     if (!this.canRun()) throw new Error('Heartbeat is waiting for the app to be ready and other tasks to finish.');
     const config = this.store.data.heartbeat;
     requireSelectedConnection(config, this.store.data.settings);
+    const startedAt = this.now();
+    if (scheduled && (!config.enabled || !config.checklist.trim()
+      || (config.connection !== 'local' && !inActiveHours(config, startedAt)))) return null;
     if (!config.checklist.trim()) throw new Error('Add a checklist before running heartbeat.');
     if (!config.workspace.trim()) throw new Error('Choose a working folder before running heartbeat.');
-    const startedAt = this.now();
     const wakeReason = config.wakeReason || '', wakeEvent = config.wakeEvent || '';
     const dayKey = localDay(startedAt);
-    if (config.dayKey === dayKey && config.runsToday >= config.maxRunsPerDay) throw new Error('Heartbeat has reached its daily run limit.');
+    if (config.connection !== 'local' && config.dayKey === dayKey && config.runsToday >= config.maxRunsPerDay) throw new Error('Heartbeat has reached its daily run limit.');
     this.running = true;
     try {
       try {

@@ -4,12 +4,17 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const http = require('node:http');
 const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
+const { once } = require('node:events');
 const webPush = require('../src/web-push.cjs');
 const view = require('../src/relay-view.cjs');
 const { Relay } = require('../src/relay.cjs');
+const { LocalModelRelay } = require('../src/local-model-relay.cjs');
+const { responsesToChat, StrataStreamAdapter, stableJson } = require('../src/strata-responses-adapter.cjs');
+const { LOCAL_STREAM_IDLE_TIMEOUT_MS, providerConfig } = require('../src/connections.cjs');
 
 const protector = { encryptString: value => Buffer.from(`enc:${value}`), decryptString: value => value.toString().replace(/^enc:/, '') };
 function tempDir(t) {
@@ -49,6 +54,16 @@ function browserDecrypt(body, ua, authSecret) {
   assert.equal(plain[plain.length - 1], 2, 'last record delimiter');
   return plain.subarray(0, plain.length - 1).toString();
 }
+
+test('local tool results keep their edges and cap the middle sent back to the model', () => {
+  const output = `HEAD${'x'.repeat(30000)}TAIL`;
+  const { body } = responsesToChat({ input: [{ type: 'function_call_output', call_id: 'c1', output }] }, false);
+  const content = body.messages[0].content;
+  assert.ok(content.length <= 12000);
+  assert.ok(content.startsWith('HEAD'));
+  assert.ok(content.endsWith('TAIL'));
+  assert.match(content, /Tool output truncated: \d+ middle characters omitted/);
+});
 
 test('web push payloads decrypt in a browser and carry a valid VAPID signature', () => {
   const ua = crypto.createECDH('prime256v1'); ua.generateKeys();
@@ -395,4 +410,292 @@ test('phone_action is a direct-conversation tool only', async () => {
   await assert.rejects(tools.call('phone_action', { action: 'ring' }, { chat: { id: 'h', internal: true, wild: true } }), /direct user conversation/);
   await assert.rejects(tools.call('phone_action', { action: 'ring', number: '123' }, { chat: { id: 'c' } }), /Unsupported/);
   assert.deepEqual(sent, [{ action: 'timer', minutes: 20, label: 'Laundry' }]);
+});
+
+function chatChunk(delta = {}, finishReason = null) {
+  return `data: ${JSON.stringify({ model: 'mock-qwen', choices: [{ index: 0, delta, finish_reason: finishReason }] })}\n\n`;
+}
+
+async function collectAdapter(chunks, options = {}) {
+  const adapter = new StrataStreamAdapter({ model: 'mock-qwen', ...options });
+  let raw = '';
+  adapter.on('data', chunk => { raw += chunk.toString(); });
+  const ended = once(adapter, 'end');
+  adapter.end(Buffer.from(chunks.join('')));
+  await ended;
+  const events = raw.split(/\r?\n\r?\n/).filter(block => block.startsWith('data: '))
+    .map(block => JSON.parse(block.slice(6)));
+  return { adapter, events };
+}
+
+async function startStrataMock(t, handler) {
+  const server = http.createServer(async (request, response) => {
+    if (request.url === '/health') { response.end(JSON.stringify({ images: false })); return; }
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    const raw = Buffer.concat(chunks).toString();
+    await handler({ request, response, raw, body: JSON.parse(raw) });
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const errors = [];
+  const relay = new LocalModelRelay({ onError: (source, error, metadata) => errors.push({ source, message: error.message, metadata }) });
+  await relay.start();
+  t.after(async () => {
+    await relay.close();
+    await new Promise(resolve => server.close(resolve));
+  });
+  const baseUrl = `http://127.0.0.1:${server.address().port}/v1`;
+  return { relay, endpoint: relay.endpoint(baseUrl, 'strata'), errors, server, baseUrl };
+}
+
+const responseInput = text => ({ type: 'message', role: 'user', content: [{ type: 'input_text', text }] });
+const localRequest = input => ({ model: 'mock-qwen', input, tools: [{ type: 'function', name: 'lookup', description: 'Look up a value.', parameters: { type: 'object', properties: { q: { type: 'string' } }, required: ['q'] } }] });
+const responseDone = (text = 'ok') => chatChunk({ content: text }, 'stop') + 'data: [DONE]\n\n';
+
+test('the Strata adapter turns Qwen text calls into JSON tool events and repairs arguments', async () => {
+  const tools = new Map([['lookup', { type: 'function' }]]);
+  const forms = [
+    '<tool_call>{"name":"lookup","arguments":{"q":"hi"}}</tool_call>',
+    '<function=lookup><parameter=q>hi</parameter></function>',
+    '```json\n{"name":"lookup","arguments":{"q":"hi",}}\n```',
+  ];
+  for (const text of forms) {
+    const { events } = await collectAdapter([chatChunk({ content: `Done. ${text}` }, 'stop')], { toolKinds: tools });
+    const result = events.find(event => event.type === 'response.completed');
+    assert.equal(result?.response.output.find(item => item.type === 'message')?.content[0].text, 'Done. ');
+    const call = result?.response.output.find(item => item.type === 'function_call');
+    assert.equal(call?.name, 'lookup');
+    assert.deepEqual(JSON.parse(call.arguments), { q: 'hi' });
+  }
+
+  const spaced = await collectAdapter([chatChunk({ content: '<tool_call>{ "name":"lookup", "arguments": { "q" : "hi" } }</tool_call>' }, 'stop')], { toolKinds: tools });
+  const spacedCall = spaced.events.find(event => event.type === 'response.completed')?.response.output.find(item => item.type === 'function_call');
+  assert.equal(spacedCall.arguments, '{ "q" : "hi" }');
+  const replay = responsesToChat({ input: [{ type: 'function_call', call_id: spacedCall.call_id, name: spacedCall.name, arguments: spacedCall.arguments }] });
+  assert.equal(replay.body.messages[0].tool_calls[0].function.arguments, spacedCall.arguments);
+
+  const { events } = await collectAdapter([chatChunk({ tool_calls: [{ index: 0, id: 'call-1', function: { name: 'lookup', arguments: "{q: 'hi',}" } }] }, 'stop')], { toolKinds: tools });
+  const call = events.find(event => event.type === 'response.completed')?.response.output.find(item => item.type === 'function_call');
+  assert.deepEqual(JSON.parse(call.arguments), { q: 'hi' });
+  const partial = await collectAdapter([chatChunk({ tool_calls: [{ index: 0, id: 'call-2', function: { name: 'lookup', arguments: '{"q":"partial"' } }] }, 'stop')], { toolKinds: tools });
+  const partialCall = partial.events.find(event => event.type === 'response.completed')?.response.output.find(item => item.type === 'function_call');
+  assert.deepEqual(JSON.parse(partialCall.arguments), { q: 'partial' });
+  const bareword = await collectAdapter([chatChunk({ tool_calls: [{ index: 0, id: 'call-3', function: { name: 'lookup', arguments: '{q: hi,}' } }] }, 'stop')], { toolKinds: tools });
+  const barewordCall = bareword.events.find(event => event.type === 'response.completed')?.response.output.find(item => item.type === 'function_call');
+  assert.deepEqual(JSON.parse(barewordCall.arguments), { q: 'hi' });
+});
+
+test('tagged text tool calls replay their generated assistant text before tool output', async () => {
+  const history = new Map();
+  const tools = new Map([['lookup', { type: 'function' }]]);
+  const raw = 'Let me check. <tool_call>{ "name":"lookup", "arguments": { "q" : "hi" } }</tool_call>';
+  const first = await collectAdapter([chatChunk({ content: raw }, 'stop')], { toolKinds: tools, textCallHistory: history });
+  const output = first.events.find(event => event.type === 'response.completed').response.output;
+  const call = output.find(item => item.type === 'function_call');
+  assert.ok(call);
+  const replay = responsesToChat({ input: [...output, { type: 'function_call_output', call_id: call.call_id, output: 'Found it.' }] }, false, history);
+  assert.equal(replay.body.messages[0].content, raw);
+  assert.equal(replay.body.messages[0].tool_calls, undefined);
+  assert.deepEqual(replay.body.messages[1], { role: 'assistant', content: 'Tool output for lookup (reference data):\nFound it.' });
+  assert.equal(history.size, 2);
+});
+
+test('the Strata adapter repairs patch aliases and unknown calls while replaying the original tagged text', async () => {
+  const tools = new Map([['exec_command', { type: 'function' }], ['write_stdin', { type: 'function' }]]);
+  const patch = '*** Begin Patch\n*** Update File: math.js\n@@\n-const value = 1;\n+const value = 2;\n*** End Patch';
+  const shapes = [
+    ['apply_patch', { input: patch }],
+    ['applypatch', { patch }],
+    ['apply-patch', patch],
+    ['apply_patch', { cmd: `apply_patch <<'EOF'\n${patch}\nEOF` }],
+    ['apply_patch', { command: `apply_patch <<'EOF'\n${patch}\nEOF` }],
+    ['apply_patch', { command: ['apply_patch', patch] }],
+    ['apply_patch', { cmd: ['apply_patch', patch] }],
+    ['exec_command', { cmd: ['apply_patch', patch] }],
+  ];
+  for (const [name, args] of shapes) {
+    const { events } = await collectAdapter([chatChunk({ tool_calls: [{ index: 0, id: 'call-patch', function: { name, arguments: JSON.stringify(args) } }] }, 'tool_calls')], { toolKinds: tools });
+    const call = events.find(event => event.type === 'response.completed')?.response.output.find(item => item.type === 'function_call');
+    assert.equal(call?.name, 'exec_command', name);
+    assert.match(JSON.parse(call.arguments).cmd, /apply_patch <<'LITTLE_BOT_PATCH'/, name);
+    assert.ok(JSON.parse(call.arguments).cmd.includes(patch), name);
+  }
+
+  const unknown = await collectAdapter([chatChunk({ tool_calls: [{ index: 0, id: 'call-unknown', function: { name: 'missing_tool', arguments: '{"value":1}' } }] }, 'tool_calls')], { toolKinds: tools });
+  const feedback = unknown.events.find(event => event.type === 'response.completed')?.response.output.find(item => item.type === 'function_call');
+  assert.equal(feedback?.name, 'exec_command');
+  assert.match(JSON.parse(feedback.arguments).cmd, /Unknown tool "missing_tool"/);
+  assert.match(JSON.parse(feedback.arguments).cmd, /Valid tools: exec_command, write_stdin/);
+
+  const rawArguments = '{ "cmd": "Write-Output ok", "yield_time_ms": 1000 }';
+  const valid = await collectAdapter([chatChunk({ tool_calls: [{ index: 0, id: 'call-valid', function: { name: 'exec_command', arguments: rawArguments } }] }, 'tool_calls')], { toolKinds: tools });
+  const unchanged = valid.events.find(event => event.type === 'response.completed')?.response.output.find(item => item.type === 'function_call');
+  assert.equal(unchanged.arguments, rawArguments);
+
+  const noExec = await collectAdapter([chatChunk({ tool_calls: [{ index: 0, id: 'call-no-exec', function: { name: 'apply_patch', arguments: JSON.stringify({ input: patch }) } }] }, 'tool_calls')], { toolKinds: new Map([['lookup', { type: 'function' }]]) });
+  assert.equal(noExec.events.some(event => event.item?.type === 'function_call' && event.item.name === 'exec_command'), false);
+
+  const raw = `Editing. <tool_call>{ "name":"apply-patch", "arguments": {"patch": ${JSON.stringify(patch)} } }</tool_call>`;
+  const history = new Map();
+  const tagged = await collectAdapter([chatChunk({ content: raw }, 'stop')], { toolKinds: tools, textCallHistory: history });
+  const output = tagged.events.find(event => event.type === 'response.completed').response.output;
+  const taggedCall = output.find(item => item.type === 'function_call');
+  assert.equal(taggedCall?.name, 'exec_command');
+  assert.match(JSON.parse(taggedCall.arguments).cmd, /apply_patch <<'LITTLE_BOT_PATCH'/);
+  const replay = responsesToChat({ input: [...output, { type: 'function_call_output', call_id: taggedCall.call_id, output: 'Applied.' }] }, false, history);
+  assert.equal(replay.body.messages[0].content, raw);
+  assert.equal(Buffer.from(replay.body.messages[0].content).compare(Buffer.from(raw)), 0);
+  assert.equal(replay.body.messages[0].tool_calls, undefined);
+  assert.deepEqual(replay.body.messages[1], { role: 'assistant', content: 'Tool output for apply-patch (reference data):\nApplied.' });
+});
+
+test('the Strata adapter preserves hidden thought for replay, fails empty and truncated calls, and trims loops', async () => {
+  const tools = new Map([['lookup', { type: 'function' }]]);
+  const history = new Map();
+  const raw = '<think>private thought</think   ><reasoning>hidden reasoning</reasoning>Answer.';
+  const thought = await collectAdapter([
+    chatChunk({ content: '<think>private thought</think   ' }),
+    chatChunk({ content: '><reasoning>hidden reasoning</reasoning>Answer.' }, 'stop'),
+  ], { toolKinds: tools, textCallHistory: history });
+  const completed = thought.events.find(event => event.type === 'response.completed');
+  assert.equal(completed.response.output.find(item => item.type === 'message').content[0].text, 'Answer.');
+  const reasoning = completed.response.output.find(item => item.type === 'reasoning');
+  assert.match(reasoning.content[0].text, /private thought/);
+  assert.match(reasoning.content[0].text, /hidden reasoning/);
+  const replayed = responsesToChat({ input: completed.response.output });
+  assert.match(replayed.body.messages[0].reasoning_content, /private thought/);
+  assert.match(replayed.body.messages[0].reasoning_content, /hidden reasoning/);
+  const stableReplay = responsesToChat({ input: completed.response.output }, false, history);
+  assert.equal(stableReplay.body.messages[0].content, raw);
+  assert.equal(stableReplay.body.messages[0].reasoning_content, undefined);
+
+  const empty = await collectAdapter([chatChunk({}, 'stop')]);
+  assert.equal(empty.events.at(-1).type, 'response.failed');
+  assert.equal(empty.events.at(-1).response.error.code, 'empty_completion');
+  const whitespace = await collectAdapter([chatChunk({ content: '  \n' }, 'stop')]);
+  assert.equal(whitespace.events.at(-1).response.error.code, 'empty_completion');
+
+  const limited = await collectAdapter([chatChunk({ tool_calls: [{ index: 0, function: { name: 'lookup', arguments: '{"q":' } }] }, 'length')], { toolKinds: tools });
+  assert.equal(limited.events.at(-1).type, 'response.failed');
+  assert.equal(limited.events.some(event => event.item?.type === 'function_call'), false);
+
+  let stopped = false;
+  const loop = 'The same loop continues. '.repeat(5);
+  const repeated = await collectAdapter([chatChunk({ content: loop }, 'stop')], { onDegenerate: () => { stopped = true; } });
+  const output = repeated.events.find(event => event.type === 'response.completed').response.output.find(item => item.type === 'message').content[0].text;
+  assert.equal(output, 'The same loop continues. '.repeat(2));
+  await new Promise(setImmediate);
+  assert.equal(repeated.adapter.degenerate, true);
+  assert.equal(stopped, true);
+
+  const streaming = new StrataStreamAdapter();
+  const streamingEnd = once(streaming, 'end');
+  streaming.resume();
+  await new Promise(resolve => streaming.write(Buffer.from(chatChunk({ content: 'x'.repeat(140) })), resolve));
+  assert.ok(streaming.text.length > 0, 'ordinary text starts streaming before completion');
+  streaming.end(Buffer.from(chatChunk({ content: 'tail' }, 'stop')));
+  await streamingEnd;
+});
+
+test('the Strata relay starts its Responses stream before model headers and cancels generation on caller close', async t => {
+  let headersAt = null;
+  const delayed = await startStrataMock(t, async ({ response }) => {
+    await new Promise(resolve => setTimeout(resolve, 600));
+    headersAt = Date.now();
+    response.writeHead(200, { 'content-type': 'text/event-stream' });
+    response.end(responseDone());
+  });
+  const startedAt = Date.now();
+  const response = await fetch(`${delayed.endpoint}/responses`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(localRequest([responseInput('slow prefill')])) });
+  const responseReader = response.body.getReader();
+  const first = await responseReader.read();
+  const firstByteMs = Date.now() - startedAt;
+  assert.equal(headersAt, null, 'the mock model has not sent headers yet');
+  assert.ok(firstByteMs < 500, `first Responses bytes arrived in ${firstByteMs}ms`);
+  assert.match(new TextDecoder().decode(first.value), /response\.created/);
+  let rest = '';
+  for (;;) { const part = await responseReader.read(); if (part.done) break; rest += new TextDecoder().decode(part.value); }
+  assert.match(rest, /response\.completed/);
+
+  let closeUpstream;
+  const closed = new Promise(resolve => { closeUpstream = resolve; });
+  const pending = await startStrataMock(t, async ({ response }) => {
+    response.writeHead(200, { 'content-type': 'text/event-stream' });
+    response.once('close', closeUpstream);
+  });
+  const controller = new AbortController();
+  const call = fetch(`${pending.endpoint}/responses`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(localRequest([responseInput('stop now')])), signal: controller.signal });
+  const stream = await call;
+  const reader = stream.body.getReader();
+  await reader.read();
+  controller.abort();
+  await reader.cancel().catch(() => {});
+  await Promise.race([closed, new Promise((_, reject) => setTimeout(() => reject(new Error('upstream stream was not cancelled')), 1500))]);
+  assert.deepEqual(pending.errors, [], 'caller cancellation is expected and is not logged');
+});
+
+test('the Strata relay retries startup refusal and keeps identical requests byte-stable', async t => {
+  const captured = [];
+  let accepted = 0;
+  const server = http.createServer();
+  const port = await freePort();
+  const errors = [];
+  const relay = new LocalModelRelay({ onError: (source, error) => errors.push(`${source}: ${error.message}`) });
+  await relay.start();
+  t.after(async () => {
+    await relay.close();
+    if (server.listening) await new Promise(resolve => server.close(resolve));
+  });
+  const endpoint = relay.endpoint(`http://127.0.0.1:${port}/v1`, 'strata');
+  setTimeout(() => server.listen(port, '127.0.0.1'), 150).unref();
+
+  server.removeAllListeners('request');
+  server.on('request', async (request, response) => {
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    captured.push(Buffer.concat(chunks).toString());
+    accepted++;
+    response.writeHead(200, { 'content-type': 'text/event-stream' });
+    response.end(responseDone());
+  });
+  const send = async body => {
+    const response = await fetch(`${endpoint}/responses`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    assert.equal(response.status, 200);
+    await response.text();
+  };
+  const first = localRequest([responseInput('first'), { type: 'function_call', name: 'lookup', arguments: '{q: "old",}' }]);
+  await send(first);
+  await send(first);
+  const second = structuredClone(first);
+  second.input.push({ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'first answer' }] }, responseInput('second'));
+  await send(second);
+  assert.equal(captured[0], captured[1]);
+  assert.equal(captured[0], stableJson(JSON.parse(captured[0])));
+  const historicalCall = JSON.parse(captured[0]).messages.flatMap(message => message.tool_calls || [])[0];
+  assert.deepEqual(JSON.parse(historicalCall.function.arguments), { q: 'old' });
+  assert.equal(accepted, 3, 'the refused connection was retried without a duplicate accepted request');
+  assert.deepEqual(errors, [], 'temporary startup refusal was recovered quietly');
+  assert.deepEqual(Object.keys(JSON.parse(captured[0])).filter(key => stableJson(JSON.parse(captured[0])[key]) !== stableJson(JSON.parse(captured[2])[key])), ['messages']);
+  assert.notEqual(captured[0], captured[2], 'a new turn changes the translated conversation history');
+  const settings = providerConfig({ connection: 'local', localBaseUrl: 'http://127.0.0.1:8080/v1' }, { contextWindow: 65536 });
+  assert.equal(settings['model_providers.little_bot_local'].request_max_retries, 0);
+  assert.equal(settings['model_providers.little_bot_local'].stream_max_retries, 0);
+  assert.equal(LOCAL_STREAM_IDLE_TIMEOUT_MS, 30 * 60 * 1000);
+});
+
+test('the early Strata stream still restores namespaced Responses tool calls', async t => {
+  const { endpoint } = await startStrataMock(t, async ({ response, body }) => {
+    const alias = body.tools[0].function.name;
+    response.writeHead(200, { 'content-type': 'text/event-stream' });
+    response.end(chatChunk({ tool_calls: [{ index: 0, id: 'call-1', function: { name: alias, arguments: '{"q":"x"}' } }] }, 'tool_calls'));
+  });
+  const body = { model: 'mock-qwen', input: [responseInput('look up x')], tools: [{ type: 'namespace', name: 'local_space', tools: [
+    { type: 'function', name: 'lookup', parameters: { type: 'object', properties: { q: { type: 'string' } } } },
+  ] }] };
+  const response = await fetch(`${endpoint}/responses`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const raw = await response.text();
+  const events = raw.split(/\r?\n\r?\n/).filter(block => block.startsWith('data: ')).map(block => JSON.parse(block.slice(6)));
+  const call = events.find(event => event.type === 'response.completed')?.response.output.find(item => item.type === 'function_call');
+  assert.equal(call.name, 'lookup');
+  assert.equal(call.namespace, 'local_space');
 });

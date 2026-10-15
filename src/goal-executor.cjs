@@ -7,7 +7,7 @@ const { buildMemoryContext } = require('./memory.cjs');
 const { questionInput, questionSpec, clarifications } = require('./user-questions.cjs');
 const { EXECUTOR_LEDGER_SCHEMA, goalLedgerContext, normalizeExecutorLedgerUpdate } = require('./goal-ledger.cjs');
 const contract = require('./goal-contract.cjs');
-const { parseModelJson } = require('./model-json.cjs');
+const { parseModelJson, normalizeModelOutput } = require('./model-json.cjs');
 const { timeContext } = require('./local-time.cjs');
 const { SHELL_CONDUCT } = require('./shell-conduct.cjs');
 
@@ -188,7 +188,7 @@ class GoalExecutor {
         model: goal.model || undefined, effort: this.controller.effectiveEffort(goal.model, goal.effort || 'low'),
         approvalPolicy: 'never', approvalsReviewer: 'user', ...(goal.connection === 'local' ? {} : { outputSchema: contract.isV2(goal) ? resultSchema : schema }),
         sandboxPolicy: writableRoots.length ? { type: 'workspaceWrite', writableRoots, networkAccess: network, excludeSlashTmp: true, excludeTmpdirEnvVar: true } : { type: 'readOnly', networkAccess: network },
-      }, 60000);
+      }, goal.connection === 'local' ? 10 * 60 * 1000 : 60000);
       if (!operation.terminal) operation.turnId ||= turn?.turn?.id;
       operation.phase = 'running';
       if ((operation.cancelReason || operation.questionAcknowledged || operation.completionAcknowledged) && !operation.terminal) await this.interrupt(operation);
@@ -207,10 +207,18 @@ class GoalExecutor {
         return operation.outcome;
       }
       let parsed;
-      try { parsed = JSON.parse(operation.final.trim().replace(/^```(?:json)?\s*|\s*```$/g, '')); }
-      catch {
-        // A local model's reasoning tags or a line of prose must not discard an otherwise valid outcome.
-        if (contract.isV2(goal)) parsed = contract.normalizeFinish(parseModelJson(operation.final, 'Goal did not submit a structured outcome. No completion was accepted.'));
+      if (goal.connection === 'local') {
+        try {
+          const outcomeSchema = contract.isV2(goal) ? resultSchema : schema;
+          parsed = normalizeModelOutput(parseModelJson(operation.final, 'Goal did not submit a structured outcome. No completion was accepted.', { local: true }), outcomeSchema);
+          if (contract.isV2(goal)) parsed = contract.normalizeFinish(parsed);
+        } catch { /* Keep the plain-question and performed-action recovery below. */ }
+      } else {
+        try { parsed = JSON.parse(operation.final.trim().replace(/^```(?:json)?\s*|\s*```$/g, '')); }
+        catch {
+          // Preserve the legacy version-two recovery for Codex; version one remains strict.
+          if (contract.isV2(goal)) parsed = contract.normalizeFinish(parseModelJson(operation.final, 'Goal did not submit a structured outcome. No completion was accepted.'));
+        }
       }
       if (parsed === undefined) {
         const reply = operation.final.trim();
