@@ -2510,6 +2510,31 @@ function renderMemory() {
       action('Discard', () => attempt(() => window.bot.discardMemoryLearning({ id: job.id }), 'Failed learning job discarded.'), 'button text-button'));
     row.append(controls); return row;
   }));
+  const lessonsHost = $('lessons-list');
+  const lessons = state.lessons?.models || {};
+  const modelNames = new Map((state.models || []).map(model => [model.id, model.displayName || model.id]));
+  const lessonRows = [];
+  for (const [modelId, record] of Object.entries(lessons)) {
+    if (!Array.isArray(record.items) || !record.items.length) continue;
+    lessonRows.push(element('h3', '', modelNames.get(modelId) || modelId));
+    for (const lesson of record.items) {
+      const row = element('article', 'memory-item');
+      const copy = element('div', 'memory-item-copy');
+      copy.append(element('p', 'memory-item-text', lesson.text));
+      const meta = element('div', 'memory-item-meta');
+      meta.append(element('span', '', `${lesson.hits || 0} ${lesson.hits === 1 ? 'recovery' : 'recoveries'}`), element('span', '', `Last seen ${formatDate(lesson.lastSeenAt)}`));
+      copy.append(meta);
+      const controls = element('div', 'memory-item-actions');
+      controls.append(action('Remove', async () => {
+        await attempt(() => window.bot.deleteLesson({ modelId, key: lesson.key }), 'Lesson removed.');
+        renderMemory();
+      }, 'button text-button', 'trash'));
+      row.append(copy, controls);
+      lessonRows.push(row);
+    }
+  }
+  if (!lessonRows.length) lessonRows.push(element('p', 'memory-empty', 'Lessons appear when a local model recovers from a tool mistake.'));
+  lessonsHost.replaceChildren(...lessonRows);
 }
 
 function renderMemorySettings() {

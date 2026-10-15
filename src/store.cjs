@@ -19,6 +19,7 @@ const { normalizeWatches } = require('./web-watch.cjs');
 const { normalizeSampling } = require('./local-generation.cjs');
 const { normalizeCompanion } = require('./companion.cjs');
 const { normalizeChatGoal } = require('./chat-goal.cjs');
+const { normalizeLessons } = require('./lessons.cjs');
 
 const INTERRUPTED = 'Interrupted because Little Bot closed before the task finished.';
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -46,13 +47,14 @@ function validProtector(value) {
 function protectedEnvelope(data, protector) {
   const normalized = data;
   if (!protector) return normalized;
-  const payload = JSON.stringify({ chats: normalized.chats, memory: normalized.memory, companion: normalized.companion });
+  const payload = JSON.stringify({ chats: normalized.chats, memory: normalized.memory, companion: normalized.companion, lessons: normalized.lessons });
   const encrypted = protector.encryptString(payload);
   if (!Buffer.isBuffer(encrypted) || !encrypted.length) throw new Error('Could not encrypt saved conversations.');
   const disk = { ...normalized };
   delete disk.chats;
   delete disk.memory;
   delete disk.companion;
+  delete disk.lessons;
   disk.protected = {
     version: PROTECTED_STATE_VERSION,
     format: 'safeStorage',
@@ -77,7 +79,9 @@ function unprotectState(parsed, protector) {
   if (!isObject(sensitive) || !Array.isArray(sensitive.chats) || !isObject(sensitive.memory)) {
     throw new Error('Decrypted app state has an invalid format.');
   }
-  const result = { ...parsed, chats: sensitive.chats, memory: sensitive.memory, ...(isObject(sensitive.companion) ? { companion: sensitive.companion } : {}) };
+  const result = { ...parsed, chats: sensitive.chats, memory: sensitive.memory,
+    ...(isObject(sensitive.companion) ? { companion: sensitive.companion } : {}),
+    ...(isObject(sensitive.lessons) ? { lessons: sensitive.lessons } : {}) };
   delete result.protected;
   return result;
 }
@@ -93,6 +97,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
     extensions: normalizeExtensions(data.extensions),
     memory: normalizeMemory(data.memory),
     companion: normalizeCompanion(data.companion),
+    lessons: normalizeLessons(data.lessons),
     calendar: normalizeCalendar(data.calendar),
     feedbackLog: normalizeFeedbackLog(data.feedbackLog),
     webWatches: normalizeWatches(data.webWatches),
@@ -159,6 +164,8 @@ function persistedData(data, defaultWorkspace, recovering = false) {
         }),
       };
       if (typeof chat.error === 'string') result.error = chat.error;
+      if (typeof chat.lessonBlock === 'string' && chat.connection === 'local') result.lessonBlock = chat.lessonBlock.slice(0, 1000);
+      if (Array.isArray(chat.lessonKeys) && chat.connection === 'local') result.lessonKeys = [...new Set(chat.lessonKeys.filter(key => typeof key === 'string' && /^[a-z0-9][a-z0-9:_-]{0,100}$/i.test(key)))].slice(0, 12);
       const goal = normalizeChatGoal(chat.goal, { recovering });
       if (goal) result.goal = goal;
       const pendingProactive = normalizePending(chat.pendingProactive);

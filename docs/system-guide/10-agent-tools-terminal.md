@@ -6,6 +6,8 @@
 
 At dispatch, inputs are normalized against each live tool schema: numeric and boolean strings, case-insensitive enum values, scalar-to-list values, common field aliases, and common local date formats are repaired before validation. Attachment paths expand `~` and resolve relative to the current workspace. When a call still fails, its tool error is returned to the model as short text with a corrected example; unknown tool and action names include the closest valid name. Large tool results are capped while keeping their beginning and end, and empty memory/web searches say that no results were found.
 
+For local models, AgentTools also records a generic lesson when it repairs an argument. Controller watches each turn for a failed app-tool call followed by a successful same-intent retry, and for failed native commands followed by a PowerShell or path correction. The Strata adapter records its `apply_patch` and unknown-tool rewrites directly. Lessons are per model and explained in [04-memory.md](04-memory.md); a matching app-tool error gets the stored lesson appended as one line.
+
 | Family | Implementation |
 | --- | --- |
 | memory_search / session_read | Recall / MemoryService |
