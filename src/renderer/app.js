@@ -4108,7 +4108,15 @@ $('composer').addEventListener('submit', sendMessage);
 $('attach-button').addEventListener('click', () => addAttachments());
 $('message-input').addEventListener('paste', (event) => {
   const files = Array.from(event.clipboardData?.files || []);
-  if (!files.length) return;
+  if (!files.length) {
+    // The box stops at 32,000 characters and would silently cut a long paste; attach it whole instead.
+    const text = event.clipboardData?.getData('text/plain') || '', input = event.currentTarget;
+    if (!text || input.value.length - (input.selectionEnd - input.selectionStart) + text.length <= 32000) return;
+    event.preventDefault();
+    notify('Long paste attached as a text file.');
+    pasteAttachments([new File([text], 'pasted-text.txt', { type: 'text/plain' })]);
+    return;
+  }
   event.preventDefault();
   pasteAttachments(files);
 });

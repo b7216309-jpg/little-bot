@@ -380,7 +380,8 @@ class Relay {
       case 'send': {
         const text = String(input.text || '').trim();
         const attachmentIds = Array.isArray(input.attachmentIds) ? input.attachmentIds.filter(id => typeof id === 'string').slice(0, 8) : [];
-        if ((!text && !attachmentIds.length) || text.length > 32000) throw new Error('Write a message first.');
+        if (!text && !attachmentIds.length) throw new Error('Write a message first.');
+        if (text.length > 32000) throw new Error('This message is over the 32,000-character limit. Send it from the PC, where long text becomes an attachment.');
         // /goal on the phone works like on the desktop (see ChatGoalRunner).
         if (/^\/goal(\s|$)/i.test(text)) {
           await this.handlers.chatGoal({ quick: input.quick === true, chatId: input.quick === true ? snap.quick?.id : chatId, text: text.replace(/^\/goal/i, '').trim() });

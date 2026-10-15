@@ -424,7 +424,7 @@ function repairToolCall(call, toolKinds) {
 }
 
 class StrataStreamAdapter extends Transform {
-  constructor({ model, toolKinds = new Map(), textCallHistory = null, onDegenerate = () => {}, onToolRepair = () => {} } = {}) {
+  constructor({ model, toolKinds = new Map(), noToolCalls = false, textCallHistory = null, onDegenerate = () => {}, onToolRepair = () => {} } = {}) {
     super();
     this.model = model || 'strata';
     this.toolKinds = toolKinds;
@@ -445,6 +445,7 @@ class StrataStreamAdapter extends Transform {
     this.pendingText = '';
     this.onDegenerate = onDegenerate;
     this.onToolRepair = onToolRepair;
+    this.noToolCalls = noToolCalls;
     this.degenerate = false;
     this.text = '';
     this.sourceText = '';
@@ -707,7 +708,7 @@ class StrataStreamAdapter extends Transform {
         }
         return repaired;
       })
-      .filter(call => call.name && (!this.toolKinds.size || this.toolKinds.has(call.name)));
+      .filter(call => call.name && !this.noToolCalls && (!this.toolKinds.size || this.toolKinds.has(call.name)));
     const transcript = { responseId: this.responseId, text: this.sourceText, reasoning: this.sourceReasoning };
     if (!limited && (this.sourceText !== this.text || this.sourceReasoning !== this.reasoning)) {
       if (this.reasoningAdded) rememberTranscript(this.textCallHistory, this.reasoningId, transcript);

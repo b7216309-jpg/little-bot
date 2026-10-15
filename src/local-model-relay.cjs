@@ -2,13 +2,15 @@
 
 const http = require('node:http');
 const https = require('node:https');
-const { randomBytes } = require('node:crypto');
+const { createHash, randomBytes } = require('node:crypto');
 const { Transform } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const { localBaseUrl, LOCAL_STREAM_IDLE_TIMEOUT_MS } = require('./connections.cjs');
 const { applyQwenGeneration, applySampling } = require('./local-generation.cjs');
 const { prepareNamespaceTools, restoreNamespaceCalls } = require('./responses-namespace-compat.cjs');
 const { StrataStreamAdapter, estimateResponsesInputTokens, responsesToChat, withoutImages, hasImages, stableJson } = require('./strata-responses-adapter.cjs');
+
+const messagesHash = messages => createHash('sha1').update(stableJson(messages)).digest('hex');
 
 // A 50 MiB attachment turn can exceed 64 MiB after base64 encoding.
 const MAX_BODY_BYTES = 96 * 1024 * 1024;
@@ -184,6 +186,7 @@ class LocalModelRelay {
     this.upstreams = new Map();
     this.adapters = new Map();
     this.textCallHistory = new Map();
+    this.toolBlocks = [];
     this.sockets = new Set();
     this.requests = new Set();
   }
@@ -293,7 +296,7 @@ class LocalModelRelay {
         response.end(data);
         return;
       }
-      let upstreamPath = match[3], strataTools = null;
+      let upstreamPath = match[3], strataTools = null, noToolCalls = false;
       if (adapter === 'strata') {
         const translated = responsesToChat(body, thinking, this.textCallHistory);
         body = translated.body;
@@ -305,6 +308,18 @@ class LocalModelRelay {
         // Official Strata matches complete token/image prefixes automatically.
         // Slot metadata belongs to the retired PR #175 server protocol.
         strataTools = translated.toolKinds;
+        // Qwen's template renders the tool block at the very top of the prompt. A tool-less follow-up in the
+        // same conversation (the engine's compaction request) would lose Strata's whole cache without it
+        // (live: 0 of 55k tokens reused, 49 s, versus 99.8% and 13 s). Keep the block and forbid calls.
+        if (Array.isArray(body.tools) && body.tools.length) {
+          this.toolBlocks.push({ count: body.messages.length, hash: messagesHash(body.messages), tools: body.tools });
+          if (this.toolBlocks.length > 16) this.toolBlocks.shift();
+        } else if (!body.response_format) {
+          // Only a request that extends a recent tool request byte for byte: the same conversation, continued.
+          const extended = [...this.toolBlocks].reverse().find(block => block.count <= body.messages.length
+            && messagesHash(body.messages.slice(0, block.count)) === block.hash);
+          if (extended) { body.tools = extended.tools; body.tool_choice = 'none'; noToolCalls = true; }
+        }
         upstreamPath = 'chat/completions';
       } else if (match[3] === 'responses') {
         applyQwenGeneration(body, thinking);
@@ -317,7 +332,7 @@ class LocalModelRelay {
       const target = new URL(`${base}/${upstreamPath}`);
       const transport = target.protocol === 'https:' ? https : http;
       if (adapter === 'strata' && match[3] === 'responses') {
-        strataAdapter = new StrataStreamAdapter({ model: body.model, toolKinds: strataTools, textCallHistory: this.textCallHistory, onToolRepair: this.onToolRepair, onDegenerate: () => {
+        strataAdapter = new StrataStreamAdapter({ model: body.model, toolKinds: strataTools, noToolCalls, textCallHistory: this.textCallHistory, onToolRepair: this.onToolRepair, onDegenerate: () => {
           if (!upstreamResponse || !strataAdapter?.completed) return;
           upstreamResponse.unpipe(strataAdapter);
           upstreamResponse.on('error', () => {});
@@ -437,6 +452,7 @@ class LocalModelRelay {
       for (const socket of this.sockets) socket.destroy();
       if (server?.listening) await new Promise(resolve => server.close(resolve));
       this.textCallHistory = new Map();
+      this.toolBlocks = [];
       this.requests.clear(); this.sockets.clear();
     })();
     try { await this.closing; } finally { this.closing = null; }
