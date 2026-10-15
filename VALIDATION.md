@@ -1,3 +1,12 @@
+# Version 0.26.1 verification
+
+0.26.1 makes compaction fast on the local model and stops long pastes from being silently cut.
+
+- **Compaction reuses the cache.** The engine sends its compaction request without tools. Qwen's template renders the tool block at the top of the prompt, so Strata had to re-read the whole conversation (live: 0 of 55k tokens reused, 52 s). A tool-less request that extends a recent tool request byte for byte now gets the same tool block back with `tool_choice: "none"`, and any stray call is dropped. Live on the real Strata: compaction reused 59.5k of 59.6k tokens and took 18-25 s instead of 52 s, and the facts planted before compaction were still recalled after it. At the default threshold (about 131k tokens), that is the difference between about two minutes and a few seconds of prompt reading.
+- **Long pastes.** The message box stops at 32,000 characters and silently cut off longer pastes. A paste that would overflow is now attached whole as `pasted-text.txt`: the model gets the first 30,000 characters plus the file path for the rest. Checked in the real renderer: a 41,000-character paste became a 41,000-byte attachment, and a short paste stayed normal. Over-long messages from the phone or API now say so instead of "Write a message".
+
+Live compaction check: plant two facts, add three 25,000-character build logs, compact, then ask; passes with both facts. Node tests (124), both Electron tests and validate-docs pass.
+
 # Version 0.26.0 verification
 
 0.26.0 makes goal posts read like messages instead of logs, and lets the local model learn from its own tool mistakes on this PC.

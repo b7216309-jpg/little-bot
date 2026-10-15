@@ -1,6 +1,6 @@
 # Attachments
 
-Use the paperclip, drop files on the composer, or paste an image. Images appear in the conversation; returned documents can be opened or saved. Attachments are copied into Little Bot's data folder, so the conversation still works after the original is moved.
+Use the paperclip, drop files on the composer, or paste an image. Pasting text longer than a message allows (32,000 characters) attaches it as `pasted-text.txt` instead of cutting it off. Images appear in the conversation; returned documents can be opened or saved. Attachments are copied into Little Bot's data folder, so the conversation still works after the original is moved.
 
 Images are decoded locally, converted to PNG, and scaled to at most 2,048 pixels on the longest edge. Small thumbnails keep chat updates light. Animated images use their first frame. PNG, JPEG, WebP, GIF, BMP, and ICO are accepted when supported by Electron's decoder; an unreadable image produces an error instead of an empty attachment.
 

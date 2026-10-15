@@ -20,5 +20,5 @@ Storage usage and cleanup are exposed in Settings and attachment_manage. The 0.1
 
 Too many/large files, exhausted copy storage, unreadable original, invalid image/too many pixels, unsupported vision, extraction timeout, encrypted documents, unsupported formats or unavailable local copies. Inline text is explicitly truncated when over budget; the original remains available for suitable native tools.
 
-A pasted browser File with no filesystem path may need the attach button. A screenshot path returned by browser tooling is not automatically a visible attachment until attachment_send/import delivery is performed.
+Text pasted into the composer that would push the message past its 32,000-character limit is attached as `pasted-text.txt` through the same import path, so nothing is silently truncated; the model gets the first 30,000 characters and the file path for the rest. A pasted browser File with no filesystem path may need the attach button. A screenshot path returned by browser tooling is not automatically a visible attachment until attachment_send/import delivery is performed.
 

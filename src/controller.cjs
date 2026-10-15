@@ -806,7 +806,8 @@ class Controller extends EventEmitter {
     // A Quick session is a side chat for one-off work: never saved, no memory read or written, no goals,
     // follow-ups or proactive messages, and a smaller tool set. It is the chat marked private.
     const turnPrivate = !override && (quick === true || this.chat(chatId)?.private === true);
-    if (typeof text !== 'string' || (!text.trim() && !attachmentIds.length) || text.length > 32000) throw new Error('Write a message or attach a file.');
+    if (typeof text !== 'string' || (!text.trim() && !attachmentIds.length)) throw new Error('Write a message or attach a file.');
+    if (text.length > 32000) throw new Error(`This message is ${text.length.toLocaleString('en-US')} characters; the limit is 32,000. Attach long text as a file instead.`);
     text = text.trim();
     const selectedSkills = skillContext(this.store.data.extensions, text);
     // A single public timeline survives engine, model and workspace changes; the Quick session sits after it.
