@@ -513,19 +513,25 @@ test('the Strata adapter repairs patch aliases and unknown calls while replaying
     ['apply_patch', { cmd: ['apply_patch', patch] }],
     ['exec_command', { cmd: ['apply_patch', patch] }],
   ];
+  const repairs = [];
   for (const [name, args] of shapes) {
-    const { events } = await collectAdapter([chatChunk({ tool_calls: [{ index: 0, id: 'call-patch', function: { name, arguments: JSON.stringify(args) } }] }, 'tool_calls')], { toolKinds: tools });
+    const { events } = await collectAdapter([chatChunk({ tool_calls: [{ index: 0, id: 'call-patch', function: { name, arguments: JSON.stringify(args) } }] }, 'tool_calls')], { toolKinds: tools, onToolRepair: repair => repairs.push(repair) });
     const call = events.find(event => event.type === 'response.completed')?.response.output.find(item => item.type === 'function_call');
     assert.equal(call?.name, 'exec_command', name);
     assert.match(JSON.parse(call.arguments).cmd, /apply_patch <<'LITTLE_BOT_PATCH'/, name);
     assert.ok(JSON.parse(call.arguments).cmd.includes(patch), name);
   }
+  assert.equal(repairs.length, shapes.length);
+  assert.ok(repairs.every(repair => repair.modelId === 'mock-qwen' && repair.key === 'patch-through-exec-command'));
 
-  const unknown = await collectAdapter([chatChunk({ tool_calls: [{ index: 0, id: 'call-unknown', function: { name: 'missing_tool', arguments: '{"value":1}' } }] }, 'tool_calls')], { toolKinds: tools });
+  const unknownRepairs = [];
+  const unknown = await collectAdapter([chatChunk({ tool_calls: [{ index: 0, id: 'call-unknown', function: { name: 'missing_tool', arguments: '{"value":1}' } }] }, 'tool_calls')], { toolKinds: tools, onToolRepair: repair => unknownRepairs.push(repair) });
   const feedback = unknown.events.find(event => event.type === 'response.completed')?.response.output.find(item => item.type === 'function_call');
   assert.equal(feedback?.name, 'exec_command');
   assert.match(JSON.parse(feedback.arguments).cmd, /Unknown tool "missing_tool"/);
   assert.match(JSON.parse(feedback.arguments).cmd, /Valid tools: exec_command, write_stdin/);
+  assert.equal(unknownRepairs[0]?.key, 'unknown-tool-name');
+  assert.match(JSON.parse(feedback.arguments).cmd, /Lesson: use only listed tool names/);
 
   const rawArguments = '{ "cmd": "Write-Output ok", "yield_time_ms": 1000 }';
   const valid = await collectAdapter([chatChunk({ tool_calls: [{ index: 0, id: 'call-valid', function: { name: 'exec_command', arguments: rawArguments } }] }, 'tool_calls')], { toolKinds: tools });

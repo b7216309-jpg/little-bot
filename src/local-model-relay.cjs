@@ -166,13 +166,15 @@ function responseEvents(namespaceTools) {
 // Codex's custom-provider client cannot add chat_template_kwargs. This narrow
 // local transport adds Qwen's real switch without altering history or SSE data.
 class LocalModelRelay {
-  constructor({ thinking = () => true, sampling = () => ({}), onError = () => {} } = {}) {
+  constructor({ thinking = () => true, sampling = () => ({}), onError = () => {}, onToolRepair = () => {} } = {}) {
     if (typeof thinking !== 'function') throw new TypeError('thinking must be a function.');
     if (typeof sampling !== 'function') throw new TypeError('sampling must be a function.');
     this.sampling = sampling;
     if (typeof onError !== 'function') throw new TypeError('onError must be a function.');
+    if (typeof onToolRepair !== 'function') throw new TypeError('onToolRepair must be a function.');
     this.thinking = thinking;
     this.onError = onError;
+    this.onToolRepair = onToolRepair;
     this.server = null;
     this.starting = null;
     this.closing = null;
@@ -315,7 +317,7 @@ class LocalModelRelay {
       const target = new URL(`${base}/${upstreamPath}`);
       const transport = target.protocol === 'https:' ? https : http;
       if (adapter === 'strata' && match[3] === 'responses') {
-        strataAdapter = new StrataStreamAdapter({ model: body.model, toolKinds: strataTools, textCallHistory: this.textCallHistory, onDegenerate: () => {
+        strataAdapter = new StrataStreamAdapter({ model: body.model, toolKinds: strataTools, textCallHistory: this.textCallHistory, onToolRepair: this.onToolRepair, onDegenerate: () => {
           if (!upstreamResponse || !strataAdapter?.completed) return;
           upstreamResponse.unpipe(strataAdapter);
           upstreamResponse.on('error', () => {});

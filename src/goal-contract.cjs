@@ -172,6 +172,8 @@ function normalizeFinish(value) {
     if (!OUTCOMES.includes(result.action)) throw new Error('Use a supported outcome.');
     result.outcome = result.action; delete result.action;
   }
+  // A result without the separate chat message posts its summary, as before the split.
+  if (typeof result.message !== 'string' && typeof result.summary === 'string') result.message = result.summary;
   return result;
 }
 
