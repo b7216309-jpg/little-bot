@@ -106,6 +106,7 @@ Guide: [08-heartbeat-inbox.md](08-heartbeat-inbox.md)
 | [src/heartbeat.cjs](../../src/heartbeat.cjs) | Production application module |
 | [src/proactive-chat.cjs](../../src/proactive-chat.cjs) | Production application module |
 | [src/activity.cjs](../../src/activity.cjs) | Production application module |
+| [src/night-shift.cjs](../../src/night-shift.cjs) | Away-time work and return summary coordinator |
 | [src/web-watch.cjs](../../src/web-watch.cjs) | Production application module |
 | [src/steam-library.cjs](../../src/steam-library.cjs) | Production application module |
 

@@ -86,6 +86,7 @@
   "src/memory.cjs": "04-memory.md",
   "src/missed-schedules.cjs": "07-automations.md",
   "src/model-json.cjs": "05-goals.md",
+  "src/night-shift.cjs": "08-heartbeat-inbox.md",
   "src/phone-context.cjs": "18-phone-relay.md",
   "src/preload.cjs": "01-runtime-storage.md",
   "src/proactive-chat.cjs": "08-heartbeat-inbox.md",

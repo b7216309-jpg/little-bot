@@ -40,6 +40,8 @@ Manual, interval and stable file-change triggers remain available. Interval goal
 
 Heartbeat handles its checklist and small event-driven actions. It should not duplicate the goal's full daily review. Configure one owner for a recurring task instead of creating copies in goals and heartbeat.
 
+The optional **Night shift** setting (off by default in Heartbeat) can chain useful next steps for an authorized local goal while you are away. Each step still uses GoalRunner's checks, saved permissions, budgets and active-hours rules; only the spacing between useful steps is shortened. Returning or sending a message interrupts the local request and leaves unfinished work queued for recovery. Goal results are held for one return summary.
+
 ## Access, budgets and history
 
 Existing saved access and budget controls remain. Goals can read/write selected workspace paths, use terminal and network when enabled, and call individually granted MCP tools. Goal model threads remain internal bounded execution threads; the public conversation and evidence are shared, without injecting the entire audit history into each model request.

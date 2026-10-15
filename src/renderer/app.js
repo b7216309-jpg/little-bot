@@ -2746,6 +2746,8 @@ function renderHeartbeat() {
   $('heartbeat-pulse-label').textContent = `Recent checks · ${pulse.length}${heartbeat.quietStreak ? ` · quiet ${heartbeat.quietStreak} in a row` : ''}`;
   $('heartbeat-pulse-text').textContent = [...pulse].reverse().slice(0, 12).map(item => `${formatDate(item.at)} · ${item.status}${item.wakeInMinutes ? ` · next in ${item.wakeInMinutes} min` : ''}${item.note ? `\n${item.note}` : ''}`).join('\n\n');
   $('activity-awareness').checked = state.settings?.activityAwareness === true;
+  $('night-shift-enabled').checked = state.settings?.nightShiftEnabled === true;
+  $('night-shift-status').textContent = state.nightShift?.status || 'Night shift: off';
   const watches = Array.isArray(state.webWatches) ? state.webWatches : [];
   $('web-watch-list').replaceChildren(...(watches.length ? watches.map(watch => {
     const row = element('div', 'memory-item');
@@ -4335,6 +4337,11 @@ $('relay-https').addEventListener('click', async () => {
 $('activity-awareness').addEventListener('change', async event => {
   const enabled = event.target.checked;
   const result = await attempt(() => window.bot.setActivityAwareness({ enabled }), enabled ? 'Little Bot can now see which app you are using.' : 'Activity awareness is off.');
+  if (!result) event.target.checked = !enabled;
+});
+$('night-shift-enabled').addEventListener('change', async event => {
+  const enabled = event.target.checked;
+  const result = await attempt(() => window.bot.setNightShiftEnabled({ enabled }), enabled ? 'Night shift is on.' : 'Night shift is off.');
   if (!result) event.target.checked = !enabled;
 });
 $('heartbeat-use-workspace').addEventListener('click', () => {

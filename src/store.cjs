@@ -18,6 +18,7 @@ const { normalizePending, normalizeActions, normalizeAnswer, normalizeFeedbackLo
 const { normalizeWatches } = require('./web-watch.cjs');
 const { normalizeSampling } = require('./local-generation.cjs');
 const { normalizeCompanion } = require('./companion.cjs');
+const { normalizeNightShift } = require('./night-shift.cjs');
 const { normalizeChatGoal } = require('./chat-goal.cjs');
 
 const INTERRUPTED = 'Interrupted because Little Bot closed before the task finished.';
@@ -89,6 +90,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
   const automations = Array.isArray(data.automations) ? data.automations : [];
   return {
     autonomy: normalizeAutonomy(data.autonomy, { ...settings, workspace: string(settings.workspace, defaultWorkspace) }, recovering),
+    nightShift: normalizeNightShift(data.nightShift),
     standingIntents: normalizeStandingIntents(data.standingIntents, Date.now(), recovering),
     extensions: normalizeExtensions(data.extensions),
     memory: normalizeMemory(data.memory),
@@ -105,6 +107,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
       autoCompactPercent: validAutoCompactPercent(settings.autoCompactPercent) ? settings.autoCompactPercent : undefined,
       independentCheckMode: normalizeIndependentCheckMode(settings.independentCheckMode),
       activityAwareness: settings.activityAwareness === true,
+      nightShiftEnabled: settings.nightShiftEnabled === true,
       localSampling: normalizeSampling(settings.localSampling),
       ...(typeof settings.systemPrompt === 'string' ? { systemPrompt: settings.systemPrompt.slice(0, 100000) } : {}),
     },

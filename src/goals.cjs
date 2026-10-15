@@ -154,14 +154,15 @@ function normalizeAutonomy(value, settings = {}, recovering = false) {
 }
 
 class GoalRunner {
-  constructor({ store, run, stopRun, verifyCommand, backupRoot, canRun = () => true, waitReason = () => '', onChange = () => {}, onAlert = () => {}, publish = null }) {
+  constructor({ store, run, stopRun, verifyCommand, backupRoot, canRun = () => true, waitReason = () => '', onChange = () => {}, onAlert = () => {}, publish = null, deliver = contract.deliver }) {
     if (publish !== null && typeof publish !== 'function') throw new TypeError('Goal publish must be a function.');
-    Object.assign(this, { store, run, stopRun, verifyCommand, backupRoot, canRun, waitReason, onChange, onAlert, publish });
+    if (typeof deliver !== 'function') throw new TypeError('Goal delivery must be a function.');
+    Object.assign(this, { store, run, stopRun, verifyCommand, backupRoot, canRun, waitReason, onChange, onAlert, publish, deliver });
     // Why each due goal has not started yet (model offline, a busy conversation, outside active hours). Shown on its card.
     this.waiting = new Map();
     store.data.autonomy ||= normalizeAutonomy(null, store.data.settings);
     this.activeId = null; this.execution = null; this.timer = null; this.closing = false; this.ticking = false;
-    this.forceRuns = new Set(); this.filePending = new Map(); this.fileSessionBaselines = new Set(); this.stopReason = null;
+    this.forceRuns = new Set(); this.filePending = new Map(); this.fileSessionBaselines = new Set(); this.stopReason = null; this.yieldRequested = new Set();
   }
   get data() { return this.store.data.autonomy; }
   goal(id) { const goal = this.data.goals.find(item => item.id === id); if (!goal) throw new Error('Goal not found.'); return goal; }
@@ -256,6 +257,23 @@ class GoalRunner {
     if (this.activeId) this.emit('goal.paused', this.goal(this.activeId), { reason: 'All goals are paused.', pausedAt: Date.now() });
     if (this.activeId) { this.stopReason = 'All goals are paused.'; await this.stopRun?.(this.stopReason); await this.execution; }
     return this.data;
+  }
+  async yieldForNightShift(reason = 'Night shift yielded because the owner returned.') {
+    const id = this.activeId;
+    if (!id) return { ok: true };
+    this.yieldRequested.add(id); this.stopReason = reason;
+    await this.stopRun?.(reason);
+    await this.execution;
+    return { ok: true };
+  }
+  yieldGoal(goal, reason) {
+    const external = goal.permissions.network || goal.permissions.mcpTools.length > 0;
+    goal.status = external ? 'blocked' : 'queued';
+    goal.nextRunAt = Date.now();
+    if (external) goal.needsEffectReview = true;
+    else goal.needsRecoveryCheck = true;
+    goal.nextStep = external ? 'Review possible external effects before resuming.' : 'Verify existing work before continuing.';
+    this.record(goal, 'yielded', reason, { status: goal.status }); this.changed();
   }
   resumeAll() {
     this.data.paused = false;
@@ -409,7 +427,7 @@ class GoalRunner {
     goal.nextRunAt = goal.trigger.type === 'interval' ? Date.now() + goal.trigger.intervalMinutes * 60000 : null;
     goal.usage = usageOf(); delete goal.freshRun; delete goal.failureStreak;
     if (outcome !== 'no-change') {
-      contract.deliver(goal, this.store.data, { runId, summary, question: goal.pendingQuestion });
+      this.deliver(goal, this.store.data, { runId, summary, question: goal.pendingQuestion });
     }
     this.changed();
     } catch (error) {
@@ -570,6 +588,7 @@ class GoalRunner {
       this.record(goal, 'run', clean(result?.summary) || 'Goal step ended.', { runId, usage: { ...modelUsage, actions: modelUsage.actions + verificationActions }, actions, snapshot }); this.changed();
       if (this.stopReason || goal.status === 'paused' || this.closing) {
         if (await this.completeStoppedFiles(goal, runId, this.stopReason, ledgerRunContext, preflightPassed)) return;
+        if (this.yieldRequested.has(goal.id)) { this.yieldGoal(goal, this.stopReason || 'Night shift yielded.'); reviewFinished = true; return; }
         // A scheduled retry starts a fresh cycle budget; stop usage tracking so the final tally cannot restore the old count.
         if (goal.status !== 'paused') { this.retryOrBlock(goal, this.stopReason || 'Goal stopped.', { runId }); if (goal.status === 'queued') reviewFinished = true; }
         return;
@@ -578,7 +597,7 @@ class GoalRunner {
         if (contract.ongoing(goal)) {
           reviewFinished = true; this.finishReview(goal, evidence, 'waiting', goal.pendingQuestion.question, [], runId); return;
         }
-        if (contract.isV2(goal)) contract.deliver(goal, this.store.data, { runId, question: goal.pendingQuestion });
+        if (contract.isV2(goal)) this.deliver(goal, this.store.data, { runId, question: goal.pendingQuestion });
         this.block(goal, goal.pendingQuestion.question, { runId }); return;
       }
       checked = await this.verify(goal, action => { if (action) verificationActions++; updateUsage(); }); updateUsage();
@@ -595,7 +614,7 @@ class GoalRunner {
           reviewFinished = true; this.finishReview(goal, evidence, result.outcome, result.summary, outcome.refs, runId);
         } else {
           contract.consume(goal, evidence, result.outcome, result.summary, outcome.refs);
-          contract.deliver(goal, this.store.data, { runId, summary: result.summary });
+          this.deliver(goal, this.store.data, { runId, summary: result.summary });
           if (result.outcome === 'completed') this.finishVerified(goal, { runId, summary: result.summary, verification: checked.results, ledgerContext: ledgerRunContext });
           else if (['waiting', 'failed'].includes(result.outcome)) this.block(goal, result.summary, { runId });
           else { goal.status = 'queued'; goal.nextRunAt = Date.now() + 1000; this.changed(); }
@@ -626,7 +645,8 @@ class GoalRunner {
         this.record(goal, 'snapshot', 'Saved file evidence after an interrupted or failed step.', { runId, snapshot });
       } catch (snapshotError) { this.record(goal, 'snapshot-error', `Undo is unavailable: ${clean(snapshotError)}`, { runId }); }
       if (await this.completeStoppedFiles(goal, runId, this.stopReason || clean(error), ledgerRunContext, preflightPassed)) return;
-      if (goal.status !== 'paused') {
+      if (this.yieldRequested.has(goal.id)) { this.yieldGoal(goal, this.stopReason || 'Night shift yielded.'); reviewFinished = true; }
+      else if (goal.status !== 'paused') {
         (error?.persistence ? this.block : this.retryOrBlock).call(this, goal, this.stopReason || clean(error), { runId });
         if (goal.status === 'queued') reviewFinished = true;
       }
@@ -643,10 +663,14 @@ class GoalRunner {
         recoverGoalLedger(goal, goal.nextStep, { now: Date.now() });
       }
       if (goal.status === 'running') {
-        goal.status = 'paused';
-        recordGoalPause(goal, this.stopReason || 'Goal execution ended before completion.', { source: 'system' });
-        this.record(goal, 'stopped', this.stopReason || 'Goal execution ended before completion.', { runId });
+        if (this.yieldRequested.has(goal.id)) this.yieldGoal(goal, this.stopReason || 'Night shift yielded.');
+        else {
+          goal.status = 'paused';
+          recordGoalPause(goal, this.stopReason || 'Goal execution ended before completion.', { source: 'system' });
+          this.record(goal, 'stopped', this.stopReason || 'Goal execution ended before completion.', { runId });
+        }
       }
+      this.yieldRequested.delete(goal.id);
       goal.updatedAt = Date.now(); this.activeId = null; this.stopReason = null; this.changed();
     }
   }
