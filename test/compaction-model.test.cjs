@@ -172,10 +172,12 @@ test('the local-only multi-agent setting does not change Codex thread configurat
 test('a user message waits for a stopping goal and is sent once the lane is free', async t => {
   const { controller, client } = await fixture(t);
   let settle;
-  const operation = { settled: new Promise(resolve => { settle = resolve; }) };
+  // A realistic running goal: the state broadcast timer may read it while the goal stops (slow CI runners do).
+  const operation = { goal: { id: 'goal-1' }, startedAt: Date.now(), tokens: 0, actionIds: new Set(), settled: new Promise(resolve => { settle = resolve; }) };
   controller.goalExecutor.active = operation;
   controller.goalExecutor.stop = async () => {
     await new Promise(resolve => setTimeout(resolve, 20));
+    controller.state(); // what the state broadcast timer does while the goal stops
     controller.goalExecutor.active = null;
     settle();
   };
