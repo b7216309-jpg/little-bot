@@ -168,6 +168,16 @@ test('useful results post once to continuous chat; quiet reviews do not post', a
   assert.ok(contract.chatContext(d).includes(g.id));
 });
 
+test('goal runs post their message to the user, never their work log', async t => {
+  const quiet = await runnerFixture(t, async () => result('recommendation', { summary: 'Refreshed notes/progress.md; nothing to send yet.', message: '' }));
+  await quiet.runner.execute(quiet.g);
+  assert.equal(quiet.d.chats[0].messages.length, 1);
+  assert.equal(quiet.g.review.lastResult.summary, 'Refreshed notes/progress.md; nothing to send yet.');
+  const told = await runnerFixture(t, async () => result('recommendation', { summary: 'Logged this week.', message: 'Your weekly summary is ready in notes/week.md.' }));
+  await told.runner.execute(told.g);
+  assert.equal(told.d.chats[0].messages.at(-1).text, 'Your weekly summary is ready in notes/week.md.');
+});
+
 async function runnerFixture(t, run) {
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'goal-v2-runner-')); t.after(() => fs.rm(workspace, { recursive: true, force: true }));
   const g = goal(workspace), d = data(g, [user('first', 'Help me improve English')]);
