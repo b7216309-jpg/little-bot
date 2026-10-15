@@ -8,7 +8,8 @@ const { CodexClient } = require('./codex.cjs');
 const { Controller, cleanError } = require('./controller.cjs');
 const { saveFact, deleteFact, clearEpisodes } = require('./memory.cjs');
 const { MemoryConsolidator } = require('./memory-consolidator.cjs');
-const { Heartbeat, validateHeartbeat } = require('./heartbeat.cjs');
+const { Heartbeat, validateHeartbeat, inActiveHours } = require('./heartbeat.cjs');
+const { NightShift } = require('./night-shift.cjs');
 const backups = require('./backups.cjs');
 const { ActivityMonitor } = require('./activity.cjs');
 const { WebWatcher } = require('./web-watch.cjs');
@@ -45,7 +46,7 @@ app.setName('Little Bot');
 if (process.env.LITTLE_BOT_DATA_DIR) app.setPath('userData', path.resolve(process.env.LITTLE_BOT_DATA_DIR));
 const launchTime = performance.now();
 if (!app.requestSingleInstanceLock()) app.quit();
-let window, desktopWindows, controller, scheduler, heartbeat, goals, eventRuntime, errorLog, activity, webWatcher, relay, quitting = false;
+let window, desktopWindows, controller, scheduler, heartbeat, goals, nightShift, eventRuntime, errorLog, activity, webWatcher, relay, quitting = false;
 const rendererFile = path.join(__dirname, 'renderer', 'index.html');
 const appIconFile = path.join(__dirname, '..', 'resources', 'icons', 'little-bot.png');
 const rendererUrl = pathToFileURL(rendererFile).href;
@@ -159,7 +160,10 @@ app.whenReady().then(async () => {
   const extensionFiles = new ExtensionFiles({ root: path.join(stateDir, 'extensions'), store });
   const extensionRuntime = new ExtensionRuntime({ store, client, onChange: () => controller.changed() });
   controller.extensionRuntime = extensionRuntime;
-  const publishEvent = event => eventRuntime?.publish(event) || { accepted: false, reason: 'stopped' };
+  const publishEvent = event => {
+    if (event?.type === 'user.returned') void nightShift?.ownerReturned('presence').catch(error => logDiagnostic('night-shift:return', error));
+    return eventRuntime?.publish(event) || { accepted: false, reason: 'stopped' };
+  };
   scheduler = new Scheduler({ store, run: runAutomation, publish: publishEvent, canRun: () => !store.data.autonomy.paused && !controller.userSendPending && !goals?.activeId && !controller.goalChat && !heartbeat?.running && !controller.extensionsBusy && !controller.memoryBusy && !store.data.chats.some(chat => chat.status !== 'idle') && !controller.chatGoal.holding(), onChange: () => controller.changed() });
   heartbeat = new Heartbeat({ store, run: config => controller.runHeartbeat(config),
     canNotify: () => !store.data.autonomy.paused && !desktopWindows?.isFocused() && Notification.isSupported()
@@ -202,7 +206,12 @@ app.whenReady().then(async () => {
       : controller.extensionsBusy ? 'Extensions are updating' : '',
     onChange: () => controller.changed(),
     publish: publishEvent,
+    deliver: (goal, data, details) => {
+      const deferred = nightShift?.deferGoalDelivery(goal, data, details);
+      return deferred === undefined ? goalContract.deliver(goal, data, details) : deferred;
+    },
     onAlert: item => {
+      if (nightShift?.captureGoalAlert(item)) return;
       const goal = store.data.autonomy.goals.find(goal => goal.id === item.goalId);
       if (goalContract.isV2(goal) && goal?.status === 'blocked') goalContract.deliver(goal, store.data, { runId: goal.pendingQuestion ? undefined : 'blocked:' + goal.updatedAt, summary: item.summary || item.message, question: goal.pendingQuestion, actions: false });
       heartbeat.recordActivity({ status: goal?.status === 'blocked' ? 'error' : 'alert',
@@ -212,6 +221,22 @@ app.whenReady().then(async () => {
     },
   });
   controller.goalWaiting = () => Object.fromEntries(goals.waiting);
+  nightShift = new NightShift({ store, controller, goals, idleSeconds: () => powerMonitor.getSystemIdleTime(),
+    canRun: () => goals.canRun() && !scheduler.runningId,
+    post: fields => {
+      const message = proactiveChat.post(store.data, fields, { duplicate: item => item.kind === 'heartbeat' && item.heartbeatId === fields.heartbeatId });
+      if (message) controller.changed(true);
+      return message;
+    },
+    notify: message => {
+      if (!Notification.isSupported() || desktopWindows?.isFocused() || !inActiveHours(store.data.heartbeat, Date.now())) return;
+      new Notification({ title: 'Little Bot · While you were away', body: message.slice(0, 240), silent: true, icon: appIconFile }).show();
+    },
+    onChange: () => controller.changed(),
+  });
+  controller.nightShift = nightShift;
+  powerMonitor.on('lock-screen', () => nightShift.setLocked(true));
+  powerMonitor.on('unlock-screen', () => nightShift.setLocked(false));
   eventRuntime = new EventRuntime({ store, scheduler, heartbeat, goals, controller,
     onChange: ({ persisted }) => controller.changed(persisted === true),
     onError: (error, event) => logDiagnostic('event-runtime', error, { eventType: event?.type }),
@@ -514,6 +539,7 @@ app.whenReady().then(async () => {
     if (internal?.goalTurn) return controller.send(payload, null, internal);
     controller.userSendPending++;
     try {
+      await nightShift?.ownerReturned('message');
       if (goals.activeId) await goals.pause(goals.activeId);
       await controller.waitForUserLane();
       await controller.waitForExtensions();
@@ -528,6 +554,7 @@ app.whenReady().then(async () => {
   controller.chatGoal.sendTurn = sendTurn;
   register('send', payload => sendTurn(payload));
   register('chatGoal', async payload => {
+    await nightShift?.ownerReturned('message');
     const result = await controller.chatGoal.command({ chatId: typeof payload?.chatId === 'string' ? payload.chatId : undefined,
       quick: payload?.quick === true, text: typeof payload?.text === 'string' ? payload.text.slice(0, 4000) : '' });
     return { ...result, state: controller.state() };
@@ -542,7 +569,7 @@ app.whenReady().then(async () => {
   register('deleteChat', payload => controller.deleteChat(payload));
   register('respondApproval', payload => controller.respondApproval(payload));
   register('saveGoal', async payload => { await goals.save(payload); return controller.state(); });
-  register('runGoal', async ({ id } = {}) => { controller.ensureReady(); await goals.runNow(id); return controller.state(); });
+  register('runGoal', async ({ id } = {}) => { await nightShift?.ownerReturned('message'); controller.ensureReady(); await goals.runNow(id); return controller.state(); });
   register('pauseGoal', async ({ id } = {}) => { await goals.pause(id); return controller.state(); });
   register('resumeGoal', async ({ id } = {}) => { await goals.resume(id); return controller.state(); });
   register('answerGoal', payload => { goals.answer(payload); return controller.state(); });
@@ -554,6 +581,7 @@ app.whenReady().then(async () => {
     await goals.restore(id, runId); return controller.state();
   });
   register('pauseAutonomy', async () => {
+    await nightShift?.ownerReturned('pause');
     await goals.pauseAll();
     if (controller.heartbeatChat) { const active = controller.heartbeatChat; await controller.stopHeartbeat(); await active.settled; }
     if (scheduler.runningId) {
@@ -647,6 +675,10 @@ app.whenReady().then(async () => {
     store.data.settings.activityAwareness = enabled;
     store.save();
     if (enabled) activity.start(); else activity.stop();
+    controller.changed(); return controller.state();
+  });
+  register('setNightShiftEnabled', async ({ enabled } = {}) => {
+    await nightShift.setEnabled(enabled);
     controller.changed(); return controller.state();
   });
   register('removeWebWatch', ({ id } = {}) => { webWatcher.remove(id); return controller.state(); });
@@ -798,7 +830,7 @@ app.whenReady().then(async () => {
     openLink: url => { if (safeWebUrl(url)) shell.openExternal(url).catch(error => logDiagnostic('widget-link', error)); } });
   window.webContents.on('will-navigate', (event, url) => { if (url !== rendererUrl) event.preventDefault(); });
   window.on('close', event => {
-    if (quitting || (!goals.activeId && !heartbeat.running && !controller.chatGoal.holding() && !store.data.chats.some(chat => chat.status !== 'idle'))) return;
+    if (quitting || (!goals.activeId && !heartbeat.running && !controller.heartbeatChat && !controller.chatGoal.holding() && !store.data.chats.some(chat => chat.status !== 'idle'))) return;
     const choice = dialog.showMessageBoxSync(window, { type: 'question', buttons: ['Keep working', 'Quit'],
       defaultId: 0, cancelId: 0, title: 'A task is still running',
       message: 'Quit Little Bot and stop its active tasks?' });
@@ -811,7 +843,7 @@ app.whenReady().then(async () => {
     controller.runtime.startupMs = Math.round(performance.now() - launchTime);
     const main = store.data.chats.find(item => !item.private);
     if (main?.status === 'idle' && flushProactive(main)) controller.changed(true);
-    controller.changed(); eventRuntime.start(); scheduler.start(); heartbeat.start(); goals.start();
+    controller.changed(); eventRuntime.start(); scheduler.start(); heartbeat.start(); goals.start(); nightShift.start();
     if (store.data.settings.activityAwareness === true) activity.start();
     webWatcher.start();
     relay.start().then(relayChanged).catch(error => logDiagnostic('relay-start', error));
@@ -832,5 +864,5 @@ app.on('before-quit', event => {
   event.preventDefault(); quitting = true; scheduler?.stop(); heartbeat?.stop(); eventRuntime?.stop(); activity?.stop(); webWatcher?.stop(); relay?.stop().catch(() => {});
   desktopWindows?.close();
   controller?.webServices?.close();
-  Promise.allSettled([goals?.close(), controller?.browser?.close({ shutdown: true })]).then(() => controller?.close()).catch(error => console.error(cleanError(error))).finally(() => app.quit());
+  Promise.resolve(nightShift?.close()).then(() => Promise.allSettled([goals?.close(), controller?.browser?.close({ shutdown: true })])).then(() => controller?.close()).catch(error => console.error(cleanError(error))).finally(() => app.quit());
 });

@@ -32,6 +32,8 @@ Most assistants wait for you to type. Little Bot keeps one continuous conversati
 
 **📱 It is in your pocket.** Pair your phone and use the same conversation anywhere over Tailscale, with notifications. The Android companion app adds location (home/away), alarms, timers and "ring my phone".
 
+**🌘 Night shift is there when you are away.** Turn it on in Heartbeat to let the local model advance saved goals, explicit follow-ups and preparation for upcoming events. It is off by default, stops when you return, and gives you one summary in the conversation. It does no work at startup.
+
 <table>
   <tr>
     <td width="50%"><img src="docs/screenshots/night-thoughts.png" alt="Night thoughts: a dream diary entry and the intentions it wants to bring up"><br><sub><b>Night thoughts.</b> Last night's diary and what is on its mind.</sub></td>

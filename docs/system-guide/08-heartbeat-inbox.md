@@ -8,6 +8,16 @@
 
 The final result is parsed as quiet or alert with summary/topic. A quiet result stays quiet. Actual recorded file changes force an alert so the app does not hide work performed before the final response. Parsing/provider failures preserve recorded actions and enter a bounded retry/backoff path.
 
+## Night shift
+
+[NightShift](../../src/night-shift.cjs) is an optional, off-by-default away-time coordinator. It starts only after a live ten-minute idle transition or a screen-lock event, and yields on input, unlock, or a user message. Startup idleness and `app.opened` never start work. It runs only on the selected local connection, with autonomy unpaused and the normal goal, chat, Quick, memory, extension, scheduler and engine lanes free.
+
+It chooses from saved, authorized local goals, due or near intentions and follow-ups, calendar events in the next day, and recent requests addressed to Little Bot with an explicit waiting cue (such as “can you … later” or “please … tomorrow”; the owner's own plans like “I'll fix it tomorrow” are ignored). Goal steps still pass through GoalRunner, including their saved connection, active-hours, dependency, verification and budget checks; useful progress can pull the next step forward within the away session. A pulled-forward step keeps scheduled semantics, unlike the owner's Run: no fresh-run override, no “Queued by you” entry, and an unchanged review still costs no model call. Calendar and explicit chat follow-ups use one bounded `Controller.runHeartbeat` step with the local, network-disabled workspace sandbox. There is no open-ended agenda or new project generation.
+
+Intentions and Heartbeat follow-ups are held for the return report; they do not need a model request. Other work is recorded in the session and delivered as one “While you were away” proactive conversation message when the owner returns. From the moment the owner is away, goal posts are held for that report, including a step that began before night shift did. A goal contributes its own message to the owner, never its work log; its alerts reach the report only when it is blocked or sent no message. Questions are listed once, under “Needs you”, and goal next steps stay on their cards. An empty session sends nothing. Active requests are interrupted upstream on return, and unfinished goal work stays queued for recovery. Desktop notifications use the configured quiet hours; the conversation report does not. The Heartbeat panel shows the session status and the single Night shift setting.
+
+Sessions can retain a pending return report across a restart, but startup does not run work or deliver it. A live return signal or user input is required before delivery, and new work requires a fresh away transition.
+
 ## Wild initiative
 
 Heartbeat has two initiative levels. **Calm** is the behavior above. **Wild** changes four things:
@@ -59,7 +69,7 @@ An inbox record and a Windows notification are different outcomes. Notifications
 
 ## What can prevent operation
 
-App closed/asleep, disabled heartbeat, empty checklist, paused autonomy, missing workspace, offline or unselected model, other work, repeated invalid JSON, muted subject, snooze, daily notification cap or unavailable Windows notifications. A busy engine lane delays a check until it is free; it does not consume its due schedule. On restart, overdue automations and heartbeat checks are each caught up once.
+App closed/asleep, disabled heartbeat, empty checklist, paused autonomy, missing workspace, offline or unselected model, other work, repeated invalid JSON, muted subject, snooze, daily notification cap or unavailable Windows notifications. A busy engine lane delays a check until it is free; it does not consume its due schedule. Missed schedules are skipped at startup.
 
 Manual Run bypasses enable checks and still honors lane readiness. Remote-model checks honor the configured daily run limit. A quiet check is a successful outcome, not a new advice message. Full coaching reviews belong to the goal system.
 

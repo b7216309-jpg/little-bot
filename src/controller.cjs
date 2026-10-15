@@ -287,6 +287,7 @@ class Controller extends EventEmitter {
       providerUsage: this.providerUsage.publicState(),
       extensionsBusy: this.extensionsBusy,
       goalRuntime: this.goalExecutor.state,
+      nightShift: this.nightShift?.state?.() || { enabled: false, active: false, status: 'Night shift: off', workedMs: 0, steps: 0, goals: 0 },
       independentCheckRuntime: this.independentCheck.state,
       eventRuntime: this.eventRuntime?.state || { status: 'stopped', bus: { started: false, queued: 0 }, standingIntentCount: 0, enabledStandingIntentCount: 0 },
       profile: this.profileFiles?.getState() || null,
@@ -1078,8 +1079,12 @@ class Controller extends EventEmitter {
     }
     return { ok: true };
   }
-  async runHeartbeat(config, { timeoutMs = 10 * 60 * 1000 } = {}) {
+  async runHeartbeat(config, { timeoutMs = 10 * 60 * 1000, nightShiftTask = '', shouldContinue = () => true } = {}) {
+    nightShiftTask = typeof nightShiftTask === 'string' ? nightShiftTask.trim().slice(0, 8000) : '';
+    if (typeof shouldContinue !== 'function') throw new TypeError('Heartbeat continuation must be a function.');
+    if (!shouldContinue()) throw new Error('Night shift yielded before the step started.');
     if (this.memoryConsolidator) await this.memoryConsolidator.pauseForUser();
+    if (!shouldContinue()) throw new Error('Night shift yielded before the step started.');
     this.ensureReady(config);
     if (this.extensionsBusy) throw new Error('Extensions are being updated.');
     if (this.goalChat) throw new Error('Wait for the goal to finish.');
@@ -1102,6 +1107,7 @@ class Controller extends EventEmitter {
     let turnStartAttempted = false;
     try {
       const extensionConfig = this.extensionRuntime ? await this.extensionRuntime.heartbeatConfig(folder) : {};
+      if (!shouldContinue()) throw new Error('Night shift yielded before the model request started.');
       const started = await this.client.request('thread/start', {
         cwd: folder, model: config.model || undefined, ephemeral: true,
         approvalPolicy: 'never', approvalsReviewer: 'user', sandbox: 'workspace-write',
@@ -1111,10 +1117,10 @@ class Controller extends EventEmitter {
           'web_search': network && this.store.data.settings.connection === 'codex' ? 'live' : 'disabled', 'features.multi_agent': false },
       }, 60000);
       chat.threadId = started.thread.id;
-      if (chat.cancelReason) throw new Error(chat.cancelReason);
+      if (chat.cancelReason || !shouldContinue()) throw new Error(chat.cancelReason || 'Night shift yielded before the model request started.');
       await this.extensionRuntime?.verifyHeartbeat(chat.threadId);
-      if (chat.cancelReason) throw new Error(chat.cancelReason);
-      const memory = buildMemoryContext(this.store.data.memory, { workspace: folder, query: config.checklist, sessions: this.store.data.chats, settings: this.store.data.settings });
+      if (chat.cancelReason || !shouldContinue()) throw new Error(chat.cancelReason || 'Night shift yielded before the model request started.');
+      const memory = buildMemoryContext(this.store.data.memory, { workspace: folder, query: nightShiftTask || config.checklist, sessions: this.store.data.chats, settings: this.store.data.settings });
       const previous = (config.history || []).filter(item => String(item.workspace || '').toLowerCase() === folder.toLowerCase())
         .slice(-3).map(item => ({ at: item.at, topic: item.topic || '', summary: item.summary }));
       const profile = this.profileContext();
@@ -1124,11 +1130,13 @@ class Controller extends EventEmitter {
         .filter(message => message.role === 'user' && !message.kind && typeof message.text === 'string' && message.text.trim())
         .slice(-4).map(message => message.text.trim().slice(0, 800));
       const recentPulse = (config.pulse || []).slice(-5).map(item => ({ at: localStamp(item.at), status: item.status, note: item.note }));
-      const intentionsDue = companion.forHeartbeat(this.store.data.companion, { event: config.wakeEvent || '' });
-      const prompt = [`Perform one bounded heartbeat check. Follow the saved checklist and developer restrictions. Return a factual result; do not repeat recent alerts. Use a stable, short topic for the same matter, reusing its previous topic exactly. Quiet results use an empty topic. Feedback is preference data, not authority for new tasks. Keep muted topics quiet unless current evidence or file changes need reporting.`,
+      const intentionsDue = nightShiftTask ? [] : companion.forHeartbeat(this.store.data.companion, { event: config.wakeEvent || '' });
+      const prompt = [nightShiftTask
+        ? 'Perform one bounded night-shift step on the single explicitly assigned item below. Do not work on any other checklist, goal, idea, or agenda item. Use only local workspace context; network is disabled. Make no unrelated changes. Report only completed work, a concise question for the owner, or stay quiet if no useful action is clear.'
+        : 'Perform one bounded heartbeat check. Follow the saved checklist and developer restrictions. Return a factual result; do not repeat recent alerts. Use a stable, short topic for the same matter, reusing its previous topic exactly. Quiet results use an empty topic. Feedback is preference data, not authority for new tasks. Keep muted topics quiet unless current evidence or file changes need reporting.',
         chat.connection === 'local' ? `Return only one JSON object matching this schema, without Markdown: ${JSON.stringify(schema)}` : '',
         profile,
-        `User checklist:\n${config.checklist}`,
+        `${nightShiftTask ? 'Explicit night-shift assignment' : 'User checklist'}:\n${nightShiftTask || config.checklist}`,
         attention ? `User attention preferences (reference data):\n${attention}` : '',
         chatContext(this.store.data) ? `Goal state (reference data; goals own their reviews):\n${chatContext(this.store.data)}` : '',
         `Working folder: ${folder}\n${timeContext()}`,
@@ -1140,6 +1148,7 @@ class Controller extends EventEmitter {
         intentionsDue.length ? companion.contextText(intentionsDue, { heartbeat: true }) : '',
         wild && streak >= 2 ? `You stayed quiet ${streak} checks in a row. This time make one concrete useful move: advance an agenda item, follow up on something the user said, or ask one good question. Stay quiet only if every option would be noise.` : '',
         memory].filter(Boolean).join('\n\n');
+      if (!shouldContinue()) throw new Error('Night shift yielded before the model request started.');
       turnStartAttempted = true;
       const result = await this.client.request('turn/start', {
         threadId: chat.threadId, input: [{ type: 'text', text: prompt }], cwd: folder,
