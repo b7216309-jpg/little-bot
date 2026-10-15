@@ -1,3 +1,13 @@
+# Version 0.25.1 verification
+
+0.25.1 stops the proactive flood 0.25.0 caused after the app had been closed for a long time.
+
+- The heartbeat honors active hours and the daily run limit again on every connection (0.25.0 exempted local models). Scheduled checks also wait while the user is away (ten minutes without input) and run when they are back.
+- Nothing is replayed at startup. A missed heartbeat check or automation moves to its next slot (0.25.0 replayed them), and overdue goal reviews start an hour after launch, twenty minutes apart, instead of all within two minutes.
+- A goal step that claims progress without evidence is recorded quietly as no-change instead of being posted.
+
+Node tests (118), both Electron tests and validate-docs pass.
+
 # Version 0.25.0 verification
 
 0.25.0 is a harness pass for the local model (Qwen IQ3 on Strata): the weak points and the model's common errors, found and fixed by a supervised Codex swarm and checked live against the real Strata.

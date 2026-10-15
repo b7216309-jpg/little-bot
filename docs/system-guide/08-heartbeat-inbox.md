@@ -2,7 +2,7 @@
 
 ## How it works
 
-[Heartbeat](../../src/heartbeat.cjs) performs small proactive checks from a saved checklist; it does not own an ongoing goal's full review. It polls every 15 seconds and honors enable state, nonempty checklist, interval, global pause and execution-lane availability. Local checks may run outside active hours; Codex checks honor the configured hours. Active hours also quiet Windows notifications. A local model is not held back by the daily run cap.
+[Heartbeat](../../src/heartbeat.cjs) performs small proactive checks from a saved checklist; it does not own an ongoing goal's full review. It polls every 15 seconds and honors enable state, nonempty checklist, interval, PC-local active hours, maximum daily runs, global pause and execution-lane availability, on every connection. Active hours can cross midnight; equal start/end represents all-day availability. Scheduled checks wait while the user is away (ten minutes without input) and run when they are back; a check missed while the app was closed is not replayed at startup.
 
 [Controller.runHeartbeat](../../src/controller.cjs) creates an ephemeral engine thread in cache slot 2. It supplies current time, checklist, relevant profile/memory, recent local heartbeat summaries, goal state and attention preferences. Read-only Little Bot recall/skill/calendar tools are available. Native execution is workspace-write with network disabled, and MCP is disabled and verified for this thread. Therefore a checklist needing remote APIs or a GitHub action cannot simply use ordinary chat's integrations.
 
@@ -21,7 +21,7 @@ Turning wild on schedules a check within a minute. Presence events (`app.opened`
 
 The agent can also plan one-time check-ins with the `followup_manage` tool, from the wild heartbeat or a direct conversation. A follow-up can be due up to 30 days ahead, and at most 20 can be pending. When one is due, the heartbeat wakes with its note as the reason. Follow-ups require wild initiative to be enabled.
 
-Every finished run, including quiet ones, is kept in a bounded `pulse` log (30 entries) shown under Latest check. Small local models that wrap their JSON in `<think>` tags or Markdown fences are parsed instead of failing. Pause all still applies; active hours quiet notifications and Codex checks honor the daily run cap.
+Every finished run, including quiet ones, is kept in a bounded `pulse` log (30 entries) shown under Latest check. Small local models that wrap their JSON in `<think>` tags or Markdown fences are parsed instead of failing. Pause all, active hours and the daily run cap still apply.
 
 ## Delivery into the conversation
 

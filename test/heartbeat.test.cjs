@@ -101,28 +101,7 @@ test('remote ticks honor active hours while skipping disabled, empty, not due, a
   assert.equal(f.config.nextRunAt, localTime(27, 8, 5));
 });
 
-test('local heartbeat checks ignore active hours', async () => {
-  let calls = 0;
-  const f = fixture(async () => { calls++; return { status: 'quiet', summary: '' }; }, { startHour: 22, endHour: 6 }, 'local');
-  f.setNow(localTime(26, 21));
-  await f.service.tick();
-  assert.equal(calls, 1);
-  f.setNow(localTime(26, 22));
-  await f.service.tick();
-  f.setNow(localTime(27, 0));
-  await f.service.tick();
-  assert.equal(calls, 3);
-  assert.equal(f.config.runsToday, 1);
-  f.setNow(localTime(27, 6));
-  await f.service.tick();
-  assert.equal(calls, 4);
-  f.config.startHour = f.config.endHour = 8;
-  f.setNow(localTime(27, 8));
-  await f.service.tick();
-  assert.equal(calls, 5);
-});
-
-test('missed scheduled heartbeats honor remote active hours while local catch-up remains all-day', async () => {
+test('scheduled heartbeats honor active hours on every connection', async () => {
   let remoteCalls = 0;
   const remote = fixture(async () => { remoteCalls++; return { status: 'quiet', summary: '' }; });
   remote.setNow(localTime(26, 22));
@@ -135,8 +114,8 @@ test('missed scheduled heartbeats honor remote active hours while local catch-up
   const local = fixture(async () => { localCalls++; return { status: 'quiet', summary: '' }; }, {}, 'local');
   local.setNow(localTime(26, 22));
   local.config.nextRunAt = localTime(26, 21, 55);
-  await local.service.runNow({ scheduled: true });
-  assert.equal(localCalls, 1);
+  assert.equal(await local.service.runNow({ scheduled: true }), null);
+  assert.equal(localCalls, 0);
 });
 
 test('one run owns the slot until completion, and missed intervals never form a backlog', async () => {
@@ -370,29 +349,15 @@ test('failed runs give their daily slot back, so a broken morning cannot silence
   assert.equal(f.config.runsToday, 1);
 });
 
-test('local heartbeats keep running outside active hours and past the remote daily cap', async () => {
-  const localSettings = { workspace: 'C:\\work', model: 'test-model', localModel: 'test-model', localBaseUrl: 'http://127.0.0.1:8080/v1', connection: 'local' };
-  const now = localTime(26, 23);
-  const config = validateHeartbeat(input({ maxRunsPerDay: 1 }), null, localSettings, now);
-  config.runsToday = 1;
-  config.dayKey = '2026-09-26';
-  config.nextRunAt = now;
-  let calls = 0;
-  const store = { data: { settings: localSettings, heartbeat: config }, save() {} };
-  const service = new Heartbeat({ store, run: async () => { calls++; return { status: 'quiet', summary: '' }; }, now: () => now });
-  assert.deepEqual(await service.tick(), { status: 'quiet', summary: '', actions: [], topic: '' });
-  assert.equal(calls, 1);
-});
-
-test('overdue schedules stay due for one catch-up attempt after startup', () => {
+test('missed automations and checks move to their next slot instead of replaying', () => {
   const dueAt = localTime(26, 8);
-  const data = { automations: [{ id: 'a', enabled: true, nextRunAt: dueAt }],
+  const data = { automations: [{ id: 'a', enabled: true, intervalMinutes: 60, nextRunAt: dueAt }],
     heartbeat: { enabled: true, checklist: 'check', intervalMinutes: 30, nextRunAt: dueAt } };
   const missed = advanceMissedSchedules(data, localTime(27, 10));
   assert.equal(missed.automations.length, 1);
   assert.equal(missed.heartbeat.dueAt, dueAt);
-  assert.equal(data.automations[0].nextRunAt, dueAt);
-  assert.equal(data.heartbeat.nextRunAt, dueAt);
+  assert.ok(data.automations[0].nextRunAt > localTime(27, 10));
+  assert.equal(data.heartbeat.nextRunAt, localTime(27, 10) + 30 * 60000);
 });
 
 test('a running automation does not hold the event dispatcher', async () => {
