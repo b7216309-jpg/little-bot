@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { Store: BaseStore } = require('../src/store.cjs');
+const { ensureSeeded, record, block, normalizeLessons, DECAY_AFTER_MS } = require('../src/lessons.cjs');
 const openStores = new Set();
 class Store extends BaseStore { constructor(options) { super(options); openStores.add(this); } }
 
@@ -41,10 +42,41 @@ test('new state is minimal and save preserves live references without persisting
   store.save();
   assert.equal(store.data.chats[0], chat);
   const saved = JSON.parse(fs.readFileSync(f.filePath, 'utf8'));
-  assert.deepEqual(Object.keys(saved).sort(), ['automations', 'autonomy', 'calendar', 'chats', 'companion', 'extensions', 'feedbackLog', 'heartbeat', 'memory', 'nightShift', 'settings', 'standingIntents', 'webWatches']);
+  assert.deepEqual(Object.keys(saved).sort(), ['automations', 'autonomy', 'calendar', 'chats', 'companion', 'extensions', 'feedbackLog', 'heartbeat', 'lessons', 'memory', 'nightShift', 'settings', 'standingIntents', 'webWatches']);
   assert.equal(saved.chats[0].status, 'running');
   assert.equal(fs.readFileSync(f.filePath, 'utf8').includes('sensitive-test-value'), false);
   assert.equal(fs.readdirSync(path.dirname(f.filePath)).filter(name => !name.startsWith('memory.sqlite')).length, 1);
+});
+
+test('local lessons seed once, deduplicate, stay under the prompt cap, and expire', () => {
+  const state = { models: {} };
+  ensureSeeded(state, 'qwen-test', 1000);
+  record(state, 'qwen-test', 'powershell-shell', 'Use PowerShell cmdlets.', 1001);
+  record(state, 'qwen-test', 'powershell-shell', 'Use PowerShell cmdlets.', 1002);
+  for (let i = 0; i < 16; i++) record(state, 'qwen-test', `rule-${i}`, `${'Use the corrected tool shape. '.repeat(9)}${i}`, 1003 + i);
+  const model = state.models['qwen-test'];
+  assert.equal(model.items.filter(item => item.key === 'powershell-shell').length, 1);
+  assert.equal(model.items.find(item => item.key === 'powershell-shell').hits, 2);
+  assert.ok(model.items.length <= 12);
+  assert.ok(block(state, 'qwen-test').text.length <= 1000);
+  const expired = normalizeLessons(state, 1020 + DECAY_AFTER_MS + 1);
+  assert.equal(expired.models['qwen-test'].items.length, 0);
+  assert.equal(expired.models['qwen-test'].seededAt, 1000);
+});
+
+test('local lessons stay inside the protected state payload', t => {
+  const f = fixture(t);
+  const protector = { encryptString: value => Buffer.from(value), decryptString: value => value.toString('utf8') };
+  const store = new Store({ ...f, protector });
+  ensureSeeded(store.data.lessons, 'qwen-test', Date.now());
+  record(store.data.lessons, 'qwen-test', 'workspace-paths', 'Verify paths with workspace_list.', Date.now());
+  store.save();
+  const saved = JSON.parse(fs.readFileSync(f.filePath, 'utf8'));
+  assert.equal(saved.lessons, undefined);
+  assert.equal(saved.protected.format, 'safeStorage');
+  assert.doesNotMatch(fs.readFileSync(f.filePath, 'utf8'), /Verify paths with workspace_list/);
+  const restored = new Store({ ...f, protector });
+  assert.equal(restored.data.lessons.models['qwen-test'].items.some(item => item.key === 'workspace-paths'), true);
 });
 
 test('update and flush persist the single canonical conversation', t => {

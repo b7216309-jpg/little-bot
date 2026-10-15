@@ -23,6 +23,22 @@ test('saved local chats keep their compaction default after switching the active
   chat.connection = 'local';
   assert.equal(controller.threadOptions(chat, chat.workspace).config.model_post_turn_compact_threshold_percent, 50);
 });
+test('local thread lesson blocks are bounded and frozen while Codex instructions stay unchanged', async t => {
+  const { controller, chat } = await fixture(t);
+  chat.connection = 'local';
+  chat.model = 'mock-qwen';
+  chat.threadId = null;
+  controller.recordLesson('mock-qwen', 'test-path', 'Verify paths with workspace_list before using file tools.');
+  const first = controller.threadOptions(chat, chat.workspace);
+  assert.match(first.developerInstructions, /Lessons from this PC:/);
+  assert.match(first.developerInstructions, /Verify paths with workspace_list/);
+  assert.ok(chat.lessonBlock.length <= 1000);
+  controller.recordLesson('mock-qwen', 'later-tool', 'Use the current tool schema for this action.');
+  chat.threadId = 'local-thread';
+  assert.equal(controller.threadOptions(chat, chat.workspace).developerInstructions, first.developerInstructions);
+  chat.connection = 'codex';
+  assert.doesNotMatch(controller.threadOptions(chat, chat.workspace).developerInstructions, /Lessons from this PC:/);
+});
 class FakeClient extends EventEmitter {
   constructor() { super(); this.calls = []; this.responses = []; this.hooks = new Map(); this.serial = 0; this.closed = false; this.restartCount = 0; }
   async start() {}
@@ -123,6 +139,14 @@ test('agent tool sources are normalized to one engine format', () => {
   const tools = new AgentTools({ store, management: { specs: () => [{ type: 'legacy', name: 'legacy_tool', description: 'Legacy source', inputSchema: { type: 'object', properties: {} } }] } }).specs();
   assert.ok(tools.length > 1);
   assert.ok(tools.every(tool => tool.type === 'function' && tool.inputSchema));
+});
+test('local argument normalization records one model-specific imperative lesson', async t => {
+  const { controller, store, chat } = await fixture(t);
+  const tools = new AgentTools({ store, controller, manageCalendar: async () => ({ events: [] }) });
+  await tools.call('calendar_list', { limit: '5' }, { chat: { id: chat.id, connection: 'local', model: 'mock-qwen', workspace: chat.workspace, messages: [] } });
+  const entries = store.data.lessons.models['mock-qwen'].items;
+  assert.equal(entries.filter(item => item.key === 'tool-arguments:calendar_list').length, 1);
+  assert.match(entries.find(item => item.key === 'tool-arguments:calendar_list').text, /Pass limit to calendar_list as a number/);
 });
 
 test('system prompt and local thinking changes apply without waiting for an active turn', async t => {

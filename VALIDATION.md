@@ -1,3 +1,29 @@
+# Version 0.26.1 verification
+
+0.26.1 makes compaction fast on the local model and stops long pastes from being silently cut.
+
+- **Compaction reuses the cache.** The engine sends its compaction request without tools. Qwen's template renders the tool block at the top of the prompt, so Strata had to re-read the whole conversation (live: 0 of 55k tokens reused, 52 s). A tool-less request that extends a recent tool request byte for byte now gets the same tool block back with `tool_choice: "none"`, and any stray call is dropped. Live on the real Strata: compaction reused 59.5k of 59.6k tokens and took 18-25 s instead of 52 s, and the facts planted before compaction were still recalled after it. At the default threshold (about 131k tokens), that is the difference between about two minutes and a few seconds of prompt reading.
+- **Long pastes.** The message box stops at 32,000 characters and silently cut off longer pastes. A paste that would overflow is now attached whole as `pasted-text.txt`: the model gets the first 30,000 characters plus the file path for the rest. Checked in the real renderer: a 41,000-character paste became a 41,000-byte attachment, and a short paste stayed normal. Over-long messages from the phone or API now say so instead of "Write a message".
+
+Live compaction check: plant two facts, add three 25,000-character build logs, compact, then ask; passes with both facts. Node tests (124), both Electron tests and validate-docs pass.
+
+# Version 0.26.0 verification
+
+0.26.0 makes goal posts read like messages instead of logs, and lets the local model learn from its own tool mistakes on this PC.
+
+- **Goal messages, not work logs.** A goal run used to return one summary that served as both the goal card's log and the chat post. Goals that keep state files posted third-person bookkeeping on every run, such as "logged in state/…" or "no idea sent, 17:37 is before the 18:00 slot". A result now has two texts:
+  - `summary`: the log, kept on the card;
+  - `message`: written to the user in their language and tone, and empty when nothing is for them.
+  Only the message is posted, and a result without one falls back to its summary. Live check with the local Qwen: the log stayed on the card ("Practice profile now: … no files written") and the message spoke to the user ("Ten words in one sitting is a solid start…").
+- **Lessons from this PC.**
+  - **What becomes a lesson:** a failed tool call followed by a successful one with the same intent, and every harness repair (the apply_patch redirect, unknown tools, argument normalization). Examples: bash syntax in PowerShell, a wrong path, a wrong argument shape. Each becomes a short lesson for that model.
+  - **How they are kept:** deduplicated, at most 12, stored encrypted with memory. Lessons drop after 100 days without use, or after three times they failed to prevent the error.
+  - **Where they go:** local threads that use tools (chat, Quick, /goal, heartbeat, goal steps) get them at thread start, at most 1,000 characters, frozen for the thread's life so Strata's cache keeps matching. Tool-less JSON threads (checks, memory, dreams) do not get them. A repeated mistake gets its lesson appended to the tool error.
+  - **Seeds:** three lessons cover PowerShell and the patch form from the first run.
+  - **Where to see them:** the Memory page, with a remove button.
+
+Live evaluation against the real Strata (qwen3.8-flash-next-iq3_s), same 13 scenarios: goal-message split alone 13/13, lessons alone 13/13 in 463 s with 83% of prompt tokens cached (464 s and 82% without lessons). Node tests (123), both Electron tests and validate-docs pass.
+
 # Version 0.25.1 verification
 
 0.25.1 stops the proactive flood 0.25.0 caused after the app had been closed for a long time.

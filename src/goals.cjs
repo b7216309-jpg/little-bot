@@ -153,6 +153,9 @@ function normalizeAutonomy(value, settings = {}, recovering = false) {
   return result;
 }
 
+// What a goal run posts in the chat: its message to the user, not its work log.
+const chatMessage = result => typeof result.message === 'string' ? result.message : result.summary;
+
 class GoalRunner {
   constructor({ store, run, stopRun, verifyCommand, backupRoot, canRun = () => true, waitReason = () => '', onChange = () => {}, onAlert = () => {}, publish = null, deliver = contract.deliver }) {
     if (publish !== null && typeof publish !== 'function') throw new TypeError('Goal publish must be a function.');
@@ -416,7 +419,7 @@ class GoalRunner {
     this.changed();
     return goal;
   }
-  finishReview(goal, evidence, outcome, summary, refs, runId) {
+  finishReview(goal, evidence, outcome, summary, refs, runId, message = summary) {
     const previous = structuredClone(goal), chat = this.store.data.chats?.find(item => !item.private);
     const messages = chat?.messages.length, updatedAt = chat?.updatedAt;
     try {
@@ -427,7 +430,7 @@ class GoalRunner {
     goal.nextRunAt = goal.trigger.type === 'interval' ? Date.now() + goal.trigger.intervalMinutes * 60000 : null;
     goal.usage = usageOf(); delete goal.freshRun; delete goal.failureStreak;
     if (outcome !== 'no-change') {
-      this.deliver(goal, this.store.data, { runId, summary, question: goal.pendingQuestion });
+      this.deliver(goal, this.store.data, { runId, summary: message, question: goal.pendingQuestion });
     }
     this.changed();
     } catch (error) {
@@ -611,10 +614,10 @@ class GoalRunner {
         goal.actionItems = outcome.actions;
         if (contract.ongoing(goal) && result.outcome === 'failed') { this.retryOrBlock(goal, result.summary, { runId }); if (goal.status === 'queued') reviewFinished = true; }
         else if (contract.ongoing(goal)) {
-          reviewFinished = true; this.finishReview(goal, evidence, result.outcome, result.summary, outcome.refs, runId);
+          reviewFinished = true; this.finishReview(goal, evidence, result.outcome, result.summary, outcome.refs, runId, chatMessage(result));
         } else {
           contract.consume(goal, evidence, result.outcome, result.summary, outcome.refs);
-          this.deliver(goal, this.store.data, { runId, summary: result.summary });
+          this.deliver(goal, this.store.data, { runId, summary: chatMessage(result) });
           if (result.outcome === 'completed') this.finishVerified(goal, { runId, summary: result.summary, verification: checked.results, ledgerContext: ledgerRunContext });
           else if (['waiting', 'failed'].includes(result.outcome)) this.block(goal, result.summary, { runId });
           else { goal.status = 'queued'; goal.nextRunAt = Date.now() + 1000; this.changed(); }

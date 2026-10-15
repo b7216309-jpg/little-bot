@@ -396,7 +396,10 @@ function patchCommand(patch) {
 function errorCommand(name, toolKinds, detail = '') {
   const tools = [...toolKinds.keys()];
   const label = String(name || 'unknown').replace(/[\r\n\0]/g, ' ').slice(0, 80);
-  const message = `${detail ? `${detail} ` : ''}Unknown tool "${label}". Valid tools: ${tools.length ? tools.join(', ') : 'none'}. Retry with a listed tool.`;
+  const lesson = PATCH_TOOLS.has(String(name || '').toLowerCase())
+    ? ' Lesson: send patches through exec_command using the patch heredoc form.'
+    : ' Lesson: use only listed tool names; send shell commands through exec_command.';
+  const message = `${detail ? `${detail} ` : ''}Unknown tool "${label}". Valid tools: ${tools.length ? tools.join(', ') : 'none'}. Retry with a listed tool.${lesson}`;
   return `Write-Output '${message.replace(/'/g, "''")}'; exit 1`;
 }
 
@@ -421,7 +424,7 @@ function repairToolCall(call, toolKinds) {
 }
 
 class StrataStreamAdapter extends Transform {
-  constructor({ model, toolKinds = new Map(), textCallHistory = null, onDegenerate = () => {} } = {}) {
+  constructor({ model, toolKinds = new Map(), noToolCalls = false, textCallHistory = null, onDegenerate = () => {}, onToolRepair = () => {} } = {}) {
     super();
     this.model = model || 'strata';
     this.toolKinds = toolKinds;
@@ -441,6 +444,8 @@ class StrataStreamAdapter extends Transform {
     this.thinkingTag = '';
     this.pendingText = '';
     this.onDegenerate = onDegenerate;
+    this.onToolRepair = onToolRepair;
+    this.noToolCalls = noToolCalls;
     this.degenerate = false;
     this.text = '';
     this.sourceText = '';
@@ -690,8 +695,20 @@ class StrataStreamAdapter extends Transform {
     // A cutoff may leave incomplete arguments. Never release those calls to the
     // engine as executable tools; preserve partial text and report the failure.
     const calls = limited ? [] : [...this.calls.keys()].sort((a, b) => a - b)
-      .map(index => this.calls.get(index)).filter(call => call.name).map(call => repairToolCall(call, this.toolKinds))
-      .filter(call => call.name && (!this.toolKinds.size || this.toolKinds.has(call.name)));
+      .map(index => this.calls.get(index)).filter(call => call.name).map(call => {
+        const repaired = repairToolCall(call, this.toolKinds);
+        if (repaired !== call) {
+          const args = parseArguments(call.arguments);
+          const patch = PATCH_TOOLS.has(String(call.name).toLowerCase())
+            || (call.name === 'exec_command' && Array.isArray(args.cmd) && /^apply_patch(?:\.bat)?$/i.test(String(args.cmd[0] || '')));
+          this.onToolRepair({ modelId: this.model,
+            key: patch ? 'patch-through-exec-command' : 'unknown-tool-name',
+            text: patch ? 'Apply patches through exec_command using the patch heredoc form; apply_patch is not a separate tool.'
+              : 'Use the available tool names shown in tool errors; choose the corrected tool name.' });
+        }
+        return repaired;
+      })
+      .filter(call => call.name && !this.noToolCalls && (!this.toolKinds.size || this.toolKinds.has(call.name)));
     const transcript = { responseId: this.responseId, text: this.sourceText, reasoning: this.sourceReasoning };
     if (!limited && (this.sourceText !== this.text || this.sourceReasoning !== this.reasoning)) {
       if (this.reasoningAdded) rememberTranscript(this.textCallHistory, this.reasoningId, transcript);

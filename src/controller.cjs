@@ -23,6 +23,7 @@ const { INDEPENDENT_CHECK_MODES, normalizeIndependentCheckMode } = require('./in
 const { ProviderUsage } = require('./provider-usage.cjs');
 const { normalizeSampling } = require('./local-generation.cjs');
 const companion = require('./companion.cjs');
+const learnedLessons = require('./lessons.cjs');
 
 function cleanError(error) {
   return String(error?.message || error || 'Something went wrong')
@@ -43,6 +44,99 @@ const STREAM_SAVE_MS = 2000;
 const LOCAL_TURN_START_TIMEOUT_MS = 10 * 60 * 1000;
 function reasoningText(parts) {
   return Array.isArray(parts) ? bounded(parts.filter(part => typeof part === 'string').join('\n\n'), REASONING_LIMIT) : '';
+}
+const PATH_FIELDS = /(?:path|file|folder|directory|workspace)$/i;
+const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+function toolArgs(value) {
+  if (isObject(value)) return value;
+  if (typeof value === 'string') { try { const parsed = JSON.parse(value); return isObject(parsed) ? parsed : {}; } catch { return {}; } }
+  return {};
+}
+function pathValues(value, prefix = '') {
+  if (!isObject(value)) return [];
+  return Object.entries(value).flatMap(([key, item]) => PATH_FIELDS.test(key)
+    ? typeof item === 'string' ? [item] : []
+    : isObject(item) ? pathValues(item, `${prefix}${key}.`) : []);
+}
+function stableValue(value) {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (isObject(value)) return Object.fromEntries(Object.keys(value).sort().map(key => [key, stableValue(value[key])]));
+  return value;
+}
+function withoutPaths(value) {
+  if (!isObject(value)) return {};
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !PATH_FIELDS.test(key)).map(([key, item]) => [key, stableValue(item)]));
+}
+function pathFailure(error) {
+  return /enoent|no such file|cannot find (?:the )?(?:path|file)|could not find|does not exist|not a directory|invalid path|path.*not found/i.test(String(error || ''));
+}
+function argumentFailure(error) {
+  return /(?:unsupported|invalid|missing|required|must be|expected).*(?:argument|field|action|property|object|number|string|boolean|array)|(?:argument|field|action|property).*(?:unsupported|unknown|invalid|missing|required|must be|expected)|arguments for .* must be/i.test(String(error || '').split(/corrected example:/i)[0]);
+}
+function shellCommand(value) {
+  const args = toolArgs(value);
+  const command = args.cmd ?? args.command ?? args.input;
+  return typeof command === 'string' ? command : Array.isArray(command) ? command.join(' ') : '';
+}
+function shellRepair(failed, succeeded) {
+  const before = shellCommand(failed.args), after = shellCommand(succeeded.args);
+  if (!before || !after) return null;
+  if (/^\s*head\s+-\d+/i.test(before) && /\bGet-Content\b.*\b-TotalCount\b/i.test(after)) {
+    return ['powershell-shell', 'The shell is PowerShell: use Get-Content -TotalCount N instead of head -N.'];
+  }
+  if (/^\s*cat\s+-n\b/i.test(before) && /\bGet-Content\b/i.test(after) && /ForEach-Object|\$i\s*\+\+/i.test(after)) {
+    return ['powershell-numbered-lines', 'For numbered lines, use Get-Content with a ForEach-Object counter; cat -n is not PowerShell syntax.'];
+  }
+  if (/^\s*(?:export\s|source\s|\[\s*-|grep\s|sed\s|awk\s)/i.test(before)
+    && /\b(?:Get-|Set-|Select-String|Write-Output|ForEach-Object|Where-Object)\w*/i.test(after)) {
+    return ['powershell-shell', 'Use PowerShell syntax and cmdlets in exec_command; this shell is PowerShell.'];
+  }
+  return null;
+}
+function commandIntent(command) {
+  return String(command || '').replace(/(['"])([^'"\r\n]+)\1/g, (all, quote, value) => /[\\/]|\.[A-Za-z0-9]{1,8}$/.test(value) ? '<path>' : all)
+    .replace(/(?:^|\s)(?:[A-Za-z0-9_.-]*[\\/][^\s;&|]+|[\w.-]+\.[A-Za-z0-9._-]+)(?=\s|$)/g, ' <path> ')
+    .toLowerCase().replace(/\s+/g, ' ').trim();
+}
+function recoveredToolLesson(failed, succeeded) {
+  const suggestion = /unknown tool "[^"]+"; use ([a-z0-9_.-]+) instead/i.exec(failed.error)?.[1];
+  if (suggestion && suggestion.toLowerCase() === succeeded.tool.toLowerCase()) {
+    return ['unknown-tool-name', 'Use the available tool names shown in tool errors; choose the corrected tool name.'];
+  }
+  if (failed.tool !== succeeded.tool) return null;
+  const shell = shellRepair(failed, succeeded);
+  if (shell) return shell;
+  const before = toolArgs(failed.args), after = toolArgs(succeeded.args);
+  const beforePaths = pathValues(before), afterPaths = pathValues(after);
+  const actionBefore = String(before.action || '').toLowerCase(), actionAfter = String(after.action || '').toLowerCase();
+  const actionHint = /unknown action "[^"]+"; use "([^"]+)"/i.exec(failed.error)?.[1];
+  if (actionHint && actionAfter === actionHint.toLowerCase()) {
+    return [`tool-arguments:${failed.tool.slice(0, 70)}`, `Use the exact action "${actionHint}" in ${failed.tool}.`];
+  }
+  if (pathFailure(failed.error) && beforePaths.length && afterPaths.length
+    && beforePaths.join('\0').toLowerCase() !== afterPaths.join('\0').toLowerCase()
+    && JSON.stringify(withoutPaths(before)) === JSON.stringify(withoutPaths(after))
+    && (!actionBefore || !actionAfter || actionBefore === actionAfter)) {
+    return ['workspace-paths', 'Verify paths with workspace_list before using file tools; paths are relative to the selected workspace.'];
+  }
+  const beforeCore = Object.fromEntries(Object.entries(before).filter(([key]) => !PATH_FIELDS.test(key)));
+  const afterCore = Object.fromEntries(Object.entries(after).filter(([key]) => !PATH_FIELDS.test(key)));
+  const sharedCoreMatches = Object.keys(beforeCore).filter(key => Object.hasOwn(afterCore, key))
+    .every(key => JSON.stringify(stableValue(beforeCore[key])) === JSON.stringify(stableValue(afterCore[key])));
+  if (argumentFailure(failed.error) && sharedCoreMatches && (!actionBefore || !actionAfter || actionBefore === actionAfter)) {
+    return [`tool-arguments:${failed.tool.slice(0, 70)}`, `Use ${failed.tool} with its listed field names, types, and exact action values.`];
+  }
+  return null;
+}
+function nativeCommandLesson(failed, succeeded) {
+  const shell = shellRepair(failed, succeeded);
+  if (shell) return shell;
+  const before = shellCommand(failed.args), after = shellCommand(succeeded.args);
+  if (pathFailure(failed.error) && before && after && commandIntent(before) === commandIntent(after)
+    && pathValues({ path: before }).join('\0').toLowerCase() !== pathValues({ path: after }).join('\0').toLowerCase()) {
+    return ['workspace-paths', 'Verify paths with workspace_list before using file tools; paths are relative to the selected workspace.'];
+  }
+  return null;
 }
 const instructions = `You are Little Bot, a concise, practical assistant in a Windows desktop app. Answer directly; use tools when useful and do not inspect files for ordinary conversation. Keep replies compact and give brief progress updates on longer tasks.
 
@@ -102,6 +196,7 @@ class Controller extends EventEmitter {
       thinking: () => this.store.data.settings.localThinking !== false,
       sampling: () => this.store.data.settings.localSampling || {},
       onError: (source, error, metadata) => this.onError(`local-model-relay:${source}`, error, metadata),
+      onToolRepair: ({ modelId, key, text }) => this.recordLesson(modelId || this.store.data.settings.localModel, key, text),
     });
     this.runtime = { status: 'starting' };
     this.account = { status: 'signedOut' };
@@ -119,6 +214,7 @@ class Controller extends EventEmitter {
     this.completedTurns = new Map();
     this.latestTurns = new Map();
     this.reasoningParts = new WeakMap();
+    this.toolAttempts = new Map();
     this.compactionTimeoutMs = compactionTimeoutMs;
     this.compactionStopTimeoutMs = compactionStopTimeoutMs;
     this.saveTimer = null;
@@ -283,6 +379,8 @@ class Controller extends EventEmitter {
             // bridged into the new thread on the next turn.
             this.onError('engine-thread-reset', error, { threadId: chat.threadId });
             chat.threadId = '';
+            delete chat.lessonBlock;
+            delete chat.lessonKeys;
           }
           chat.toolSchema = signature;
         }
@@ -576,12 +674,92 @@ class Controller extends EventEmitter {
   systemPrompt() {
     return typeof this.store.data.settings.systemPrompt === 'string' ? this.store.data.settings.systemPrompt : instructions;
   }
+  recordLesson(modelId, key, text) {
+    if (!modelId || !learnedLessons.record(this.store.data.lessons, modelId, key, text)) return false;
+    this.persistNow();
+    this.changed();
+    return true;
+  }
+  deleteLesson(modelId, key) {
+    if (!learnedLessons.remove(this.store.data.lessons, modelId, key)) throw new Error('This lesson is no longer available.');
+    this.persistNow();
+    this.changed();
+    return this.state();
+  }
+  lessonSnapshot(modelId) {
+    if (!modelId) return { text: '', keys: [] };
+    if (learnedLessons.ensureSeeded(this.store.data.lessons, modelId)) {
+      this.persistNow();
+      this.changed();
+    }
+    return learnedLessons.block(this.store.data.lessons, modelId);
+  }
+  threadInstructions(base, modelId, local) {
+    if (!local) return base;
+    const block = this.lessonSnapshot(modelId).text;
+    return block ? `${base}\n\n${block}` : base;
+  }
+  toolAttemptKey(chatId, turnId) { return `${chatId}\0${turnId || ''}`; }
+  rememberToolOutcome(chat, turnId, { tool, args, error = '' }, success) {
+    if (chat.connection !== 'local' || !tool || tool === 'ask_user') return;
+    const key = this.toolAttemptKey(chat.id, turnId), attempts = this.toolAttempts.get(key) || [];
+    if (success) {
+      const current = { tool, args, modelId: chat.model };
+      for (let i = attempts.length - 1; i >= 0; i--) {
+        if (attempts[i].nativeCommand) continue;
+        const lesson = recoveredToolLesson(attempts[i], current);
+        if (!lesson) continue;
+        attempts.splice(i, 1);
+        this.recordLesson(chat.model, ...lesson);
+        break;
+      }
+    } else {
+      attempts.push({ tool, args, error: String(error || ''), modelId: chat.model });
+      if (attempts.length > 40) attempts.splice(0, attempts.length - 40);
+    }
+    if (attempts.length) this.toolAttempts.set(key, attempts);
+    else this.toolAttempts.delete(key);
+  }
+  rememberCommandOutcome(chat, turnId, item) {
+    if (chat.connection !== 'local' || !item?.command) return;
+    const failed = item.status === 'failed' || (Number.isInteger(item.exitCode) && item.exitCode !== 0);
+    const succeeded = item.status === 'completed' && (!Number.isInteger(item.exitCode) || item.exitCode === 0);
+    if (!failed && !succeeded) return;
+    const attempt = { tool: 'exec_command', args: { cmd: item.command }, error: item.aggregatedOutput || item.error || '', modelId: chat.model };
+    const key = this.toolAttemptKey(chat.id, turnId), attempts = this.toolAttempts.get(key) || [];
+    if (succeeded) {
+      for (let i = attempts.length - 1; i >= 0; i--) {
+        if (!attempts[i].nativeCommand) continue;
+        const lesson = nativeCommandLesson(attempts[i], attempt);
+        if (!lesson) continue;
+        attempts.splice(i, 1);
+        this.recordLesson(chat.model, ...lesson);
+        break;
+      }
+    } else {
+      attempts.push({ ...attempt, nativeCommand: true });
+      if (attempts.length > 40) attempts.splice(0, attempts.length - 40);
+    }
+    if (attempts.length) this.toolAttempts.set(key, attempts);
+    else this.toolAttempts.delete(key);
+  }
   threadOptions(chat, folder) {
     const planning = chat.mode === 'plan';
+    const baseInstructions = planning ? planInstructions(this.systemPrompt()) : this.systemPrompt();
+    if (chat.connection === 'local') {
+      if (!chat.threadId) {
+        const snapshot = this.lessonSnapshot(chat.model);
+        chat.lessonBlock = snapshot.text;
+        chat.lessonKeys = snapshot.keys;
+      }
+    } else {
+      delete chat.lessonBlock;
+      delete chat.lessonKeys;
+    }
     return {
       cwd: folder, model: chat.model || undefined, approvalPolicy: 'never',
       approvalsReviewer: 'user', sandbox: planning ? 'read-only' : 'danger-full-access',
-      developerInstructions: planning ? planInstructions(this.systemPrompt()) : this.systemPrompt(),
+      developerInstructions: chat.connection === 'local' && chat.lessonBlock ? `${baseInstructions}\n\n${chat.lessonBlock}` : baseInstructions,
       config: { ...this.extensionRuntime?.config({ heartbeat: planning }), ...compactionConfig({ ...this.store.data.settings, connection: chat.connection }), ...this.providerConfig(),
         ...(chat.connection === 'local' ? { 'features.multi_agent': false } : {}), 'model_reasoning_effort': chat.effort || 'low' },
     };
@@ -629,7 +807,8 @@ class Controller extends EventEmitter {
     // A Quick session is a side chat for one-off work: never saved, no memory read or written, no goals,
     // follow-ups or proactive messages, and a smaller tool set. It is the chat marked private.
     const turnPrivate = !override && (quick === true || this.chat(chatId)?.private === true);
-    if (typeof text !== 'string' || (!text.trim() && !attachmentIds.length) || text.length > 32000) throw new Error('Write a message or attach a file.');
+    if (typeof text !== 'string' || (!text.trim() && !attachmentIds.length)) throw new Error('Write a message or attach a file.');
+    if (text.length > 32000) throw new Error(`This message is ${text.length.toLocaleString('en-US')} characters; the limit is 32,000. Attach long text as a file instead.`);
     text = text.trim();
     const selectedSkills = skillContext(this.store.data.extensions, text);
     // A single public timeline survives engine, model and workspace changes; the Quick session sits after it.
@@ -651,6 +830,8 @@ class Controller extends EventEmitter {
       this.threadCompactionSettings.delete(chat.threadId);
       this.threadInstructionSettings.delete(chat.threadId);
       chat.threadId = null;
+      delete chat.lessonBlock;
+      delete chat.lessonKeys;
       if (chat.context) chat.context.stale = true;
     }
     const createdChat = !chat;
@@ -714,6 +895,7 @@ class Controller extends EventEmitter {
         chat.threadId = result.thread.id; chat.toolSchema = fingerprint(this.agentTools?.specs({ readOnly: toolMode === 'readOnly', quick: chat.private === true }) || []); this.resumed.add(chat.threadId);
         this.threadCompactionSettings.set(chat.threadId, common.config.model_post_turn_compact_threshold_percent);
         this.threadInstructionSettings.set(chat.threadId, this.threadSignature(common));
+        if (chat.connection === 'local' && !chat.private) this.persistNow();
       };
       if (!chat.threadId) await startThread();
       else {
@@ -726,6 +908,8 @@ class Controller extends EventEmitter {
           this.threadCompactionSettings.delete(missingThreadId);
           this.threadInstructionSettings.delete(missingThreadId);
           chat.threadId = null;
+          delete chat.lessonBlock;
+          delete chat.lessonKeys;
           if (chat.context) chat.context.stale = true;
           const beforeRequest = chat.messages.filter(item => item.id !== userMessage.id && item.role !== 'tool' && item.kind !== 'reasoning').slice(-24);
           historyBridge = beforeRequest.length ? 'Recent conversation before this engine session (historical context):\n'
@@ -927,7 +1111,7 @@ class Controller extends EventEmitter {
         cwd: folder, model: config.model || undefined, ephemeral: true,
         approvalPolicy: 'never', approvalsReviewer: 'user', sandbox: 'workspace-write',
         ...(this.agentTools ? { dynamicTools: wild ? this.agentTools.specs().filter(tool => WILD_HEARTBEAT_TOOLS.has(tool.name)) : this.agentTools.specs({ readOnly: true }) } : {}),
-        developerInstructions: (wild ? wildHeartbeatInstructions : heartbeatInstructions)(this.systemPrompt()),
+        developerInstructions: this.threadInstructions((wild ? wildHeartbeatInstructions : heartbeatInstructions)(this.systemPrompt()), config.model, chat.connection === 'local'),
         config: { ...extensionConfig, ...this.providerConfig(), 'sandbox_workspace_write.network_access': network, 'model_reasoning_effort': effort,
           'web_search': network && this.store.data.settings.connection === 'codex' ? 'live' : 'disabled', 'features.multi_agent': false },
       }, 60000);
@@ -1040,6 +1224,7 @@ class Controller extends EventEmitter {
   finish(chat, error = null) {
     const manual = this.manualCompactions.get(chat.id);
     const turnId = manual?.turnId || this.turns.get(chat.id);
+    if (turnId) this.toolAttempts.delete(this.toolAttemptKey(chat.id, turnId));
     if (manual) {
       error = manual.cancelReason || manual.error || error || (!manual.completed ? 'Compaction ended without a completion event.' : null);
       if (!error) this.compactions.commitManual(chat);
@@ -1249,6 +1434,7 @@ class Controller extends EventEmitter {
       if (!chat.internal) this.latestTurns.set(chat.id, params.turn.id);
       if (chat.internal && chat.cancelReason) this.stopHeartbeat(chat.cancelReason).catch(() => {});
     } else if (method === 'turn/completed') {
+      if (eventTurnId) this.toolAttempts.delete(this.toolAttemptKey(chat.id, eventTurnId));
       const error = params.turn.error?.message || (params.turn.status === 'failed' ? 'The reply failed. Please try again.' :
         params.turn.status === 'interrupted' ? 'Stopped by you.' : null);
       if (!error && this.independentCheck.startForTurn(chat, { turnId: eventTurnId })) return;
@@ -1315,6 +1501,7 @@ class Controller extends EventEmitter {
         if (typeof item.phase === 'string') message.phase = item.phase;
         message.status = method === 'item/completed' ? 'completed' : 'running';
       } else if (item.type === 'commandExecution') {
+        if (method === 'item/completed') this.rememberCommandOutcome(chat, eventTurnId || activeTurnId, item);
         const message = this.message(chat, item.id, 'tool', 'command');
         message.text = commandTranscript(item.command, item.aggregatedOutput || '');
         message.status = item.status;
@@ -1407,8 +1594,23 @@ class Controller extends EventEmitter {
       if (!result) {
         result = Promise.resolve().then(() => params.tool === 'ask_user'
           ? this.askUser(chat, params, id, key) : this.agentTools.call(params.tool, params.arguments, { chat }))
-          .then(value => ({ success: true, contentItems: [{ type: 'inputText', text: JSON.stringify(value ?? { ok: true }).slice(0, 25000) }] }))
-          .catch(error => ({ success: false, contentItems: [{ type: 'inputText', text: cleanError(error) }] }));
+          .then(value => {
+            this.rememberToolOutcome(chat, params.turnId, { tool: params.tool, args: params.arguments }, true);
+            return { success: true, contentItems: [{ type: 'inputText', text: JSON.stringify(value ?? { ok: true }).slice(0, 25000) }] };
+          })
+          .catch(error => {
+            const message = cleanError(error);
+            this.rememberToolOutcome(chat, params.turnId, { tool: params.tool, args: params.arguments, error: message }, false);
+            const lesson = chat.connection === 'local' ? learnedLessons.matchingFailure(this.store.data.lessons, chat.model,
+              { tool: params.tool, args: toolArgs(params.arguments), error: message }) : null;
+            if (lesson) {
+              if (chat.lessonKeys?.includes(lesson.key) && learnedLessons.markMiss(this.store.data.lessons, chat.model, lesson.key)) {
+                this.persistNow(); this.changed();
+              }
+              return { success: false, contentItems: [{ type: 'inputText', text: `${message.slice(0, 1500)}\nLesson: ${lesson.text}`.slice(0, 2000) }] };
+            }
+            return { success: false, contentItems: [{ type: 'inputText', text: message }] };
+          });
         this.agentToolCalls.set(key, result);
         if (this.agentToolCalls.size > 500) this.agentToolCalls.delete(this.agentToolCalls.keys().next().value);
       }

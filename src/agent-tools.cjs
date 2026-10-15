@@ -68,6 +68,32 @@ function normalizeDate(value) {
   match = /^(\d{4})-(\d{1,2})-(\d{1,2})(.*)$/.exec(text);
   return match ? `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}${match[4]}` : text;
 }
+function normalizationLesson(name, before, after, schema = {}) {
+  if (!object(before) || !object(after) || JSON.stringify(before) === JSON.stringify(after)) return null;
+  const properties = schema.properties || {};
+  for (const [key, raw] of Object.entries(before)) {
+    const target = Object.keys(properties).find(field => field.toLowerCase().replace(/[_-]/g, '') === key.toLowerCase().replace(/[_-]/g, '')
+      || keyAlias(key) === field.toLowerCase());
+    if (target && target !== key && after[target] === raw) return [`tool-arguments:${name.slice(0, 70)}`, `Use the listed field name ${target} in ${name}, not ${key}.`];
+    const shape = properties[key] || {};
+    if (typeof raw === 'string' && typeof after[key] === 'number' && ['integer', 'number'].includes(shape.type)) {
+      return [`tool-arguments:${name.slice(0, 70)}`, `Pass ${key} to ${name} as a number, not a numeric string.`];
+    }
+    if (typeof raw === 'string' && typeof after[key] === 'boolean' && shape.type === 'boolean') {
+      return [`tool-arguments:${name.slice(0, 70)}`, `Pass ${key} to ${name} as true or false, not a string.`];
+    }
+    if (typeof raw === 'string' && raw !== after[key] && shape.enum) {
+      return [`tool-arguments:${name.slice(0, 70)}`, `Use the exact ${key} value ${after[key]} in ${name}.`];
+    }
+    if (!Array.isArray(raw) && Array.isArray(after[key]) && shape.type === 'array') {
+      return [`tool-arguments:${name.slice(0, 70)}`, `Pass ${key} to ${name} as an array.`];
+    }
+    if (typeof raw === 'string' && raw !== after[key] && /(?:startLocal|endLocal|fromLocal|toLocal|atLocal|date)$/.test(key)) {
+      return [`tool-arguments:${name.slice(0, 70)}`, `Use YYYY-MM-DD or YYYY-MM-DDTHH:MM for ${key} in ${name}.`];
+    }
+  }
+  return [`tool-arguments:${name.slice(0, 70)}`, `Use ${name} with its listed field names, types, and exact action values.`];
+}
 function correctedArgs(schema, input) {
   const value = { ...input }, properties = schema.properties || {};
   for (const key of schema.required || []) if (value[key] === undefined) {
@@ -79,7 +105,7 @@ function correctedArgs(schema, input) {
 function distance(a, b) { const row = Array.from({ length: b.length + 1 }, (_, i) => i); for (let i = 1; i <= a.length; i++) { let prev = row[0]; row[0] = i; for (let j = 1; j <= b.length; j++) { const old = row[j]; row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = old; } } return row[b.length]; }
 
 class AgentTools {
-  constructor({ management, store, manageGoal, manageSchedule, manageCalendar, manageFollowup, manageWatch, manageIntention, proposeLaunch, phoneAction, browser, webServices, windowsUi, sendAttachment }) { this.manageIntention = manageIntention; this.phoneAction = phoneAction; this.management = management; this.store = store; this.manageGoal = manageGoal; this.manageSchedule = manageSchedule; this.manageCalendar = manageCalendar; this.manageFollowup = manageFollowup; this.manageWatch = manageWatch; this.proposeLaunch = proposeLaunch; this.browser = browser; this.webServices = webServices; this.windowsUi = windowsUi; this.sendAttachment = sendAttachment; }
+  constructor({ management, store, manageGoal, manageSchedule, manageCalendar, manageFollowup, manageWatch, manageIntention, proposeLaunch, phoneAction, browser, webServices, windowsUi, sendAttachment, controller, onLesson }) { this.manageIntention = manageIntention; this.phoneAction = phoneAction; this.management = management; this.store = store; this.manageGoal = manageGoal; this.manageSchedule = manageSchedule; this.manageCalendar = manageCalendar; this.manageFollowup = manageFollowup; this.manageWatch = manageWatch; this.proposeLaunch = proposeLaunch; this.browser = browser; this.webServices = webServices; this.windowsUi = windowsUi; this.sendAttachment = sendAttachment; this.onLesson = onLesson || ((modelId, key, text) => controller?.recordLesson(modelId, key, text)); }
   // The engine rejects a thread whose dynamic tools mix the canonical {type:'function'} form with the
   // legacy form, so every source (app management, browser, services) is normalized here.
   specs(options = {}) {
@@ -175,7 +201,12 @@ class AgentTools {
       throw new Error(`Unknown tool "${name}". Corrected example: ${specs[0]?.name || 'skill_list'}({}).`);
     }
     const local = chat?.connection === 'local';
+    const rawArgs = args;
     let normalized = local ? normalizeObject(args, spec.inputSchema) : args;
+    if (local && object(rawArgs) && object(normalized)) {
+      const lesson = normalizationLesson(name, rawArgs, normalized, spec.inputSchema);
+      if (lesson) this.onLesson(chat.model, ...lesson);
+    }
     if (!object(normalized)) throw new Error(`Arguments for ${name} must be an object; example: ${name}({}).`);
     if (name === 'attachment_send' && typeof normalized.path === 'string') {
       const path = require('node:path');

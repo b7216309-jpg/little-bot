@@ -276,6 +276,7 @@ app.whenReady().then(async () => {
   controller.appManagement = new AppManagement({controller,handlers:appHandlers,filename:path.join(stateDir,'app-operations.json')});
   controller.windowsUi = new WindowsUia({ root: path.join(stateDir, 'windows-ui') });
   controller.agentTools = new AgentTools({ management:controller.appManagement, store, browser: controller.browser, webServices: controller.webServices, windowsUi: controller.windowsUi,
+    onLesson: (modelId, key, text) => controller.recordLesson(modelId, key, text),
     phoneAction: async args => relay.phoneAction(args),
     manageWatch: async (action, payload) => action === 'list' ? webWatcher.list() : action === 'remove' ? webWatcher.remove(payload.id) : webWatcher.add(payload),
     proposeLaunch: async ({ appid, note }) => {
@@ -624,6 +625,9 @@ app.whenReady().then(async () => {
     if (!enabled) await controller.memoryConsolidator.pauseForUser();
     store.data.memory.enabled = enabled;
     store.save(); controller.changed(); return controller.state();
+  });
+  register('deleteLesson', ({ modelId, key } = {}) => {
+    return controller.deleteLesson(modelId, key);
   });
   register('saveFact', payload => {
     const existing = payload?.id ? store.memoryService.get(payload.id) : null;

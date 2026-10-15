@@ -452,6 +452,25 @@ const responseInput = text => ({ type: 'message', role: 'user', content: [{ type
 const localRequest = input => ({ model: 'mock-qwen', input, tools: [{ type: 'function', name: 'lookup', description: 'Look up a value.', parameters: { type: 'object', properties: { q: { type: 'string' } }, required: ['q'] } }] });
 const responseDone = (text = 'ok') => chatChunk({ content: text }, 'stop') + 'data: [DONE]\n\n';
 
+test('a tool-less follow-up keeps the conversation tool block so Strata reuses its cache', async t => {
+  const bodies = [];
+  const mock = await startStrataMock(t, async ({ response, body }) => {
+    bodies.push(body);
+    response.writeHead(200, { 'content-type': 'text/event-stream' });
+    response.end(responseDone('summary'));
+  });
+  const post = async request => (await fetch(`${mock.endpoint}/responses`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(request) })).text();
+  const input = [responseInput('first request')];
+  await post(localRequest(input));
+  const { tools, ...toolless } = localRequest([...input, responseInput('Summarize for a handoff.')]);
+  await post(toolless);
+  assert.deepEqual(bodies[1].tools, bodies[0].tools);
+  assert.equal(bodies[1].tool_choice, 'none');
+  const { tools: unused, ...unrelated } = localRequest([responseInput('another conversation')]);
+  await post(unrelated);
+  assert.equal(bodies[2].tools, undefined, 'only the same conversation gets the block back');
+});
+
 test('the Strata adapter turns Qwen text calls into JSON tool events and repairs arguments', async () => {
   const tools = new Map([['lookup', { type: 'function' }]]);
   const forms = [
@@ -513,19 +532,25 @@ test('the Strata adapter repairs patch aliases and unknown calls while replaying
     ['apply_patch', { cmd: ['apply_patch', patch] }],
     ['exec_command', { cmd: ['apply_patch', patch] }],
   ];
+  const repairs = [];
   for (const [name, args] of shapes) {
-    const { events } = await collectAdapter([chatChunk({ tool_calls: [{ index: 0, id: 'call-patch', function: { name, arguments: JSON.stringify(args) } }] }, 'tool_calls')], { toolKinds: tools });
+    const { events } = await collectAdapter([chatChunk({ tool_calls: [{ index: 0, id: 'call-patch', function: { name, arguments: JSON.stringify(args) } }] }, 'tool_calls')], { toolKinds: tools, onToolRepair: repair => repairs.push(repair) });
     const call = events.find(event => event.type === 'response.completed')?.response.output.find(item => item.type === 'function_call');
     assert.equal(call?.name, 'exec_command', name);
     assert.match(JSON.parse(call.arguments).cmd, /apply_patch <<'LITTLE_BOT_PATCH'/, name);
     assert.ok(JSON.parse(call.arguments).cmd.includes(patch), name);
   }
+  assert.equal(repairs.length, shapes.length);
+  assert.ok(repairs.every(repair => repair.modelId === 'mock-qwen' && repair.key === 'patch-through-exec-command'));
 
-  const unknown = await collectAdapter([chatChunk({ tool_calls: [{ index: 0, id: 'call-unknown', function: { name: 'missing_tool', arguments: '{"value":1}' } }] }, 'tool_calls')], { toolKinds: tools });
+  const unknownRepairs = [];
+  const unknown = await collectAdapter([chatChunk({ tool_calls: [{ index: 0, id: 'call-unknown', function: { name: 'missing_tool', arguments: '{"value":1}' } }] }, 'tool_calls')], { toolKinds: tools, onToolRepair: repair => unknownRepairs.push(repair) });
   const feedback = unknown.events.find(event => event.type === 'response.completed')?.response.output.find(item => item.type === 'function_call');
   assert.equal(feedback?.name, 'exec_command');
   assert.match(JSON.parse(feedback.arguments).cmd, /Unknown tool "missing_tool"/);
   assert.match(JSON.parse(feedback.arguments).cmd, /Valid tools: exec_command, write_stdin/);
+  assert.equal(unknownRepairs[0]?.key, 'unknown-tool-name');
+  assert.match(JSON.parse(feedback.arguments).cmd, /Lesson: use only listed tool names/);
 
   const rawArguments = '{ "cmd": "Write-Output ok", "yield_time_ms": 1000 }';
   const valid = await collectAdapter([chatChunk({ tool_calls: [{ index: 0, id: 'call-valid', function: { name: 'exec_command', arguments: rawArguments } }] }, 'tool_calls')], { toolKinds: tools });

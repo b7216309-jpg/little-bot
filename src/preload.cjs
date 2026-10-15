@@ -30,7 +30,7 @@ contextBridge.exposeInMainWorld('bot', {
   answerGoal: invoke('answerGoal'),
   deleteGoal: invoke('deleteGoal'), pauseAutonomy: invoke('pauseAutonomy'), resumeAutonomy: invoke('resumeAutonomy'),
   previewGoalRestore: invoke('previewGoalRestore'), restoreGoal: invoke('restoreGoal'), discardGoalSnapshot: invoke('discardGoalSnapshot'),
-  saveMemory: invoke('saveMemory'), saveFact: invoke('saveFact'), deleteFact: invoke('deleteFact'), clearEpisodes: invoke('clearEpisodes'),
+  saveMemory: invoke('saveMemory'), saveFact: invoke('saveFact'), deleteFact: invoke('deleteFact'), deleteLesson: invoke('deleteLesson'), clearEpisodes: invoke('clearEpisodes'),
   searchMemory: invoke('searchMemory'), getMemorySource: invoke('getMemorySource'),
   configureMemory: invoke('configureMemory'), linkMemoryProject: invoke('linkMemoryProject'),
   retryMemoryLearning: invoke('retryMemoryLearning'), discardMemoryLearning: invoke('discardMemoryLearning'),

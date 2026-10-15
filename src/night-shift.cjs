@@ -349,7 +349,8 @@ class NightShift {
     const goal = this.store.data.autonomy.goals.find(item => item.id === goalId);
     if (!goal || !this.session) return;
     this.session.goalIds = ids([...this.session.goalIds, goalId]);
-    const result = goal.review?.lastResult?.summary || summary || goal.nextStep;
+    // The delivered message speaks to the owner; the work log stays on the goal card.
+    const result = summary || goal.review?.lastResult?.summary || goal.nextStep;
     const previous = this.session.results.find(item => item.type === 'goal' && item.goalId === goalId);
     const value = { type: 'goal', goalId, title: goal.name, summary: clean(result), needsOwner: needsOwner || goal.status === 'blocked', at: this.now(), actions: [] };
     if (previous) Object.assign(previous, value); else this.session.results.push(value);
@@ -359,7 +360,8 @@ class NightShift {
 
   deferGoalDelivery(goal, _data, details = {}) {
     if (!this.session || !(this.active || this.yielding)) return undefined;
-    this.refreshGoalResult(goal.id, details.summary || details.question?.question, Boolean(details.question));
+    const text = details.summary || details.question?.question;
+    if (text) this.refreshGoalResult(goal.id, text, Boolean(details.question));
     return null;
   }
 

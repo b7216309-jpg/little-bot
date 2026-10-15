@@ -22,6 +22,14 @@ Each turn saves at most three memories, and the prompt asks only for what will s
 
 Learning output wrapped in reasoning tags, prose or code fences is parsed through the shared [model-json](../../src/model-json.cjs) helper, which also repairs trailing commas and single-quoted strings. Dreaming uses the same schema-constrained and repair path. Heartbeat and goal runs yield the idle lane while a learning job is ready; a job waiting in backoff does not hold them back.
 
+## Local model tool lessons
+
+[lessons.cjs](../../src/lessons.cjs) keeps compact, imperative tool-use lessons per local model ID. A failed call followed in the same turn by a successful retry can teach a PowerShell equivalent, a corrected workspace path, an app-tool argument shape or a corrected tool name. The Strata adapter reports its patch and unknown-tool rewrites, and AgentTools reports schema normalizations, as they happen. These rules are deterministic and do not add a model request. A covered app-tool error includes the lesson on one short line; three repeated failures in threads that received that lesson retire it.
+
+The first local thread for a model starts with three Windows/PowerShell and patch-form seeds. Every new local thread, including Quick, `/goal`, heartbeat, Independent Check, extraction and night work, receives one `Lessons from this PC` developer-instruction block capped at 1,000 characters. A direct chat saves the block with its engine thread and reuses it byte-for-byte on resume; new lessons wait for the next thread, preserving Strata's prompt prefix. Codex threads receive no lessons.
+
+Lessons are part of the protected `state.json` payload beside conversations, memory and companion data. Each entry tracks recoveries and its last-seen time. Duplicate keys update the existing entry; each model keeps at most 12, and entries unseen for 100 days expire. The Memory page lists lessons by model and lets the user remove one. Removing a seed does not add it back to that model.
+
 ## Backups and resets
 
 [backups.cjs](../../src/backups.cjs) saves one restore point per local day: a `VACUUM INTO` copy of `memory.sqlite` and the encrypted `state.json`. Points are kept for seven days under `data/backups`; Memory → Search settings → Backups can make one now. Restore writes a marker and restarts the app. Before the Store opens anything, the current files are copied to a `before-restore-*` safety point, then the backup is copied in. Backups never leave the PC.
