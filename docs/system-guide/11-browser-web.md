@@ -6,7 +6,7 @@
 
 The agent tool supports navigate, snapshot, read, ref-based click/fill/select/check, approved keys, scroll, back/forward/reload, tabs/switch (one tab), screenshot and close. It is driven through the Chrome DevTools Protocol of that view only; the app's own window is never attached:
 - Snapshots come from the accessibility tree, and the @eN refs map to DOM nodes.
-- Clicks use real pointer events when the page is on screen and the target is under the pointer, and a DOM click otherwise.
+- Clicks and key presses use native input only when the page is visible and its window is focused; inactive windows use DOM actions.
 - Fill selects the field, then inserts text.
 - Off screen (minimized or covered), Enter and Space fall back to their common default actions. Screenshots then return an error that suggests snapshot or read.
 

@@ -207,11 +207,19 @@ class GoalExecutor {
         return operation.outcome;
       }
       let parsed;
-      try {
-        const outcomeSchema = contract.isV2(goal) ? resultSchema : schema;
-        parsed = normalizeModelOutput(parseModelJson(operation.final, 'Goal did not submit a structured outcome. No completion was accepted.'), outcomeSchema);
-        if (contract.isV2(goal)) parsed = contract.normalizeFinish(parsed);
-      } catch { /* Keep the plain-question and performed-action recovery below. */ }
+      if (goal.connection === 'local') {
+        try {
+          const outcomeSchema = contract.isV2(goal) ? resultSchema : schema;
+          parsed = normalizeModelOutput(parseModelJson(operation.final, 'Goal did not submit a structured outcome. No completion was accepted.', { local: true }), outcomeSchema);
+          if (contract.isV2(goal)) parsed = contract.normalizeFinish(parsed);
+        } catch { /* Keep the plain-question and performed-action recovery below. */ }
+      } else {
+        try { parsed = JSON.parse(operation.final.trim().replace(/^```(?:json)?\s*|\s*```$/g, '')); }
+        catch {
+          // Preserve the legacy version-two recovery for Codex; version one remains strict.
+          if (contract.isV2(goal)) parsed = contract.normalizeFinish(parseModelJson(operation.final, 'Goal did not submit a structured outcome. No completion was accepted.'));
+        }
+      }
       if (parsed === undefined) {
         const reply = operation.final.trim();
         // Local models can ask plainly instead of invoking the question tool.

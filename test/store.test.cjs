@@ -27,7 +27,7 @@ test('new state is minimal and save preserves live references without persisting
   assert.equal(store.data.settings.workspace, f.directory);
   assert.equal(store.data.settings.model, store.data.settings.localModel);
   assert.equal(store.data.settings.effort, 'low');
-  assert.equal(store.data.settings.autoCompactPercent, 50);
+  assert.equal(store.data.settings.autoCompactPercent, undefined);
   assert.deepEqual(store.data.chats, []);
   assert.deepEqual(store.data.automations, []);
   assert.deepEqual(store.data.standingIntents, { intents: [] });

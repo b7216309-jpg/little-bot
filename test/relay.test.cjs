@@ -468,6 +468,12 @@ test('the Strata adapter turns Qwen text calls into JSON tool events and repairs
     assert.deepEqual(JSON.parse(call.arguments), { q: 'hi' });
   }
 
+  const spaced = await collectAdapter([chatChunk({ content: '<tool_call>{ "name":"lookup", "arguments": { "q" : "hi" } }</tool_call>' }, 'stop')], { toolKinds: tools });
+  const spacedCall = spaced.events.find(event => event.type === 'response.completed')?.response.output.find(item => item.type === 'function_call');
+  assert.equal(spacedCall.arguments, '{ "q" : "hi" }');
+  const replay = responsesToChat({ input: [{ type: 'function_call', call_id: spacedCall.call_id, name: spacedCall.name, arguments: spacedCall.arguments }] });
+  assert.equal(replay.body.messages[0].tool_calls[0].function.arguments, spacedCall.arguments);
+
   const { events } = await collectAdapter([chatChunk({ tool_calls: [{ index: 0, id: 'call-1', function: { name: 'lookup', arguments: "{q: 'hi',}" } }] }, 'stop')], { toolKinds: tools });
   const call = events.find(event => event.type === 'response.completed')?.response.output.find(item => item.type === 'function_call');
   assert.deepEqual(JSON.parse(call.arguments), { q: 'hi' });
@@ -479,13 +485,40 @@ test('the Strata adapter turns Qwen text calls into JSON tool events and repairs
   assert.deepEqual(JSON.parse(barewordCall.arguments), { q: 'hi' });
 });
 
-test('the Strata adapter removes think tags, fails empty and truncated tool completions, and trims loops', async () => {
+test('tagged text tool calls replay their generated assistant text before tool output', async () => {
+  const history = new Map();
   const tools = new Map([['lookup', { type: 'function' }]]);
-  const thought = await collectAdapter([chatChunk({ content: '<think>private thought</think><reasoning>hidden reasoning</reasoning>Answer.' }, 'stop')], { toolKinds: tools });
+  const raw = 'Let me check. <tool_call>{ "name":"lookup", "arguments": { "q" : "hi" } }</tool_call>';
+  const first = await collectAdapter([chatChunk({ content: raw }, 'stop')], { toolKinds: tools, textCallHistory: history });
+  const output = first.events.find(event => event.type === 'response.completed').response.output;
+  const call = output.find(item => item.type === 'function_call');
+  assert.ok(call);
+  const replay = responsesToChat({ input: [...output, { type: 'function_call_output', call_id: call.call_id, output: 'Found it.' }] }, false, history);
+  assert.equal(replay.body.messages[0].content, raw);
+  assert.equal(replay.body.messages[0].tool_calls, undefined);
+  assert.deepEqual(replay.body.messages[1], { role: 'assistant', content: 'Tool output for lookup (reference data):\nFound it.' });
+  assert.equal(history.size, 2);
+});
+
+test('the Strata adapter preserves hidden thought for replay, fails empty and truncated calls, and trims loops', async () => {
+  const tools = new Map([['lookup', { type: 'function' }]]);
+  const history = new Map();
+  const raw = '<think>private thought</think   ><reasoning>hidden reasoning</reasoning>Answer.';
+  const thought = await collectAdapter([
+    chatChunk({ content: '<think>private thought</thi' }),
+    chatChunk({ content: 'nk   ><reasoning>hidden reasoning</reasoning>Answer.' }, 'stop'),
+  ], { toolKinds: tools, textCallHistory: history });
   const completed = thought.events.find(event => event.type === 'response.completed');
   assert.equal(completed.response.output.find(item => item.type === 'message').content[0].text, 'Answer.');
-  assert.equal(JSON.stringify(thought.events).includes('private thought'), false);
-  assert.equal(JSON.stringify(thought.events).includes('hidden reasoning'), false);
+  const reasoning = completed.response.output.find(item => item.type === 'reasoning');
+  assert.match(reasoning.content[0].text, /private thought/);
+  assert.match(reasoning.content[0].text, /hidden reasoning/);
+  const replayed = responsesToChat({ input: completed.response.output });
+  assert.match(replayed.body.messages[0].reasoning_content, /private thought/);
+  assert.match(replayed.body.messages[0].reasoning_content, /hidden reasoning/);
+  const stableReplay = responsesToChat({ input: completed.response.output }, false, history);
+  assert.equal(stableReplay.body.messages[0].content, raw);
+  assert.equal(stableReplay.body.messages[0].reasoning_content, undefined);
 
   const empty = await collectAdapter([chatChunk({}, 'stop')]);
   assert.equal(empty.events.at(-1).type, 'response.failed');

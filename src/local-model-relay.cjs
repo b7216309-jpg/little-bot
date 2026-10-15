@@ -181,6 +181,7 @@ class LocalModelRelay {
     this.routes = new Map();
     this.upstreams = new Map();
     this.adapters = new Map();
+    this.textCallHistory = new Map();
     this.sockets = new Set();
     this.requests = new Set();
   }
@@ -292,7 +293,7 @@ class LocalModelRelay {
       }
       let upstreamPath = match[3], strataTools = null;
       if (adapter === 'strata') {
-        const translated = responsesToChat(body, thinking);
+        const translated = responsesToChat(body, thinking, this.textCallHistory);
         body = translated.body;
         applySampling(body, this.sampling());
         if (hasImages(body.messages) && await strataImages(base) === false) {
@@ -314,7 +315,7 @@ class LocalModelRelay {
       const target = new URL(`${base}/${upstreamPath}`);
       const transport = target.protocol === 'https:' ? https : http;
       if (adapter === 'strata' && match[3] === 'responses') {
-        strataAdapter = new StrataStreamAdapter({ model: body.model, toolKinds: strataTools, onDegenerate: () => {
+        strataAdapter = new StrataStreamAdapter({ model: body.model, toolKinds: strataTools, textCallHistory: this.textCallHistory, onDegenerate: () => {
           if (!upstreamResponse || !strataAdapter?.completed) return;
           upstreamResponse.unpipe(strataAdapter);
           upstreamResponse.on('error', () => {});
@@ -433,6 +434,7 @@ class LocalModelRelay {
       for (const request of this.requests) request.destroy();
       for (const socket of this.sockets) socket.destroy();
       if (server?.listening) await new Promise(resolve => server.close(resolve));
+      this.textCallHistory = new Map();
       this.requests.clear(); this.sockets.clear();
     })();
     try { await this.closing; } finally { this.closing = null; }

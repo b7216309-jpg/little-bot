@@ -122,8 +122,9 @@ function checkPrompt(goal, chat, check, { local = false } = {}) {
   if (local) parts.push(`Return only one JSON object matching this schema, without Markdown: ${JSON.stringify(GOAL_CHECK_SCHEMA)}`);
   return parts.join('\n\n');
 }
-function parseVerdict(output) {
-  const value = normalizeModelOutput(parseModelJson(output, 'The goal check did not return readable JSON.'), GOAL_CHECK_SCHEMA);
+function parseVerdict(output, { local = false } = {}) {
+  const parsed = parseModelJson(output, 'The goal check did not return readable JSON.', { local });
+  const value = local ? normalizeModelOutput(parsed, GOAL_CHECK_SCHEMA) : parsed;
   if (!value || typeof value !== 'object' || Array.isArray(value) || !('met' in value)) throw new Error('The goal check did not say whether the goal is met.');
   const flag = item => item === true || item === 'true';
   return { met: flag(value.met), impossible: flag(value.impossible),
@@ -305,8 +306,17 @@ class ChatGoalRunner {
     const local = chat.connection === 'local';
     const timeout = local ? EVAL_TIMEOUT_MS : CODEX_EVAL_TIMEOUT_MS;
     return new Promise((resolve, reject) => {
-      const op = { chatId: chat.id, threadId: null, turnId: null, output: '', resolve, reject, done: false, goal, chat, check, retryCount: 0 };
-      op.timer = setTimeout(() => this.settle(op, new Error('The goal check timed out.')), timeout);
+      let resolveCompletion;
+      const completion = new Promise(done => { resolveCompletion = done; });
+      const op = { chatId: chat.id, threadId: null, turnId: null, output: '', resolve, reject, done: false, goal, chat, check, retryCount: 0, timeout, completion, resolveCompletion, turnStartAttempted: false };
+      op.timer = setTimeout(() => {
+        void (async () => {
+          if (op.done) return;
+          if (op.turnId || op.turnStartAttempted) await controller.recoverUncertainTurnStart({ threadId: op.threadId,
+            turnId: op.turnId, completion, owner: op, reason: 'The engine did not stop after the goal check timed out.' });
+          if (!op.done) this.settle(op, new Error('The goal check timed out.'));
+        })();
+      }, timeout);
       op.timer.unref?.();
       this.op = op;
       void (async () => {
@@ -324,13 +334,22 @@ class ChatGoalRunner {
           if (op.done) return void this.release(op);
           await controller.extensionRuntime?.verifyHeartbeat(op.threadId);
           if (op.done) return void this.release(op);
+          op.turnStartAttempted = true;
           const turn = await controller.client.request('turn/start', {
             threadId: op.threadId, input: [{ type: 'text', text: checkPrompt(goal, chat, check, { local }) }], cwd: chat.workspace,
             model: chat.model || undefined, effort: controller.effectiveEffort(chat.model, 'low'), approvalPolicy: 'never', approvalsReviewer: 'user',
-            outputSchema: GOAL_CHECK_SCHEMA, sandboxPolicy: { type: 'readOnly' },
-          }, timeout);
+            ...(local ? {} : { outputSchema: GOAL_CHECK_SCHEMA }), sandboxPolicy: { type: 'readOnly' },
+          }, local ? timeout : 60000);
           op.turnId ||= turn?.turn?.id;
-        } catch (error) { this.settle(op, error); }
+          if (!op.turnId) throw new Error('The goal check did not receive a review turn.');
+          op.turnStartAttempted = false;
+        } catch (error) {
+          if (op.turnStartAttempted && !Number.isInteger(error?.code) && !op.done) {
+            await controller.recoverUncertainTurnStart({ threadId: op.threadId, turnId: op.turnId, completion, owner: op,
+              reason: 'The engine did not stop after the goal check start acknowledgement was lost.' });
+          }
+          if (!op.done) this.settle(op, error);
+        }
       })();
     });
   }
@@ -344,9 +363,9 @@ class ChatGoalRunner {
     else if (method === 'turn/completed') {
       if (['interrupted', 'failed'].includes(params.turn?.status) || params.turn?.error) this.settle(op, new Error(params.turn?.error?.message || 'The goal check was interrupted.'));
       else {
-        try { this.settle(op, null, parseVerdict(op.output)); }
+        try { this.settle(op, null, parseVerdict(op.output, { local: op.chat.connection === 'local' })); }
         catch (error) {
-          if (!op.retryCount) op.retryStarting = this.retryMalformed(op, error);
+          if (op.chat.connection === 'local' && !op.retryCount) op.retryStarting = this.retryMalformed(op, error);
           else this.settle(op, error);
         }
       }
@@ -358,22 +377,31 @@ class ChatGoalRunner {
     op.output = '';
     op.turnId = null;
     try {
+      op.turnStartAttempted = true;
       const turn = await this.controller.client.request('turn/start', {
         threadId: op.threadId,
         input: [{ type: 'text', text: `${checkPrompt(op.goal, op.chat, op.check, { local: op.chat.connection === 'local' })}\n\nYour previous answer failed validation: ${clean(error.message, 300)}. Return a corrected verdict object matching the required schema.` }],
         cwd: op.chat.workspace, model: op.chat.model || undefined, effort: this.controller.effectiveEffort(op.chat.model, 'low'),
-        approvalPolicy: 'never', approvalsReviewer: 'user', outputSchema: GOAL_CHECK_SCHEMA, sandboxPolicy: { type: 'readOnly' },
-      }, 60000);
+        approvalPolicy: 'never', approvalsReviewer: 'user', sandboxPolicy: { type: 'readOnly' },
+      }, EVAL_TIMEOUT_MS);
       op.turnId ||= turn?.turn?.id;
       if (!op.turnId) throw new Error('The corrected goal check did not start.');
+      op.turnStartAttempted = false;
       if (op.done) await this.controller.client.request('turn/interrupt', { threadId: op.threadId, turnId: op.turnId }, 10000).catch(() => {});
-    } catch (failure) { this.settle(op, failure); }
+    } catch (failure) {
+      if (op.turnStartAttempted && !Number.isInteger(failure?.code) && !op.done) {
+        await this.controller.recoverUncertainTurnStart({ threadId: op.threadId, turnId: op.turnId, completion: op.completion, owner: op,
+          reason: 'The engine did not stop after the goal check repair acknowledgement was lost.' });
+      }
+      if (!op.done) this.settle(op, failure);
+    }
   }
   settle(op, error, verdict) {
     if (op.done) return;
     op.done = true;
     clearTimeout(op.timer);
     if (this.op === op) this.op = null;
+    op.resolveCompletion?.();
     void this.release(op);
     if (error) op.reject(error); else op.resolve(verdict);
   }
@@ -385,10 +413,11 @@ class ChatGoalRunner {
   async stopEvaluation() {
     const op = this.op;
     if (!op) return;
-    if (op.turnId && op.threadId) {
-      try { await this.controller.client.request('turn/interrupt', { threadId: op.threadId, turnId: op.turnId }, 10000); } catch { /* Settled below either way. */ }
+    if (op.turnId || op.turnStartAttempted) {
+        await this.controller.recoverUncertainTurnStart({ threadId: op.threadId, turnId: op.turnId, completion: op.completion, owner: op,
+        reason: 'The engine did not stop after the goal check was interrupted.' });
     }
-    this.settle(op, Object.assign(new Error('The goal check was stopped.'), { cancelled: true }));
+    if (!op.done) this.settle(op, Object.assign(new Error('The goal check was stopped.'), { cancelled: true }));
   }
   async close() { this.closed = true; await this.stopEvaluation(); }
 }

@@ -198,8 +198,8 @@ class EmbeddedBrowser {
   }
   async _click(ref) {
     const { objectId, backendNodeId } = await this._object(ref);
-    // Real pointer events when the page is on screen and the target is what sits under the pointer; otherwise a DOM click.
-    if (this._onScreen()) {
+    // Inactive native windows can drop routed mouse events, so use them only when focused.
+    if (this._onScreen() && this.getWindow?.()?.isFocused()) {
       try {
         await this._cdp('DOM.scrollIntoViewIfNeeded', { backendNodeId });
         const { model } = await this._cdp('DOM.getBoxModel', { backendNodeId });
@@ -260,9 +260,10 @@ class EmbeddedBrowser {
     const file = path.join(this.root, 'screenshots', `page-${Date.now()}.png`);
     // Chromium only paints pages that are on screen; snapshot and read work either way.
     if (!this._onScreen()) throw new Error('Screenshots need the browser panel visible and Little Bot not minimized. Use snapshot or read instead, or ask the user to bring Little Bot back.');
-    const image = await this.view.webContents.capturePage();
-    if (image.isEmpty()) throw new Error('The page has not painted yet. Try again in a moment.');
-    fs.writeFileSync(file, image.toPNG());
+    const { data } = await this._cdp('Page.captureScreenshot', { format: 'png' });
+    const image = Buffer.from(data || '', 'base64');
+    if (!image.length) throw new Error('The page has not painted yet. Try again in a moment.');
+    fs.writeFileSync(file, image);
     const shots = fs.readdirSync(path.dirname(file)).filter(name => /^page-\d+\.png$/.test(name)).sort().reverse();
     for (const name of shots.slice(20)) { try { fs.unlinkSync(path.join(path.dirname(file), name)); } catch {} }
     return file;
@@ -341,7 +342,7 @@ class EmbeddedBrowser {
         }
         case 'press': {
           const key = KEYS[args.key];
-          if (this._onScreen()) {
+          if (this._onScreen() && this.getWindow?.()?.isFocused()) {
             await this._cdp('Input.dispatchKeyEvent', { type: key.text ? 'keyDown' : 'rawKeyDown', ...key });
             await this._cdp('Input.dispatchKeyEvent', { type: 'keyUp', ...key, text: undefined });
           } else {

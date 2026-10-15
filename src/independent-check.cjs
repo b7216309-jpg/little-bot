@@ -185,12 +185,12 @@ function stripFence(value) {
   return match ? match[1] : source;
 }
 
-function parseIndependentCheckResult(value, proposedAnswer = '') {
+function parseIndependentCheckResult(value, proposedAnswer = '', { local = false } = {}) {
   let parsed;
   try { parsed = parseModelJson(stripFence(value), 'Independent Check returned unreadable JSON.'); }
-  // Keep parsing tolerant because provider output may still contain wrappers despite the schema.
-  catch { parsed = parseModelJson(text(value, MAX_ANSWER + 10000), 'Independent Check returned unreadable JSON.'); }
-  parsed = normalizeModelOutput(parsed, INDEPENDENT_CHECK_SCHEMA);
+  // Local models may keep wrappers or small schema near-misses despite the prompt.
+  catch { parsed = parseModelJson(text(value, MAX_ANSWER + 10000), 'Independent Check returned unreadable JSON.', { local }); }
+  if (local) parsed = normalizeModelOutput(parsed, INDEPENDENT_CHECK_SCHEMA);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Independent Check returned an invalid result.');
   if (!CLAIM_TYPES.includes(parsed.claimType) || !ASSESSMENTS.includes(parsed.assessment)
     || typeof parsed.pressureDetected !== 'boolean' || typeof parsed.conclusionStable !== 'boolean') {

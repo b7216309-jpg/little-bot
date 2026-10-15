@@ -8,6 +8,7 @@ const { connectionBinding } = require('./connections.cjs');
 // Messages that arrive while a turn is running or waiting wait in the chat's outbox,
 // and every proactive message stays unseen by the model until the user's next turn carries it.
 const MAX_BRIDGE = 10;
+const MAX_PENDING = 20;
 const PROACTIVE_KINDS = ['heartbeat', 'goal', 'memory', 'watch', 'offer'];
 const MAX_FEEDBACK = 200;
 // Proactive messages carry buttons only for a concrete offer (a game launch). Notes, tips and check-ins get none:
@@ -36,7 +37,7 @@ const text = (value, limit) => typeof value === 'string' ? value.slice(0, limit)
 
 function normalizePending(value) {
   return (Array.isArray(value) ? value : []).filter(item => object(item) && PROACTIVE_KINDS.includes(item.kind)
-    && typeof item.text === 'string' && item.text.trim()).map(item => {
+    && typeof item.text === 'string' && item.text.trim()).slice(-MAX_PENDING).map(item => {
     const entry = { id: text(item.id, 128) || randomUUID(), role: 'assistant', kind: item.kind, status: 'completed',
       text: text(item.text, 20000), createdAt: Number.isFinite(item.createdAt) ? item.createdAt : Date.now(), modelSeen: false };
     const actions = normalizeActions(item.actions);
@@ -70,7 +71,7 @@ function post(data, fields, { duplicate = null, nowMs = Date.now() } = {}) {
     chat.messages.push(message);
     chat.updatedAt = nowMs;
   } else {
-    chat.pendingProactive = [...pending, message];
+    chat.pendingProactive = [...pending, message].slice(-MAX_PENDING);
   }
   return message;
 }

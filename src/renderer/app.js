@@ -1442,13 +1442,14 @@ function renderChatContext() {
     $('context-usage-meter').value = Math.min(100, percentage);
     $('context-usage-meter').setAttribute('aria-valuetext', `${formatTokens(used)} of ${formatTokens(windowTokens)} tokens`);
     $('context-usage-percent').textContent = `${percentage}%`;
-    $('context-usage-meter').classList.toggle('near-limit', percentage >= (state.settings.autoCompactPercent || 80));
+    const defaultCompactPercent = state.settings.connection === 'local' ? 50 : 80;
+    $('context-usage-meter').classList.toggle('near-limit', percentage >= (state.settings.autoCompactPercent || defaultCompactPercent));
   } else {
     $('context-usage-meter').removeAttribute('value');
     $('context-usage-meter').removeAttribute('aria-valuetext');
     $('context-usage-percent').textContent = '';
   }
-  const compactPercent = state.settings.autoCompactPercent ?? 80;
+  const compactPercent = state.settings.autoCompactPercent ?? (state.settings.connection === 'local' ? 50 : 80);
   $('context-compaction-status').textContent = pending ? 'Compacting…' : compactPercent ? `Auto-compact · ${compactPercent}%` : 'Auto-compact · default';
   $('context-compaction-status').classList.toggle('compacting', pending);
   const count = Number.isInteger(compaction.count) && compaction.count > 0 ? compaction.count : 0;
@@ -1918,7 +1919,7 @@ async function saveIndependentCheckSettings(event) {
 function renderCompactionSettings() {
   const input = $('settings-auto-compact');
   const hadDraft = compactionSettingsInitialized && input.value !== String(compactionSettingsBaseline);
-  compactionSettingsBaseline = state.settings.autoCompactPercent ?? 80;
+  compactionSettingsBaseline = state.settings.autoCompactPercent ?? (state.settings.connection === 'local' ? 50 : 80);
   if (!compactionSettingsInitialized || (!hadDraft && !compactionSettingsSaving)) input.value = String(compactionSettingsBaseline);
   compactionSettingsInitialized = true;
   input.disabled = compactionSettingsSaving;
@@ -2739,6 +2740,12 @@ function renderHeartbeat() {
   $('heartbeat-last-check').textContent = `${latest}${heartbeat.lastRunAt && !running ? `\n${formatDate(heartbeat.lastRunAt)}` : ''}`;
   $('heartbeat-next-check').textContent = state.autonomy?.paused ? 'Autonomous work is paused. Resume it from Goals.' : heartbeat.enabled && heartbeat.nextRunAt ? `Next scheduled check: ${formatDate(heartbeat.nextRunAt)}` : heartbeat.enabled ? 'Next check follows your interval.' : 'Scheduled checks are paused.';
   $('heartbeat-run-count').textContent = `${heartbeat.connection === 'local' ? `${heartbeat.runsToday || 0} checks today` : `${heartbeat.runsToday || 0} of ${heartbeat.maxRunsPerDay || 12} checks used today`}${heartbeat.attention ? ` · ${heartbeat.attention.alertsToday || 0} of ${heartbeat.maxAlertsPerDay || 3} desktop alerts` : ''}`;
+  const localHeartbeat = heartbeat.connection === 'local';
+  $('heartbeat-max-runs-label').textContent = localHeartbeat ? 'Remote daily run limit' : 'Daily run limit';
+  $('heartbeat-hours-start-label').textContent = localHeartbeat ? 'Notifications from · local time' : 'Active hours from · local time';
+  $('heartbeat-hours-hint').textContent = localHeartbeat
+    ? 'Local checks run at the interval all day; outside these hours, alerts stay in the inbox without a Windows notification. Same hours = all day.'
+    : 'Checks run only during these hours. Outside them, alerts stay in the inbox without a Windows notification. Same hours = all day.';
   const followups = Array.isArray(heartbeat.followups) ? heartbeat.followups : [];
   if (followups.length && !state.autonomy?.paused) $('heartbeat-next-check').textContent += `\n${followups.length} planned follow-up${followups.length === 1 ? '' : 's'} · next ${formatDate(followups[0].at)}: ${followups[0].note}`;
   $('heartbeat-pulse').classList.toggle('hidden', pulse.length === 0);

@@ -28,7 +28,7 @@ Stop requires an established turn ID; during early preparation it can ask the us
 
 ## Compaction
 
-[compaction.cjs](../../src/compaction.cjs) tracks engine-reported context usage and compaction events. The local model's `/health` `max_context` sets the window (262,144 here); automatic post-turn compaction defaults to 50%, or 131,072 tokens at that size. 0 disables it and configured thresholds accept 20–95%. Manual compaction resumes the existing native thread and asks the engine to compact it, with a ten-minute completion watchdog and a stop watchdog.
+[compaction.cjs](../../src/compaction.cjs) tracks engine-reported context usage and compaction events. Automatic post-turn compaction defaults to 50% for local models and 80% for Codex; the local model's `/health` `max_context` sets the window (262,144 here), so its default is 131,072 tokens. An explicit threshold applies to either connection. 0 disables it and configured thresholds accept 20–95%. Manual compaction resumes the existing native thread and asks the engine to compact it, with a ten-minute completion watchdog and a stop watchdog.
 
 Compaction uses the selected provider/model through the engine; in local mode it follows the loaded local model setting. The CPU embedding model does not write conversation summaries. Compaction changes the engine's working context; it does not delete the visible app timeline or its searchable archive. A context reading can be stale after rotation until the engine reports new usage.
 

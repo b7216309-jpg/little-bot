@@ -37,7 +37,7 @@ function loosen(text) {
 
 // Small local models wrap JSON in reasoning tags, Markdown fences or a sentence of prose.
 // Recover the object instead of failing the run; callers still validate its shape.
-function parseModelJson(text, message = 'The model returned an unreadable result.') {
+function parseModelJson(text, message = 'The model returned an unreadable result.', { local = false } = {}) {
   const raw = String(text || '').replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*$/i, '').trim();
   const candidates = [raw, raw.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]];
   const start = raw.indexOf('{'), end = raw.lastIndexOf('}');
@@ -45,7 +45,7 @@ function parseModelJson(text, message = 'The model returned an unreadable result
   if (start >= 0) candidates.push(closeBrackets(raw.slice(start).trim()));
   for (const candidate of candidates) {
     if (typeof candidate !== 'string' || !candidate.trim()) continue;
-    try { return JSON.parse(candidate); } catch { /* Try a small-model syntax repair. */ }
+    try { return JSON.parse(candidate); } catch { if (!local) continue; }
     const repaired = loosen(candidate);
     try { return JSON.parse(repaired); } catch { /* Try closing a cut-off object. */ }
     const closed = closeBrackets(repaired);

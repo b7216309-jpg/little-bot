@@ -77,10 +77,12 @@ class IndependentCheckRunner {
       startedAt,
       threadId: null,
       turnId: null,
+      turnStartAttempted: false,
       output: '',
       cancelReason: null,
       timer: null,
     };
+    operation.completion = new Promise(resolve => { operation.resolveCompletion = resolve; });
     target.independentCheck = normalizeIndependentCheckRecord({
       status: 'running', mode: operation.mode, startedAt, checkedAt: startedAt,
       answerHash: answerHash(context.proposedAnswer),
@@ -162,6 +164,7 @@ class IndependentCheckRunner {
       if (!this.current(operation)) return this.releaseThread(operation);
       await controller.extensionRuntime?.verifyHeartbeat(operation.threadId);
       if (!this.current(operation)) return this.releaseThread(operation);
+      operation.turnStartAttempted = true;
       const turn = await controller.client.request('turn/start', {
         threadId: operation.threadId,
         input: [{ type: 'text', text: independentCheckPrompt(operation.context, { local: chat.connection === 'local' }) }],
@@ -170,13 +173,18 @@ class IndependentCheckRunner {
         effort: controller.effectiveEffort(chat.model, 'low'),
         approvalPolicy: 'never',
         approvalsReviewer: 'user',
-        outputSchema: INDEPENDENT_CHECK_SCHEMA,
+        ...(chat.connection === 'local' ? {} : { outputSchema: INDEPENDENT_CHECK_SCHEMA }),
         sandboxPolicy: { type: 'readOnly' },
       }, chat.connection === 'local' ? 10 * 60 * 1000 : 60000);
       operation.turnId ||= turn?.turn?.id;
       if (!operation.turnId) throw new Error('Independent Check did not receive a review turn.');
+      operation.turnStartAttempted = false;
       if (operation.cancelReason && this.current(operation)) await this.stop(operation.cancelReason);
     } catch (error) {
+      if (this.active === operation && operation.turnStartAttempted && !Number.isInteger(error?.code)) {
+        await controller.recoverUncertainTurnStart({ threadId: operation.threadId, turnId: operation.turnId, completion: operation.completion, owner: operation,
+          reason: 'The engine did not stop after the Independent Check start acknowledgement was lost.' });
+      }
       if (this.active === operation) this.complete(operation, { status: 'failed', error: clean(error) });
     }
   }
@@ -203,7 +211,7 @@ class IndependentCheckRunner {
         this.complete(operation, { status: 'failed', error: clean(params.turn?.error?.message || 'Independent Check failed.') });
       } else {
         try {
-          const result = parseIndependentCheckResult(operation.output, operation.context.proposedAnswer);
+          const result = parseIndependentCheckResult(operation.output, operation.context.proposedAnswer, { local: chat.connection === 'local' });
           this.complete(operation, { status: 'completed', result });
         } catch (error) {
           this.complete(operation, { status: 'failed', error: clean(error) });
@@ -217,15 +225,11 @@ class IndependentCheckRunner {
     const operation = this.active;
     if (!operation) return { ok: true };
     operation.cancelReason ||= reason;
-    if (operation.turnId && operation.threadId) {
-      try {
-        await this.controller.client.request('turn/interrupt', {
-          threadId: operation.threadId,
-          turnId: operation.turnId,
-        }, 10000);
-      } catch { /* The original answer remains usable even if interruption acknowledgement is lost. */ }
+    if (operation.turnId || operation.turnStartAttempted) {
+      await this.controller.recoverUncertainTurnStart({ threadId: operation.threadId, turnId: operation.turnId, completion: operation.completion, owner: operation,
+        reason: 'The engine did not stop after Independent Check was interrupted.' });
     }
-    this.complete(operation, { status: 'interrupted', error: operation.cancelReason });
+    if (this.active === operation) this.complete(operation, { status: 'interrupted', error: operation.cancelReason });
     return { ok: true };
   }
 
@@ -276,6 +280,7 @@ class IndependentCheckRunner {
       controller.persistNow();
       controller.changed();
     }
+    operation.resolveCompletion?.();
     return true;
   }
 
