@@ -1,3 +1,12 @@
+# Version 0.26.2 verification
+
+0.26.2 keeps heartbeat posts about the user's world instead of Little Bot's internals.
+
+- Heartbeat alerts are posted word for word, and the instructions told the model to "report the blocker once". Live runs posted lines like "Shell access is blocked in this run, so I could not confirm report-draft.md" and "I queued a follow-up… and saved the state to memory". Both heartbeat instructions now say the summary is a message to the user about their world. Only a blocker the user can fix is mentioned, and tools, permissions and bookkeeping stay out.
+- Live check with the local Qwen on a synthetic day (four consecutive checks each): calm posted one alert, a follow-up on the unfinished report with an offer to help, and stayed quiet otherwise. Wild acted (a calendar block) and followed up once. Both had zero process narration, against two of three alerts before the change.
+
+Node tests (124), both Electron tests and validate-docs pass.
+
 # Version 0.26.1 verification
 
 0.26.1 makes compaction fast on the local model and stops long pastes from being silently cut.
