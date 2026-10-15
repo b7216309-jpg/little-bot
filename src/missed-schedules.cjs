@@ -1,8 +1,12 @@
 'use strict';
 
+const { nextAutomationRunAt } = require('./scheduler.cjs');
+
 const MINUTE = 60000;
-// A daily goal pushed a full interval past every reopening may never run; review once soon instead.
-const GOAL_CATCH_UP_MINUTES = 2;
+// A daily goal pushed a full interval past every reopening may never run, so overdue reviews
+// still happen, but one at a time after the user has settled in, never as a startup burst.
+const GOAL_CATCH_UP_MINUTES = 60;
+const GOAL_STAGGER_MINUTES = 20;
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 function advanceMissedSchedules(data, nowMs = Date.now()) {
@@ -12,8 +16,8 @@ function advanceMissedSchedules(data, nowMs = Date.now()) {
   for (const automation of Array.isArray(data.automations) ? data.automations : []) {
     if (!automation?.enabled || !Number.isFinite(automation.nextRunAt) || automation.nextRunAt > nowMs) continue;
     const dueAt = automation.nextRunAt;
-    // Leave the occurrence due until Scheduler.runNow starts it. A failed readiness
-    // check can then retry instead of silently consuming the missed run.
+    // Missed occurrences are skipped, not replayed: a week away must not become a burst.
+    automation.nextRunAt = nextAutomationRunAt(automation, nowMs);
     result.automations.push({ id: automation.id, dueAt, nextRunAt: automation.nextRunAt });
   }
 
@@ -21,7 +25,9 @@ function advanceMissedSchedules(data, nowMs = Date.now()) {
   if (object(heartbeat) && heartbeat.enabled === true && typeof heartbeat.checklist === 'string' && heartbeat.checklist.trim()
     && Number.isFinite(heartbeat.nextRunAt) && heartbeat.nextRunAt <= nowMs) {
     const dueAt = heartbeat.nextRunAt;
-    // Heartbeat.tick owns advancing the schedule after a successful start.
+    // A missed check is not replayed: talking at startup to an empty room is noise.
+    const intervalMinutes = Number.isInteger(heartbeat.intervalMinutes) && heartbeat.intervalMinutes > 0 ? heartbeat.intervalMinutes : 30;
+    heartbeat.nextRunAt = nowMs + intervalMinutes * MINUTE;
     result.heartbeat = { dueAt, nextRunAt: heartbeat.nextRunAt };
   }
 
@@ -29,9 +35,7 @@ function advanceMissedSchedules(data, nowMs = Date.now()) {
     if (!goal?.authorized || goal.status !== 'queued' || goal.trigger?.type !== 'interval'
       || !Number.isFinite(goal.nextRunAt) || goal.nextRunAt > nowMs) continue;
     const dueAt = goal.nextRunAt;
-    const intervalMinutes = Number.isInteger(goal.trigger.intervalMinutes) && goal.trigger.intervalMinutes > 0
-      ? goal.trigger.intervalMinutes : 30;
-    goal.nextRunAt = nowMs + Math.min(intervalMinutes, GOAL_CATCH_UP_MINUTES) * MINUTE;
+    goal.nextRunAt = nowMs + (GOAL_CATCH_UP_MINUTES + result.goals.length * GOAL_STAGGER_MINUTES) * MINUTE;
     result.goals.push({ id: goal.id, dueAt, nextRunAt: goal.nextRunAt });
   }
 

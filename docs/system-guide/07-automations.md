@@ -12,7 +12,7 @@ Chat-tool creation defaults to disabled unless enabled:true is supplied. Enable/
 
 ## Due times, busy work and reopening
 
-If the app remains open but the shared lane is busy, due work waits without consuming its schedule. On reopening after the app was closed, each overdue enabled routine catches up once; its next occurrence remains scheduled from the time it starts. File triggers and calendar thresholds also baseline closed-app history. If the PC sleeps while the process stays alive, due work retries after wake.
+If the app remains open but the shared lane is busy, due work waits without consuming its schedule. On reopening after the app was closed, [missed-schedules.cjs](../../src/missed-schedules.cjs) moves overdue enabled routines to their next occurrence without running the missed ones, and overdue goal reviews start an hour after launch, twenty minutes apart. File triggers and calendar thresholds also baseline closed-app history. If the PC sleeps while the process stays alive, due work retries after wake.
 
 There is no Windows service, tray worker or wake-from-sleep scheduler. Notification delivery is not scheduling, and seeing a saved routine does not imply its model is connected.
 

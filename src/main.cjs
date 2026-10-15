@@ -166,7 +166,7 @@ app.whenReady().then(async () => {
       && !store.data.chats.some(chat => chat.status !== 'idle'),
     canRun: () => controller.runtime.status === 'ready' && controller.account.status === 'connected'
       && !store.data.autonomy.paused && !controller.userSendPending && !goals?.activeId && !controller.goalChat && !controller.extensionsBusy && !scheduler.runningId && !controller.heartbeatChat && !store.data.chats.some(chat => chat.status !== 'idle')
-      && !controller.chatGoal.holding(),
+      && !controller.chatGoal.holding() && (controller.systemIdleSeconds?.() ?? 0) < 600,
     onChange: () => controller.changed(),
     publish: publishEvent,
     // Activity only tracks; every new heartbeat alert is delivered into the conversation.
