@@ -48,7 +48,7 @@
           <button id="nav-calendar" class="nav-button"><span class="icon" data-icon="calendar"></span><span>Calendar</span><span id="calendar-count" class="count hidden">0</span></button>
           <button id="nav-heartbeat" class="nav-button"><span class="icon" data-icon="heartbeat"></span><span>Heartbeat</span></button>
           <button id="nav-memory" class="nav-button"><span class="icon" data-icon="memory"></span><span>Memory</span></button>
-          <button id="nav-profile" class="nav-button"><span class="icon" data-icon="user"></span><span>Profile</span></button>
+          <button id="nav-profile" class="nav-button"><span class="icon" data-icon="user"></span><span>Profile</span><span id="nav-profile-name" class="nav-profile-name hidden"></span></button>
           <button id="nav-extensions" class="nav-button"><span class="icon" data-icon="extensions"></span><span>Extensions</span></button>
         </nav>
       </details>
@@ -182,12 +182,27 @@
       </section>
       <section id="profile-view" class="feature-view hidden" aria-label="Profile">
         <div class="section-heading"><div><h1>Profile</h1><p>Your preferences. Its personality.</p></div><button id="open-profile-folder" class="button secondary" type="button"><span class="icon" data-icon="folder"></span>Open folder</button></div>
+        <section class="profiles-card" aria-labelledby="profiles-title">
+          <div class="profile-file-heading"><span class="profile-file-icon"><span class="icon" data-icon="user"></span></span><div><h2 id="profiles-title">Profiles</h2><p class="profiles-hint">Each profile has its own personality, system prompt, memory, conversation, goals and workspace. Switching restarts Little Bot.</p></div></div>
+          <div id="profiles-list" class="profiles-list"></div>
+          <form id="profile-create-form" class="profiles-create" novalidate><label class="sr-only" for="profile-create-name">New profile name</label><input id="profile-create-name" maxlength="60" autocomplete="off" placeholder="New profile name"><button id="profile-create" class="button secondary" type="submit" disabled><span class="icon" data-icon="plus"></span>Create profile</button></form>
+        </section>
         <div class="profile-location"><span class="icon" data-icon="folder"></span><span id="profile-root">Loading profile folder…</span></div>
         <p id="profile-error" class="inline-error hidden" role="alert"></p>
         <form id="profile-form"><div class="profile-editors">
           <section class="profile-file"><div class="profile-file-heading"><span class="profile-file-icon"><span class="icon" data-icon="user"></span></span><div><h2>About you</h2><code>USER.md</code></div><span id="profile-user-dirty" class="draft-label hidden">Edited</span></div><p class="profile-description">Preferences and context worth remembering.</p><label class="sr-only" for="profile-user">Edit USER.md: facts and preferences about you</label><textarea id="profile-user" rows="14" maxlength="4000" spellcheck="false" placeholder="For example:&#10;I prefer concise explanations.&#10;I work on Windows.&#10;My main projects are…"></textarea><div class="profile-file-footer"><span>Plain text or Markdown</span><span id="profile-user-count">0 / 4,000</span></div><p id="profile-user-error" class="profile-file-error hidden"></p><p id="profile-user-conflict" class="profile-file-error hidden">This file changed on disk while you were editing. Saving will replace its current contents.</p></section>
-          <section class="profile-file"><div class="profile-file-heading"><span class="profile-file-icon"><span class="icon" data-icon="sparkles"></span></span><div><h2>Little Bot’s personality</h2><code>SOUL.md</code></div><span id="profile-soul-dirty" class="draft-label hidden">Edited</span></div><p class="profile-description">Tone, habits, and approach.</p><label class="sr-only" for="profile-soul">Edit SOUL.md: assistant behavior and working style</label><textarea id="profile-soul" rows="14" maxlength="4000" spellcheck="false" placeholder="For example:&#10;Be direct and practical.&#10;Explain important tradeoffs.&#10;Prefer small, verifiable steps."></textarea><div class="profile-file-footer"><span>Plain text or Markdown</span><span id="profile-soul-count">0 / 4,000</span></div><p id="profile-soul-error" class="profile-file-error hidden"></p><p id="profile-soul-conflict" class="profile-file-error hidden">This file changed on disk while you were editing. Saving will replace its current contents.</p></section>
+          <section class="profile-file"><div class="profile-file-heading"><span class="profile-file-icon"><span class="icon" data-icon="sparkles"></span></span><div><h2 id="profile-soul-title">Little Bot’s personality</h2><code>SOUL.md</code></div><span id="profile-soul-dirty" class="draft-label hidden">Edited</span></div><p class="profile-description">Tone, habits, and approach.</p><label class="sr-only" for="profile-soul">Edit SOUL.md: assistant behavior and working style</label><textarea id="profile-soul" rows="14" maxlength="4000" spellcheck="false" placeholder="For example:&#10;Be direct and practical.&#10;Explain important tradeoffs.&#10;Prefer small, verifiable steps."></textarea><div class="profile-file-footer"><span>Plain text or Markdown</span><span id="profile-soul-count">0 / 4,000</span></div><p id="profile-soul-error" class="profile-file-error hidden"></p><p id="profile-soul-conflict" class="profile-file-error hidden">This file changed on disk while you were editing. Saving will replace its current contents.</p></section>
         </div><div class="profile-save-bar"><div><p id="profile-save-status">Saved as Markdown files.</p><span id="profile-updated"></span></div><button id="save-profile" class="button primary" type="submit" disabled>Save changes</button></div></form>
+        <section class="profile-file profile-system-prompt" aria-labelledby="system-prompt-settings-title">
+          <div class="profile-file-heading"><span class="profile-file-icon"><span class="icon" data-icon="terminal"></span></span><div><h2 id="system-prompt-settings-title">System prompt</h2><code>Developer instructions</code></div></div>
+          <form id="system-prompt-settings-form" novalidate>
+            <p id="settings-system-prompt-hint" class="profile-description">The complete system prompt this profile sends to the model. Editing it replaces Little Bot’s built-in instructions.</p>
+            <label class="sr-only" for="settings-system-prompt">Edit the system prompt</label>
+            <textarea id="settings-system-prompt" rows="12" maxlength="100000" spellcheck="false" aria-describedby="settings-system-prompt-hint"></textarea>
+            <div class="settings-actions"><button id="save-system-prompt" class="button primary" type="submit" disabled>Save prompt</button><button id="reset-system-prompt" class="button text-button" type="button">Restore default</button><span id="system-prompt-settings-saved" class="settings-save-status" role="status"></span></div>
+            <p id="system-prompt-settings-error" class="inline-error hidden" role="alert"></p>
+          </form>
+        </section>
         <p class="feature-footnote">Included in future requests. Editable here or in your own editor.</p>
       </section>
       <section id="inbox-view" class="feature-view hidden" aria-label="Activity inbox">
@@ -281,16 +296,6 @@
     </section>
     <section class="settings-section" aria-labelledby="browser-settings-title"><h3 id="browser-settings-title">Browser</h3><div class="settings-row"><div><strong>Built-in browser</strong><p>Opens beside the chat with its own private profile. Sign-ins are kept until you clear browsing data.</p></div><span id="settings-browser-status" class="service-status" role="status">Checking</span></div><p id="settings-browser-location" class="field-hint hidden"></p><div class="settings-actions"><button id="settings-open-browser" class="button secondary" type="button"><span class="icon" data-icon="browser"></span>Open browser</button><button id="settings-close-browser" class="button text-button" type="button" disabled>Close browser</button><button id="settings-clear-browser" class="button text-button" type="button">Clear browsing data</button></div><p id="settings-browser-error" class="inline-error hidden" role="alert"></p></section>
     <div class="settings-section"><h3>Attachments</h3><p id="settings-attachment-usage" class="field-hint">Checking storage…</p><button id="settings-clean-attachments" class="button secondary" type="button">Clean unused files</button><p class="field-hint">Files in the conversation and current drafts are kept. Use Remove on a saved attachment to free its space.</p></div>
-    <section class="settings-section" aria-labelledby="system-prompt-settings-title">
-      <h3 id="system-prompt-settings-title">System prompt</h3>
-      <form id="system-prompt-settings-form" novalidate>
-        <label class="field-label settings-field-label" for="settings-system-prompt">Developer instructions</label>
-        <textarea id="settings-system-prompt" rows="12" maxlength="100000" spellcheck="false" aria-describedby="settings-system-prompt-hint"></textarea>
-        <p id="settings-system-prompt-hint" class="field-hint">This is the complete system prompt sent to the model. Editing it replaces Little Bot’s built-in instructions.</p>
-        <div class="settings-actions"><button id="save-system-prompt" class="button primary" type="submit" disabled>Save prompt</button><button id="reset-system-prompt" class="button text-button" type="button">Restore default</button><span id="system-prompt-settings-saved" class="settings-save-status" role="status"></span></div>
-        <p id="system-prompt-settings-error" class="inline-error hidden" role="alert"></p>
-      </form>
-    </section>
     <section class="settings-section" aria-labelledby="independent-check-settings-title">
       <h3 id="independent-check-settings-title">Independent Check</h3>
       <p class="settings-description">Review judgment-oriented answers without automatically agreeing with the framing.</p>

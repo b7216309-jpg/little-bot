@@ -28,6 +28,7 @@ const { AgentTools } = require('./agent-tools.cjs');
 const { AppManagement } = require('./app-management.cjs');
 const appHandlers = new Map();
 const { ProfileFiles } = require('./profile.cjs');
+const { Profiles } = require('./profiles.cjs');
 const { installBundledSkills } = require('./bundled-skills.cjs');
 const { EmbeddedBrowser } = require('./embedded-browser.cjs');
 const { DesktopWindows } = require('./desktop-windows.cjs');
@@ -46,6 +47,9 @@ app.setName('Little Bot');
 if (process.env.LITTLE_BOT_DATA_DIR) app.setPath('userData', path.resolve(process.env.LITTLE_BOT_DATA_DIR));
 const launchTime = performance.now();
 if (!app.requestSingleInstanceLock()) app.quit();
+// The lock stays on the base folder, so one profile runs at a time; each profile then gets its own folder.
+const profiles = new Profiles({ base: app.getPath('userData') });
+app.setPath('userData', profiles.root(profiles.data.active));
 let window, desktopWindows, controller, scheduler, heartbeat, goals, nightShift, eventRuntime, errorLog, activity, webWatcher, relay, quitting = false;
 const rendererFile = path.join(__dirname, 'renderer', 'index.html');
 const appIconFile = path.join(__dirname, '..', 'resources', 'icons', 'little-bot.png');
@@ -156,6 +160,7 @@ app.whenReady().then(async () => {
     } catch { return new Response(null, { status: 404 }); }
   });
   controller.profileFiles = new ProfileFiles({ root: path.join(stateDir, 'profile') });
+  controller.profiles = profiles;
   try { await installBundledSkills(store); } catch (error) { controller.runtime.skillSetupError = cleanError(error); }
   const extensionFiles = new ExtensionFiles({ root: path.join(stateDir, 'extensions'), store });
   const extensionRuntime = new ExtensionRuntime({ store, client, onChange: () => controller.changed() });
@@ -363,7 +368,8 @@ app.whenReady().then(async () => {
   });
   controller.on('event', event => desktopWindows?.broadcast(event));
   // Phones get the same conversation through the relay, using the same handlers as this window.
-  relay = new Relay({ file: path.join(stateDir, 'relay.json'), protector: stateProtector(), onError: logDiagnostic,
+  // Paired phones belong to the PC, not a profile: they talk to whichever profile is running.
+  relay = new Relay({ file: path.join(profiles.base, 'data', 'relay.json'), protector: stateProtector(), onError: logDiagnostic,
     ...(process.env.LITTLE_BOT_RELAY_HOST ? { host: process.env.LITTLE_BOT_RELAY_HOST } : {}),
     getState: () => controller.state(), isDesktopFocused: () => Boolean(desktopWindows?.isFocused()),
     handlers: new Proxy({}, { get: (_target, name) => payload => appHandlers.get(name)(payload) }) });
@@ -460,6 +466,16 @@ app.whenReady().then(async () => {
     const error = await shell.openPath(controller.profileFiles.getState().root);
     if (error) throw new Error(error);
     return { ok: true };
+  });
+  register('createProfile', ({ name } = {}) => { profiles.create({ name, settings: store.data.settings }); controller.changed(); return controller.state(); });
+  register('renameProfile', ({ id, name } = {}) => { profiles.rename(id, name); controller.changed(); return controller.state(); });
+  register('deleteProfile', ({ id } = {}) => { profiles.remove(id); controller.changed(); return controller.state(); });
+  register('switchProfile', ({ id } = {}) => {
+    if (id === profiles.data.active) return controller.state();
+    profiles.select(id);
+    // A restart rebuilds every service from the other folder, so nothing from this profile keeps running.
+    setTimeout(() => { app.relaunch(); app.quit(); }, 200);
+    return { restarting: true };
   });
   register('saveSettings', payload => controller.saveSettings(payload));
   register('saveConnection', payload => { ensureExtensionsIdle(); return controller.saveConnection(payload); });

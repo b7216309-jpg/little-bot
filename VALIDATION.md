@@ -1,3 +1,20 @@
+# Version 0.28.0 verification
+
+0.28.0 adds profiles: separate Little Bots on one PC, each with its own personality, system prompt, memory, conversation, goals and workspace.
+
+- **Profiles** (Profile view): create, rename, switch and delete. The first profile is the existing data folder, untouched; others live in `Profiles/<id>/` with the same layout and their own Chromium storage. The single-instance lock stays on the base folder, so one profile runs at a time. Switching restarts the app, which rebuilds every service from the other folder, so no goal, heartbeat or night-shift post can cross profiles. A new profile copies only the connection, model, effort, compaction, answer-check and sampling settings, so it reaches Strata straight away. Paired phones stay paired and follow the running profile.
+- **The system prompt moved from Settings to the Profile view**, next to USER.md and SOUL.md. It was already stored per profile. Ctrl + S saves it when its editor has focus. The personality card and the sidebar show the running profile's name.
+- **Docs check:** the 0.1.44.1 Strata patch from 0.27.1 was missing from the source map, so `validate-docs` failed; it is mapped now.
+
+Live check: the real app ran on a temporary data folder and was driven over the DevTools protocol.
+- Created "Nova" from the form; its first state held only the copied settings.
+- Switched: the app restarted into Nova with no chats, the default prompt and its own profile folder. Saving its own system prompt with Ctrl + S produced encrypted state in Nova's folder.
+- Switched back: the main profile's prompt was intact.
+- Deleted Nova: its folder was gone, and the error log stayed empty.
+- A separate Electron check confirmed that a second instance is refused while the lock is held on the base folder, and that Chromium data goes to the profile folder.
+
+Node tests (129, four new for the registry), the syntax check, both Electron tests and validate-docs pass.
+
 # Version 0.27.1 verification
 
 0.27.1 keeps compaction cached on Strata 0.1.40 and later. The Strata integration now covers 0.1.44.1 with an SSD cache that keeps working.

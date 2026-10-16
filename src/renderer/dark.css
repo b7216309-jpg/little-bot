@@ -340,6 +340,12 @@ html[data-theme=dark] .message.user .goal-label{color:#c07e64}
 html[data-theme=dark] .message.user.goal-set .message-content{border:1px solid rgba(192,126,100,0.333);background:rgba(192,126,100,0.051)}
 html[data-theme=dark] .message.user.goal-step .message-content{border:1px dashed #534841;color:#878b85}
 html[data-theme=dark] .message.goal-result.goal-unmet .message-content,html[data-theme=dark] .message.goal-result.goal-budget .message-content,html[data-theme=dark] .message.goal-result.goal-paused .message-content{border-left-color:#6a6353}
+html[data-theme=dark] .profiles-card{background:#1f1e18}
+html[data-theme=dark] .profiles-hint{color:#99a490}
+html[data-theme=dark] .profiles-dot{background:#434738}
+html[data-theme=dark] .profiles-row.active .profiles-dot{background:#839476}
+html[data-theme=dark] .profiles-copy span{color:#99a490}
+html[data-theme=dark] .nav-profile-name{color:#8d997f}
 html[data-theme=dark] .goal-ledger-current{border:1px solid #393d30;background:#21231b}
 html[data-theme=dark] .goal-ledger-plan-title h4{color:#a6b19d}
 html[data-theme=dark] .goal-ledger-version{border:1px solid #3c4234;background:#1a1a1a;color:#8d9786}

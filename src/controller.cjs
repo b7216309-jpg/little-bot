@@ -291,6 +291,7 @@ class Controller extends EventEmitter {
       independentCheckRuntime: this.independentCheck.state,
       eventRuntime: this.eventRuntime?.state || { status: 'stopped', bus: { started: false, queued: 0 }, standingIntentCount: 0, enabledStandingIntentCount: 0 },
       profile: this.profileFiles?.getState() || null,
+      profiles: this.profiles?.state() || null,
       browser: this.browser?.getState() || null,
       webServices: this.webServices?.getState() || null,
       extensionRuntime: this.extensionRuntime?.state || { status: 'ready', servers: [] },
