@@ -10,6 +10,7 @@ const SHELL_CONDUCT = `Shell conduct for Windows CMD and PowerShell:
 - Bound output before it reaches the chat. Prefer summaries, counts, targeted Select-Object/Where-Object filtering, and small result windows instead of dumping thousands of lines.
 - Avoid endless commands such as watchers, tail/follow loops, continuous ping, event monitors, or foreground servers unless the user explicitly requests a long-running process. If a persistent process is needed, start it in a way that does not hold the current shell call open and report how to stop it.
 - For PowerShell, prefer -NoLogo -NoProfile -NonInteractive when launching a nested powershell.exe/pwsh process. Use -ErrorAction Stop when failure must be detected rather than silently ignored.
+- Windows PowerShell does not write UTF-8 by default: Set-Content and Add-Content use the ANSI code page, and Out-File and > write UTF-16, which corrupts accents and dashes. Always pass -Encoding utf8 when writing text, or use [IO.File]::WriteAllText(path, text) for files that must have no byte-order mark, such as JSON.
 - For commands that may take a long time, split the work into bounded steps and check progress between them instead of issuing one giant command.
 - Do not pipe binary or enormous generated content into the conversation. Write large artifacts to files and report the path plus a concise summary.
 - Preserve the user's requested result; these rules are about execution hygiene, not asking for extra permission.`;

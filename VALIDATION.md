@@ -1,3 +1,22 @@
+# Version 0.30.1 verification
+
+0.30.1 makes Little Bot write text files as UTF-8 and records the first live run of the eight personalities.
+
+- **The bug:** Windows PowerShell 5.1 writes ANSI with Set-Content and UTF-16 with Out-File and `>`. In the live run, Atlas and Sage wrote `note.txt` without an encoding, and their "—" came out as "�". French accents would break the same way, in every profile.
+- **The fix:** the per-turn shell guidance now tells the model to pass `-Encoding utf8`, or to use `[IO.File]::WriteAllText` for files that must not start with a byte-order mark, such as JSON. It sits in the turn input, not the system prompt, so cached prompt prefixes are untouched.
+- **Rerun:** all eight personalities wrote "un café à la fenêtre" intact (8/8): seven used WriteAllText, one used `-Encoding utf8`.
+
+**Live personality check on Strata 0.1.44.1 (qwen3.8-flash-next-iq3_s).** Each preset ran in its own profile of the real app, on a temporary data folder, with two messages: a tired "what's up?" and a request to remember a sister's birthday and write a one-line `note.txt` in its own style.
+- All eight answered in a distinct voice:
+  - Mochi gave the day a four out of ten.
+  - Zib filed "Observation 47".
+  - Ottilie sorted socks "by altitude rating".
+  - The Loremaster offered three choices.
+- All eight saved the birthday with memory_save and wrote the file, and each reported exactly what it did. Forge read the file back before saying it was done, as its SOUL.md asks.
+- Replies took 7 to 16 s per message.
+
+Node tests (129) and validate-docs pass.
+
 # Version 0.30.0 verification
 
 0.30.0 adds three personalities, so new profiles can start from eight.

@@ -33,7 +33,7 @@ A different enqueue failure remains: call adds the job before saving and does no
 
 ## Terminal and file actions
 
-Foreground Execute uses native Codex tools with full local access. [shell-conduct.cjs](../../src/shell-conduct.cjs) supplies Windows command guidance and keeps command-output transcripts coherent. Browser, web, goal file writes and MCP calls are separately owned; not every operation is a shell command.
+Foreground Execute uses native Codex tools with full local access. [shell-conduct.cjs](../../src/shell-conduct.cjs) supplies Windows command guidance and keeps command-output transcripts coherent. The guidance includes writing text files as UTF-8: Windows PowerShell 5.1 otherwise writes ANSI (Set-Content) or UTF-16 (Out-File, >), and accents and dashes come out corrupted. Browser, web, goal file writes and MCP calls are separately owned; not every operation is a shell command.
 
 Tool results sent back to the local model are capped at 25,000 characters by the controller; oversized AgentTools results keep their beginning and end with a trim note. Browser page output has its own head-and-tail cap.
 
