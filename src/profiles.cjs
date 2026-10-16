@@ -54,13 +54,19 @@ class Profiles {
   state() {
     return { active: this.data.active, profiles: this.data.profiles.map(profile => ({ ...profile, active: profile.id === this.data.active })) };
   }
-  create({ name, settings = {} } = {}) {
+  // A personality preset supplies the SOUL.md and system prompt; otherwise both start from the defaults.
+  create({ name, settings = {}, soul, systemPrompt } = {}) {
     const profile = { id: randomUUID().replace(/-/g, '').slice(0, 12), name: profileName(name), createdAt: Date.now() };
     const dataDir = path.join(this.root(profile.id), 'data');
     fs.mkdirSync(dataDir, { recursive: true });
     const copied = Object.fromEntries(COPIED_SETTINGS.filter(key => settings[key] !== undefined).map(key => [key, settings[key]]));
+    if (typeof systemPrompt === 'string') copied.systemPrompt = systemPrompt;
     // A plain first state; the Store encrypts it on its first save.
     fs.writeFileSync(path.join(dataDir, 'state.json'), `${JSON.stringify({ settings: copied }, null, 2)}\n`, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+    if (typeof soul === 'string') {
+      fs.mkdirSync(path.join(dataDir, 'profile'), { recursive: true });
+      fs.writeFileSync(path.join(dataDir, 'profile', 'SOUL.md'), soul, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+    }
     this.data.profiles.push(profile);
     this.write();
     return profile;

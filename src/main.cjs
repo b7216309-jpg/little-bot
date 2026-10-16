@@ -29,6 +29,7 @@ const { AppManagement } = require('./app-management.cjs');
 const appHandlers = new Map();
 const { ProfileFiles } = require('./profile.cjs');
 const { Profiles } = require('./profiles.cjs');
+const { loadPreset, presetPrompt } = require('./profile-presets.cjs');
 const { installBundledSkills } = require('./bundled-skills.cjs');
 const { EmbeddedBrowser } = require('./embedded-browser.cjs');
 const { DesktopWindows } = require('./desktop-windows.cjs');
@@ -467,7 +468,12 @@ app.whenReady().then(async () => {
     if (error) throw new Error(error);
     return { ok: true };
   });
-  register('createProfile', ({ name } = {}) => { profiles.create({ name, settings: store.data.settings }); controller.changed(); return controller.state(); });
+  register('createProfile', ({ name, preset } = {}) => {
+    const personality = preset ? loadPreset(preset) : null;
+    profiles.create({ name: (typeof name === 'string' && name.trim()) || personality?.name, settings: store.data.settings,
+      ...(personality ? { soul: personality.soul, systemPrompt: presetPrompt(personality.intro, controller.defaultSystemPrompt()) } : {}) });
+    controller.changed(); return controller.state();
+  });
   register('renameProfile', ({ id, name } = {}) => { profiles.rename(id, name); controller.changed(); return controller.state(); });
   register('deleteProfile', ({ id } = {}) => { profiles.remove(id); controller.changed(); return controller.state(); });
   register('switchProfile', ({ id } = {}) => {

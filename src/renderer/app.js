@@ -2425,8 +2425,31 @@ function renderProfile() {
 let renamingProfileId = null;
 let profilesPending = false;
 let profilesSignature = '';
+let selectedPreset = '';
+let presetsSignature = '';
+function renderPresets(presets) {
+  const signature = JSON.stringify([presets, selectedPreset]);
+  if (signature === presetsSignature) return;
+  presetsSignature = signature;
+  const options = [{ id: '', name: 'Little Bot', tagline: 'The default: direct, warm and practical. Shape it yourself afterwards.' }, ...presets];
+  $('profile-presets').replaceChildren(...options.map(preset => {
+    const card = action('', () => {
+      const input = $('profile-create-name');
+      // Follow the chosen personality's name until the user types their own.
+      const previous = options.find(item => item.id === selectedPreset);
+      if (!input.value.trim() || input.value === (previous?.id ? previous.name : '')) input.value = preset.id ? preset.name : '';
+      selectedPreset = preset.id;
+      renderProfiles();
+    }, 'profile-preset');
+    card.setAttribute('role', 'radio');
+    card.setAttribute('aria-checked', String(preset.id === selectedPreset));
+    card.append(element('strong', '', preset.name), element('span', '', preset.tagline));
+    return card;
+  }));
+}
 function renderProfiles() {
   const registry = state.profiles;
+  renderPresets(registry?.presets || []);
   $('profile-soul-title').textContent = `${registry?.profiles?.find(profile => profile.active)?.name || 'Little Bot'}’s personality`;
   $('profile-create').disabled = profilesPending || !registry || !$('profile-create-name').value.trim();
   // Rebuild only on a real change so a rename in progress keeps its text and focus.
@@ -2475,7 +2498,9 @@ function createProfile(event) {
   event.preventDefault();
   const name = $('profile-create-name').value.trim();
   if (!name) return;
-  profileOperation(() => window.bot.createProfile({ name }), `${name} created. Switch to it to give it a personality.`, () => { $('profile-create-name').value = ''; });
+  profileOperation(() => window.bot.createProfile({ name, ...(selectedPreset ? { preset: selectedPreset } : {}) }),
+    selectedPreset ? `${name} created. Switch to it to meet them.` : `${name} created. Switch to it to give it a personality.`,
+    () => { $('profile-create-name').value = ''; selectedPreset = ''; });
 }
 
 async function switchProfile(profile) {

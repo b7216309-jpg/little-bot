@@ -345,6 +345,10 @@ html[data-theme=dark] .profiles-hint{color:#99a490}
 html[data-theme=dark] .profiles-dot{background:#434738}
 html[data-theme=dark] .profiles-row.active .profiles-dot{background:#839476}
 html[data-theme=dark] .profiles-copy span{color:#99a490}
+html[data-theme=dark] .profile-preset{background:#1a1a1a}
+html[data-theme=dark] .profile-preset span{color:#99a490}
+html[data-theme=dark] .profile-preset:hover{border-color:#4e5342}
+html[data-theme=dark] .profile-preset[aria-checked=true]{border-color:#839476;background:#2e3026}
 html[data-theme=dark] .nav-profile-name{color:#8d997f}
 html[data-theme=dark] .goal-ledger-current{border:1px solid #393d30;background:#21231b}
 html[data-theme=dark] .goal-ledger-plan-title h4{color:#a6b19d}

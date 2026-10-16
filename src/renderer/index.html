@@ -185,7 +185,7 @@
         <section class="profiles-card" aria-labelledby="profiles-title">
           <div class="profile-file-heading"><span class="profile-file-icon"><span class="icon" data-icon="user"></span></span><div><h2 id="profiles-title">Profiles</h2><p class="profiles-hint">Each profile has its own personality, system prompt, memory, conversation, goals and workspace. Switching restarts Little Bot.</p></div></div>
           <div id="profiles-list" class="profiles-list"></div>
-          <form id="profile-create-form" class="profiles-create" novalidate><label class="sr-only" for="profile-create-name">New profile name</label><input id="profile-create-name" maxlength="60" autocomplete="off" placeholder="New profile name"><button id="profile-create" class="button secondary" type="submit" disabled><span class="icon" data-icon="plus"></span>Create profile</button></form>
+          <form id="profile-create-form" class="profiles-create" novalidate><p class="profiles-hint">Start a new profile from a personality, or from Little Bot’s default.</p><div id="profile-presets" class="profile-presets" role="radiogroup" aria-label="Starting personality"></div><div class="profiles-create-row"><label class="sr-only" for="profile-create-name">New profile name</label><input id="profile-create-name" maxlength="60" autocomplete="off" placeholder="New profile name"><button id="profile-create" class="button secondary" type="submit" disabled><span class="icon" data-icon="plus"></span>Create profile</button></div></form>
         </section>
         <div class="profile-location"><span class="icon" data-icon="folder"></span><span id="profile-root">Loading profile folder…</span></div>
         <p id="profile-error" class="inline-error hidden" role="alert"></p>
