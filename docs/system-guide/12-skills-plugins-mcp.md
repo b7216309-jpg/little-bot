@@ -4,7 +4,7 @@
 
 [extensions.cjs](../../src/extensions.cjs) validates skill/server/plugin records and imports managed files. [skill-context.cjs](../../src/skill-context.cjs) selects enabled named skills for requests; skill_list and skill_read let the agent discover/read further instructions. A skill is guidance, not an executable integration.
 
-[bundled-skills.cjs](../../src/bundled-skills.cjs) installs/upgrades the [little-bot operating guide](../../resources/skills/little-bot/SKILL.md). Current guide version is 20. Recognized unedited earlier content can be upgraded; user-edited content and recorded deletion are preserved. Disabling the guide or its owning plugin prevents normal skill selection.
+[bundled-skills.cjs](../../src/bundled-skills.cjs) installs/upgrades the [little-bot operating guide](../../resources/skills/little-bot/SKILL.md). Current bundle version is 21. Version 21 added eight skills written for Little Bot on Windows: pc-care, documents, data-analysis, file-organizer, voice, game-master, journal and morning-brief. Their commands were run on Windows PowerShell 5.1 with a fr-FR locale. Recognized unedited earlier content can be upgraded; user-edited content and recorded deletion are preserved. Disabling the guide or its owning plugin prevents normal skill selection.
 
 Limits include 100 skills, 30 servers and 20 plugins; plugin imports accept at most 20 skills. SKILL.md imports are bounded in bytes and their parsed instruction content to 20,000 characters. Bad metadata, names or missing files can prevent import.
 

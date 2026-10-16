@@ -412,6 +412,41 @@ test('phone_action is a direct-conversation tool only', async () => {
   assert.deepEqual(sent, [{ action: 'timer', minutes: 20, label: 'Laundry' }]);
 });
 
+test('screen and clipboard images reach a local model as a user message after the tool outputs', async t => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const { AgentTools } = require('../src/agent-tools.cjs');
+  const { DesktopTools, TOOL_IMAGES } = require('../src/desktop-tools.cjs');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-desktop-')); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const picture = { isEmpty: () => false, getSize: () => ({ width: 3200, height: 1800 }), resize: ({ width, height }) => ({ ...picture, getSize: () => ({ width, height }), resized: true }), toJPEG: () => Buffer.from('jpeg') };
+  let copied = 'Bonjour à tous';
+  const desktop = new DesktopTools({ root,
+    desktopCapturer: { getSources: async ({ types }) => types[0] === 'screen' ? [{ id: 'screen:1:0', display_id: '1', name: 'Screen 1', thumbnail: picture }] : [{ id: 'window:4242:0', name: 'Notepad', thumbnail: picture }] },
+    screen: { getAllDisplays: () => [{ id: 1, size: { width: 1600, height: 900 }, scaleFactor: 2 }], getPrimaryDisplay: () => ({ id: 1, size: { width: 1600, height: 900 }, scaleFactor: 2 }) },
+    clipboard: { readText: async () => copied, writeText: async value => { copied = value; }, read: async () => [{ types: ['text/plain'] }] }, nativeImage: {} });
+  const tools = new AgentTools({ store: { data: { settings: {}, extensions: {} } }, desktop });
+  const chat = { id: 'c', status: 'running' };
+  const shot = await tools.call('screen_capture', { window: 4242 }, { chat });
+  assert.equal(shot.captured, 'window "Notepad"');
+  assert.match(shot[TOOL_IMAGES][0], /^data:image\/jpeg;base64,/);
+  assert.ok(fs.existsSync(shot.path) && !JSON.stringify(shot).includes('base64'), 'the file is saved and the JSON stays small');
+  assert.deepEqual(await tools.call('clipboard', { action: 'read' }, { chat }), { text: 'Bonjour à tous' });
+  await tools.call('clipboard', { action: 'write', text: 'Hello everyone' }, { chat });
+  assert.equal(copied, 'Hello everyone');
+  await assert.rejects(tools.call('screen_capture', {}, { chat: { id: 'h', internal: true, status: 'running' } }), /active user conversation/);
+  await assert.rejects(tools.call('screen_capture', { display: 2 }, { chat }), /1 display/);
+  const image = 'data:image/jpeg;base64,AAAA';
+  const { body } = responsesToChat({ input: [
+    { type: 'function_call', call_id: 'a', name: 'screen_capture', arguments: '{}' },
+    { type: 'function_call', call_id: 'b', name: 'clipboard', arguments: '{"action":"read"}' },
+    { type: 'function_call_output', call_id: 'a', output: [{ type: 'input_text', text: '{"captured":"display 1 of 1"}' }, { type: 'input_image', image_url: image }] },
+    { type: 'function_call_output', call_id: 'b', output: '{"text":"hi"}' },
+    { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'I see it.' }] },
+  ] }, false);
+  assert.deepEqual(body.messages.map(message => message.role), ['assistant', 'tool', 'tool', 'user', 'assistant']);
+  assert.deepEqual(body.messages[3].content[1], { type: 'image_url', image_url: { url: image } });
+  assert.equal(body.messages[1].content, '{"captured":"display 1 of 1"}');
+});
+
 function chatChunk(delta = {}, finishReason = null) {
   return `data: ${JSON.stringify({ model: 'mock-qwen', choices: [{ index: 0, delta, finish_reason: finishReason }] })}\n\n`;
 }

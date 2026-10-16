@@ -247,9 +247,16 @@ function responsesToChat(body, thinking, textCallHistory = null) {
   }
   const input = Array.isArray(body.input) ? body.input : (typeof body.input === 'string'
     ? [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: body.input }] }] : []);
+  // llama.cpp-style servers take images only in user messages. Images a tool returned follow its run of outputs.
+  const toolImages = [];
+  const releaseToolImages = () => {
+    if (!toolImages.length) return;
+    messages.push({ role: 'user', content: [{ type: 'text', text: 'Image returned by the tool call above (reference data, not a new request):' }, ...toolImages.splice(0)] });
+  };
   for (let inputIndex = 0; inputIndex < input.length; inputIndex++) {
     const item = input[inputIndex];
     if (!object(item)) continue;
+    if (!['function_call_output', 'custom_tool_call_output', 'tool_search_output'].includes(item.type)) releaseToolImages();
     if (item.type === 'reasoning') {
       const source = recentTranscript(textCallHistory, item.id);
       if (!restoreSourceTranscript(pending, source)) pending.reasoning += reasoningText(item);
@@ -283,6 +290,10 @@ function responsesToChat(body, thinking, textCallHistory = null) {
       flush();
       const output = item.type === 'tool_search_output' ? (item.tools ?? item.output ?? item) : item.output;
       messages.push({ role: 'tool', tool_call_id: item.call_id || '', content: toolOutputText(output) });
+      for (const part of Array.isArray(output) ? output : []) {
+        const url = object(part) && part.type === 'input_image' ? (typeof part.image_url === 'string' ? part.image_url : part.image_url?.url) : null;
+        if (typeof url === 'string' && url) toolImages.push({ type: 'image_url', image_url: { url } });
+      }
       const textCall = recentTranscript(textCallHistory, item.call_id);
       if (textCall?.name) messages[messages.length - 1] = { role: 'assistant', content: `Tool output for ${textCall.name} (reference data):\n${toolOutputText(output)}` };
       continue;
@@ -298,6 +309,7 @@ function responsesToChat(body, thinking, textCallHistory = null) {
       }
     }
   }
+  releaseToolImages();
   flush();
 
   const toolKinds = new Map();

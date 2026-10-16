@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, session, Notification, safeStorage, nativeImage, protocol, powerMonitor, nativeTheme, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, session, Notification, safeStorage, nativeImage, protocol, powerMonitor, nativeTheme, screen, desktopCapturer, clipboard } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -34,6 +34,7 @@ const { installBundledSkills } = require('./bundled-skills.cjs');
 const { EmbeddedBrowser } = require('./embedded-browser.cjs');
 const { DesktopWindows } = require('./desktop-windows.cjs');
 const { WindowsUia } = require('./windows-uia.cjs');
+const { DesktopTools } = require('./desktop-tools.cjs');
 const { WebServices } = require('./web-services.cjs');
 const { Attachments } = require('./attachments.cjs');
 const { attachmentDescriptors } = require('./attachment-message.cjs');
@@ -282,6 +283,7 @@ app.whenReady().then(async () => {
   controller.appManagement = new AppManagement({controller,handlers:appHandlers,filename:path.join(stateDir,'app-operations.json')});
   controller.windowsUi = new WindowsUia({ root: path.join(stateDir, 'windows-ui') });
   controller.agentTools = new AgentTools({ management:controller.appManagement, store, browser: controller.browser, webServices: controller.webServices, windowsUi: controller.windowsUi,
+    desktop: new DesktopTools({ desktopCapturer, screen, clipboard, nativeImage, BrowserWindow, session, root: path.join(stateDir, 'screenshots') }),
     onLesson: (modelId, key, text) => controller.recordLesson(modelId, key, text),
     phoneAction: async args => relay.phoneAction(args),
     manageWatch: async (action, payload) => action === 'list' ? webWatcher.list() : action === 'remove' ? webWatcher.remove(payload.id) : webWatcher.add(payload),
@@ -306,7 +308,7 @@ app.whenReady().then(async () => {
     },
     sendAttachment: async (input, chat) => {
       if (!chat || chat.internal || chat.automationId || chat.status !== 'running') throw new Error('Files can be delivered only in an active user conversation.');
-      const descriptor = await controller.attachments.output(input.path, chat.workspace, { extraRoots: [path.join(stateDir, 'browser', 'screenshots')] });
+      const descriptor = await controller.attachments.output(input.path, chat.workspace, { extraRoots: [path.join(stateDir, 'browser', 'screenshots'), path.join(stateDir, 'screenshots')] });
       if (chat.status !== 'running') { await controller.attachments.release(descriptor.id); throw new Error('The conversation stopped before the file could be delivered.'); }
       chat.messages.push({ id: randomUUID(), role: 'assistant', text: input.caption || '', attachments: attachmentDescriptors([descriptor]), status: 'completed' });
       controller.changed(true);

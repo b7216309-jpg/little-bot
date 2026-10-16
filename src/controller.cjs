@@ -24,6 +24,7 @@ const { ProviderUsage } = require('./provider-usage.cjs');
 const { normalizeSampling } = require('./local-generation.cjs');
 const companion = require('./companion.cjs');
 const { listPresets } = require('./profile-presets.cjs');
+const { TOOL_IMAGES } = require('./desktop-tools.cjs');
 const learnedLessons = require('./lessons.cjs');
 
 function cleanError(error) {
@@ -1600,7 +1601,8 @@ class Controller extends EventEmitter {
           ? this.askUser(chat, params, id, key) : this.agentTools.call(params.tool, params.arguments, { chat }))
           .then(value => {
             this.rememberToolOutcome(chat, params.turnId, { tool: params.tool, args: params.arguments }, true);
-            return { success: true, contentItems: [{ type: 'inputText', text: JSON.stringify(value ?? { ok: true }).slice(0, 25000) }] };
+            const images = (value?.[TOOL_IMAGES] || []).map(imageUrl => ({ type: 'inputImage', imageUrl }));
+            return { success: true, contentItems: [{ type: 'inputText', text: JSON.stringify(value ?? { ok: true }).slice(0, 25000) }, ...images] };
           })
           .catch(error => {
             const message = cleanError(error);
