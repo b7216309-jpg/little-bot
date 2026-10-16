@@ -699,10 +699,18 @@ class Controller extends EventEmitter {
     }
     return learnedLessons.block(this.store.data.lessons, modelId);
   }
+  // Local models almost never call skill_list on their own (0 of 8 skill-shaped requests in the 0.31.0 live check),
+  // so the enabled skills are named up front, where they stay in the cached prompt prefix.
+  skillIndex() {
+    const skills = this.agentTools?._skills?.() || [];
+    if (!skills.length) return '';
+    return `Enabled skills. When a request matches one, read it with skill_read before starting: it holds the tested procedure for this PC.\n${skills.map(skill => `- ${skill.name}: ${skill.description}`).join('\n')}`;
+  }
   threadInstructions(base, modelId, local) {
-    if (!local) return base;
+    const withSkills = [base, this.skillIndex()].filter(Boolean).join('\n\n');
+    if (!local) return withSkills;
     const block = this.lessonSnapshot(modelId).text;
-    return block ? `${base}\n\n${block}` : base;
+    return block ? `${withSkills}\n\n${block}` : withSkills;
   }
   toolAttemptKey(chatId, turnId) { return `${chatId}\0${turnId || ''}`; }
   rememberToolOutcome(chat, turnId, { tool, args, error = '' }, success) {
@@ -750,7 +758,7 @@ class Controller extends EventEmitter {
   }
   threadOptions(chat, folder) {
     const planning = chat.mode === 'plan';
-    const baseInstructions = planning ? planInstructions(this.systemPrompt()) : this.systemPrompt();
+    const baseInstructions = [planning ? planInstructions(this.systemPrompt()) : this.systemPrompt(), this.skillIndex()].filter(Boolean).join('\n\n');
     if (chat.connection === 'local') {
       if (!chat.threadId) {
         const snapshot = this.lessonSnapshot(chat.model);

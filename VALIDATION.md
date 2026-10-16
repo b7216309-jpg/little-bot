@@ -1,3 +1,30 @@
+# Version 0.31.1 verification
+
+0.31.1 names the enabled skills in every thread's instructions and records the live check of 0.31.0 on Strata 0.1.44.1 (qwen3.8-flash-next-iq3_s).
+
+- **The problem:** in the first live run, the model read the matching skill in 0 of 8 requests shaped like one. The basics were still good: sales totals, a correct PDF invoice, files sorted by type, a duplicate found by hash. A morning brief caught an 18:00 dentist appointment at 17:56. But each skill's extras went missing:
+  - file-organizer kept no move log, so there was no undo.
+  - voice took 94 s and two retries, picking the voice by Id and garbling an apostrophe.
+  - game-master wrote no save file, so the secrets lived only in the context.
+  - journal rewrote the user's words as bullets and copied the entry into memory.
+- **The fix:** the thread instructions now list each enabled skill's name and description, and say to read the matching one before starting. The list sits in the cached prompt prefix. Changing a skill reloads idle threads once.
+- **Rerun:** the model read the matching skill in 5 of 5 requests.
+  - file-organizer moved the duplicate to `_duplicates` and wrote the move log.
+  - voice was done in 39 s with no retries.
+  - game-master created `games/long-rain/save.md` with secrets and saved a memory pointer.
+  - journal used `journal/2026/2026-10.md`, kept the user's words, and saved only a pointer.
+  - data-analysis gave the same correct totals.
+
+**0.31.0 tools, live on Strata:**
+- **Window capture:** the model described the test window in detail, including the token meter "14,564 / 249,036".
+- **Display capture:** it reported 2560x1440 and a visible taskbar.
+- **Clipboard text:** a copied French sentence was translated and written back to the clipboard.
+- **Clipboard image:** it read "42" from a copied picture.
+
+The error log held only the informational "moved background job" notice.
+
+Node tests (130) and validate-docs pass.
+
 # Version 0.31.0 verification
 
 0.31.0 lets the model see the screen, use the clipboard and render documents, and bundles eight new skills.

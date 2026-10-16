@@ -2,7 +2,7 @@
 
 ## Skills and the bundled guide
 
-[extensions.cjs](../../src/extensions.cjs) validates skill/server/plugin records and imports managed files. [skill-context.cjs](../../src/skill-context.cjs) selects enabled named skills for requests; skill_list and skill_read let the agent discover/read further instructions. A skill is guidance, not an executable integration.
+[extensions.cjs](../../src/extensions.cjs) validates skill/server/plugin records and imports managed files. [skill-context.cjs](../../src/skill-context.cjs) selects enabled named skills for requests; skill_list and skill_read let the agent discover/read further instructions. A skill is guidance, not an executable integration. Every thread's developer instructions also name the enabled skills with their descriptions (Controller `skillIndex`), with an instruction to read the matching one with skill_read before starting. The local model had called skill_list on its own in none of eight skill-shaped requests. The list sits in the cached prompt prefix; enabling, disabling or removing a skill changes the instructions and reloads idle threads once.
 
 [bundled-skills.cjs](../../src/bundled-skills.cjs) installs/upgrades the [little-bot operating guide](../../resources/skills/little-bot/SKILL.md). Current bundle version is 21. Version 21 added eight skills written for Little Bot on Windows: pc-care, documents, data-analysis, file-organizer, voice, game-master, journal and morning-brief. Their commands were run on Windows PowerShell 5.1 with a fr-FR locale. Recognized unedited earlier content can be upgraded; user-edited content and recorded deletion are preserved. Disabling the guide or its owning plugin prevents normal skill selection.
 
