@@ -17,6 +17,12 @@ The normal Windows user-data folder is `%APPDATA%/Little Bot`. Its `data` direct
 | `browser/`, `services/`, `extensions/` | Browser profile, service vault and managed plugin files |
 | `app-operations.json`, `logs/` | Deferred app operations and diagnostics |
 
+## Profiles
+
+[Profiles](../../src/profiles.cjs) keeps a registry in `%APPDATA%/Little Bot/profiles.json`. The first profile is the base folder itself, laid out as above, so existing installs keep their data where it is. Every other profile is a complete copy of that layout under `Profiles/<id>/`: its own `data` directory, `Workspace` and Chromium storage (which includes the built-in browser's sign-ins and the theme choice). Before `ready`, main.cjs takes the single-instance lock on the base folder and then points `userData` at the active profile, so exactly one profile runs at a time.
+
+Switching saves the new active id and restarts the app; the restart rebuilds the engine, scheduler, heartbeat, goals and night shift from the other folder, so no task from one profile can post into another. Inactive profiles do not run, and they do not catch up on missed schedules when they wake. A new profile starts with a plain `state.json` holding only the connection, model, effort, compaction, answer-check and sampling settings; the Store encrypts it on the first save. Its personality files start from the defaults and its system prompt from the built-in one. Deleting a profile removes its whole folder. The first profile and the running profile cannot be deleted. Paired phones are stored in the base `data/relay.json` and talk to whichever profile is running.
+
 See [Store](../../src/store.cjs) for normalization and persistence. Production uses Electron safeStorage for the chats and memory metadata fields. Goals, calendar, schedules and other configuration remain ordinary state fields; the SQLite memory database and workspace files are separate stores and are not covered by that envelope.
 
 ## Saving and recovery
@@ -33,5 +39,5 @@ Moving only state.json does not migrate native engine sessions, memory, attachme
 
 ## Verification
 
-[Store tests](../../test/store.test.cjs), [Windows distribution](../../test/windows-distribution.test.cjs).
+[Store tests](../../test/store.test.cjs), [Profiles](../../test/profiles.test.cjs), [Windows distribution](../../test/windows-distribution.test.cjs).
 

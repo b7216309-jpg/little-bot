@@ -421,6 +421,9 @@ function renderSidebar() {
   $('nav-extensions').classList.toggle('active', currentView === 'extensions');
   $('nav-goals').classList.toggle('active', currentView === 'goals');
   $('nav-profile').classList.toggle('active', currentView === 'profile');
+  const activeProfile = state.profiles?.profiles?.length > 1 ? state.profiles.profiles.find(profile => profile.active) : null;
+  $('nav-profile-name').textContent = activeProfile?.name || '';
+  $('nav-profile-name').classList.toggle('hidden', !activeProfile);
   $('account-label').textContent = connectionType() === 'local' ? 'Local Qwen' : 'Codex';
   $('account-sublabel').textContent = `${isConnected() ? 'Connected' : 'Offline'} · Settings`;
 }
@@ -1744,7 +1747,6 @@ function renderSettings() {
     ? 'Conversation and memory are stored on this PC. Web services connect only when used.'
     : 'Conversation and memory are stored on this PC. Model requests go to OpenAI.';
   renderConnectionSettings();
-  renderSystemPromptSettings();
   renderIndependentCheckSettings();
   renderCompactionSettings();
   renderBrowserSettings();
@@ -2416,6 +2418,76 @@ function renderProfile() {
   $('save-profile').textContent = profileSaving ? 'Saving…' : 'Save changes';
   $('profile-save-status').textContent = !available ? 'Profile files are not available yet.' : profileSaving ? 'Writing your changes to the profile files…' : tooLong || total > totalLimit ? 'Shorten the profile text to fit the character limits.' : dirtyCount ? `${dirtyCount} file${dirtyCount === 1 ? ' has' : 's have'} unsaved changes. Ctrl + S to save.` : 'Saved as Markdown files.';
   $('profile-updated').textContent = profile?.updatedAt ? `File update: ${formatDate(profile.updatedAt)}` : '';
+  renderProfiles();
+  renderSystemPromptSettings();
+}
+
+let renamingProfileId = null;
+let profilesPending = false;
+let profilesSignature = '';
+function renderProfiles() {
+  const registry = state.profiles;
+  $('profile-soul-title').textContent = `${registry?.profiles?.find(profile => profile.active)?.name || 'Little Bot'}’s personality`;
+  $('profile-create').disabled = profilesPending || !registry || !$('profile-create-name').value.trim();
+  // Rebuild only on a real change so a rename in progress keeps its text and focus.
+  const signature = JSON.stringify([registry, renamingProfileId, profilesPending]);
+  if (signature === profilesSignature) return;
+  profilesSignature = signature;
+  $('profiles-list').replaceChildren(...(registry?.profiles || []).map(profile => {
+    const row = element('div', `profiles-row${profile.active ? ' active' : ''}`);
+    if (renamingProfileId === profile.id) {
+      const form = element('form', 'profiles-rename');
+      const input = element('input');
+      input.value = profile.name; input.maxLength = 60; input.setAttribute('aria-label', `New name for ${profile.name}`);
+      const save = element('button', 'button primary', 'Save'); save.type = 'submit'; save.disabled = profilesPending;
+      form.append(input, save, action('Cancel', () => { renamingProfileId = null; renderProfiles(); }, 'button text-button'));
+      form.addEventListener('submit', event => { event.preventDefault(); profileOperation(() => window.bot.renameProfile({ id: profile.id, name: input.value }), 'Profile renamed.', () => { renamingProfileId = null; }); });
+      input.addEventListener('keydown', event => { if (event.key === 'Escape') { event.stopPropagation(); renamingProfileId = null; renderProfiles(); } });
+      row.append(form);
+      requestAnimationFrame(() => { input.focus(); input.select(); });
+      return row;
+    }
+    const copy = element('div', 'profiles-copy');
+    copy.append(element('strong', '', profile.name), element('span', '', profile.active ? 'Running now' : profile.id === 'main' ? 'First profile' : `Created ${formatDate(profile.createdAt)}`));
+    row.append(element('span', 'profiles-dot'), copy);
+    const buttons = element('div', 'profiles-actions');
+    if (!profile.active) buttons.append(action('Switch', () => switchProfile(profile), 'button secondary'));
+    buttons.append(action('Rename', () => { renamingProfileId = profile.id; renderProfiles(); }, 'button text-button'));
+    if (!profile.active && profile.id !== 'main') buttons.append(action('Delete', () => deleteProfile(profile), 'button text-button'));
+    for (const button of buttons.children) button.disabled = profilesPending;
+    row.append(buttons);
+    return row;
+  }));
+}
+
+async function profileOperation(operation, message, after) {
+  if (profilesPending) return null;
+  profilesPending = true;
+  renderProfiles();
+  const result = await attempt(operation, message);
+  profilesPending = false;
+  if (result) after?.();
+  renderProfiles();
+  return result;
+}
+
+function createProfile(event) {
+  event.preventDefault();
+  const name = $('profile-create-name').value.trim();
+  if (!name) return;
+  profileOperation(() => window.bot.createProfile({ name }), `${name} created. Switch to it to give it a personality.`, () => { $('profile-create-name').value = ''; });
+}
+
+async function switchProfile(profile) {
+  if (state.chats.some(chat => chat.status !== 'idle') && !window.confirm(`Little Bot is working. Switch to ${profile.name} anyway? The current task stops.`)) return;
+  const result = await profileOperation(() => window.bot.switchProfile({ id: profile.id }), `Switching to ${profile.name}…`);
+  // The app restarts into the other profile; keep the buttons locked until it does.
+  if (result?.restarting) { profilesPending = true; renderProfiles(); }
+}
+
+function deleteProfile(profile) {
+  if (!window.confirm(`Delete ${profile.name}? Its personality, system prompt, memory, conversation, goals and workspace files are erased for good.`)) return;
+  profileOperation(() => window.bot.deleteProfile({ id: profile.id }), `${profile.name} deleted.`);
 }
 
 async function saveProfile(event) {
@@ -4026,6 +4098,8 @@ $('nav-profile').addEventListener('click', () => showFeature('profile'));
 $('profile-form').addEventListener('submit', saveProfile);
 for (const key of ['user', 'soul']) $('profile-' + key).addEventListener('input', () => { profileSaveError = ''; renderProfile(); });
 $('open-profile-folder').addEventListener('click', () => attempt(() => window.bot.openProfileFolder()));
+$('profile-create-form').addEventListener('submit', createProfile);
+$('profile-create-name').addEventListener('input', renderProfiles);
 $('create-goal').addEventListener('click', () => editGoal());
 $('goal-form').addEventListener('submit', saveGoal);
 $('goal-kind').addEventListener('change', renderGoalKind);
@@ -4428,7 +4502,8 @@ $('confirm-dialog').addEventListener('close', () => {
 document.addEventListener('keydown', (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's' && currentView === 'profile' && !document.querySelector('dialog[open]')) {
     event.preventDefault();
-    saveProfile();
+    if (document.activeElement === $('settings-system-prompt')) { if (!$('save-system-prompt').disabled) saveSystemPromptSettings(); }
+    else saveProfile();
     return;
   }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'n') {

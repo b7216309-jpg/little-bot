@@ -10,6 +10,8 @@ Changing the provider, model or workspace still needs an idle execution lane bec
 
 ## Profile files
 
+The Profile view holds everything that defines one profile: the profile list (create, rename, switch, delete; see [Runtime and storage](01-runtime-storage.md#profiles)), USER.md, SOUL.md and the system prompt. The system prompt is still the `systemPrompt` setting, but each profile has its own state, so it moved out of Settings into the Profile view. Ctrl + S saves the system prompt when its editor has focus, otherwise the two profile files.
+
 [ProfileFiles](../../src/profile.cjs) owns data/profile/USER.md and SOUL.md. USER.md carries user-supplied facts; SOUL.md carries tone/working preferences. Each is UTF-8 plain text with a 4,000-character limit. The app supplies a current copy to each applicable turn rather than expecting an old profile in the thread to stay current.
 
 Defaults are created only when missing. Invalid/missing content is reported through the profile editor without blocking startup; valid content from the other file still loads. Saves validate destinations and replace each file through a temporary file. Each file is atomic; changing both files is not a two-file transaction.
@@ -24,5 +26,5 @@ An empty model list is not evidence that the thinking UI was removed: the select
 
 ## Verification
 
-[Store](../../test/store.test.cjs).
+[Store](../../test/store.test.cjs), [Profiles](../../test/profiles.test.cjs).
 
