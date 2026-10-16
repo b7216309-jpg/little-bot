@@ -185,10 +185,13 @@ Guide: [13-settings-profile.md](13-settings-profile.md)
 | --- | --- |
 | [resources/profile/SOUL.md](../../resources/profile/SOUL.md) | Bundled defaults, instructions, model manifest or licensing |
 | [resources/profile/USER.md](../../resources/profile/USER.md) | Bundled defaults, instructions, model manifest or licensing |
+| [resources/profile/presets/atlas.md](../../resources/profile/presets/atlas.md) | Personality preset for new profiles |
+| [resources/profile/presets/forge.md](../../resources/profile/presets/forge.md) | Personality preset for new profiles |
 | [resources/profile/presets/loremaster.md](../../resources/profile/presets/loremaster.md) | Personality preset for new profiles |
 | [resources/profile/presets/mochi.md](../../resources/profile/presets/mochi.md) | Personality preset for new profiles |
 | [resources/profile/presets/ottilie.md](../../resources/profile/presets/ottilie.md) | Personality preset for new profiles |
 | [resources/profile/presets/presets.json](../../resources/profile/presets/presets.json) | Personality preset for new profiles |
+| [resources/profile/presets/sage.md](../../resources/profile/presets/sage.md) | Personality preset for new profiles |
 | [resources/profile/presets/vesper.md](../../resources/profile/presets/vesper.md) | Personality preset for new profiles |
 | [resources/profile/presets/zib.md](../../resources/profile/presets/zib.md) | Personality preset for new profiles |
 | [src/profile.cjs](../../src/profile.cjs) | Production application module |

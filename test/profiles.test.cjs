@@ -78,8 +78,8 @@ test('each personality fits SOUL.md and its prompt keeps the app rules', t => {
   const { listPresets, loadPreset, presetPrompt } = require('../src/profile-presets.cjs');
   const { ProfileFiles, PROFILE_FILE_LIMIT } = require('../src/profile.cjs');
   const presets = listPresets();
-  assert.equal(presets.length, 5);
-  assert.equal(new Set(presets.map(item => item.name)).size, 5);
+  assert.equal(presets.length, 8);
+  assert.equal(new Set(presets.map(item => item.name)).size, 8);
   for (const { id } of presets) {
     const preset = loadPreset(id);
     assert.ok(preset.soul.length > 500 && preset.soul.length <= PROFILE_FILE_LIMIT, `${id} SOUL.md fits the editor`);

@@ -1,3 +1,20 @@
+# Version 0.30.0 verification
+
+0.30.0 adds three personalities, so new profiles can start from eight.
+
+- **Work:**
+  - **Atlas**, a chief of staff. It tracks every commitment on the calendar and in memory, briefs on what is due and at risk, and ends with a clear status.
+  - **Forge**, a principal engineer. It reads before writing, fixes root causes, makes small reviewable changes and never claims success without evidence.
+- **Personal development:** **Sage**, a growth coach. It works through questions first, turns aims into tiny habits, runs short weekly reviews, tracks streaks in memory, and suggests professional support for real distress.
+
+Live check on a temporary data folder:
+- The picker shows nine cards in a 3×3 grid.
+- Picking Sage filled in the name, and picking Forge replaced it.
+- The created profile restarted as Sage, with its SOUL.md and a prompt opening "You are Sage…" that keeps the app rules.
+- Deleting it worked, and the error log stayed empty.
+
+Node tests (129), validate-docs and the syntax check pass.
+
 # Version 0.29.0 verification
 
 0.29.0 adds five ready-made personalities for new profiles.
