@@ -23,6 +23,7 @@ const { INDEPENDENT_CHECK_MODES, normalizeIndependentCheckMode } = require('./in
 const { ProviderUsage } = require('./provider-usage.cjs');
 const { normalizeSampling } = require('./local-generation.cjs');
 const companion = require('./companion.cjs');
+const { listPresets } = require('./profile-presets.cjs');
 const learnedLessons = require('./lessons.cjs');
 
 function cleanError(error) {
@@ -291,7 +292,7 @@ class Controller extends EventEmitter {
       independentCheckRuntime: this.independentCheck.state,
       eventRuntime: this.eventRuntime?.state || { status: 'stopped', bus: { started: false, queued: 0 }, standingIntentCount: 0, enabledStandingIntentCount: 0 },
       profile: this.profileFiles?.getState() || null,
-      profiles: this.profiles?.state() || null,
+      profiles: this.profiles ? { ...this.profiles.state(), presets: listPresets() } : null,
       browser: this.browser?.getState() || null,
       webServices: this.webServices?.getState() || null,
       extensionRuntime: this.extensionRuntime?.state || { status: 'ready', servers: [] },
@@ -673,6 +674,7 @@ class Controller extends EventEmitter {
     const snapshot = this.contextUsed.get(chatId);
     return snapshot ? structuredClone(snapshot) : null;
   }
+  defaultSystemPrompt() { return instructions; }
   systemPrompt() {
     return typeof this.store.data.settings.systemPrompt === 'string' ? this.store.data.settings.systemPrompt : instructions;
   }

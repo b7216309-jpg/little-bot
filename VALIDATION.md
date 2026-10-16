@@ -1,3 +1,25 @@
+# Version 0.29.0 verification
+
+0.29.0 adds five ready-made personalities for new profiles.
+
+- **Personalities** (Profile view, when creating a profile):
+  - **Vesper**, a night-owl poet.
+  - **Zib**, an alien anthropologist studying the user.
+  - **Grandma Ottilie**, a retired stunt pilot who nags with love.
+  - **Mochi**, a sarcastic cat with admin rights.
+  - **The Loremaster**, a game master who turns life into a campaign and runs text adventures.
+- **What a preset sets up:** it writes the profile's SOUL.md, and its system prompt replaces only the opening identity paragraph of the built-in prompt, so every tool, memory and goal rule stays. Each personality uses the app in character: Zib files field notes in memory, Ottilie keeps birthdays on the calendar, the Loremaster keeps a quest log. Their heartbeat check-ins and night thoughts are in their own voice. Picking a card fills in the name until the user types one.
+- **SOUL.md framing:** the turn context now presents SOUL.md as the model's own personality ("who you are, your voice, tone and habits") instead of the user's preferred tone. Only new turns carry the new wording; the cached system prompt is unchanged.
+
+Live check: the real app ran on a temporary data folder, driven over the DevTools protocol.
+- Picking Mochi filled in the name; picking Zib replaced it.
+- The created profile restarted as Mochi, with Mochi's SOUL.md and a prompt opening "You are Mochi…" that still holds the memory rules. The heading read "Mochi's personality".
+- Deleting the profile from the main profile worked, and the error log stayed empty.
+
+Strata was not running during this release, so the personalities' replies were not checked on the local model.
+
+Node tests (129, one new for the presets), the syntax check, both Electron tests and validate-docs pass.
+
 # Version 0.28.0 verification
 
 0.28.0 adds profiles: separate Little Bots on one PC, each with its own personality, system prompt, memory, conversation, goals and workspace.
@@ -13,7 +35,7 @@ Live check: the real app ran on a temporary data folder and was driven over the 
 - Deleted Nova: its folder was gone, and the error log stayed empty.
 - A separate Electron check confirmed that a second instance is refused while the lock is held on the base folder, and that Chromium data goes to the profile folder.
 
-Node tests (129, four new for the registry), the syntax check, both Electron tests and validate-docs pass.
+Node tests (128, four new for the registry), the syntax check, both Electron tests and validate-docs pass.
 
 # Version 0.27.1 verification
 

@@ -73,3 +73,24 @@ test('a profile folder removed by hand drops out and the main profile takes over
   assert.equal(reopened.data.active, MAIN_ID);
   assert.deepEqual(reopened.data.profiles.map(item => item.id), [MAIN_ID]);
 });
+
+test('each personality fits SOUL.md and its prompt keeps the app rules', t => {
+  const { listPresets, loadPreset, presetPrompt } = require('../src/profile-presets.cjs');
+  const { ProfileFiles, PROFILE_FILE_LIMIT } = require('../src/profile.cjs');
+  const presets = listPresets();
+  assert.equal(presets.length, 5);
+  assert.equal(new Set(presets.map(item => item.name)).size, 5);
+  for (const { id } of presets) {
+    const preset = loadPreset(id);
+    assert.ok(preset.soul.length > 500 && preset.soul.length <= PROFILE_FILE_LIMIT, `${id} SOUL.md fits the editor`);
+    assert.ok(preset.tagline && preset.intro.includes(preset.name.replace(/^The /, '')), `${id} has a tagline and an intro`);
+  }
+  assert.equal(presetPrompt('You are Zib.', 'You are Little Bot.\n\nRULES'), 'You are Zib. Use tools when useful and do not inspect files for ordinary conversation; give brief progress updates on longer tasks.\n\nRULES');
+  const root = base(t);
+  const mochi = loadPreset('mochi');
+  const created = new Profiles({ base: root }).create({ name: mochi.name, soul: mochi.soul, systemPrompt: 'MOCHI PROMPT' });
+  const files = new ProfileFiles({ root: path.join(root, 'Profiles', created.id, 'data', 'profile') }).getState();
+  assert.equal(files.soul, mochi.soul);
+  assert.match(files.user, /About the user/, 'USER.md still starts from the default');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'Profiles', created.id, 'data', 'state.json'), 'utf8')).settings.systemPrompt, 'MOCHI PROMPT');
+});
