@@ -19,9 +19,18 @@ For local models, AgentTools also records a generic lesson when it repairs an ar
 | attachment_send | Workspace/browser-output import and visible delivery |
 | browser / web_search_service / web_scrape | EmbeddedBrowser / WebServices |
 | windows_ui | WindowsUia (other Windows apps through UI Automation) |
+| screen_capture / clipboard / document_render | [DesktopTools](../../src/desktop-tools.cjs): screen and window captures, clipboard text and images, HTML to PDF/PNG |
 | app_state and *_manage / *_control | AppManagement and registered main handlers |
 
 The read-only set contains skills, recall and calendar_list. Direct full chat receives the broader tool set. Heartbeat, goals and Independent Check do not inherit every direct-chat management operation. Goals use their own permitted workspace/write/terminal/network/MCP tools.
+
+**Desktop tools.**
+- `screen_capture` grabs one display (primary first) or one window, by the handle from `windows_ui list_windows`, through Electron's desktopCapturer. Small windows are scaled up to the same 1600-pixel cap.
+- `clipboard` reads and writes text and reads a copied image, through Electron 44's asynchronous clipboard API.
+- Captured and copied images are resized to at most 1600 pixels and saved as JPEG in `data/screenshots` (the last 20 are kept), where attachment_send can deliver them.
+- The pixels go back to the engine as an `inputImage` content item, carried beside the JSON result under a Symbol key so the 25,000-character text cap never meets the base64.
+- Screen and clipboard work only for the user's running direct conversation, never for heartbeat, goals or automations.
+- `document_render` loads an HTML file from the working folder in a hidden window, with scripts off and every non-file request cancelled, and saves `printToPDF` output (preferring CSS `@page` size) or an offscreen PNG. Browsers on the PC are not used: Edge can be missing, and headless Brave hung on `--print-to-pdf` during testing.
 
 [AppManagement](../../src/app-management.cjs) exposes richer settings, goals, heartbeat, services, attachments and extension controls. app_state gives a compact overview; management get/list actions return details. Configuration needing an idle engine is queued until the reply ends.
 

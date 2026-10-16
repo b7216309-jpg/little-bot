@@ -1,3 +1,47 @@
+# Version 0.31.0 verification
+
+0.31.0 lets the model see the screen, use the clipboard and render documents, and bundles eight new skills.
+
+## Desktop tools
+
+- **screen_capture:** one display (main first) or one window, by its `windows_ui list_windows` handle.
+- **clipboard:** reads and writes text, and reads a copied image.
+- **document_render:** turns an HTML file into a PDF or PNG with Little Bot's own Chromium, with scripts off and network requests cancelled. Edge is missing on the test PC, and headless Brave hung on `--print-to-pdf`, so no PC browser is used.
+- **Where they work:** screen and clipboard only in the user's running direct conversation.
+- **How images reach the model:**
+  - Captured and copied images are resized to at most 1600 pixels and saved as JPEG in `data/screenshots`, where attachment_send can deliver them.
+  - They go to the engine as an `inputImage` content item.
+  - llama.cpp-style servers take images only in user input, so the Strata adapter adds them as one user message after the run of tool outputs.
+- **Electron 44:** its clipboard is the asynchronous W3C-style API (`readText()` and `read()` return promises, and images arrive as `ClipboardItem` blobs). The old synchronous `readImage` would have thrown.
+
+## Skills (bundle version 21)
+
+- **The eight skills:**
+  - **pc-care**: disk, the largest folders, processes, memory, startup apps and system errors.
+  - **documents**: PDF and PNG through document_render, CSV with the locale's separator, Word-compatible files, reading .docx.
+  - **data-analysis**: decimal commas, French dates, grouping, SVG charts.
+  - **file-organizer**: moves with a CSV log and an undo, duplicates by size then hash, batch renames.
+  - **voice**: System.Speech voices matched to the text's language, WAV voice messages, SSML.
+  - **game-master**: a save file per game, with secrets, real dice and recaps.
+  - **journal**: monthly Markdown files, guided reflection, reviews.
+  - **morning-brief**: calendar, goals and intentions, plus an optional weekday routine.
+- **Personality pointers:** the Loremaster, Sage, Atlas and Ottilie presets point to their matching skill.
+- **Shell guidance:** it now says a `.ps1` script needs a UTF-8 byte-order mark. Windows PowerShell read one without it as ANSI and garbled "é" (code 195 instead of 233).
+
+## Checks
+
+- **Unit test:** a window capture and clipboard read/write through AgentTools. The adapter test puts the image in a user message after two parallel tool outputs.
+- **Real Electron on this PC:**
+  - A window capture came back red where the window was red, and the main display captured at 2560x1440 (2 displays).
+  - The clipboard tool kept "é—à" intact and wrote back. A copied 400x220 image came back as an image, and an empty clipboard was reported as empty.
+  - document_render produced a valid PDF in about 100 ms and a PNG with accents and SVG shapes; an external image was blocked.
+- **End to end against a stand-in Strata server:** the real app, engine and relay delivered the clipboard image to the server as `image_url` in a user message after the tool message. The error log stayed empty.
+- **Skill commands:** every command was run on fixtures in Windows PowerShell 5.1 (fr-FR).
+- **Bundle upgrade:** a fresh install gets the 12 skills, and an install at version 20 gains the 8 new ones while keeping edits, disabled skills and deletions. The real app started with all 12 and an empty error log.
+- **Test suites:** Node tests (130), the syntax check, both Electron tests and validate-docs pass.
+
+**Not yet checked live:** Strata was stopped during this work, so it has not yet looked at a captured image and the model has not yet used the new skills.
+
 # Version 0.30.1 verification
 
 0.30.1 makes Little Bot write text files as UTF-8 and records the first live run of the eight personalities.

@@ -27,3 +27,5 @@ Caching reuses compatible prompt prefixes. Qwen's template renders the tool bloc
 ## Verification and limits
 
 Strata probing, adapter, relay, namespace compatibility and vision. Live relay and SSD engine checks are recorded in [VALIDATION.md](../../VALIDATION.md). The GPU fixtures compare RAM and SSD restores byte for byte across supported KV formats; live inference uses RTX 4070 Ti, int8 streaming KV and MTP. Image rotation and other hardware require separate live validation.
+
+**Images from tools.** llama.cpp-style servers accept images only in user messages, not in tool output. When a `function_call_output` carries `input_image` parts (screen captures, copied images), the adapter keeps the tool message as text and adds one user message with those images right after the run of tool outputs, so parallel calls stay grouped after their assistant message. A server started without its vision encoder gets the usual "image omitted" note instead.

@@ -5,10 +5,11 @@ const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { parseSkill, LIMITS } = require('./extensions.cjs');
 
-const VERSION = 20;
+const VERSION = 21;
 const BUNDLES = [
   { name: 'little-bot', introduced: 1 }, { name: 'meeting-prep', introduced: 1 },
   { name: 'research-brief', introduced: 1 }, { name: 'web-tools', introduced: 2 },
+  ...['pc-care', 'documents', 'data-analysis', 'file-organizer', 'voice', 'game-master', 'journal', 'morning-brief'].map(name => ({ name, introduced: 21 })),
 ];
 const ORIGINAL_HASHES = {
   'little-bot': [

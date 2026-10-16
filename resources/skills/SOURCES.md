@@ -24,4 +24,4 @@ Changes made for Little Bot: removed Notion-specific commands, OAuth setup, data
 
 Anthropic repository reviewed commit: `33375500bcea98d610eb30ce10ac4e59b89c390d`.
 
-`little-bot`, the app command guide, and `web-tools` are authored specifically for Little Bot and are not upstream adaptations. A skill supplies instructions; it does not grant tools, credentials, or permissions.
+`little-bot`, the app command guide, `web-tools`, and the version 21 skills (`pc-care`, `documents`, `data-analysis`, `file-organizer`, `voice`, `game-master`, `journal`, `morning-brief`) are authored specifically for Little Bot and are not upstream adaptations. A skill supplies instructions; it does not grant tools, credentials, or permissions.

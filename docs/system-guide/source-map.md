@@ -148,6 +148,7 @@ Guide: [11-browser-web.md](11-browser-web.md)
 | [src/embedded-browser.cjs](../../src/embedded-browser.cjs) | Production application module |
 | [src/web-services.cjs](../../src/web-services.cjs) | Production application module |
 | [src/windows-uia.cjs](../../src/windows-uia.cjs) | Production application module |
+| [src/desktop-tools.cjs](../../src/desktop-tools.cjs) | Production application module |
 | [src/windows-uia-bridge.ps1](../../src/windows-uia-bridge.ps1) | PowerShell UI Automation bridge |
 
 ## skills plugins mcp
@@ -172,6 +173,14 @@ Guide: [12-skills-plugins-mcp.md](12-skills-plugins-mcp.md)
 | [resources/skills/research-brief/SKILL.md](../../resources/skills/research-brief/SKILL.md) | Bundled defaults, instructions, model manifest or licensing |
 | [resources/skills/SOURCES.md](../../resources/skills/SOURCES.md) | Bundled defaults, instructions, model manifest or licensing |
 | [resources/skills/web-tools/SKILL.md](../../resources/skills/web-tools/SKILL.md) | Bundled defaults, instructions, model manifest or licensing |
+| [resources/skills/data-analysis/SKILL.md](../../resources/skills/data-analysis/SKILL.md) | Bundled skill written for Little Bot |
+| [resources/skills/documents/SKILL.md](../../resources/skills/documents/SKILL.md) | Bundled skill written for Little Bot |
+| [resources/skills/file-organizer/SKILL.md](../../resources/skills/file-organizer/SKILL.md) | Bundled skill written for Little Bot |
+| [resources/skills/game-master/SKILL.md](../../resources/skills/game-master/SKILL.md) | Bundled skill written for Little Bot |
+| [resources/skills/journal/SKILL.md](../../resources/skills/journal/SKILL.md) | Bundled skill written for Little Bot |
+| [resources/skills/morning-brief/SKILL.md](../../resources/skills/morning-brief/SKILL.md) | Bundled skill written for Little Bot |
+| [resources/skills/pc-care/SKILL.md](../../resources/skills/pc-care/SKILL.md) | Bundled skill written for Little Bot |
+| [resources/skills/voice/SKILL.md](../../resources/skills/voice/SKILL.md) | Bundled skill written for Little Bot |
 | [src/bundled-skills.cjs](../../src/bundled-skills.cjs) | Production application module |
 | [src/extension-runtime.cjs](../../src/extension-runtime.cjs) | Production application module |
 | [src/extensions.cjs](../../src/extensions.cjs) | Production application module |
