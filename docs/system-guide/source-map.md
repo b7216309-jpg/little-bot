@@ -8,7 +8,7 @@ Guide: [01-runtime-storage.md](01-runtime-storage.md)
 
 | Source / resource | Responsibility |
 | --- | --- |
-| [src/codex.cjs](../../src/codex.cjs) | Production application module |
+| [src/engine.cjs](../../src/engine.cjs) | Production application module |
 | [src/main.cjs](../../src/main.cjs) | Production application module |
 | [src/preload.cjs](../../src/preload.cjs) | Production application module |
 | [src/profiles.cjs](../../src/profiles.cjs) | Production application module |
@@ -287,4 +287,4 @@ Guide: [18-phone-relay.md](18-phone-relay.md)
 | [resources/icons/little-bot-192.png](../../resources/icons/little-bot-192.png) | Phone app icon |
 | [resources/icons/little-bot-maskable.png](../../resources/icons/little-bot-maskable.png) | Android launcher icon |
 | [src/phone-context.cjs](../../src/phone-context.cjs) | Phone location, home/away and battery for prompts |
-| [resources/android/little-bot.apk](../../resources/android/little-bot.apk) | Built Android app from [little-bot-android](https://github.com/b7216309-jpg/little-bot-android), served at /little-bot.apk |
+| [resources/android/little-bot.apk](../../resources/android/little-bot.apk) | Built Android app from its own private repository, served at /little-bot.apk |

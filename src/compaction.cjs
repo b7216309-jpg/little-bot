@@ -11,10 +11,19 @@ function validAutoCompactPercent(value) {
 function normalizeAutoCompactPercent(value, fallback = DEFAULT_AUTO_COMPACT_PERCENT) {
   return validAutoCompactPercent(value) ? value : fallback;
 }
-function compactionConfig(settings) {
-  // Supported by the pinned engine. Keep its model-specific hard limits intact.
-  const fallback = settings?.connection === 'local' ? DEFAULT_AUTO_COMPACT_PERCENT : 80;
-  return { model_post_turn_compact_threshold_percent: normalizeAutoCompactPercent(settings?.autoCompactPercent, fallback) };
+// The engine keeps 5% of the window in reserve; its percentages and the context meter use the remaining 95%.
+const USABLE_WINDOW = 0.95;
+function compactionConfig(settings, contextWindow) {
+  const percent = normalizeAutoCompactPercent(settings?.autoCompactPercent);
+  const config = { model_post_turn_compact_threshold_percent: percent };
+  // The post-turn threshold is checked only when a turn ends, so a long tool-using turn ran on to the engine's
+  // 90% hard limit. The token limit compacts at the same point while the turn is still working, then continues.
+  if (percent && Number.isSafeInteger(contextWindow) && contextWindow > 0) config.model_auto_compact_token_limit = Math.floor(contextWindow * USABLE_WINDOW * percent / 100);
+  return config;
+}
+// Resumed engine sessions keep the settings they were opened with, so any change here must reopen them.
+function compactionKey(config) {
+  return `${config.model_post_turn_compact_threshold_percent}\0${config.model_auto_compact_token_limit ?? ''}`;
 }
 
 function ensureCompaction(chat) {
@@ -23,7 +32,7 @@ function ensureCompaction(chat) {
   return chat.compaction;
 }
 
-/** UI bookkeeping only: Codex owns context replacement and automatic policy. */
+/** UI bookkeeping only: the engine owns context replacement and automatic policy. */
 class CompactionTracker {
   constructor() { this.chats = new WeakMap(); }
   _state(chat) {
@@ -96,4 +105,4 @@ class CompactionTracker {
 }
 
 module.exports = { CompactionTracker, ensureCompaction, COMPACTION_TIMEOUT_MS, COMPACTION_STOP_TIMEOUT_MS,
-  DEFAULT_AUTO_COMPACT_PERCENT, validAutoCompactPercent, normalizeAutoCompactPercent, compactionConfig };
+  DEFAULT_AUTO_COMPACT_PERCENT, validAutoCompactPercent, normalizeAutoCompactPercent, compactionConfig, compactionKey };

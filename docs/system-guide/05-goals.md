@@ -20,7 +20,7 @@ Ongoing reviews emit goal.reviewed so waiting standing intents settle. New sourc
 
 ## Recovery and failure conditions
 
-A task can remain draft, queued, paused, blocked or completed. Work waits for the selected saved connection, an available execution lane, valid dependencies and a usable workspace. Global Pause all persists across restarts. A pending question prevents continuing until answered; budgets and retry limits can block further work. Chat evidence collection also respects the Memory toggle, so disabling Memory can remove a configured review's conversation evidence.
+A task can remain draft, queued, paused, blocked or completed. Work waits for the saved local server and model, an available execution lane, valid dependencies and a usable workspace. The Background switch (global pause) persists across restarts. A pending question prevents continuing until answered; budgets and retry limits can block further work. Chat evidence collection also respects the Memory toggle, so disabling Memory can remove a configured review's conversation evidence.
 
 An interrupted local goal verifies existing effects before continuing. Goals with possible network/MCP effects require review rather than blindly repeating the action. File-triggered goals baseline changes made while the app was closed.
 

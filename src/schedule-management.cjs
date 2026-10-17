@@ -29,7 +29,7 @@ function manageSchedule(store, action, payload, context, now = Date.now()) {
   } else throw new Error('Unsupported routine action.');
   store.save();
   return { ...record, message: record.enabled
-    ? store.data.autonomy?.paused ? 'Enabled. Runs will wait until Pause all is resumed in Goals.' : 'Enabled. The next run follows the saved schedule while Little Bot is open.'
+    ? store.data.autonomy?.paused ? 'Enabled. Runs will wait until the Background switch is turned back on.' : 'Enabled. The next run follows the saved schedule while Little Bot is open.'
     : 'Saved disabled. You can enable it through chat or Automations.' };
 }
 

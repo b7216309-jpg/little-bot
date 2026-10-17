@@ -51,10 +51,7 @@ html[data-theme=dark] .suggestion>span:not(.icon){color:#757c6c}
 html[data-theme=dark] .suggestion .suggestion-arrow{color:#646a5a}
 html[data-theme=dark] .connection-card{border:1px solid #3f4234;background:#2a2921}
 html[data-theme=dark] .connection-heading p{color:#7f8974}
-html[data-theme=dark] .api-key-form{border-top:1px solid #3b3d30}
 html[data-theme=dark] .field-hint{color:#798170}
-html[data-theme=dark] .login-feedback{color:#8d9c84}
-html[data-theme=dark] .login-feedback code{background:#1a1a1a}
 html[data-theme=dark] .composer{border:1px solid #3e4334;background:#1a1a1a}
 html[data-theme=dark] .composer:focus-within{border-color:#5c6550}
 html[data-theme=dark] .composer-options>.icon{color:#737d67}
@@ -281,6 +278,15 @@ html[data-theme=dark] .attachment-drafts .attachment-card{background:#26261e}
 html[data-theme=dark] .composer-options .attach-button{color:#88947c}
 html[data-theme=dark] .attachment-drop-overlay{background:rgba(33,32,26,0.929);border:2px dashed #6a775e;color:#9fab95}
 html[data-theme=dark] .connection-settings select{background:#1a1a1a}
+html[data-theme=dark] .background-toggle{border:1px solid #3a4637;background:#282f25}
+html[data-theme=dark] .background-toggle:hover{background:#2f382c}
+html[data-theme=dark] .background-toggle-copy span{color:#92a391}
+html[data-theme=dark] .background-switch{background:#86a08c}
+html[data-theme=dark] .background-knob{background:#1a1a1a}
+html[data-theme=dark] .background-toggle[aria-checked=false]{background:#322b27;border-color:#4c423c}
+html[data-theme=dark] .background-toggle[aria-checked=false]:hover{background:#3b342f}
+html[data-theme=dark] .background-toggle[aria-checked=false] .background-switch{background:#706158}
+html[data-theme=dark] .background-toggle[aria-checked=false] .background-toggle-copy span{color:#ae7454}
 html[data-theme=dark] .sidebar-tools>summary:hover,html[data-theme=dark] .sidebar-tools:not([open]):has(.nav-button.active)>summary{background:#36372b}
 html[data-theme=dark] .thinking-toggle{color:#99a490}
 html[data-theme=dark] .thinking-track{background:#404435}

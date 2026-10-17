@@ -1,3 +1,49 @@
+# Version 0.32.0 verification
+
+0.32.0 makes Little Bot local-only, compacts long turns while they are still working, and adds one switch for all background work. Checked live on Strata 0.1.44.1 (qwen3.8-flash-next-iq3_s).
+
+## Codex removed
+
+- **The cloud connection is gone:** the ChatGPT sign-in card, the API-key form, the connection picker, the account row and the Codex rate-limit panel. Settings keeps the server URL and model; the usage panel shows local performance only.
+- **Old records move to the local server.** Chats, routines, goals and the heartbeat saved for the cloud connection now bind to the local server. Background jobs whose model is not loaded follow the loaded one.
+- **Dead branches removed.** Code that only ran for the cloud connection is gone: output schemas, live web search, shorter timeouts, the account and login handlers. Local-only behaviour now runs everywhere, for example the JSON instructions in prompts and the lessons block for every thread.
+- **The engine client is now `src/engine.cjs` (`EngineClient`), with engine-neutral error messages.** The bundled engine is still the open-source app-server from the `@openai/codex` package, so that name stays in the dependency, the license notice and the upstream links of COMPACTION.md. Imports of plugins in that package's folder format are still accepted.
+- **Live check in the app:** no "Codex", "ChatGPT" or "OpenAI" text anywhere in the window or Settings; a reply on Strata came back in 18 s.
+
+## A fresh profile connects on its own
+
+A new profile started with the old Qwen 3.6 default ID and stayed offline ("The selected model is not loaded"), because Strata serves `qwen3.8-flash-next-iq3_s`. When the server has exactly one model loaded, Little Bot now uses it and saves it.
+
+## Compaction inside long turns
+
+- **The bug:** the threshold (default 50%) was the engine's turn-end check only. A long tool-using turn grew to the engine's 90% hard limit (about 236k tokens) before anything compacted.
+- **The fix:** the same percentage is also set as the engine's in-turn token limit (`model_auto_compact_token_limit`), measured on the usable window (95% of the server's context, like the meter). A turn compacts at the threshold, then carries on from the summary.
+- **Live, threshold 20% (49,807 tokens):** one turn read ten log files of about 6k tokens each, then listed their codewords.
+
+| | Peak prompt in the turn | Model requests after compaction | Codewords |
+|---|---|---|---|
+| 0.31.1 | 70,118 tokens | 0 (compacted only after the final answer) | 10/10 |
+| 0.32.0 | 58,028 tokens | 3 (compacted mid-turn, then continued from 10.5k) | 10/10 |
+
+When the model reads all ten files in one parallel batch, nothing is left to do in the turn after that batch, so the engine compacts right after the answer; that is expected.
+
+## Background switch
+
+- **One switch under the main tabs** turns background work on or off: heartbeat (including follow-ups), goals, routines, night shift, memory learning and dreams, and page watches. Its line lists what is active ("On · Heartbeat · 2 goals · 1 routine") or says "Off · nothing runs on its own".
+- **Off** stops the running goal step, heartbeat check, routine or learning job, and keeps everything from starting. It persists across restarts.
+- **On** advances missed heartbeat and routine occurrences to their next time, and pushes overdue interval goals an hour out, exactly like reopening the app. Turning it back on never releases a burst of posts.
+- **Where else:** the same switch is in Goals (Pause background), in the widget menu and in the phone menu.
+- **Live:** the switch went off and back on, the Goals page showed the paused note, and chat kept working.
+
+## Other fixes
+
+- **Skill upgrades:** the little-bot skill's three shipped versions since 0.10.1 were missing from the upgrade list, so unedited copies never updated. They now upgrade, and the skill no longer mentions Codex or "Pause all", and gives the right compaction default (50%, not 80%) and the real catch-up timing.
+- **System prompt:** it said missed heartbeat and routine runs "catch up once after reopening". They are skipped, and the prompt now says so.
+- **Docs:** the phone docs linked the private Android repository; the link is gone.
+- **Tests:** controller tests now run against a small fake local server instead of a fake cloud account, so they never reach the real Strata.
+
+Node tests (130), the widget and browser Electron tests, and validate-docs pass. Live eval: midturn-compaction, quick and read pass.
+
 # Version 0.31.1 verification
 
 0.31.1 names the enabled skills in every thread's instructions and records the live check of 0.31.0 on Strata 0.1.44.1 (qwen3.8-flash-next-iq3_s).

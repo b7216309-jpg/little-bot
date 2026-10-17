@@ -72,7 +72,7 @@
   "src/backups.cjs": "04-memory.md",
   "src/bundled-skills.cjs": "12-skills-plugins-mcp.md",
   "src/calendar.cjs": "09-events-intents-calendar.md",
-  "src/codex.cjs": "01-runtime-storage.md",
+  "src/engine.cjs": "01-runtime-storage.md",
   "src/compaction.cjs": "02-chat-context.md",
   "src/connections.cjs": "03-models-strata.md",
   "src/controller.cjs": "02-chat-context.md",

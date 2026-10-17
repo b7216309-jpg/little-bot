@@ -22,8 +22,7 @@ const result = (outcome, extra = {}) => ({ outcome, summary: outcome === 'no-cha
 
 test('/goal verdict parsing repairs IQ3 syntax, aliases and boolean strings', () => {
   const output = "Answer: {'complete':'yes','explanation':23,'suggestion':null,}";
-  assert.deepEqual(parseVerdict(output, { local: true }), { met: true, impossible: false, reason: '23', next: '' });
-  assert.throws(() => parseVerdict(output), /readable JSON/);
+  assert.deepEqual(parseVerdict(output), { met: true, impossible: false, reason: '23', next: '' });
 });
 
 test('/goal checker retries one malformed verdict with validation feedback', async () => {

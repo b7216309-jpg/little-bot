@@ -271,7 +271,7 @@ class ExtensionFiles {
     const manifests = ['plugin.json', '.codex-plugin/plugin.json'].map(relative => localPath(root, relative));
     let manifestPath;
     for (const candidate of manifests) if (await exists(candidate)) { manifestPath = candidate; break; }
-    if (!manifestPath) throw new Error('The selected folder needs plugin.json or .codex-plugin/plugin.json.');
+    if (!manifestPath) throw new Error('The selected folder needs a plugin.json manifest.');
     const manifest = await json(manifestPath);
     if (!object(manifest)) throw new Error('Plugin manifest must be an object.');
     const allowed = new Set(['name', 'version', 'description', 'skills', 'mcpServers', '$schema', 'interface', 'author', 'license', 'homepage', 'repository', 'keywords']);

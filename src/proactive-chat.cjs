@@ -57,7 +57,7 @@ function post(data, fields, { duplicate = null, nowMs = Date.now() } = {}) {
     const settings = data.settings || {};
     const now = nowMs;
     chat = { id: randomUUID(), title: 'Conversation', threadId: '', workspace: settings.workspace || '',
-      model: settings.connection === 'local' ? settings.localModel || '' : settings.model || '',
+      model: settings.localModel || '',
       ...connectionBinding(settings), effort: settings.effort || 'low', mode: 'execute', toolMode: 'full',
       createdAt: now, updatedAt: now, status: 'idle', messages: [] };
     data.chats.unshift(chat);

@@ -8,7 +8,7 @@ Two repeating schedules are supported: elapsed intervals from 1 to 10,080 minute
 
 The foreground scheduler polls every 15 seconds. With the event runtime active it publishes automation.due; [EventRuntime](../../src/event-runtime.cjs) starts the saved routine. The controller sends its prompt into the continuous public conversation with automation origin metadata, waits for the turn to finish and preserves the user's conversation title/mode/working objective. It does not teach the saved prompt as a new personal fact.
 
-Chat-tool creation defaults to disabled unless enabled:true is supplied. Enable/resume authorizes scheduled work; Run can execute a saved routine now. Global Pause all and a mismatched saved connection prevent autonomous starts. Scheduled runs receive the read-only Little Bot dynamic tools: skill lookup, recall and calendar_list. Direct-chat management, browser and web-service dynamic tools are not included. Native terminal/file/MCP capabilities are configured separately. A saved prompt alone cannot create a missing integration.
+Chat-tool creation defaults to disabled unless enabled:true is supplied. Enable/resume authorizes scheduled work; Run can execute a saved routine now. The Background switch (global pause) and a mismatched saved server or model prevent autonomous starts. Scheduled runs receive the read-only Little Bot dynamic tools: skill lookup, recall and calendar_list. Direct-chat management, browser and web-service dynamic tools are not included. Native terminal/file/MCP capabilities are configured separately. A saved prompt alone cannot create a missing integration.
 
 ## Due times, busy work and reopening
 

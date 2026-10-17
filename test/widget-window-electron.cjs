@@ -23,9 +23,9 @@ app.whenReady().then(async () => {
   const client = new EventEmitter(); client.request = () => { throw new Error('This UI test must never contact an engine'); };
   const controller = new Controller({ store, client });
   controller.runtime = { status: 'ready' }; controller.account = { status: 'connected' };
-  controller.connection = { type: 'codex', status: 'connected' };
+  controller.connection = { type: 'local', status: 'connected' };
   controller.models = [{ id: 'widget-fixture', displayName: 'Fixture' }];
-  Object.assign(store.data.settings, { connection: 'codex', model: 'widget-fixture' });
+  Object.assign(store.data.settings, { connection: 'local', model: 'widget-fixture', localModel: 'widget-fixture' });
   store.data.chats = [{ id: 'chat-fixture', title: 'One conversation', mode: 'execute', status: 'idle',
     messages: [{ id: 'm1', role: 'user', text: 'A little room to think.', createdAt: new Date().toISOString() },
       { id: 'm2', role: 'assistant', text: 'Right here when you need me.\n\nWhat shall we put in motion?', createdAt: new Date().toISOString() }] }];
@@ -69,7 +69,7 @@ app.whenReady().then(async () => {
     widget.setSize(360, 420);
     await waitFor(widget, "document.getElementById('effort-select').value === 'none' && !document.getElementById('effort-select').classList.contains('hidden')");
     assert.equal(await evaluate(widget, "document.getElementById('composer').scrollWidth <= document.getElementById('composer').clientWidth"), true, 'Strata controls fit the smallest widget');
-    controller.connection = { type: 'codex', status: 'connected' }; controller.stateRevision++;
+    controller.connection = { type: 'local', status: 'connected' }; controller.stateRevision++;
     desktop.broadcast({ type: 'state', state: controller.state() }); widget.setSize(420, 560);
     await click(widget, 'widget-collapse');
     await waitFor(widget, "document.documentElement.classList.contains('widget-collapsed')");

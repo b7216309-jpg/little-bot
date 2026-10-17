@@ -2,7 +2,7 @@
 
 ## How it works
 
-[Heartbeat](../../src/heartbeat.cjs) performs small proactive checks from a saved checklist; it does not own an ongoing goal's full review. It polls every 15 seconds and honors enable state, nonempty checklist, interval, PC-local active hours, maximum daily runs, global pause and execution-lane availability, on every connection. Active hours can cross midnight; equal start/end represents all-day availability. Scheduled checks wait while the user is away (ten minutes without input) and run when they are back; a check missed while the app was closed is not replayed at startup.
+[Heartbeat](../../src/heartbeat.cjs) performs small proactive checks from a saved checklist; it does not own an ongoing goal's full review. It polls every 15 seconds and honors enable state, nonempty checklist, interval, PC-local active hours, maximum daily runs, the Background switch (global pause) and execution-lane availability. Active hours can cross midnight; equal start/end represents all-day availability. Scheduled checks wait while the user is away (ten minutes without input) and run when they are back; a check missed while the app was closed is not replayed at startup.
 
 [Controller.runHeartbeat](../../src/controller.cjs) creates an ephemeral engine thread in cache slot 2. It supplies current time, checklist, relevant profile/memory, recent local heartbeat summaries, goal state and attention preferences. Read-only Little Bot recall/skill/calendar tools are available. Native execution is workspace-write with network disabled, and MCP is disabled and verified for this thread. Therefore a checklist needing remote APIs or a GitHub action cannot simply use ordinary chat's integrations.
 

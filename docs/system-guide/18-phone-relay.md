@@ -22,7 +22,7 @@ The [relay](../../src/relay.cjs) is an optional local web server (port 8787 by d
 
 Browsers only allow service workers, installing to the home screen and push notifications on https. **Turn on Tailscale HTTPS** runs `tailscale serve --bg http://127.0.0.1:<port>`, which gives the PC an `https://<machine>.<tailnet>.ts.net` address with a real certificate, reachable from the phone over the encrypted tailnet. The relay detects this with `tailscale status` / `tailscale serve status` and offers the https link first.
 
-On https, the phone's menu can turn on notifications. [web-push.cjs](../../src/web-push.cjs) implements Web Push without a dependency: VAPID (ES256 JWT, keys kept in `relay.json`) and aes128gcm payload encryption (RFC 8291). Pushes only go to known push services (FCM, Mozilla, Windows, Apple). The rules in `relay-view.notifications` send one for a new proactive message, a new question or approval, and a finished reply. They are sent only while no phone has the app open and the desktop window is not focused. The service worker also skips the notification if the app is already visible.
+The phone's menu starts with the **Background work** switch, the same global pause as the desktop sidebar switch (`/api/background`). On https, the phone's menu can also turn on notifications. [web-push.cjs](../../src/web-push.cjs) implements Web Push without a dependency: VAPID (ES256 JWT, keys kept in `relay.json`) and aes128gcm payload encryption (RFC 8291). Pushes only go to known push services (FCM, Mozilla, Windows, Apple). The rules in `relay-view.notifications` send one for a new proactive message, a new question or approval, and a finished reply. They are sent only while no phone has the app open and the desktop window is not focused. The service worker also skips the notification if the app is already visible.
 
 App icons come from the Wink icon build ([build-icons.cjs](../../scripts/build-icons.cjs)): 192 and 512 px PNGs and a full-bleed maskable PNG for Android launchers.
 
@@ -38,7 +38,7 @@ App icons come from the Wink icon build ([build-icons.cjs](../../scripts/build-i
 
 ## Android app
 
-The Android app lives in its own repository, [little-bot-android](https://github.com/b7216309-jpg/little-bot-android). It is plain Java with no third-party libraries, built with the SDK build tools without Gradle. Its `npm run build -- --to <this project>` copies the signed APK to `resources/android/little-bot.apk`. The relay serves that file at `/little-bot.apk`, and Chrome on an Android phone offers it in the phone web app's menu. The signing key stays next to the Android SDK and is never committed.
+The Android app lives in its own private repository. It is plain Java with no third-party libraries, built with the SDK build tools without Gradle. Its `npm run build -- --to <this project>` copies the signed APK to `resources/android/little-bot.apk`. The relay serves that file at `/little-bot.apk`, and Chrome on an Android phone offers it in the phone web app's menu. The signing key stays next to the Android SDK and is never committed.
 
 - **Pairing.** The desktop QR code opens the pairing page in Chrome. "Pair the Android app instead" hands the code to the app through an `intent://` link. Pasting the pairing link also works. The token is encrypted with an Android Keystore key.
 - **Chat.** A WebView loads the PC's own phone web app and passes it the token through a small JavaScript bridge. Only the PC's origin stays in the WebView; other links open outside it. Chat, questions, buttons and goals behave exactly as on the web.

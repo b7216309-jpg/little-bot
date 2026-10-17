@@ -56,7 +56,7 @@ Most assistants wait for you to type. Little Bot keeps one continuous conversati
 
 | | |
 |---|---|
-| **Finish things** | Type `/goal <done when…>` and it keeps working across turns until an independent check (and an optional test command) confirms it, like Claude Code and Codex. Pause, resume or clear it any time, from the PC or the phone. |
+| **Finish things** | Type `/goal <done when…>` and it keeps working across turns until an independent check (and an optional test command) confirms it, like Claude Code's goal mode. Pause, resume or clear it any time, from the PC or the phone. |
 | **Work on your PC** | Files and terminal in a working folder (*Execute*), or read-only *Plan* mode. Attach images, PDFs, Word and text files; it can hand files back. |
 | **Use the web** | A built-in browser panel it drives while you watch (logins persist), plus optional Firecrawl or Brave Search keys for search and scraping. |
 | **Use your apps** | Windows UI Automation: list windows, read controls, click, type and select in ordinary desktop apps. |
@@ -80,7 +80,7 @@ flowchart LR
   phone(["Phone page<br>and Android app"]) -->|Tailscale| relay["Phone relay"]
   relay --> core["Controller"]
   app --> core
-  core --> engine["Codex engine<br>(pinned app-server)"]
+  core --> engine["Assistant engine<br>(pinned app-server)"]
   engine --> model[("Local model<br>Strata / Qwen")]
   core --> memory[("Memory<br>SQLite + embeddings")]
   events["Moments: back at the PC,<br>game started, got home"] --> lane
@@ -90,7 +90,7 @@ flowchart LR
 
 ## Get started
 
-You need Windows 10 or 11 (x64), [Node.js 24](https://nodejs.org) to build, and either a local OpenAI-compatible server (Strata at `http://127.0.0.1:8080/v1` by default) or a Codex sign-in.
+You need Windows 10 or 11 (x64), [Node.js 24](https://nodejs.org) to build, and a local OpenAI-compatible server (Strata at `http://127.0.0.1:8080/v1` by default).
 
 ```powershell
 git clone https://github.com/b7216309-jpg/little-bot.git
@@ -129,7 +129,7 @@ npm run package          # unpacked app, portable ZIP and Setup EXE
 
 The README screenshots are generated from the real interface with fictional demo data, with no model or personal profile involved: `npx electron scripts/readme-screenshots.cjs`.
 
-Plain JavaScript and Electron with a strict renderer (no Node access, context isolation, sandbox). Pinned: Electron 44.4.5, Codex 0.157.1, ONNX Runtime 1.30.0, Mammoth 1.12.3, unpdf 1.8.1. Embedding models are fetched and verified at build time, then bundled, so the installed app downloads nothing.
+Plain JavaScript and Electron with a strict renderer (no Node access, context isolation, sandbox). Pinned: Electron 44.4.5, the assistant engine (`@openai/codex` 0.157.1 app-server), ONNX Runtime 1.30.0, Mammoth 1.12.3, unpdf 1.8.1. Embedding models are fetched and verified at build time, then bundled, so the installed app downloads nothing.
 
 ## Status
 

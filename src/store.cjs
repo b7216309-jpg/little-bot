@@ -167,8 +167,8 @@ function persistedData(data, defaultWorkspace, recovering = false) {
         }),
       };
       if (typeof chat.error === 'string') result.error = chat.error;
-      if (typeof chat.lessonBlock === 'string' && chat.connection === 'local') result.lessonBlock = chat.lessonBlock.slice(0, 1000);
-      if (Array.isArray(chat.lessonKeys) && chat.connection === 'local') result.lessonKeys = [...new Set(chat.lessonKeys.filter(key => typeof key === 'string' && /^[a-z0-9][a-z0-9:_-]{0,100}$/i.test(key)))].slice(0, 12);
+      if (typeof chat.lessonBlock === 'string') result.lessonBlock = chat.lessonBlock.slice(0, 1000);
+      if (Array.isArray(chat.lessonKeys)) result.lessonKeys = [...new Set(chat.lessonKeys.filter(key => typeof key === 'string' && /^[a-z0-9][a-z0-9:_-]{0,100}$/i.test(key)))].slice(0, 12);
       const goal = normalizeChatGoal(chat.goal, { recovering });
       if (goal) result.goal = goal;
       const pendingProactive = normalizePending(chat.pendingProactive);

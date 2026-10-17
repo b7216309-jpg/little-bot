@@ -44,7 +44,7 @@ window.LittleBotWidget = (() => {
     const offline = state.account?.status !== 'connected';
     const broken = state.runtime?.status === 'error';
     const label = waiting ? 'Needs your input' : chat?.compaction?.status === 'running' ? 'Summarizing…' : working ? 'Working…'
-      : broken ? 'Needs attention' : offline ? 'Offline' : state.runtime?.status !== 'ready' ? 'Starting…' : (state.connection?.type || state.settings?.connection) === 'local' ? 'Local' : 'Connected';
+      : broken ? 'Needs attention' : offline ? 'Offline' : state.runtime?.status !== 'ready' ? 'Starting…' : 'Local';
     $('widget-status').textContent = label;
     $('widget-pill-status').textContent = waiting || working || offline || broken ? label : 'Ready';
     for (const dot of document.querySelectorAll('.widget-status-dot')) {
@@ -67,6 +67,7 @@ window.LittleBotWidget = (() => {
     $('widget-more').addEventListener('click', () => { $('widget-menu').hidden = !$('widget-menu').hidden; $('widget-more').setAttribute('aria-expanded', String(!$('widget-menu').hidden)); });
     document.querySelectorAll('[data-widget-view]').forEach(button => button.addEventListener('click', () => change('full', button.dataset.widgetView)));
     $('widget-compact').addEventListener('click', () => { closeMenu(); $('compact-chat').click(); });
+    $('widget-background').addEventListener('click', () => { closeMenu(); void api.toggleBackground(); });
     document.addEventListener('click', event => { if (!event.target.closest('.widget-menu-wrap')) closeMenu(); });
     document.addEventListener('keydown', event => {
       if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'm') {

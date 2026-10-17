@@ -83,7 +83,7 @@ class WebWatcher {
   start() { if (!this.timer) { this.timer = setInterval(() => { void this.tick(); }, TICK_MS); this.timer.unref?.(); setTimeout(() => { void this.tick(); }, 60000).unref?.(); } }
   stop() { clearInterval(this.timer); this.timer = null; }
   async tick() {
-    if (this.checking) return null;
+    if (this.checking || this.store.data.autonomy?.paused) return null;
     const due = this.watches.find(item => !item.lastCheckedAt || this.now() - item.lastCheckedAt >= item.intervalHours * 3600000);
     return due ? this.check(due) : null;
   }

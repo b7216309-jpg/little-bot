@@ -26,6 +26,6 @@ The suite is deliberately small (about 100 Node tests and a few Electron fixture
 
 [package.cjs](../../scripts/package.cjs) prepares embeddings and packages Windows x64 Electron with pinned production dependencies, excluding development tests/scripts and unsupported platform binaries. It creates a portable ZIP and, on Windows, an installer via [build-installer.ps1](../../scripts/build-installer.ps1). [install.ps1](../../scripts/install.ps1) and [uninstall.ps1](../../scripts/uninstall.ps1) manage local installation.
 
-Package version comes from package.json. Installing a new binary does not deliberately reset personal app data; that data lives outside the installed resources. A partial copy, missing native dependency, unsupported OS/architecture, locked files or a long executable path can prevent launching. The bundled Codex executable uses a namespaced Windows path for long-path launches.
+Package version comes from package.json. Installing a new binary does not deliberately reset personal app data; that data lives outside the installed resources. A partial copy, missing native dependency, unsupported OS/architecture, locked files or a long executable path can prevent launching. The bundled engine executable uses a namespaced Windows path for long-path launches.
 
 This pass changed documentation/audit evidence only. It did not rebuild/reinstall the app, mutate personal settings, run real goals or alter the Strata configuration.

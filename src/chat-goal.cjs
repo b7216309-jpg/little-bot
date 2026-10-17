@@ -1,5 +1,5 @@
 'use strict';
-// /goal in a conversation, like Claude Code and Codex: Little Bot keeps working across turns until an
+// /goal in a conversation, like Claude Code's goal mode: Little Bot keeps working across turns until an
 // independent check confirms the user's condition is met, judges it impossible, or a budget runs out.
 // Each goal turn is an ordinary chat turn. Between turns an optional check command runs in the working
 // folder, then a separate, tool-less model call decides "met / not yet / impossible" and its feedback
@@ -8,7 +8,7 @@ const { randomUUID } = require('node:crypto');
 const { parseModelJson, normalizeModelOutput } = require('./model-json.cjs');
 
 const DEFAULT_TURNS = 20, MAX_TURNS = 100, DEFAULT_MINUTES = 90, MAX_MINUTES = 720;
-const EVAL_TIMEOUT_MS = 10 * 60000, CODEX_EVAL_TIMEOUT_MS = 3 * 60000, CHECK_TIMEOUT_MS = 5 * 60000, OUTPUT_LIMIT = 100000;
+const EVAL_TIMEOUT_MS = 10 * 60000, CHECK_TIMEOUT_MS = 5 * 60000, OUTPUT_LIMIT = 100000;
 const STATUSES = ['pursuing', 'paused', 'achieved', 'unmet', 'budget'];
 const COMMANDS = { status: 'status', pause: 'pause', stop: 'pause', resume: 'resume', continue: 'resume', clear: 'clear', cancel: 'clear', off: 'clear', reset: 'clear' };
 
@@ -113,18 +113,18 @@ function transcript(chat, goal) {
   }
   return lines.join('\n\n');
 }
-function checkPrompt(goal, chat, check, { local = false } = {}) {
+function checkPrompt(goal, chat, check) {
   const parts = [`Goal condition, set by the user:\n${goal.condition}`];
   if (check) parts.push(`Required check \`${goal.check}\` just ran in the working folder: exit code ${check.exitCode ?? 'unknown'} (${check.passed ? 'passed' : 'FAILED'}).\nOutput (end):\n${check.output || '(no output)'}`);
   parts.push(`Goal turns used: ${goal.turns} of ${goal.maxTurns}.`);
   if (goal.history.length) parts.push(`Your earlier verdicts:\n${goal.history.map(item => `- after turn ${item.turn}: ${item.met ? 'met' : 'not met'}: ${item.reason}`).join('\n')}`);
   parts.push(`Work since the goal was set (oldest first; the end is the latest turn):\n\n${transcript(chat, goal)}`);
-  if (local) parts.push(`Return only one JSON object matching this schema, without Markdown: ${JSON.stringify(GOAL_CHECK_SCHEMA)}`);
+  parts.push(`Return only one JSON object matching this schema, without Markdown: ${JSON.stringify(GOAL_CHECK_SCHEMA)}`);
   return parts.join('\n\n');
 }
-function parseVerdict(output, { local = false } = {}) {
-  const parsed = parseModelJson(output, 'The goal check did not return readable JSON.', { local });
-  const value = local ? normalizeModelOutput(parsed, GOAL_CHECK_SCHEMA) : parsed;
+function parseVerdict(output) {
+  const parsed = parseModelJson(output, 'The goal check did not return readable JSON.', { local: true });
+  const value = normalizeModelOutput(parsed, GOAL_CHECK_SCHEMA);
   if (!value || typeof value !== 'object' || Array.isArray(value) || !('met' in value)) throw new Error('The goal check did not say whether the goal is met.');
   const flag = item => item === true || item === 'true';
   return { met: flag(value.met), impossible: flag(value.impossible),
@@ -303,8 +303,7 @@ class ChatGoalRunner {
   // One tool-less, read-only model turn in its own ephemeral thread.
   judge(chat, goal, check) {
     const controller = this.controller;
-    const local = chat.connection === 'local';
-    const timeout = local ? EVAL_TIMEOUT_MS : CODEX_EVAL_TIMEOUT_MS;
+    const timeout = EVAL_TIMEOUT_MS;
     return new Promise((resolve, reject) => {
       let resolveCompletion;
       const completion = new Promise(done => { resolveCompletion = done; });
@@ -336,10 +335,10 @@ class ChatGoalRunner {
           if (op.done) return void this.release(op);
           op.turnStartAttempted = true;
           const turn = await controller.client.request('turn/start', {
-            threadId: op.threadId, input: [{ type: 'text', text: checkPrompt(goal, chat, check, { local }) }], cwd: chat.workspace,
+            threadId: op.threadId, input: [{ type: 'text', text: checkPrompt(goal, chat, check) }], cwd: chat.workspace,
             model: chat.model || undefined, effort: controller.effectiveEffort(chat.model, 'low'), approvalPolicy: 'never', approvalsReviewer: 'user',
-            ...(local ? {} : { outputSchema: GOAL_CHECK_SCHEMA }), sandboxPolicy: { type: 'readOnly' },
-          }, local ? timeout : 60000);
+            sandboxPolicy: { type: 'readOnly' },
+          }, timeout);
           op.turnId ||= turn?.turn?.id;
           if (!op.turnId) throw new Error('The goal check did not receive a review turn.');
           op.turnStartAttempted = false;
@@ -363,9 +362,9 @@ class ChatGoalRunner {
     else if (method === 'turn/completed') {
       if (['interrupted', 'failed'].includes(params.turn?.status) || params.turn?.error) this.settle(op, new Error(params.turn?.error?.message || 'The goal check was interrupted.'));
       else {
-        try { this.settle(op, null, parseVerdict(op.output, { local: op.chat.connection === 'local' })); }
+        try { this.settle(op, null, parseVerdict(op.output)); }
         catch (error) {
-          if (op.chat.connection === 'local' && !op.retryCount) op.retryStarting = this.retryMalformed(op, error);
+          if (!op.retryCount) op.retryStarting = this.retryMalformed(op, error);
           else this.settle(op, error);
         }
       }
@@ -380,7 +379,7 @@ class ChatGoalRunner {
       op.turnStartAttempted = true;
       const turn = await this.controller.client.request('turn/start', {
         threadId: op.threadId,
-        input: [{ type: 'text', text: `${checkPrompt(op.goal, op.chat, op.check, { local: op.chat.connection === 'local' })}\n\nYour previous answer failed validation: ${clean(error.message, 300)}. Return a corrected verdict object matching the required schema.` }],
+        input: [{ type: 'text', text: `${checkPrompt(op.goal, op.chat, op.check)}\n\nYour previous answer failed validation: ${clean(error.message, 300)}. Return a corrected verdict object matching the required schema.` }],
         cwd: op.chat.workspace, model: op.chat.model || undefined, effort: this.controller.effectiveEffort(op.chat.model, 'low'),
         approvalPolicy: 'never', approvalsReviewer: 'user', sandboxPolicy: { type: 'readOnly' },
       }, EVAL_TIMEOUT_MS);

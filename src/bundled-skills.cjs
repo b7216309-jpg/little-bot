@@ -5,7 +5,7 @@ const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { parseSkill, LIMITS } = require('./extensions.cjs');
 
-const VERSION = 21;
+const VERSION = 22;
 const BUNDLES = [
   { name: 'little-bot', introduced: 1 }, { name: 'meeting-prep', introduced: 1 },
   { name: 'research-brief', introduced: 1 }, { name: 'web-tools', introduced: 2 },
@@ -13,6 +13,9 @@ const BUNDLES = [
 ];
 const ORIGINAL_HASHES = {
   'little-bot': [
+    '6a819e2ffc463d961094056097ad4e85a226b9368b3b8c329acd84b74fdcd046', // 0.11–0.31 guide (README refresh)
+    '119d553e9c4d52fba2a3b3aafb912fbe94f178a6c36515ea209f28eea21236d1', // ongoing-goal catch-up guide
+    '5fd21656949aef5ab6b67cf521cc5f62934511d5d01ad7c8a71cdee483dbe949', // 0.10.1 guide
     '5d419696b2515c1ea16a85c296cd3a803b25ce8b87b7bd23d8c64c9104cbae1c', // 0.10.0 goal contract guide
     '9416b284a31d501a3cc237e789a426366e3ceb5cc17e635430ac7b5de1fd2c3c', // final 0.9.2 shipped operating guide
     'dfeab748c01278be68d9b794b0271b6d5c541ebb75366f32065d093359b6dd8e', // prior installed operating guide

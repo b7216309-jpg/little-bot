@@ -124,7 +124,7 @@ function responseEvents(namespaceTools) {
     try {
       const event = JSON.parse(buffer.subarray(5).toString('utf8'));
       let changed = false;
-      // llama.cpp b10068 omits the single reasoning part's index. Codex
+      // llama.cpp b10068 omits the single reasoning part's index. The engine
       // 0.157.1 requires it to forward response.reasoning_text.delta live.
       if (event?.type === 'response.reasoning_text.delta' && typeof event.delta === 'string'
         && !Object.hasOwn(event, 'content_index')) {
@@ -165,7 +165,7 @@ function responseEvents(namespaceTools) {
   });
 }
 
-// Codex's custom-provider client cannot add chat_template_kwargs. This narrow
+// The engine's custom-provider client cannot add chat_template_kwargs. This narrow
 // local transport adds Qwen's real switch without altering history or SSE data.
 class LocalModelRelay {
   constructor({ thinking = () => true, sampling = () => ({}), onError = () => {}, onToolRepair = () => {} } = {}) {
@@ -276,7 +276,7 @@ class LocalModelRelay {
       const adapter = base ? this.adapters.get(match[2]) : null;
       if (!base || request.method !== 'POST') throw new RequestError(404, 'Local model route not found.');
       if (!/^application\/json(?:\s*;|$)/i.test(request.headers['content-type'] || '')) throw new RequestError(415, 'The local model request must be JSON.');
-      // Pinned Codex only compresses authenticated OpenAI-backend requests; local
+      // The pinned engine only compresses authenticated cloud-backend requests; local
       // providers send plain JSON. Fail clearly if that transport contract changes.
       if (request.headers['content-encoding'] && request.headers['content-encoding'] !== 'identity') throw new RequestError(415, 'Compressed local model requests are not supported.');
       if (Number(request.headers['content-length'] || 0) > MAX_BODY_BYTES) throw new RequestError(413, 'Local model request is too large.');

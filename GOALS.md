@@ -1,6 +1,6 @@
 # Goals: tasks and ongoing work
 
-> Two kinds of goals: this page covers **background goals**, which Little Bot works on by itself over days (open the Goals page, or type `/goals` in the chat). To have it keep working on something *right now in the conversation* until it is done, type `/goal <what must be true when it is done>`, like in Claude Code or Codex. See [the system guide](docs/system-guide/02-chat-context.md#goal-keep-working-until-it-is-done).
+> Two kinds of goals: this page covers **background goals**, which Little Bot works on by itself over days (open the Goals page, or type `/goals` in the chat). To have it keep working on something *right now in the conversation* until it is done, type `/goal <what must be true when it is done>`, like in Claude Code. See [the system guide](docs/system-guide/02-chat-context.md#goal-keep-working-until-it-is-done).
 
 Goals share Little Bot's continuous conversation. A **Task** has a finite outcome and acceptance checks. An **Ongoing** goal acts when Little Bot can do useful work and coaches when the user must act. An ongoing review ending does not complete the overall goal.
 
@@ -36,7 +36,7 @@ Proposed actions record an owner: bot or user. A verified user action needs a ci
 
 One goal step runs at a time and shares the engine execution lane with chat, heartbeat and automations. Chat has priority. A chat message pauses active goal work; no competing turn is submitted to the same engine thread. Questions wait for answers. Failed or malformed outcomes block for review rather than repeatedly claiming success.
 
-Manual, interval and stable file-change triggers remain available. Interval goals use their saved minute interval; an ongoing review returns to its next activation rather than declaring the lifelong goal complete. The app must be open: there is no background Windows service, closed-app backlog or wake-from-sleep scheduler. Missed intervals advance to a future occurrence on reopening. **Pause all** persists and pauses goals, heartbeat and automations.
+Manual, interval and stable file-change triggers remain available. Interval goals use their saved minute interval; an ongoing review returns to its next activation rather than declaring the lifelong goal complete. The app must be open: there is no background Windows service, closed-app backlog or wake-from-sleep scheduler. Missed intervals advance to a future occurrence on reopening. The **Background** switch in the sidebar (also **Pause background** here, in the widget menu and on the phone) persists and pauses goals, heartbeat, routines, night shift, memory learning and page watches; turning it back on skips what fell due meanwhile.
 
 Heartbeat handles its checklist and small event-driven actions. It should not duplicate the goal's full daily review. Configure one owner for a recurring task instead of creating copies in goals and heartbeat.
 

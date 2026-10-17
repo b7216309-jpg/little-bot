@@ -367,6 +367,7 @@ function render() {
   $('send').disabled = busy || uploading > 0 || !connected || !snap?.ready || (!$('input').value.trim() && !pending.length);
   if (stick) $('chat').scrollTop = $('chat').scrollHeight;
   if ($('goals-sheet').open) renderGoals();
+  if ($('menu-sheet').open) renderBackground();
 }
 
 function renderApprovals() {
@@ -562,7 +563,13 @@ function renderNative() {
   $('location-toggle').className = sharing ? 'secondary' : 'primary';
   $('home-set').classList.toggle('hidden', !sharing);
 }
+function renderBackground() {
+  const paused = Boolean(snap?.autonomyPaused);
+  $('background-toggle').setAttribute('aria-checked', String(!paused));
+  $('background-state').textContent = paused ? 'Off: nothing runs on its own until you turn it back on' : 'On: heartbeat, goals and routines run on their own';
+}
 async function renderMenu() {
+  renderBackground();
   $('version').textContent = snap?.version ? `Little Bot ${snap.version} on your PC` : '';
   const enable = $('push-enable'), test = $('push-test'), disable = $('push-disable');
   $('get-apk').classList.toggle('hidden', !isAndroid || Boolean(native));
@@ -634,6 +641,13 @@ $('home-set').addEventListener('click', () => attempt(async () => {
 // The app calls this after it gains or loses location permission.
 window.littleBotNativeChanged = () => { if ($('menu-sheet').open) renderNative(); };
 $('menu-button').addEventListener('click', () => { renderMenu(); $('menu-sheet').showModal(); });
+$('background-toggle').addEventListener('click', async () => {
+  const on = Boolean(snap?.autonomyPaused);
+  $('background-toggle').disabled = true;
+  const ok = await attempt(() => api('background', { on }));
+  $('background-toggle').disabled = false;
+  if (ok) { snap = { ...snap, autonomyPaused: !on }; renderBackground(); toast(on ? 'Background work is on' : 'Background work is off'); }
+});
 for (const button of document.querySelectorAll('[data-close]')) button.addEventListener('click', () => button.closest('dialog').close());
 for (const dialog of document.querySelectorAll('dialog')) dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); });
 

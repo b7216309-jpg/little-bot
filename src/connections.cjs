@@ -58,24 +58,20 @@ function normalizeConnectionSettings(value = {}) {
   let baseUrl = DEFAULT_LOCAL_BASE_URL, model = DEFAULT_LOCAL_MODEL;
   try { baseUrl = localBaseUrl(value.localBaseUrl); } catch { /* Recover with the known local endpoint. */ }
   try { model = localModel(value.localModel); } catch { /* Recover with the installed model. */ }
-  const connection = value.connection === 'codex' ? 'codex' : 'local';
-  const codexModel = typeof value.codexModel === 'string' ? value.codexModel.slice(0, 200)
-    : typeof value.model === 'string' && value.model !== model ? value.model.slice(0, 200) : '';
-  return { connection, localBaseUrl: baseUrl, localModel: model, localThinking: value.localThinking !== false,
-    codexModel, model: connection === 'local' ? model : (value.model || codexModel || '') };
+  return { connection: 'local', localBaseUrl: baseUrl, localModel: model, localThinking: value.localThinking !== false, model };
 }
-// Legacy records came from the OpenAI connection. Never silently send their history elsewhere.
-function connectionBinding(value = {}, fallback = 'codex') {
-  const connection = ['local', 'codex'].includes(value.connection) ? value.connection : fallback;
-  return connection === 'local' ? { connection, localBaseUrl: localBaseUrl(value.localBaseUrl) } : { connection };
+// Every task runs on the local server it was saved with. Records from the retired cloud connection move to it.
+function connectionBinding(value = {}) {
+  let baseUrl = DEFAULT_LOCAL_BASE_URL;
+  try { baseUrl = localBaseUrl(value.localBaseUrl); } catch { /* Recover with the known local endpoint. */ }
+  return { connection: 'local', localBaseUrl: baseUrl };
 }
 function isConnectionSelected(value, settings = {}) {
-  const saved = connectionBinding(value), selected = settings.connection || 'codex';
-  return saved.connection === selected && (selected !== 'local' || (saved.localBaseUrl === localBaseUrl(settings.localBaseUrl)
-    && (!value.model || value.model === settings.localModel)));
+  return connectionBinding(value).localBaseUrl === connectionBinding(settings).localBaseUrl
+    && (!value.model || value.model === settings.localModel);
 }
 function requireSelectedConnection(value, settings) {
-  if (!isConnectionSelected(value, settings)) throw new Error('Select this task’s saved connection in Settings before running it.');
+  if (!isConnectionSelected(value, settings)) throw new Error('Select this task’s saved local server and model in Settings before running it.');
 }
 async function readJson(url) {
   const response = await fetch(url, { signal: AbortSignal.timeout(7000), redirect: 'error' });
@@ -89,7 +85,7 @@ async function readJson(url) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 async function probeLocal(settings) {
-  const baseUrl = localBaseUrl(settings.localBaseUrl), selected = localModel(settings.localModel);
+  const baseUrl = localBaseUrl(settings.localBaseUrl), wanted = localModel(settings.localModel);
   const origin = new URL(baseUrl).origin;
   const [catalog, properties] = await Promise.allSettled([readJson(`${baseUrl}/models`), readJson(`${origin}/props`)]);
   if (catalog.status === 'rejected') throw new Error(`Local model is offline. Start your Qwen launcher, then Check connection. ${catalog.reason.message}`);
@@ -106,8 +102,11 @@ async function probeLocal(settings) {
         contextWindow: item.meta?.n_ctx ?? details.meta?.n_ctx,
       });
     });
-  let found = models.find(item => item.id === selected);
+  let found = models.find(item => item.id === wanted);
+  // A local server loads one model at a time. A fresh profile, or one saved before the server switched models, uses it.
+  if (!found && models.length === 1) found = models[0];
   if (!found) throw new Error('The selected model is not loaded. Choose the model ID shown by your local server.');
+  const selected = found.id;
   const props = properties.status === 'fulfilled' ? properties.value : {};
   let adapter = null, health = null;
   // Strata 0.1.27 also exposes llama.cpp-compatible /props, but still needs
@@ -132,14 +131,13 @@ async function probeLocal(settings) {
   const window = adapter === 'strata' ? health.max_context : (props.default_generation_settings?.n_ctx || found.contextWindow);
   const contextWindow = Number.isSafeInteger(window) && window >= 4096 && window <= 4000000 ? window : 32768;
   const vision = modelSupportsVision(found);
-  return { models, connection: {
+  return { models, ...(selected !== wanted ? { adopted: selected } : {}), connection: {
     type: 'local', status: 'connected', label: 'Local Qwen', baseUrl, model: selected, contextWindow,
     vision, ...(adapter ? { adapter } : {}),
     ...(Array.isArray(found.inputModalities) ? { inputModalities: found.inputModalities } : {}), error: null,
   } };
 }
 function providerConfig(settings, connection, localEndpoint) {
-  if (settings.connection === 'codex') return { model_provider: 'openai' };
   return {
     model_provider: LOCAL_PROVIDER,
     [`model_providers.${LOCAL_PROVIDER}`]: { name: 'Local Qwen', base_url: localEndpoint || localBaseUrl(settings.localBaseUrl), wire_api: 'responses',

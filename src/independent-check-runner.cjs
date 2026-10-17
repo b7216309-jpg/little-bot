@@ -90,7 +90,7 @@ class IndependentCheckRunner {
     this.active = operation;
     operation.timer = setTimeout(() => {
       this.stop('Independent Check reached its five-minute time limit.').catch(() => {});
-    }, chat.connection === 'local' ? 10 * 60 * 1000 : REVIEW_TIMEOUT_MS);
+    }, 10 * 60 * 1000);
     operation.timer.unref?.();
     this.controller.changed(true);
     void this.run(operation);
@@ -167,15 +167,14 @@ class IndependentCheckRunner {
       operation.turnStartAttempted = true;
       const turn = await controller.client.request('turn/start', {
         threadId: operation.threadId,
-        input: [{ type: 'text', text: independentCheckPrompt(operation.context, { local: chat.connection === 'local' }) }],
+        input: [{ type: 'text', text: independentCheckPrompt(operation.context, { local: true }) }],
         cwd: chat.workspace,
         model: chat.model || undefined,
         effort: controller.effectiveEffort(chat.model, 'low'),
         approvalPolicy: 'never',
         approvalsReviewer: 'user',
-        ...(chat.connection === 'local' ? {} : { outputSchema: INDEPENDENT_CHECK_SCHEMA }),
         sandboxPolicy: { type: 'readOnly' },
-      }, chat.connection === 'local' ? 10 * 60 * 1000 : 60000);
+      }, 10 * 60 * 1000);
       operation.turnId ||= turn?.turn?.id;
       if (!operation.turnId) throw new Error('Independent Check did not receive a review turn.');
       operation.turnStartAttempted = false;
@@ -211,7 +210,7 @@ class IndependentCheckRunner {
         this.complete(operation, { status: 'failed', error: clean(params.turn?.error?.message || 'Independent Check failed.') });
       } else {
         try {
-          const result = parseIndependentCheckResult(operation.output, operation.context.proposedAnswer, { local: chat.connection === 'local' });
+          const result = parseIndependentCheckResult(operation.output, operation.context.proposedAnswer, { local: true });
           this.complete(operation, { status: 'completed', result });
         } catch (error) {
           this.complete(operation, { status: 'failed', error: clean(error) });

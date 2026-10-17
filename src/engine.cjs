@@ -29,12 +29,12 @@ function defaultLaunch() {
   return { command: path.toNamespacedPath(command), args: ['app-server'] };
 }
 
-/** A local, version-pinned Codex app-server JSONL transport. No credentials are read. */
-class CodexClient extends EventEmitter {
+/** The bundled assistant engine: a version-pinned app-server spoken to over JSONL on stdio. No credentials are read. */
+class EngineClient extends EventEmitter {
   constructor({ homeDir, cwd, env = {}, command, args } = {}) {
     super();
     if (!homeDir || !cwd || !path.isAbsolute(homeDir) || !path.isAbsolute(cwd)) {
-      throw new TypeError('Codex homeDir and cwd must be absolute paths.');
+      throw new TypeError('Engine homeDir and cwd must be absolute paths.');
     }
     this.homeDir = homeDir;
     this.cwd = cwd;
@@ -65,7 +65,7 @@ class CodexClient extends EventEmitter {
 
   start() {
     if (this._startPromise) return this._startPromise;
-    if (this.state !== 'idle') return Promise.reject(new Error('Codex client is closed.'));
+    if (this.state !== 'idle') return Promise.reject(new Error('The engine client is closed.'));
     this.state = 'starting';
     this._startPromise = this._start();
     return this._startPromise;
@@ -74,7 +74,7 @@ class CodexClient extends EventEmitter {
   async _start() {
     try {
       await mkdir(this.homeDir, { recursive: true, mode: 0o700 });
-      if (this.state !== 'starting') throw new Error('Codex client was closed during startup.');
+      if (this.state !== 'starting') throw new Error('The engine client was closed during startup.');
       const child = spawn(this.command, this.args, {
         cwd: this.cwd,
         env: { ...process.env, ...this.env, CODEX_HOME: this.homeDir, ELECTRON_RUN_AS_NODE: '1' },
@@ -88,10 +88,10 @@ class CodexClient extends EventEmitter {
       child.stderr.setEncoding('utf8');
       child.stdout.on('data', (chunk) => this._readStdout(chunk));
       child.stderr.on('data', (chunk) => this._readStderr(chunk));
-      child.stdin.on('error', (error) => this._fail(new Error(`Codex input pipe failed: ${error.message}`)));
-      child.stdout.on('error', (error) => this._fail(new Error(`Codex output pipe failed: ${error.message}`)));
-      child.stderr.on('error', (error) => this._diagnose(`Codex diagnostic pipe failed: ${error.message}`));
-      child.on('error', (error) => this._fail(new Error(`Could not start Codex: ${error.message}`)));
+      child.stdin.on('error', (error) => this._fail(new Error(`Engine input pipe failed: ${error.message}`)));
+      child.stdout.on('error', (error) => this._fail(new Error(`Engine output pipe failed: ${error.message}`)));
+      child.stderr.on('error', (error) => this._diagnose(`Engine diagnostic pipe failed: ${error.message}`));
+      child.on('error', (error) => this._fail(new Error(`Could not start the assistant engine: ${error.message}`)));
       child.on('close', (code, signal) => {
         if (this._stderrOverflow) this._diagnose('[Oversized diagnostic line omitted]');
         else if (this._stderr) this._diagnose(this._stderr);
@@ -102,7 +102,7 @@ class CodexClient extends EventEmitter {
           const interrupted = process.platform === 'win32' && Number.isInteger(code) && (code >>> 0) === 0xC000013A;
           this._fail(new Error(interrupted
             ? 'The assistant engine was interrupted by Windows. Reopen Little Bot to reconnect.'
-            : `Codex exited unexpectedly (${signal || `code ${code}`}). Reopen Little Bot to reconnect.`));
+            : `The assistant engine exited unexpectedly (${signal || `code ${code}`}). Reopen Little Bot to reconnect.`));
         }
       });
       const result = await this._request('initialize', {
@@ -110,7 +110,7 @@ class CodexClient extends EventEmitter {
         capabilities: { experimentalApi: true },
       }, REQUEST_TIMEOUT_MS);
       await this._write({ method: 'initialized', params: {} });
-      if (this.state !== 'starting') throw this._crashError || new Error('Codex closed during startup.');
+      if (this.state !== 'starting') throw this._crashError || new Error('The assistant engine closed during startup.');
       this.state = 'ready';
       return result;
     } catch (error) {
@@ -122,20 +122,20 @@ class CodexClient extends EventEmitter {
 
   async request(method, params = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
     if (this.state === 'idle' || this.state === 'starting') await this.start();
-    if (!this.ready) throw this._crashError || new Error('Codex is not running.');
+    if (!this.ready) throw this._crashError || new Error('The assistant engine is not running.');
     return this._request(method, params, timeoutMs);
   }
 
   _request(method, params, timeoutMs) {
     if (typeof method !== 'string' || !method || !Number.isFinite(timeoutMs) || timeoutMs < 1) {
-      return Promise.reject(new TypeError('Codex method and positive request timeout are required.'));
+      return Promise.reject(new TypeError('An engine method and positive request timeout are required.'));
     }
     this._rememberSecrets(params);
     const id = this._nextId++;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this._pending.delete(id);
-        reject(new Error(`Codex request timed out: ${method}. The server may still be processing it.`));
+        reject(new Error(`Engine request timed out: ${method}. The server may still be processing it.`));
       }, timeoutMs);
       this._pending.set(id, { resolve, reject, timer });
       this._write({ id, method, params }).catch((error) => {
@@ -150,29 +150,29 @@ class CodexClient extends EventEmitter {
 
   async notify(method, params = {}) {
     if (this.state === 'idle' || this.state === 'starting') await this.start();
-    if (!this.ready) throw this._crashError || new Error('Codex is not running.');
+    if (!this.ready) throw this._crashError || new Error('The assistant engine is not running.');
     if (typeof method !== 'string' || !method) throw new TypeError('A notification method is required.');
     this._rememberSecrets(params);
     await this._write({ method, params });
   }
 
   async respond(id, result) {
-    if (!this.ready && this.state !== 'starting') throw this._crashError || new Error('Codex is not running.');
-    if (!this._serverRequests.has(id)) throw new Error('This Codex request is no longer pending.');
+    if (!this.ready && this.state !== 'starting') throw this._crashError || new Error('The assistant engine is not running.');
+    if (!this._serverRequests.has(id)) throw new Error('This engine request is no longer pending.');
     this._rememberSecrets(result);
     this._serverRequests.delete(id);
     await this._write({ id, result });
   }
 
   async reject(id, message, code = -32601) {
-    if (!this._serverRequests.has(id)) throw new Error('This Codex request is no longer pending.');
+    if (!this._serverRequests.has(id)) throw new Error('This engine request is no longer pending.');
     this._serverRequests.delete(id);
     await this._write({ id, error: { code, message: this._scrub(message) } });
   }
 
   restart() {
     if (this._restartPromise) return this._restartPromise;
-    if (!['crashed', 'closed'].includes(this.state)) return Promise.reject(new Error('Codex client is not stopped.'));
+    if (!['crashed', 'closed'].includes(this.state)) return Promise.reject(new Error('The engine client is not stopped.'));
     const closing = this._closePromise || this.close();
     const lifecycle = this._lifecycle;
     const operation = (async () => {
@@ -198,19 +198,19 @@ class CodexClient extends EventEmitter {
 
   _write(message) {
     if (!this.child || !this.child.stdin.writable || ['closing', 'closed', 'crashed'].includes(this.state)) {
-      return Promise.reject(this._crashError || new Error('Codex input pipe is closed.'));
+      return Promise.reject(this._crashError || new Error('The engine input pipe is closed.'));
     }
     let serialized;
     try {
       serialized = `${JSON.stringify(message)}\n`;
-      if (Buffer.byteLength(serialized, 'utf8') > MAX_LINE_BYTES) throw new Error('Codex request exceeds the message size limit.');
+      if (Buffer.byteLength(serialized, 'utf8') > MAX_LINE_BYTES) throw new Error('The engine request exceeds the message size limit.');
     } catch (error) {
       return Promise.reject(error);
     }
     return new Promise((resolve, reject) => {
       this.child.stdin.write(serialized, 'utf8', (error) => {
         if (error) {
-          const safeError = new Error(`Could not write to Codex: ${this._scrub(error.message)}`);
+          const safeError = new Error(`Could not write to the assistant engine: ${this._scrub(error.message)}`);
           this._fail(safeError);
           reject(safeError);
         } else resolve();
@@ -225,21 +225,21 @@ class CodexClient extends EventEmitter {
     while ((newline = this._stdout.indexOf('\n')) >= 0) {
       const line = this._stdout.slice(0, newline);
       this._stdout = this._stdout.slice(newline + 1);
-      if (Buffer.byteLength(line, 'utf8') > MAX_LINE_BYTES) return this._protocolFailure('Codex sent an oversized message.');
+      if (Buffer.byteLength(line, 'utf8') > MAX_LINE_BYTES) return this._protocolFailure('The engine sent an oversized message.');
       if (!line.trim()) continue;
       let message;
-      try { message = JSON.parse(line); } catch { return this._protocolFailure('Codex sent invalid JSON.'); }
-      if (!message || typeof message !== 'object' || Array.isArray(message)) return this._protocolFailure('Codex sent an invalid protocol message.');
+      try { message = JSON.parse(line); } catch { return this._protocolFailure('The engine sent invalid JSON.'); }
+      if (!message || typeof message !== 'object' || Array.isArray(message)) return this._protocolFailure('The engine sent an invalid protocol message.');
       this._dispatch(message);
       if (this.state === 'crashed') return;
     }
-    if (Buffer.byteLength(this._stdout, 'utf8') > MAX_LINE_BYTES) this._protocolFailure('Codex sent an oversized message.');
+    if (Buffer.byteLength(this._stdout, 'utf8') > MAX_LINE_BYTES) this._protocolFailure('The engine sent an oversized message.');
   }
 
   _dispatch(message) {
     const hasId = Object.hasOwn(message, 'id');
     if (hasId && typeof message.id !== 'string' && typeof message.id !== 'number') {
-      return this._protocolFailure('Codex sent an invalid request identifier.');
+      return this._protocolFailure('The engine sent an invalid request identifier.');
     }
     if (typeof message.method === 'string') {
       if (hasId) {
@@ -252,14 +252,14 @@ class CodexClient extends EventEmitter {
       return;
     }
     if (!hasId || (!Object.hasOwn(message, 'result') && !Object.hasOwn(message, 'error'))) {
-      return this._protocolFailure('Codex sent an invalid response.');
+      return this._protocolFailure('The engine sent an invalid response.');
     }
     const pending = this._pending.get(message.id);
     if (!pending) return; // A timed-out request may still produce a late response.
     clearTimeout(pending.timer);
     this._pending.delete(message.id);
     if (message.error) {
-      const error = new Error(this._scrub(message.error.message || 'Codex request failed.'));
+      const error = new Error(this._scrub(message.error.message || 'The engine request failed.'));
       error.code = message.error.code;
       pending.reject(error);
     } else pending.resolve(message.result);
@@ -343,7 +343,7 @@ class CodexClient extends EventEmitter {
 
   async _close() {
     this.state = 'closing';
-    this._rejectPending(new Error('Codex client closed.'));
+    this._rejectPending(new Error('The engine client closed.'));
     this._serverRequests.clear();
     const child = this.child;
     if (child) {
@@ -371,4 +371,4 @@ class CodexClient extends EventEmitter {
   }
 }
 
-module.exports = { CodexClient };
+module.exports = { EngineClient };

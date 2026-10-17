@@ -8,7 +8,7 @@ const { randomUUID } = require('node:crypto');
 const MAIN_ID = 'main';
 const NAME_LIMIT = 60;
 // A new profile reaches the same model straight away; personality, memory, history and tasks start fresh.
-const COPIED_SETTINGS = ['connection', 'localBaseUrl', 'localModel', 'localThinking', 'codexModel', 'model', 'effort', 'autoCompactPercent', 'independentCheckMode', 'localSampling'];
+const COPIED_SETTINGS = ['connection', 'localBaseUrl', 'localModel', 'localThinking', 'model', 'effort', 'autoCompactPercent', 'independentCheckMode', 'localSampling'];
 
 function profileName(value) {
   const name = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';

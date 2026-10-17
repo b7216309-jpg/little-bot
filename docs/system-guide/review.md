@@ -88,7 +88,7 @@ All source modules are assigned to a guide in the [source map](source-map.md). T
 | Feature | Evidence | Remaining failure gate / finding |
 | --- | --- | --- |
 | Startup, encrypted state, large history | Store/encryption/reliability suite | Windows decryption, unavailable directories; JSON/SQLite are separate writes |
-| Engine transport and resume | Codex/controller tests | Offline engine/provider, R3 uncertain turn ownership |
+| Engine transport and resume | Engine/controller tests | Offline engine/provider, R3 uncertain turn ownership |
 | Shared conversation and automation origins | Single-session + Electron fixtures | Legitimate thread rotation; R6 definition attribution |
 | Streaming, reasoning and tool activity | Controller/UI fixtures | Provider disconnect/cutoff; reasoning capability depends on model |
 | Plan/Execute | Plan/full-access tests | Different sandbox/tool set; do not expect writes in Plan |

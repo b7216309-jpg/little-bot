@@ -413,6 +413,11 @@ class Relay {
         return { ok: true };
       }
       case 'endQuick': if (snap.quick) await this.handlers.deleteChat({ chatId: snap.quick.id }); return { ok: true };
+      // The Background switch, same as the desktop one: everything Little Bot does on its own, on or off.
+      case 'background':
+        if (typeof input.on !== 'boolean') throw new Error('Say whether background work should be on or off.');
+        await this.handlers[input.on ? 'resumeAutonomy' : 'pauseAutonomy']();
+        return { ok: true, paused: !input.on };
       case 'proactive': await this.handlers.answerProactive({ messageId: String(input.messageId || ''), choice: String(input.choice || '') }); return { ok: true };
       case 'answer': {
         const approval = snap.approvals.find(item => item.requestId === input.requestId && item.ask);
