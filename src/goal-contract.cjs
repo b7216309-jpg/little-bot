@@ -2,6 +2,7 @@
 
 const fs = require('node:fs/promises');
 const { localStamp } = require('./local-time.cjs');
+const { mainChat } = require('./chats.cjs');
 const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 const proactive = require('./proactive-chat.cjs');
@@ -74,7 +75,7 @@ async function collect(goal, data, now = Date.now()) {
   };
   versions.definition = hash(JSON.stringify({ objective: goal.objective, kind: goal.kind, sources: goal.sources, steps: goal.steps, reviewPolicy: goal.reviewPolicy }));
   const processed = new Set(goal.review?.processedMessages || []);
-  const chat = data.chats?.find(item => !item.private);
+  const chat = mainChat(data);
   if (goal.sources.chat && data.memory?.enabled !== false) {
     if (!chat) coverage.push('No continuous conversation is available.');
     const user = (chat?.messages || []).filter(m => m.role === 'user' && !m.automationId && !m.goalId && m.kind !== 'automation');

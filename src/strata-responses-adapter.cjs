@@ -581,6 +581,7 @@ class StrataStreamAdapter extends Transform {
   _drainText(final) {
     const markers = [
       ['think', /<(think|reasoning|analysis)\s*>/i],
+      ['stray', /<\/(think|reasoning|analysis)\s*>/i],
       ['tool', /<tool_call\s*>/i],
       ['function', /<function\s*=\s*([^>]+)>/i],
       ['fenced', /```json\s*/i],
@@ -629,6 +630,16 @@ class StrataStreamAdapter extends Transform {
         const safe = Math.max(0, this.pendingText.length - 128);
         if (safe) { this._emitText(this.pendingText.slice(0, safe)); this.pendingText = this.pendingText.slice(safe); }
         return;
+      }
+      if (found.type === 'stray') {
+        // Qwen sometimes writes the end of its thinking as answer text and then closes a think block it never
+        // opened, before giving the real answer (live: "…SAFFRON-7.\n</think>\n\nYou gave me…SAFFRON-7."). Before any
+        // answer text has gone out, the text so far was thinking; after that, only the tag is dropped.
+        const before = this.pendingText.slice(0, found.index);
+        if (!this.text && !this.reasoningDone) this._reasoningDelta(before.trim() ? before : '');
+        else this._emitText(before);
+        this.pendingText = this.pendingText.slice(found.index + found.match[0].length).replace(/^\s+/, '');
+        continue;
       }
       if (found.index) this._emitText(this.pendingText.slice(0, found.index));
       this.pendingText = this.pendingText.slice(found.index);

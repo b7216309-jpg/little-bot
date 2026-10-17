@@ -2,6 +2,7 @@
 
 const { randomUUID } = require('node:crypto');
 const companion = require('./companion.cjs');
+const { mainChat } = require('./chats.cjs');
 const { connectionBinding, isConnectionSelected } = require('./connections.cjs');
 
 const MINUTE = 60000, HOUR = 60 * MINUTE, DAY = 24 * HOUR;
@@ -197,7 +198,7 @@ class NightShift {
   }
 
   chatAssignments() {
-    const messages = this.store.data.chats.find(chat => !chat.private)?.messages || [];
+    const messages = mainChat(this.store.data)?.messages || [];
     const recent = messages.filter(message => message.role === 'user' && !message.kind && typeof message.text === 'string'
       && this.now() - number(message.createdAt, 0) <= 14 * DAY && marker.test(message.text) && assigned.test(message.text)
       && !this.data.processedChats.includes(message.id) && !this.session.attemptedChats.includes(message.id));

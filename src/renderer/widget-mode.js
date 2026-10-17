@@ -12,13 +12,15 @@ window.LittleBotWidget = (() => {
     document.documentElement.classList.toggle('widget-collapsed', widget && display.collapsed);
     $('widget-pin')?.setAttribute('aria-pressed', String(display.pinned));
     if ($('widget-pin')) $('widget-pin').title = display.pinned ? 'Unpin from other windows' : 'Keep above other windows';
-    if (event.target === (widget ? 'widget' : 'full') && (event.draft || event.view)) pending = event;
+    if (event.target === (widget ? 'widget' : 'full') && (event.draft || event.view || event.chat)) pending = event;
     consume();
   }
   function consume() {
     if (!api?.state() || !pending) return;
     const event = pending; pending = null;
-    api.showView(event.view || 'chat');
+    // Open the same chat first, so the carried draft lands in its box.
+    if (event.chat && (event.view || 'chat') === 'chat') api.openChat(event.chat);
+    else api.showView(event.view || 'chat');
     if (event.draft) api.importDraft(event.draft);
     if (widget && !display.collapsed) requestAnimationFrame(() => $('message-input').focus());
   }
@@ -27,7 +29,7 @@ window.LittleBotWidget = (() => {
     if (api.busy()) { api.notify('Finish your open dialog, adding files, or sending your message before switching views.'); return; }
     switching = true;
     closeMenu();
-    try { applyDisplay({ display: await window.bot.setDisplayMode({ mode, view, draft: api.exportDraft() }) }); }
+    try { applyDisplay({ display: await window.bot.setDisplayMode({ mode, view, draft: api.exportDraft(), chat: api.chat() }) }); }
     catch (error) { api.notify(error.message || String(error), true); }
     finally { switching = false; }
   }
@@ -35,10 +37,33 @@ window.LittleBotWidget = (() => {
     try { applyDisplay({ display: await window.bot.setWidgetState(value) }); return true; }
     catch (error) { api.notify(error.message || String(error), true); return false; }
   }
+  // The widget's chat picker: the conversation, the Quick session, saved sessions, or a new session.
+  function renderChats(state) {
+    const select = $('widget-chat');
+    const { mode, sessionId } = api.chat();
+    const sessions = (state.chats || []).filter(item => item.session && !item.private).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    const options = [['main', 'Conversation'], ['quick', 'Quick session'], ...sessions.map(item => [`session:${item.id}`, item.title || 'Session']), ['session:new', '+ New session']];
+    const key = JSON.stringify(options);
+    if (select.dataset.options !== key) {
+      select.dataset.options = key;
+      select.replaceChildren(...options.map(([value, label]) => { const option = document.createElement('option'); option.value = value; option.textContent = label; return option; }));
+    }
+    const value = mode === 'session' ? `session:${sessionId || 'new'}` : mode;
+    if (document.activeElement !== select) select.value = value;
+    select.disabled = Boolean(state.chats?.some(item => item.status !== 'idle'));
+    select.title = select.disabled ? 'Wait for the current reply to switch chats' : 'Switch chat';
+  }
+  function openChat(chat, state) {
+    const { mode, sessionId } = api.chat();
+    if (mode === 'session') return (state.chats || []).find(item => item.session && item.id === sessionId) || null;
+    return (state.chats || []).find(item => mode === 'quick' ? item.private : !item.private && !item.session) || null;
+  }
   function render(state) {
     consume();
     if (!state || !widget) return;
-    const chat = state.chats?.find(item => !item.private);
+    renderChats(state);
+    // The status follows the open chat, and any other chat still at work.
+    const chat = openChat(null, state) || state.chats?.find(item => item.status !== 'idle');
     const waiting = chat?.status === 'waiting' || state.approvals?.length;
     const working = chat?.status === 'running' || chat?.compaction?.status === 'running';
     const offline = state.account?.status !== 'connected';
@@ -61,6 +86,11 @@ window.LittleBotWidget = (() => {
     $('widget-full').addEventListener('click', () => change('full'));
     $('widget-collapse').addEventListener('click', () => controls({ collapsed: true }));
     $('widget-pin').addEventListener('click', () => controls({ pinned: !display.pinned }));
+    $('widget-chat').addEventListener('change', event => {
+      const [mode, id] = event.target.value.split(':');
+      api.openChat({ mode, sessionId: mode === 'session' && id !== 'new' ? id : null });
+      event.target.blur();
+    });
     $('widget-pill-expand').addEventListener('click', () => controls({ collapsed: false }));
     $('widget-pill-stop').addEventListener('click', () => $('stop-button').click());
     $('widget-pill-attach').addEventListener('click', async () => { if (await controls({ collapsed: false })) $('attach-button').click(); });

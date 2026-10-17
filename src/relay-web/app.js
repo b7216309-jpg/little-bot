@@ -15,7 +15,10 @@ let snap = null;               // Everything except messages, from the last stat
 const messages = new Map();    // id -> message
 let order = [];
 let quickOrder = [];
-let quickMode = false;         // the phone is showing the Quick session
+let sessionOrders = {};        // session id -> message ids
+// What the phone shows: the conversation ('main'), the Quick session, the list of saved sessions, or one session.
+let view = 'main';
+let sessionId = null;          // the open session; null in 'session' view is a new one, created by its first message
 let clientId = '';
 let connected = false;
 let streamAbort = null;
@@ -184,15 +187,17 @@ async function connect() {
   }
 }
 
-function applyMessages(upsert, ids, quickIds, quick = false) {
+function applyMessages(upsert, ids, quickIds, sessionIds, quick = false, session = null) {
   for (const message of upsert || []) {
     messages.set(message.id, message);
-    const list = quick ? quickOrder : order;
-    if (!ids && !list.includes(message.id)) list.push(message.id);
+    if (ids) continue;
+    const list = quick ? quickOrder : session ? (sessionOrders[session] ||= []) : order;
+    if (!list.includes(message.id)) list.push(message.id);
   }
   if (ids) {
     order = ids.slice(); quickOrder = (quickIds || []).slice();
-    const keep = new Set([...order, ...quickOrder]);
+    sessionOrders = Object.fromEntries(Object.entries(sessionIds || {}).map(([id, list]) => [id, list.slice()]));
+    const keep = new Set([...order, ...quickOrder, ...Object.values(sessionOrders).flat()]);
     for (const id of messages.keys()) if (!keep.has(id)) messages.delete(id);
   }
 }
@@ -203,11 +208,11 @@ function handle(event) {
     reportPresence();
   }
   if (event.type === 'hello' || event.type === 'state') {
-    const { type, ids, quickIds, upsert, clientId: _, ...rest } = event;
+    const { type, ids, quickIds, sessionIds, upsert, clientId: _, ...rest } = event;
     snap = rest;
-    applyMessages(upsert, ids, quickIds);
+    applyMessages(upsert, ids, quickIds, sessionIds);
   } else if (event.type === 'messages') {
-    applyMessages(event.upsert, null, null, event.quick === true);
+    applyMessages(event.upsert, null, null, null, event.quick === true, typeof event.session === 'string' ? event.session : null);
   }
   render();
 }
@@ -234,16 +239,48 @@ function appendInline(parent, source) {
   }
   parent.append(document.createTextNode(source.slice(last)));
 }
+// Lists, headings and quotes, like the desktop: the model's Markdown, built as DOM nodes (never HTML strings).
+function appendBlocks(parent, source) {
+  let text = [], list = null;
+  const flush = () => {
+    if (!text.length) return;
+    const value = text.join('\n').replace(/^\n+|\n+$/g, '');
+    if (value) appendInline(parent, value);
+    text = [];
+  };
+  for (const line of source.split('\n')) {
+    const bullet = /^\s{0,3}[-*•]\s+(.*)$/.exec(line), numbered = /^\s{0,3}(\d{1,3})[.)]\s+(.*)$/.exec(line);
+    if (bullet || numbered) {
+      flush();
+      const tag = bullet ? 'ul' : 'ol';
+      if (!list || list.tagName.toLowerCase() !== tag) {
+        list = el(tag, 'md-list');
+        if (numbered && numbered[1] !== '1') list.start = Number(numbered[1]);
+        parent.append(list);
+      }
+      const item = el('li'); appendInline(item, bullet ? bullet[1] : numbered[2]); list.append(item);
+      continue;
+    }
+    if (list && !line.trim()) continue;
+    list = null;
+    const heading = /^\s{0,3}#{1,4}\s+(.*?)\s*#*$/.exec(line), quote = /^\s{0,3}>\s?(.*)$/.exec(line);
+    if (heading) { flush(); const node = el('strong', 'md-heading'); appendInline(node, heading[1]); parent.append(node); }
+    else if (quote) { flush(); const node = el('blockquote', 'md-quote'); appendInline(node, quote[1]); parent.append(node); }
+    else if (/^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { flush(); parent.append(el('hr', 'md-rule')); }
+    else text.push(line);
+  }
+  flush();
+}
 function renderText(parent, text) {
   const source = String(text || '');
   const fences = /```([^\n]*)\n([\s\S]*?)(?:```|$)/g;
   let last = 0;
   for (const match of source.matchAll(fences)) {
-    appendInline(parent, source.slice(last, match.index));
+    appendBlocks(parent, source.slice(last, match.index));
     const pre = el('pre'); pre.append(el('code', '', match[2].replace(/\n$/, ''))); parent.append(pre);
     last = match.index + match[0].length;
   }
-  appendInline(parent, source.slice(last));
+  appendBlocks(parent, source.slice(last));
 }
 
 function messageNode(message) {
@@ -304,13 +341,41 @@ function nearBottom() {
   const chat = $('chat');
   return chat.scrollHeight - chat.scrollTop - chat.clientHeight < 120;
 }
-function setQuickMode(on) {
-  quickMode = on;
-  $('tab-main').classList.toggle('active', !on); $('tab-main').setAttribute('aria-pressed', String(!on));
-  $('tab-quick').classList.toggle('active', on); $('tab-quick').setAttribute('aria-pressed', String(on));
-  $('input').placeholder = on ? 'Quick task for Little Bot…' : 'Message Little Bot…';
+function setView(next, id = null) {
+  view = next; sessionId = next === 'session' ? id : null;
+  const tab = view === 'session' ? 'sessions' : view;
+  for (const [name, node] of [['main', $('tab-main')], ['quick', $('tab-quick')], ['sessions', $('tab-sessions')]]) {
+    node.classList.toggle('active', tab === name); node.setAttribute('aria-pressed', String(tab === name));
+  }
+  $('input').placeholder = view === 'quick' ? 'Quick task for Little Bot…' : view === 'session' ? 'Message this session…' : 'Message Little Bot…';
   render();
-  $('chat').scrollTop = $('chat').scrollHeight;
+  $('chat').scrollTop = view === 'sessions' ? 0 : $('chat').scrollHeight;
+}
+const activeChat = () => view === 'quick' ? snap?.quick : view === 'session' ? (snap?.sessions || []).find(item => item.id === sessionId) || null : view === 'main' ? snap?.chat : null;
+// Every request that targets the open chat says which one it is.
+const target = () => view === 'quick' ? { quick: true } : view === 'session' ? (sessionId ? { sessionId } : { newSession: true }) : {};
+function ago(time) {
+  if (!time) return '';
+  const minutes = Math.max(0, Math.round((Date.now() - time) / 60000));
+  if (minutes < 1) return 'now';
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  return hours < 24 ? `${hours} h` : when(time);
+}
+function sessionsList() {
+  const items = [];
+  const create = el('button', 'session-new', '+ New session'); create.type = 'button';
+  create.onclick = () => setView('session', null);
+  items.push(create);
+  for (const session of snap?.sessions || []) {
+    const row = el('button', 'session-row'); row.type = 'button';
+    const busy = session.status === 'running' || session.status === 'waiting';
+    row.append(el('strong', '', session.title), el('span', busy ? 'busy' : '', busy ? 'working…' : ago(session.updatedAt)));
+    row.onclick = () => setView('session', session.id);
+    items.push(row);
+  }
+  if (!(snap?.sessions || []).length) items.push(el('div', 'empty small', 'No saved sessions yet. A session is a separate conversation with its own history; the main conversation stays as it is.'));
+  return items;
 }
 // A /goal running in this chat (set from the PC or by typing /goal here).
 function renderGoalStrip(active) {
@@ -328,11 +393,17 @@ function renderGoalStrip(active) {
   $('goal-strip-clear').textContent = ['pursuing', 'paused'].includes(goal.status) ? 'Clear' : 'Dismiss';
 }
 function render() {
-  const active = quickMode ? snap?.quick : snap?.chat;
-  const visible = quickMode ? quickOrder : order;
+  // A session deleted on the PC sends the phone back to the list.
+  if (view === 'session' && sessionId && snap && !(snap.sessions || []).some(item => item.id === sessionId)) { view = 'sessions'; sessionId = null; }
+  const active = activeChat();
+  const visible = view === 'quick' ? quickOrder : view === 'session' ? (sessionOrders[sessionId] || []) : view === 'main' ? order : [];
   const chatStatus = active?.status || 'idle';
-  $('quick-bar').classList.toggle('hidden', !quickMode);
-  renderGoalStrip(active);
+  $('quick-bar').classList.toggle('hidden', view !== 'quick');
+  $('session-bar').classList.toggle('hidden', view !== 'session');
+  $('session-title').textContent = view === 'session' ? (active?.title || 'New session') : '';
+  $('session-delete').classList.toggle('hidden', !active || view !== 'session');
+  $('composer').classList.toggle('hidden', view === 'sessions' || !token);
+  renderGoalStrip(view === 'sessions' ? null : active);
   $('quick-end').disabled = !snap?.quick;
   const running = chatStatus === 'running' || chatStatus === 'waiting';
   if (connected) {
@@ -343,7 +414,9 @@ function render() {
   }
   const stick = nearBottom();
   const items = [];
-  if (!quickMode && snap?.chat?.more) items.push(el('div', 'more', 'Older messages are on your PC'));
+  if (view === 'sessions') items.push(...sessionsList());
+  if (view === 'main' && snap?.chat?.more) items.push(el('div', 'more', 'Older messages are on your PC'));
+  if (view === 'session' && active?.more) items.push(el('div', 'more', 'Older messages are on your PC'));
   let tools = [];
   const flush = () => { if (tools.length) { items.push(toolsNode(tools)); tools = []; } };
   for (const id of visible) {
@@ -356,7 +429,8 @@ function render() {
   flush();
   if (chatStatus === 'running' && !visible.some(id => ['running', 'inProgress'].includes(messages.get(id)?.status) && messages.get(id)?.role === 'assistant')) items.push(el('div', 'thinking', 'Little Bot is working'));
   if (active?.error) items.push(el('div', 'error-line', active.error));
-  if (!items.length) items.push(el('div', 'empty', !connected ? 'Connecting to your PC…' : quickMode ? 'A side chat for one-off tasks. Little Bot won’t remember it, and your main conversation stays clean.' : 'Say hi to Little Bot.'));
+  if (!items.length) items.push(el('div', 'empty', !connected ? 'Connecting to your PC…' : view === 'quick' ? 'A side chat for one-off tasks. Little Bot won’t remember it, and your main conversation stays clean.'
+    : view === 'session' ? 'A new saved session. Its first message creates it; the main conversation stays as it is.' : 'Say hi to Little Bot.'));
   // Keep open tool groups open across re-renders.
   const open = new Set([...$('messages').querySelectorAll('details[open]')].map((_, index) => index));
   $('messages').replaceChildren(...items);
@@ -434,8 +508,11 @@ $('composer').addEventListener('submit', async event => {
   const text = $('input').value.trim();
   if ((!text && !pending.length) || busy || uploading) return;
   busy = true; render();
-  const ok = await attempt(() => api('send', { text, attachmentIds: pending.map(item => item.id), ...(quickMode ? { quick: true } : {}) }));
+  const sentFrom = view, sentTo = sessionId;
+  const ok = await attempt(() => api('send', { text, attachmentIds: pending.map(item => item.id), ...target() }));
   busy = false;
+  // The first message of a new session created it: keep showing that session.
+  if (ok?.chatId && sentFrom === 'session' && !sentTo && view === 'session' && !sessionId) sessionId = ok.chatId;
   if (ok) { $('input').value = ''; pending = []; renderPending(); sizeInput(); $('chat').scrollTop = $('chat').scrollHeight; }
   render();
 });
@@ -505,14 +582,21 @@ window.littleBotDictated = text => {
   sizeInput(); render(); input.focus();
 };
 $('mic').addEventListener('click', () => native?.dictate?.());
-$('stop').addEventListener('click', () => attempt(() => api('stop', quickMode ? { quick: true } : {})));
-$('tab-main').addEventListener('click', () => setQuickMode(false));
+$('stop').addEventListener('click', () => attempt(() => api('stop', target())));
+$('tab-main').addEventListener('click', () => setView('main'));
 $('goal-strip-toggle').addEventListener('click', () => {
-  const goal = (quickMode ? snap?.quick : snap?.chat)?.goal;
-  attempt(() => api('chatGoal', { quick: quickMode, command: goal?.status === 'pursuing' ? 'pause' : 'resume' }));
+  const goal = activeChat()?.goal;
+  attempt(() => api('chatGoal', { ...target(), command: goal?.status === 'pursuing' ? 'pause' : 'resume' }));
 });
-$('goal-strip-clear').addEventListener('click', () => attempt(() => api('chatGoal', { quick: quickMode, command: 'clear' })));
-$('tab-quick').addEventListener('click', () => setQuickMode(true));
+$('goal-strip-clear').addEventListener('click', () => attempt(() => api('chatGoal', { ...target(), command: 'clear' })));
+$('tab-quick').addEventListener('click', () => setView('quick'));
+$('tab-sessions').addEventListener('click', () => setView('sessions'));
+$('session-back').addEventListener('click', () => setView('sessions'));
+$('session-delete').addEventListener('click', async () => {
+  const session = activeChat();
+  if (!session || !confirm(`Delete “${session.title}” and its history? Facts Little Bot already learned from it stay.`)) return;
+  if (await attempt(() => api('deleteSession', { sessionId: session.id }))) { toast('Session deleted'); setView('sessions'); }
+});
 $('quick-end').addEventListener('click', () => attempt(() => api('endQuick', {})));
 
 // Goals

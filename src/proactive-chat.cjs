@@ -2,6 +2,7 @@
 
 const { randomUUID } = require('node:crypto');
 const { localStamp } = require('./local-time.cjs');
+const { mainChat } = require('./chats.cjs');
 const { connectionBinding } = require('./connections.cjs');
 
 // The Activity inbox is a log; the conversation is where proactive work is delivered.
@@ -52,7 +53,7 @@ function normalizePending(value) {
 // Posts into the idle conversation or queues for later. `duplicate` checks both delivered and queued messages.
 function post(data, fields, { duplicate = null, nowMs = Date.now() } = {}) {
   if (!data || !Array.isArray(data.chats)) return null;
-  let chat = data.chats.find(item => !item.private);
+  let chat = mainChat(data);
   if (!chat) {
     const settings = data.settings || {};
     const now = nowMs;
@@ -134,7 +135,7 @@ function deliverOffer(data, { appid, name, note = '' } = {}, nowMs = Date.now())
 
 // Records the user's click. Side effects (launch, feedback, follow-up turn) belong to the caller.
 function answer(data, { messageId, choice } = {}, nowMs = Date.now()) {
-  const chat = data?.chats?.find(item => !item.private);
+  const chat = mainChat(data);
   const message = [...(chat?.messages || []), ...(chat?.pendingProactive || [])].find(item => item.id === messageId);
   if (!message || !Array.isArray(message.actions)) throw new Error('This suggestion is no longer available.');
   if (message.answer) throw new Error('This suggestion was already answered.');

@@ -1,9 +1,13 @@
 'use strict';
-// What a paired phone may see: the one conversation, its pending questions, and goal status.
-// Settings, profile, keys, memory and extension details never leave the PC.
+// What a paired phone may see: the conversation, the Quick session, the saved sessions, their pending questions,
+// and goal status. Settings, profile, keys, memory and extension details never leave the PC.
 const { PROACTIVE_KINDS } = require('./proactive-chat.cjs');
+const { isMain, isQuick, isSession } = require('./chats.cjs');
 
 const MAX_MESSAGES = 200;
+// The phone keeps the most recent sessions and their latest messages; older ones stay on the PC.
+const MAX_SESSIONS = 20;
+const MAX_SESSION_MESSAGES = 80;
 const MAX_TEXT = 20000;
 const cut = (value, max) => String(value ?? '').slice(0, max);
 
@@ -57,10 +61,13 @@ function slimGoal(goal) {
 }
 
 function snapshot(state, { allowApprovals = false } = {}) {
-  const chat = (state.chats || []).find(item => !item.private) || null;
+  const chat = (state.chats || []).find(isMain) || null;
   const messages = chat ? chat.messages.slice(-MAX_MESSAGES) : [];
-  const quick = (state.chats || []).find(item => item.private) || null;
+  const quick = (state.chats || []).find(isQuick) || null;
   const quickMessages = quick ? quick.messages.slice(-MAX_MESSAGES) : [];
+  const sessionChats = (state.chats || []).filter(isSession).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0, MAX_SESSIONS);
+  const sessionMessages = Object.fromEntries(sessionChats.map(item => [item.id, item.messages.slice(-MAX_SESSION_MESSAGES).map(slimMessage)]));
+  const ownChat = new Set([chat?.id, quick?.id, ...sessionChats.map(item => item.id)].filter(Boolean));
   return {
     version: state.appVersion,
     ready: state.runtime?.status === 'ready' && state.account?.status === 'connected',
@@ -69,7 +76,10 @@ function snapshot(state, { allowApprovals = false } = {}) {
     messages: messages.map(slimMessage),
     quick: quick ? { id: quick.id, status: quick.status, error: cut(quick.error, 1000), goal: slimGoal(quick.goal) } : null,
     quickMessages: quickMessages.map(slimMessage),
-    approvals: (state.approvals || []).filter(item => !chat || item.chatId === chat.id || item.chatId === quick?.id).map(slimApproval),
+    sessions: sessionChats.map(item => ({ id: item.id, title: cut(item.title, 80) || 'Session', status: item.status, error: cut(item.error, 1000),
+      updatedAt: Number.isFinite(item.updatedAt) ? item.updatedAt : null, more: item.messages.length > MAX_SESSION_MESSAGES, goal: slimGoal(item.goal) })),
+    sessionMessages,
+    approvals: (state.approvals || []).filter(item => ownChat.has(item.chatId)).map(item => ({ ...slimApproval(item), chatId: item.chatId })),
     allowApprovals,
     goals: (state.autonomy?.goals || []).map(goal => ({ id: goal.id, name: cut(goal.name, 120), status: goal.status,
       nextRunAt: Number.isFinite(goal.nextRunAt) ? goal.nextRunAt : null, nextStep: cut(goal.nextStep, 300) })),
@@ -96,10 +106,14 @@ function notifications(previous, next) {
       ? { title: 'Little Bot has a question', body: excerpt(approval.question), tag: `approval-${approval.requestId}`, requestId: approval.requestId, options: (approval.options || []).slice(0, 3) }
       : { title: 'Little Bot needs your approval', body: excerpt(approval.title), tag: `approval-${approval.requestId}` });
   }
-  if (previous.chat?.status === 'running' && next.chat?.status === 'idle' && next.chat?.goal?.status !== 'pursuing') {
-    const latest = [...next.messages].reverse().find(message => message.role === 'user' || (message.role === 'assistant' && !message.proactive && !message.thinking && message.kind !== 'question'));
-    const reply = latest?.role === 'assistant' ? latest : null;
-    if (reply) result.push({ title: 'Little Bot replied', body: excerpt(reply.text) || 'Your reply is ready.', tag: 'reply' });
+  const replied = (before, after, list, title, tag) => {
+    if (before?.status !== 'running' || after?.status !== 'idle' || after?.goal?.status === 'pursuing') return;
+    const latest = [...list].reverse().find(message => message.role === 'user' || (message.role === 'assistant' && !message.proactive && !message.thinking && message.kind !== 'question'));
+    if (latest?.role === 'assistant') result.push({ title, body: excerpt(latest.text) || 'Your reply is ready.', tag });
+  };
+  replied(previous.chat, next.chat, next.messages, 'Little Bot replied', 'reply');
+  for (const session of next.sessions || []) {
+    replied((previous.sessions || []).find(item => item.id === session.id), session, next.sessionMessages?.[session.id] || [], `Little Bot replied · ${session.title}`, `reply-${session.id}`);
   }
   return result;
 }

@@ -8,6 +8,7 @@ const { randomUUID } = require('node:crypto');
 const { parseModelJson, normalizeModelOutput } = require('./model-json.cjs');
 
 const DEFAULT_TURNS = 20, MAX_TURNS = 100, DEFAULT_MINUTES = 90, MAX_MINUTES = 720;
+const { isQuick, isMain } = require('./chats.cjs');
 const EVAL_TIMEOUT_MS = 10 * 60000, CHECK_TIMEOUT_MS = 5 * 60000, OUTPUT_LIMIT = 100000;
 const STATUSES = ['pursuing', 'paused', 'achieved', 'unmet', 'budget'];
 const COMMANDS = { status: 'status', pause: 'pause', stop: 'pause', resume: 'resume', continue: 'resume', clear: 'clear', cancel: 'clear', off: 'clear', reset: 'clear' };
@@ -150,12 +151,16 @@ class ChatGoalRunner {
   holding() { return !this.closed && this.chats.some(chat => chat.goal?.status === 'pursuing'); }
   ownsThread(threadId) { return Boolean(threadId && this.op?.threadId === threadId); }
   elapsed(goal, now = Date.now()) { return goal.elapsedMs + (goal.status === 'pursuing' && goal.resumedAt ? now - goal.resumedAt : 0); }
-  target(chatId, quick) { return (chatId && this.controller.chat(chatId)) || this.chats.find(chat => quick ? chat.private : !chat.private) || null; }
+  target(chatId, quick, session) {
+    if (chatId && this.controller.chat(chatId)) return this.controller.chat(chatId);
+    // A new saved session has no chat until its first turn.
+    return session ? null : this.chats.find(chat => quick ? isQuick(chat) : isMain(chat)) || null;
+  }
 
-  async command({ chatId, quick = false, text = '' } = {}) {
+  async command({ chatId, quick = false, session = false, text = '' } = {}) {
     const parsed = parseGoalCommand(text);
-    const chat = this.target(chatId, quick === true);
-    if (parsed.action === 'set') return this.start(chat, parsed, quick === true);
+    const chat = this.target(chatId, quick === true, session === true);
+    if (parsed.action === 'set') return this.start(chat, parsed, quick === true, session === true);
     const goal = chat?.goal;
     if (!goal) throw new Error(parsed.action === 'status' ? 'No goal in this conversation. Start one with /goal <what must be true when it is done>.' : `There is no goal to ${parsed.action}.`);
     if (parsed.action === 'pause') return this.pause(chat, 'Paused by you. Use /goal resume to continue.');
@@ -163,12 +168,12 @@ class ChatGoalRunner {
     if (parsed.action === 'clear') return this.clear(chat);
     return { goal: { ...goal, elapsedMs: this.elapsed(goal) } };
   }
-  async start(chat, parsed, quick) {
+  async start(chat, parsed, quick, session = false) {
     if (chat && chat.status !== 'idle') throw new Error('Wait for the current reply to finish (or stop it), then set the goal.');
     await this.stopEvaluation();
     for (const other of this.chats) if (other !== chat && other.goal?.status === 'pursuing') this.setPaused(other, 'Paused because another conversation started a goal.');
     const goal = createGoal(parsed);
-    const result = await this.sendTurn({ chatId: chat?.id, quick, text: parsed.condition }, { goalTurn: { kind: 'start', goal } });
+    const result = await this.sendTurn({ chatId: chat?.id, quick, ...(session && !chat ? { session: true } : {}), text: parsed.condition }, { goalTurn: { kind: 'start', goal } });
     return { goal, chatId: result?.chatId };
   }
   setPaused(chat, reason) {

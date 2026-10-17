@@ -57,6 +57,22 @@
 
 
 /* Collapse secondary navigation to leave room for conversations. */
+.sidebar-sessions{margin-top:9px;flex-shrink:1;min-height:0;display:flex;flex-direction:column}
+.sidebar-sessions>summary{display:flex;align-items:center;gap:10px;padding:12px;border-radius:8px;font-size:12px;font-weight:550;cursor:pointer;list-style:none;user-select:none}
+.sidebar-sessions>summary::-webkit-details-marker{display:none}
+.sidebar-sessions>summary:hover,.sidebar-sessions:not([open]):has(.nav-button.active)>summary{background:#e7e8df}
+.sidebar-sessions>summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.sidebar-sessions>summary .icon{color:var(--muted);transform:rotate(-90deg)}
+.sidebar-sessions[open]>summary .icon{transform:rotate(0)}
+.sidebar-sessions>summary .count{margin-left:auto}
+.sessions-nav{display:flex;flex-direction:column;min-height:0;padding-left:8px}
+.sessions-nav .nav-button{margin-top:2px;width:100%}
+.new-session-button{color:var(--muted)}
+.sessions-list{display:flex;flex-direction:column;max-height:228px;overflow-y:auto;min-height:0}
+.session-item{display:flex;align-items:center;gap:8px;min-width:0}
+.session-item .session-title{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+.session-item .session-meta{flex:none;font-size:10px;color:var(--muted);font-weight:450}
+.session-item .status-dot{flex:none}
 .background-toggle{margin-top:14px;display:flex;align-items:center;gap:10px;width:100%;padding:13px 12px;border:1px solid #cfdccc;border-radius:12px;background:#e9f1e6;text-align:left;color:var(--ink);flex-shrink:0;transition:background .15s,border-color .15s}
 .background-toggle:hover{background:#dfeadb}
 .background-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}

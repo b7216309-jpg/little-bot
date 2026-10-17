@@ -57,8 +57,8 @@ function runTailscale(args, timeout = 8000) {
 }
 
 class Relay {
-  constructor({ file, protector, handlers, getState, isDesktopFocused = () => false, onError = () => {}, webRoot = path.join(__dirname, 'relay-web'), iconRoot = path.join(__dirname, '..', 'resources', 'icons'), apkFile = path.join(__dirname, '..', 'resources', 'android', 'little-bot.apk'), tailscale = runTailscale, push = webPush.send, host = '0.0.0.0' }) {
-    Object.assign(this, { file, protector, handlers, getState, isDesktopFocused, onError, webRoot, iconRoot, apkFile, tailscale, push, host });
+  constructor({ file, protector, handlers, getState, isDesktopFocused = () => false, onError = () => {}, webRoot = path.join(__dirname, 'relay-web'), iconRoot = path.join(__dirname, '..', 'resources', 'icons'), apkFile = path.join(__dirname, '..', 'resources', 'android', 'little-bot.apk'), tailscale = runTailscale, push = webPush.send, host = '0.0.0.0', port = null }) {
+    Object.assign(this, { file, protector, handlers, getState, isDesktopFocused, onError, webRoot, iconRoot, apkFile, tailscale, push, host, portOverride: port });
     this.phone = new Map(); // deviceId -> latest shared context, memory only
     this.server = null; this.clients = new Map(); this.pairing = null; this.error = ''; this.https = '';
     this.lastSnapshot = null; this.sent = new Map(); this.failures = new Map(); this.seenSaveAt = 0;
@@ -72,7 +72,7 @@ class Relay {
     const devices = (Array.isArray(data.devices) ? data.devices : []).filter(item => item && typeof item.id === 'string' && typeof item.tokenHash === 'string').slice(0, MAX_DEVICES)
       .map(item => ({ id: item.id, name: cleanName(item.name), tokenHash: item.tokenHash, createdAt: Number(item.createdAt) || Date.now(),
         lastSeenAt: Number(item.lastSeenAt) || 0, ...(item.push?.endpoint ? { push: item.push } : {}) }));
-    const port = Number.isInteger(data.port) && data.port >= 1024 && data.port <= 65535 ? data.port : DEFAULT_PORT;
+    const port = Number.isInteger(this.portOverride) ? this.portOverride : Number.isInteger(data.port) && data.port >= 1024 && data.port <= 65535 ? data.port : DEFAULT_PORT;
     const home = Number.isFinite(data.home?.lat) && Number.isFinite(data.home?.lon) ? { lat: data.home.lat, lon: data.home.lon, radius: Number(data.home.radius) || phoneContext.HOME_RADIUS_M } : null;
     return { enabled: data.enabled === true, port, allowApprovals: data.allowApprovals === true, devices, home,
       vapid: data.vapid?.privateJwk ? data.vapid : webPush.createVapidKeys() };
@@ -202,14 +202,15 @@ class Relay {
     this.lastSnapshot = next;
     const upsert = [];
     const ids = next.messages.map(message => message.id), quickIds = next.quickMessages.map(message => message.id);
-    for (const message of [...next.messages, ...next.quickMessages]) {
+    const sessionIds = Object.fromEntries(Object.entries(next.sessionMessages || {}).map(([id, list]) => [id, list.map(message => message.id)]));
+    for (const message of [...next.messages, ...next.quickMessages, ...Object.values(next.sessionMessages || {}).flat()]) {
       const json = JSON.stringify(message);
       if (this.sent.get(message.id) !== json) { this.sent.set(message.id, json); upsert.push(message); }
     }
-    const keep = new Set([...ids, ...quickIds]);
+    const keep = new Set([...ids, ...quickIds, ...Object.values(sessionIds).flat()]);
     for (const id of this.sent.keys()) if (!keep.has(id)) this.sent.delete(id);
-    const { messages, quickMessages, ...rest } = next;
-    this.broadcast({ type: 'state', ...rest, ids, quickIds, upsert });
+    const { messages, quickMessages, sessionMessages, ...rest } = next;
+    this.broadcast({ type: 'state', ...rest, ids, quickIds, sessionIds, upsert });
     if (notes.length) this.notify(notes).catch(error => this.onError('relay-push', error));
   }
   // Little Bot's phone tool: alarms, timers, ringing and routes run on the phone through its background connection.
@@ -242,10 +243,11 @@ class Relay {
   remember(messages) { for (const message of messages) this.sent.set(message.id, JSON.stringify(message)); }
   broadcastMessages(event) {
     const quick = event.chatId === this.lastSnapshot?.quick?.id;
-    if (!quick && event.chatId !== this.lastSnapshot?.chat?.id) return;
+    const session = (this.lastSnapshot?.sessions || []).some(item => item.id === event.chatId);
+    if (!quick && !session && event.chatId !== this.lastSnapshot?.chat?.id) return;
     const upsert = (event.messages || []).map(view.slimMessage);
     this.remember(upsert);
-    if (upsert.length) this.broadcast({ type: 'messages', upsert, ...(quick ? { quick: true } : {}) });
+    if (upsert.length) this.broadcast({ type: 'messages', upsert, ...(quick ? { quick: true } : session ? { session: event.chatId } : {}) });
   }
   broadcast(payload) {
     const data = `data: ${JSON.stringify(payload)}\n\n`;
@@ -362,14 +364,20 @@ class Relay {
     const client = { id, deviceId: device.id, response, visible: !background, background };
     this.clients.set(id, client);
     const snap = this.snapshot();
-    this.remember([...snap.messages, ...snap.quickMessages]);
-    response.write(`data: ${JSON.stringify({ type: 'hello', clientId: id, ...snap, ids: snap.messages.map(item => item.id), quickIds: snap.quickMessages.map(item => item.id), upsert: [...snap.messages, ...snap.quickMessages], messages: undefined, quickMessages: undefined })}\n\n`);
+    const sessionMessages = Object.values(snap.sessionMessages || {}).flat();
+    this.remember([...snap.messages, ...snap.quickMessages, ...sessionMessages]);
+    const sessionIds = Object.fromEntries(Object.entries(snap.sessionMessages || {}).map(([key, list]) => [key, list.map(item => item.id)]));
+    response.write(`data: ${JSON.stringify({ type: 'hello', clientId: id, ...snap, ids: snap.messages.map(item => item.id), quickIds: snap.quickMessages.map(item => item.id), sessionIds,
+      upsert: [...snap.messages, ...snap.quickMessages, ...sessionMessages], messages: undefined, quickMessages: undefined, sessionMessages: undefined })}\n\n`);
     request.on('close', () => { this.clients.delete(id); this.onClients?.(); });
     this.onClients?.();
   }
   async action(name, input, device) {
     const snap = this.snapshot();
     const chatId = snap.chat?.id;
+    // The phone names a saved session by id; it must be one the phone was shown.
+    const sessionId = typeof input.sessionId === 'string' && input.sessionId ? input.sessionId : null;
+    if (sessionId && !snap.sessions.some(item => item.id === sessionId)) throw new Error('This session is no longer on the PC.');
     switch (name) {
       case 'presence': {
         const client = this.clients.get(String(input.clientId || ''));
@@ -383,14 +391,19 @@ class Relay {
         if (!text && !attachmentIds.length) throw new Error('Write a message first.');
         if (text.length > 32000) throw new Error('This message is over the 32,000-character limit. Send it from the PC, where long text becomes an attachment.');
         // /goal on the phone works like on the desktop (see ChatGoalRunner).
+        const newSession = input.newSession === true && !sessionId;
         if (/^\/goal(\s|$)/i.test(text)) {
-          await this.handlers.chatGoal({ quick: input.quick === true, chatId: input.quick === true ? snap.quick?.id : chatId, text: text.replace(/^\/goal/i, '').trim() });
-          return { ok: true };
+          const result = await this.handlers.chatGoal({ quick: input.quick === true, session: newSession, chatId: sessionId || (input.quick === true ? snap.quick?.id : newSession ? undefined : chatId), text: text.replace(/^\/goal/i, '').trim() });
+          return { ok: true, ...(result?.chatId ? { chatId: result.chatId } : {}) };
         }
+        const files = attachmentIds.length ? { attachmentIds } : {};
+        let result;
         // The Quick session: a side chat with no memory, goals or follow-ups (see Controller.send).
-        if (input.quick === true) await this.handlers.send({ quick: true, ...(snap.quick ? { chatId: snap.quick.id } : {}), text, ...(attachmentIds.length ? { attachmentIds } : {}) });
-        else await this.handlers.send({ ...(chatId ? { chatId } : {}), text, ...(attachmentIds.length ? { attachmentIds } : {}) });
-        return { ok: true };
+        if (input.quick === true) result = await this.handlers.send({ quick: true, ...(snap.quick ? { chatId: snap.quick.id } : {}), text, ...files });
+        // A saved session, or a new one started from the phone.
+        else if (sessionId || newSession) result = await this.handlers.send({ session: true, ...(sessionId ? { chatId: sessionId } : {}), text, ...files });
+        else result = await this.handlers.send({ ...(chatId ? { chatId } : {}), text, ...files });
+        return { ok: true, ...(result?.chatId ? { chatId: result.chatId } : {}) };
       }
       case 'attach': {
         // A photo or file from the phone, imported exactly like a desktop attachment (images are resized there).
@@ -402,17 +415,21 @@ class Relay {
         return { attachment: { id: attachment.id, name: attachment.name, kind: attachment.kind, size: attachment.size, ...(attachment.thumbnail ? { thumbnail: attachment.thumbnail } : {}) } };
       }
       case 'stop': {
-        const target = input.quick === true ? snap.quick?.id : chatId;
+        const target = sessionId || (input.quick === true ? snap.quick?.id : chatId);
         if (target) await this.handlers.stop({ chatId: target });
         return { ok: true };
       }
       case 'chatGoal': {
         const command = String(input.command || '');
         if (!['pause', 'resume', 'clear'].includes(command)) throw new Error('Choose pause, resume or clear.');
-        await this.handlers.chatGoal({ quick: input.quick === true, chatId: input.quick === true ? snap.quick?.id : chatId, text: command });
+        await this.handlers.chatGoal({ quick: input.quick === true, chatId: sessionId || (input.quick === true ? snap.quick?.id : chatId), text: command });
         return { ok: true };
       }
       case 'endQuick': if (snap.quick) await this.handlers.deleteChat({ chatId: snap.quick.id }); return { ok: true };
+      case 'deleteSession':
+        if (!sessionId) throw new Error('Choose a session.');
+        await this.handlers.deleteChat({ chatId: sessionId });
+        return { ok: true };
       // The Background switch, same as the desktop one: everything Little Bot does on its own, on or off.
       case 'background':
         if (typeof input.on !== 'boolean') throw new Error('Say whether background work should be on or off.');

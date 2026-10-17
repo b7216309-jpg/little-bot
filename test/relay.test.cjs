@@ -759,3 +759,13 @@ test('the early Strata stream still restores namespaced Responses tool calls', a
   assert.equal(call.name, 'lookup');
   assert.equal(call.namespace, 'local_space');
 });
+
+test('a stray closing think tag before the answer moves the draft into reasoning, never into the reply', async () => {
+  const output = async chunks => (await collectAdapter(chunks)).events.find(event => event.type === 'response.completed').response.output;
+  const stray = await output([chatChunk({ reasoning_content: 'They ask for the codename.' }),
+    chatChunk({ content: 'You gave me SAFFRON-7.\n</think>\n\nYou gave me the test codename SAFFRON-7.' }), chatChunk({}, 'stop')]);
+  assert.equal(stray.find(item => item.type === 'message').content[0].text, 'You gave me the test codename SAFFRON-7.');
+  assert.match(stray.find(item => item.type === 'reasoning').content[0].text, /codename\.You gave me SAFFRON-7/);
+  const plain = await output([chatChunk({ content: 'No tags here.' }), chatChunk({}, 'stop')]);
+  assert.equal(plain.find(item => item.type === 'message').content[0].text, 'No tags here.');
+});

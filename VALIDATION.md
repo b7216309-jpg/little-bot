@@ -1,3 +1,50 @@
+# Version 0.33.0 verification
+
+0.33.0 adds saved sessions beside the conversation and the Quick session, on the desktop, in the widget and on the phone. Checked live on Strata 0.1.44.1 (qwen3.8-flash-next-iq3_s) through the real app with temporary data folders.
+
+## Sessions
+
+- **What they are:** separate conversations with their own engine thread and saved history. Memory recall and learning work in them; proactive messages, scheduled runs and things to bring up stay in the conversation. Each turn carries a short note naming the session and pointing to memory search for the rest.
+- **Desktop:** Sessions in the sidebar, with **New session** (also Ctrl+N), the list newest first, and a dot while one works. An open session has **Rename** and **Delete** in the top bar. Deleting removes its history from memory search; facts already learned from it stay.
+- **Live through the UI:**
+  - The conversation answered in 8 s.
+  - A new session titled itself "Plan a 3-day trip to Lisbon. Only list the thre…" and answered in 6 s.
+  - The conversation's page did not show the session.
+  - Renaming to "Lisbon weekend" worked.
+  - A second session listed first.
+  - Deleting it went back to the conversation.
+- **Memory across chats:** asked in the session, the model recalled a codename said in the conversation, through shared memory search, as intended.
+- **Widget:** a chat picker in the header (conversation, Quick, sessions, new session), locked while a reply runs. Switching from the full window to the widget kept the open session ("Lisbon weekend") selected and shown.
+- **Phone:** new **Sessions** tab with the 20 most recent sessions. Live in the phone web app (paired on a test relay bound to 127.0.0.1 on its own port, so no real phone could reach it):
+  - The list showed the session.
+  - Opening it showed its history.
+  - A message sent from the phone was answered in the session.
+  - **+ New session** created "Name one fun fact about octopuses…" and stayed on it.
+  - Delete removed it on the PC too.
+  - Quick answered 156.
+- **Persistence:** the conversation is saved first, then the sessions (up to 200); the Quick session never. A new test covers creating, continuing, renaming, persisting and deleting sessions.
+
+## Quick session
+
+Live in a Mochi (sarcastic cat) profile:
+- **Personality:** it stayed fully in character ("Mochi. Cat, currently running this computer…").
+- **Profile:** the profile's own system prompt and SOUL.md were in the turn.
+- **Tools and skills:**
+  - It totalled a CSV (North 165, South 110, East 200).
+  - It read the file-organizer skill and sorted six files into Documents/Images/Spreadsheets, writing a move log.
+  - It used the calendar tool.
+- **Saved nothing:** memory stayed off and it saved nothing.
+- **Wording fix:** the Quick note no longer ends with "Just do the task", which could flatten a personality; it now says the model keeps its own personality.
+
+## Fixes
+
+- **Leaked reasoning:** a session answer came back as "You gave me the test codename SAFFRON-7.\n</think>\n\nYou gave me the test codename SAFFRON-7.". Qwen had written the end of its thinking as text, then closed a think block it never opened. The Strata adapter now moves text before a stray closing tag into reasoning when no answer text has gone out yet, and otherwise drops the tag. Covered by a relay test.
+- **Phone replies:** lists, headings and quotes now render like on the desktop instead of showing raw "- " markers.
+- **Test relays:** `LITTLE_BOT_RELAY_PORT` lets a test instance use its own port, so a paired phone never reaches it and never sees itself as unpaired.
+- **Skill upgrades:** the little-bot skill describes sessions, and unedited 0.32.0 copies upgrade.
+
+Node tests (132), the widget and browser Electron tests, and validate-docs pass.
+
 # Version 0.32.0 verification
 
 0.32.0 makes Little Bot local-only, compacts long turns while they are still working, and adds one switch for all background work. Checked live on Strata 0.1.44.1 (qwen3.8-flash-next-iq3_s).

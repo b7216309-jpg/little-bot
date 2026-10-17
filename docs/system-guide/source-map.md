@@ -23,6 +23,7 @@ Guide: [02-chat-context.md](02-chat-context.md)
 | [src/compaction.cjs](../../src/compaction.cjs) | Production application module |
 | [src/controller.cjs](../../src/controller.cjs) | Production application module |
 | [src/chat-goal.cjs](../../src/chat-goal.cjs) | /goal in a conversation: keep working until an independent check confirms the condition |
+| [src/chats.cjs](../../src/chats.cjs) | The three kinds of chat: the continuous conversation, the Quick session and saved sessions |
 | [src/local-time.cjs](../../src/local-time.cjs) | Local clock text given to the model |
 
 ## models strata

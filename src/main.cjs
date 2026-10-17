@@ -43,6 +43,7 @@ const { MAX_EVENTS, validateCalendarEvent, listCalendarEvents, calendarEventView
 const { randomUUID } = require('node:crypto');
 const companion = require('./companion.cjs');
 const { advanceMissedSchedules, missedCount } = require('./missed-schedules.cjs');
+const { mainChat } = require('./chats.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'little-bot-attachment', privileges: { standard: true, secure: true, supportFetchAPI: false } }]);
 
@@ -369,6 +370,8 @@ app.whenReady().then(async () => {
   // Paired phones belong to the PC, not a profile: they talk to whichever profile is running.
   relay = new Relay({ file: path.join(profiles.base, 'data', 'relay.json'), protector: stateProtector(), onError: logDiagnostic,
     ...(process.env.LITTLE_BOT_RELAY_HOST ? { host: process.env.LITTLE_BOT_RELAY_HOST } : {}),
+    // Test instances use their own port so a paired phone never reaches them (and never sees itself unpaired).
+    ...(/^\d{4,5}$/.test(process.env.LITTLE_BOT_RELAY_PORT || '') ? { port: Number(process.env.LITTLE_BOT_RELAY_PORT) } : {}),
     getState: () => controller.state(), isDesktopFocused: () => Boolean(desktopWindows?.isFocused()),
     handlers: new Proxy({}, { get: (_target, name) => payload => appHandlers.get(name)(payload) }) });
   const relayChanged = () => desktopWindows?.broadcast({ type: 'relay', relay: relay.publicState() });
@@ -557,7 +560,7 @@ app.whenReady().then(async () => {
       await controller.waitForUserLane();
       await controller.waitForExtensions();
       if (internal?.queueUntilIdle) {
-        const chat = controller.chat(payload?.chatId) || store.data.chats.find(item => !item.private);
+        const chat = controller.chat(payload?.chatId) || mainChat(store.data);
         if (chat && chat.status !== 'idle') await controller.waitForChat(chat.id);
         await controller.waitForUserLane();
       }
@@ -569,7 +572,7 @@ app.whenReady().then(async () => {
   register('chatGoal', async payload => {
     await nightShift?.ownerReturned('message');
     const result = await controller.chatGoal.command({ chatId: typeof payload?.chatId === 'string' ? payload.chatId : undefined,
-      quick: payload?.quick === true, text: typeof payload?.text === 'string' ? payload.text.slice(0, 4000) : '' });
+      quick: payload?.quick === true, session: payload?.session === true, text: typeof payload?.text === 'string' ? payload.text.slice(0, 4000) : '' });
     return { ...result, state: controller.state() };
   });
   register('stop', async payload => {
@@ -580,6 +583,7 @@ app.whenReady().then(async () => {
   register('challengeIndependentCheck', payload => controller.challengeIndependentCheck(payload));
   register('compact', payload => controller.compact(payload));
   register('deleteChat', payload => controller.deleteChat(payload));
+  register('renameChat', payload => controller.renameChat(payload));
   register('respondApproval', payload => controller.respondApproval(payload));
   register('saveGoal', async payload => { await goals.save(payload); return controller.state(); });
   register('runGoal', async ({ id } = {}) => { await nightShift?.ownerReturned('message'); controller.ensureReady(); await goals.runNow(id); return controller.state(); });
@@ -686,7 +690,7 @@ app.whenReady().then(async () => {
       if (goal) goals.record(goal, 'reaction', `You chose "${action.label}" on: ${entry.excerpt.slice(0, 160)}`);
     }
     store.save(); controller.changed(true);
-    const chat = store.data.chats.find(item => !item.private);
+    const chat = mainChat(store.data);
     if (choice === 'do' && chat) {
       try { await sendTurn({ chatId: chat.id, text: `✅ Yes, go ahead with this: "${entry.excerpt.slice(0, 280)}"` }, { queueUntilIdle: true }); }
       catch (error) { logDiagnostic('proactive-answer', error); }
@@ -864,7 +868,7 @@ app.whenReady().then(async () => {
   const startup = controller.start();
   startup.then(() => {
     controller.runtime.startupMs = Math.round(performance.now() - launchTime);
-    const main = store.data.chats.find(item => !item.private);
+    const main = mainChat(store.data);
     if (main?.status === 'idle' && flushProactive(main)) controller.changed(true);
     controller.changed(); eventRuntime.start(); scheduler.start(); heartbeat.start(); goals.start(); nightShift.start();
     if (store.data.settings.activityAwareness === true) activity.start();

@@ -1,6 +1,6 @@
 # Continuous conversation and memory
 
-Little Bot 0.9 uses one persistent conversation. New messages, scheduled runs, workspace changes, and model changes retain that timeline. There are no New chat, Private session, or Delete conversation controls. Changing a model, provider, working folder, or tool mode can replace the underlying engine thread. The app carries recent conversation context and retrieved memory into the replacement thread. Native compaction still manages the engine's live context independently of the saved timeline.
+Little Bot keeps one continuous conversation, plus the unsaved Quick session and, since 0.33.0, any number of saved sessions. New messages, scheduled runs, workspace changes, and model changes retain each timeline. Memory is shared: a session recalls what was said in the conversation and the other sessions, and deleting a session removes its history from search. Changing a model, provider, working folder, or tool mode can replace the underlying engine thread. The app carries recent conversation context and retrieved memory into the replacement thread. Native compaction still manages the engine's live context independently of the saved timeline.
 
 ## Storage
 
