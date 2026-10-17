@@ -4,6 +4,10 @@
 
 The send path is renderer → `bot:send` → [Controller.send](../../src/controller.cjs) → `thread/start` or `thread/resume` → `turn/start`. The public timeline stays continuous when the model, provider, workspace or Plan/Execute mode changes. Those changes may rotate the underlying engine thread. If a saved native thread has disappeared, the controller starts a fresh thread with recent visible chat history and continues the accepted message.
 
+## Three kinds of chat
+
+[chats.cjs](../../src/chats.cjs) names them. **The conversation** is the one continuous timeline: proactive messages, scheduled runs, goal posts, heartbeat alerts and things to bring up land there, and it cannot be deleted. **The Quick session** (marked `private`) is a side chat for one-off work that is never saved and reads or writes no memory. **Saved sessions** (marked `session`, since 0.33.0) are separate conversations with their own engine thread and saved history: memory recall and learning work in them like in the conversation, but proactive messages and things to bring up do not enter them, and each turn carries a short note naming the session and pointing to `memory_search`/`session_read` for the rest. `send({ session: true })` opens a new one, titled after the first line of its first message (renamable, 80 characters); `send({ chatId })` continues any chat. Only one reply runs at a time across all chats. Up to 200 sessions are kept. Deleting a session (`deleteChat`) unsubscribes its thread and removes its source history, episodes and working state from memory; facts already learned from it stay. The store saves the conversation first, then the sessions, and never the Quick session.
+
 A rotation bridges the last 24 non-tool, non-reasoning messages, bounded to 24,000 characters. Older history remains in the app and can be searched through memory tools. Native engine tools can still have their own persisted history.
 
 Each accepted request builds context with stable shell guidance and the current request first, followed by changing goals, continuity, profile, skills, memory, attachments and time. This keeps the changing material after the reusable prompt prefix. The **Context used** inspector records this composition for the current process; it is not a dump of the engine's complete hidden context and is not durable history.
@@ -22,7 +26,7 @@ It stops when the condition is met, judged impossible (it needs the user), the b
 
 ## Plan, Execute and stopping
 
-Execute uses native full-access execution. Plan uses the engine's read-only sandbox and a reduced dynamic-tool set. Scheduled prompts carry their own origin labels and restore the previous conversation mode afterward. Private sessions and multiple public conversation creation are no longer supported.
+Execute uses native full-access execution. Plan uses the engine's read-only sandbox and a reduced dynamic-tool set. Scheduled prompts carry their own origin labels and restore the previous conversation mode afterward.
 
 Stop requires an established turn ID; during early preparation it can ask the user to retry. Normal completion rejects late events belonging to completed turns. Local turn-start acknowledgements and turn watchdogs allow up to ten minutes for long prompt prefill before reporting a timeout.
 

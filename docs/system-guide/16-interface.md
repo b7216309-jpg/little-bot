@@ -18,7 +18,11 @@ Specialized modules implement action groups, the goal ledger, provider usage, st
 
 ## Quick session
 
-The sidebar's **Quick session** (and the phone's Quick tab) is a side chat for one-off tasks. It is the chat marked `private`: [Controller.send](../../src/controller.cjs) keeps it after the main conversation, never saves it, injects no memory, goals, activity or proactive messages, and writes no memory or episodes. [AgentTools](../../src/agent-tools.cjs) leaves out memory, goal, routine, web-watch, follow-up and app-management tools for it. **End session** discards it (`deleteChat`); the main conversation cannot be deleted. Everything that means "the conversation" (proactive delivery, goals, the phone's main tab, the widget) uses the first non-private chat.
+The sidebar's **Quick session** (and the phone's Quick tab) is a side chat for one-off tasks. It is the chat marked `private`: [Controller.send](../../src/controller.cjs) keeps it after the main conversation, never saves it, injects no memory, goals, activity or proactive messages, and writes no memory or episodes. [AgentTools](../../src/agent-tools.cjs) leaves out memory, goal, routine, web-watch, follow-up and app-management tools for it. **End session** discards it (`deleteChat`); the main conversation cannot be deleted. Everything that means "the conversation" (proactive delivery, goals, the phone's main tab) uses `mainChat` from [chats.cjs](../../src/chats.cjs): the first chat that is neither private nor a session.
+
+## Sessions
+
+Under **Sessions** in the sidebar, **New session** (Ctrl+N) opens an empty composer whose first message creates a saved session; the list shows each session with its age and a dot while it works, newest first. With a session open, the top bar offers **Rename** and **Delete** (with a confirmation that its history goes and learned facts stay). The renderer tracks `chatMode` (`main`, `quick`, `session`) and `sessionId`; drafts, attachments and Plan choice are kept per chat. A session deleted elsewhere (the phone) sends the window back to the conversation.
 
 ## Usage and context display
 

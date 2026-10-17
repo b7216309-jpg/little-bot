@@ -4,7 +4,7 @@ Click **Widget** in the top bar, or press **Ctrl+Shift+M**, for a floating Glass
 
 The pin keeps the widget above other windows. Size, position, pin, collapse, and the last display mode are saved per PC in `display.json` alongside the app's state. Expanded size starts at 420 × 560 and can be resized. The collapsed pill is 310 × 78. Saved bounds are clamped to an available screen.
 
-Both views share the same conversation and controller. Switching transfers the unsent text, Plan choice, and attachment references. Sending, streamed replies, tools, and Stop use the same handlers. The pill shows current activity and a Stop control during a run. Questions and approvals expand the pill. Finish an open dialog or an in-progress file import/send before switching views.
+A picker in the header switches the widget between the conversation, the Quick session, saved sessions and a new session; it is locked while a reply runs. Both views share the same chats and controller, and switching views keeps the chat that was open. Switching transfers the unsent text, Plan choice, and attachment references. Sending, streamed replies, tools, and Stop use the same handlers. The pill shows current activity and a Stop control during a run. Questions and approvals expand the pill. Finish an open dialog or an in-progress file import/send before switching views.
 
 The overflow menu opens Settings or Goals in the full app and offers the existing Compact conversation action. Rich tool pages and the built-in browser stay in the full app; hiding its browser panel leaves the page and ongoing browser work intact. Closing the widget returns to the full app. Close the full app to quit normally.
 

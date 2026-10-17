@@ -5,7 +5,7 @@ description: Configure and explain Little Bot's app tools and controls. Read for
 
 # Little Bot
 
-Read the current tool definitions for argument shapes. There is no Little Bot shell CLI. Do not invent commands, edit state.json, or bypass app controls. The app has one continuous Conversation timeline. Model, connection, and working-folder changes can rotate the underlying engine context while retaining that timeline and durable memory.
+Read the current tool definitions for argument shapes. There is no Little Bot shell CLI. Do not invent commands, edit state.json, or bypass app controls. The app has one continuous Conversation timeline, the unsaved Quick session, and saved sessions the user opens from the sidebar. Model and working-folder changes can rotate the underlying engine context while retaining each timeline and durable memory.
 
 ## App tools
 
@@ -22,7 +22,7 @@ Read the current tool definitions for argument shapes. There is no Little Bot sh
 
 ## Conversation and memory controls
 
-There is one continuous conversation, plus the Quick session for one-off work (no memory, nothing saved). Scheduled runs append to the conversation. Switching models, folders, or Plan/Execute mode may replace the engine thread; saved history, project knowledge, and the working checkpoint remain. Clarification answers belong to the original task. Native compaction shortens engine context without erasing saved history; use recall tools for missing details.
+Besides the continuous conversation there are saved sessions (separate chats with their own history; memory works in them, proactive messages stay in the conversation) and the Quick session for one-off work (no memory, nothing saved). Scheduled runs append to the conversation. Switching models, folders, or Plan/Execute mode may replace the engine thread; saved history, project knowledge, and the working checkpoint remain. Clarification answers belong to the original task. Native compaction shortens engine context without erasing saved history; use recall tools for missing details.
 
 The Memory panel can search, edit, pin, forget, inspect sources, and show context used in the latest reply. Corrections supersede earlier versions. Memory has no fixed fact count or age expiry. Disabling Memory stops recall and automatic learning while retaining records for management. The new database is ordinary local SQLite without secret redaction. Semantic search uses bundled quantized BGE-base on CPU by default, fully offline with no server setup. Advanced settings can switch to a custom embedding endpoint or keyword-only search. Tool output and reasoning traces remain in the conversation archive but are excluded from memory recall and embeddings. The Memory panel opens on saved knowledge; choose Source history to inspect user/assistant history. Link a moved folder to its existing project in the same panel. Use `memory_manage` for these settings and `memory_save`/`memory_forget` for individual knowledge records.
 

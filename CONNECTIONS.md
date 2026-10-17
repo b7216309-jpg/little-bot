@@ -24,7 +24,7 @@ The relay also supplies the missing `content_index: 0` on llama.cpp's single-par
 
 These values are not saved to conversations, Memory, or `state.json`. They disappear when the app closes, and switching local models clears prior local samples. Goal token, time, action, run, and retry limits remain separate application controls. See [USAGE.md](USAGE.md).
 
-The app has one persistent conversation. Changing its model, local server, or working folder rotates the engine context as needed while preserving the visible timeline. A recent-history bridge and relevant durable memory accompany the next request. Memory searches work across models. Goals, routines, and heartbeat keep their saved server; when the server loads another model, they move to it.
+The conversation, the Quick session and each saved session keep their timelines. Changing the model, local server, or working folder rotates the engine context as needed while preserving the visible timeline. A recent-history bridge and relevant durable memory accompany the next request. Memory searches work across models. Goals, routines, and heartbeat keep their saved server; when the server loads another model, they move to it.
 
 Manual compaction follows the selected model. Switching from IQ2_XS to IQ3_S reloads the same native history with IQ3_S before summarizing it, including when compaction is the first action after the switch. The visible transcript is preserved, and the next chat turn continues with the compacted history.
 
