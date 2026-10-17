@@ -1,4 +1,10 @@
-# Local performance
+# Usage and local performance
+
+## Usage page
+
+Open **Tools → Usage** to see the tokens Little Bot read and wrote on this PC: per day, per source (the conversation, sessions, Quick, routines, heartbeat, night shift, goals, memory learning and dreams, answer checks, compaction), per hour of day and per model, over 7, 30 or 90 days or everything. The counts are Strata's own numbers for every request, recorded as each one finishes, with how much of each prompt came from Strata's cache and the average generation speed. Counting started with 0.34.0; nothing earlier exists. Only counts are kept (in `state.json`, 400 days), never text.
+
+## Local performance panel
 
 Open **Settings → Connection** to see the read-only local performance panel. It reports transient timing and token counts observed from completed local model turns. It does not change permissions, schedules, model settings, or autonomous-goal budgets.
 

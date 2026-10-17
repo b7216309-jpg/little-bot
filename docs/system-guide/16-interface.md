@@ -24,6 +24,12 @@ The sidebar's **Quick session** (and the phone's Quick tab) is a side chat for o
 
 Under **Sessions** in the sidebar, **New session** (Ctrl+N) opens an empty composer whose first message creates a saved session; the list shows each session with its age and a dot while it works, newest first. With a session open, the top bar offers **Rename** and **Delete** (with a confirmation that its history goes and learned facts stay). The renderer tracks `chatMode` (`main`, `quick`, `session`) and `sessionId`; drafts, attachments and Plan choice are kept per chat. A session deleted elsewhere (the phone) sends the window back to the conversation.
 
+## Usage page
+
+**Tools → Usage** shows every request Little Bot sent to the local model, counted on this PC since 0.34.0. [LocalModelRelay](../../src/local-model-relay.cjs) reads Strata's own token counts when each request finishes: prompt tokens, how many came from Strata's cache, and generated tokens, plus when output began. The engine names the thread in each request's headers (`thread-id`, and `x-codex-turn-metadata` marks compactions); [Controller.usageSource](../../src/controller.cjs) turns that into a source when the request starts: Conversation, Sessions, Quick session, Routines, Heartbeat, Night shift, Goals, Memory learning, Night thoughts, Answer checks, Compaction or Other. [UsageLedger](../../src/usage-ledger.cjs) adds it to a per-day record (requests, input, cached and output tokens per source and model, generated tokens per hour, and generation/prefill timing), keeps 400 days in `state.json` (counts only, never text) and saves at most every 15 seconds.
+
+The page has a range switch (7, 30, 90 days or all), six tiles (generated tokens as the headline, processed, share from cache, requests, average generation speed, active days and streak), generated tokens per day stacked by group (Chats, Background, Memory, Checks, Compaction) with a hover readout and a table view, a by-source table, generated tokens by hour of day, and a by-model table. The chart colors are a validated colorblind-safe set with their own dark steps. A speed only counts requests that reported when output began, so it cannot be inflated by requests without timing.
+
 ## Usage and context display
 
 [ProviderUsage](../../src/provider-usage.cjs) normalizes local timing/token samples. Local performance is whole-turn timing, including tools; tool-free samples supply a rolling average. It is not a model benchmark, price estimate or proof of KV-cache reuse.

@@ -498,6 +498,7 @@ class StrataStreamAdapter extends Transform {
 
   _reasoningDelta(delta) {
     if (!delta) return;
+    this.firstOutputAt ??= Date.now();
     this._created();
     if (!this.reasoningAdded) {
       this.reasoningAdded = true;
@@ -517,6 +518,7 @@ class StrataStreamAdapter extends Transform {
 
   _textDelta(delta) {
     if (!delta) return;
+    this.firstOutputAt ??= Date.now();
     this.sourceText += delta;
     this.pendingText += delta;
     this._drainText(false);

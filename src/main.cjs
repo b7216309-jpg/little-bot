@@ -448,6 +448,7 @@ app.whenReady().then(async () => {
   });
   register('setWidgetState', payload => desktopWindows.setWidgetState(payload));
   register('getContextUsed', ({ chatId } = {}) => controller.contextUsedFor(chatId));
+  register('usageSummary', ({ days } = {}) => controller.usage.summary({ days: [7, 30, 90, 0].includes(days) ? days : 30 }));
   register('reportError', ({ kind, message, stack } = {}) => {
     if (typeof kind !== 'string' || kind.length > 100 || typeof message !== 'string' || message.length > 12000
       || (stack !== undefined && (typeof stack !== 'string' || stack.length > 30000))) throw new Error('Invalid renderer diagnostic.');

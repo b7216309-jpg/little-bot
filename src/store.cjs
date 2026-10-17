@@ -22,6 +22,7 @@ const { normalizeNightShift } = require('./night-shift.cjs');
 const { normalizeChatGoal } = require('./chat-goal.cjs');
 const { normalizeLessons } = require('./lessons.cjs');
 const { MAX_SESSIONS, TITLE_LIMIT } = require('./chats.cjs');
+const { normalizeUsage } = require('./usage-ledger.cjs');
 
 const INTERRUPTED = 'Interrupted because Little Bot closed before the task finished.';
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -111,6 +112,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
     calendar: normalizeCalendar(data.calendar),
     feedbackLog: normalizeFeedbackLog(data.feedbackLog),
     webWatches: normalizeWatches(data.webWatches),
+    usage: normalizeUsage(data.usage),
     heartbeat: normalizeHeartbeat(data.heartbeat, { ...settings, workspace: string(settings.workspace, defaultWorkspace) }, Date.now(), recovering),
     settings: {
       ...normalizeConnectionSettings(settings),

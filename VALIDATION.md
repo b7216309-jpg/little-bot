@@ -1,3 +1,35 @@
+# Version 0.34.0 verification
+
+0.34.0 adds the Usage page: the tokens Little Bot read and wrote on this PC, per day, source, hour and model. Checked live on Strata 0.1.44.1 (qwen3.8-flash-next-iq3_s).
+
+## How it counts
+
+- **Every request:** each request to the local model is counted at Little Bot's own relay from Strata's numbers as it finishes: prompt tokens, how many came from Strata's cache, and generated tokens, plus when output began.
+- **Sources:** the engine names the thread in each request's headers (`thread-id`) and marks compactions in its turn metadata. The controller maps that to a source when the request starts: Conversation, Sessions, Quick session, Routines, Heartbeat, Night shift, Goals, Memory learning, Night thoughts, Answer checks, Compaction or Other.
+- **Storage:** the ledger keeps 400 days of per-day counts (per source, per model, generated tokens per hour, generation and prefill timing) in `state.json`. It keeps counts only, never text, and saves at most every 15 seconds.
+- **Live attribution:**
+  - The mid-turn compaction scenario's 12 Strata requests came out as 11 conversation requests and 1 compaction (57,749 prompt tokens, 51,774 from cache).
+  - The heartbeat scenario's 12 requests all came out as heartbeat.
+  - In the app, a conversation message, a new session and a Quick question each landed in their own source.
+
+## The page
+
+- **Where:** Tools → Usage, with a 7 / 30 / 90 days / all switch.
+- **Tiles:** generated tokens as the headline, then processed, share from cache, requests, average generation speed, and active days with the current streak.
+- **Charts:** generated tokens per day stacked by group (Chats, Background, Memory, Checks, Compaction), with a hover readout per day and a table view. Generated tokens by hour of day.
+- **Tables:** by source (with share bars) and by model.
+- **Colors:** two colorblind-safe sets, one for light and one for dark, each validated against its own surface. The ochre slot is below 3:1 on the light surface, so the table view and legend carry it.
+- **Checked live:** the page was seeded with 30 days of fictional history plus real requests. It rendered in light and dark, with the tooltip and the 7-day and 30-day views.
+- **Fixed during the check:**
+  - A missing saved range defaulted to "All".
+  - A day with fractional timing could inflate the speed. Speeds now count only days with their own timing; a test covers it.
+
+## Also fixed
+
+- **Sidebar overlap:** with Tools open, the 0.33.0 Sessions list could squeeze and overlap "Activity inbox". The list now keeps its height and the sidebar scrolls when it is taller than the window.
+
+Node tests (133) and validate-docs pass.
+
 # Version 0.33.0 verification
 
 0.33.0 adds saved sessions beside the conversation and the Quick session, on the desktop, in the widget and on the phone. Checked live on Strata 0.1.44.1 (qwen3.8-flash-next-iq3_s) through the real app with temporary data folders.

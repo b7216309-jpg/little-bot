@@ -235,6 +235,7 @@ Guide: [16-interface.md](16-interface.md)
 | Source / resource | Responsibility |
 | --- | --- |
 | [src/provider-usage.cjs](../../src/provider-usage.cjs) | Production application module |
+| [src/usage-ledger.cjs](../../src/usage-ledger.cjs) | Token usage per day, source and model for the Usage page |
 | [src/desktop-windows.cjs](../../src/desktop-windows.cjs) | Full app and Glass widget windows |
 | [src/renderer/action-groups.js](../../src/renderer/action-groups.js) | Feature rendering, normalization or styling |
 | [src/renderer/app.js](../../src/renderer/app.js) | Feature rendering, normalization or styling |
@@ -243,6 +244,8 @@ Guide: [16-interface.md](16-interface.md)
 | [src/renderer/provider-usage-panel.js](../../src/renderer/provider-usage-panel.js) | Feature rendering, normalization or styling |
 | [src/renderer/provider-usage-ui.js](../../src/renderer/provider-usage-ui.js) | Feature rendering, normalization or styling |
 | [src/renderer/provider-usage.css](../../src/renderer/provider-usage.css) | Feature rendering, normalization or styling |
+| [src/renderer/usage-panel.js](../../src/renderer/usage-panel.js) | The Usage page: tiles, daily and hourly charts, tables |
+| [src/renderer/usage.css](../../src/renderer/usage.css) | The Usage page's layout and validated chart colors |
 | [src/renderer/slash-commands.js](../../src/renderer/slash-commands.js) | Feature rendering, normalization or styling |
 | [src/renderer/styles.css](../../src/renderer/styles.css) | Feature rendering, normalization or styling |
 | [src/renderer/assets/wink.svg](../../src/renderer/assets/wink.svg) | Wink brand mark used in the sidebar and welcome screen |

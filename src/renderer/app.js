@@ -53,6 +53,7 @@ const icons = {
   file: ['M14 2H5v20h14V7Z', 'M14 2v5h5', 'M8 12h8', 'M8 16h5'],
   'arrow-left': ['M19 12H5', 'm12 19-7-7 7-7'],
   'arrow-right': ['M5 12h14', 'm12 5 7 7-7 7'],
+  chart: ['M3 21h18', 'M6 17v-6', 'M11 17V5', 'M16 17v-9', 'M21 17v-3'],
 };
 
 function fillIcon(node, name) {
@@ -355,6 +356,7 @@ function render() {
   if (currentView === 'extensions') renderExtensions();
   if (currentView === 'goals') renderGoals();
   if (currentView === 'profile') renderProfile();
+  if (currentView === 'usage') window.LittleBotUsage?.refresh();
   renderAgentInspector();
   renderBrowserPanel();
   renderApprovals();
@@ -364,7 +366,7 @@ function render() {
 
 function renderHeader() {
   const chat = currentChat();
-  $('page-label').textContent = currentView === 'chat' && chatMode === 'quick' ? 'Quick session' : currentView === 'chat' && chatMode === 'session' ? (chat?.title || 'New session') : { inbox: 'Activity inbox', goals: 'Goals', automations: 'Automations', calendar: 'Calendar', memory: 'Memory', profile: 'Profile', heartbeat: 'Heartbeat', extensions: 'Extensions' }[currentView] || 'Conversation';
+  $('page-label').textContent = currentView === 'chat' && chatMode === 'quick' ? 'Quick session' : currentView === 'chat' && chatMode === 'session' ? (chat?.title || 'New session') : { inbox: 'Activity inbox', usage: 'Usage', goals: 'Goals', automations: 'Automations', calendar: 'Calendar', memory: 'Memory', profile: 'Profile', heartbeat: 'Heartbeat', extensions: 'Extensions' }[currentView] || 'Conversation';
   const status = state.runtime || {};
   const label = status.status === 'ready' ? 'Ready' : status.status === 'error' ? 'Needs attention' : 'Starting';
   const dot = element('span', `status-dot ${status.status === 'ready' ? '' : status.status === 'error' ? 'error' : 'starting'}`);
@@ -430,6 +432,7 @@ function renderSidebar() {
   $('nav-extensions').classList.toggle('active', currentView === 'extensions');
   $('nav-goals').classList.toggle('active', currentView === 'goals');
   $('nav-profile').classList.toggle('active', currentView === 'profile');
+  $('nav-usage').classList.toggle('active', currentView === 'usage');
   const activeProfile = state.profiles?.profiles?.length > 1 ? state.profiles.profiles.find(profile => profile.active) : null;
   $('nav-profile-name').textContent = activeProfile?.name || '';
   $('nav-profile-name').classList.toggle('hidden', !activeProfile);
@@ -558,6 +561,7 @@ function selectChat(id = null, mode = null) {
   $('extensions-view').classList.add('hidden');
   $('goals-view').classList.add('hidden');
   $('profile-view').classList.add('hidden');
+  $('usage-view').classList.add('hidden');
   render();
   sizeComposer();
   scrollChatToBottom();
@@ -574,7 +578,8 @@ function showFeature(view) {
   if (currentView === 'chat') saveCurrentDraft();
   currentView = view;
   $('chat-view').classList.add('hidden');
-  for (const feature of ['goals', 'automations', 'calendar', 'memory', 'profile', 'heartbeat', 'inbox', 'extensions']) $(feature + '-view').classList.toggle('hidden', feature !== view);
+  for (const feature of ['goals', 'automations', 'calendar', 'memory', 'profile', 'heartbeat', 'inbox', 'extensions', 'usage']) $(feature + '-view').classList.toggle('hidden', feature !== view);
+  if (view === 'usage') void window.LittleBotUsage?.open();
   // Show where you are: a tool page opens the Tools group so its item is visible and highlighted.
   if (view !== 'inbox' && !sidebarTools.open) sidebarTools.open = true;
   render();
@@ -4180,6 +4185,8 @@ $('nav-heartbeat').addEventListener('click', () => showFeature('heartbeat'));
 $('nav-extensions').addEventListener('click', () => showFeature('extensions'));
 $('nav-goals').addEventListener('click', () => showFeature('goals'));
 $('nav-profile').addEventListener('click', () => showFeature('profile'));
+$('nav-usage').addEventListener('click', () => showFeature('usage'));
+window.LittleBotUsage?.init({ isVisible: () => currentView === 'usage' });
 $('profile-form').addEventListener('submit', saveProfile);
 for (const key of ['user', 'soul']) $('profile-' + key).addEventListener('input', () => { profileSaveError = ''; renderProfile(); });
 $('open-profile-folder').addEventListener('click', () => attempt(() => window.bot.openProfileFolder()));
