@@ -6,6 +6,8 @@
 
 Main broadcasts bot:event snapshots and chatUpdate deltas. The renderer tracks revisions so an older snapshot cannot overwrite a newer stream state. Expanded activity groups contain reasoning/tool actions; final answers stay outside the group. [chat-scroll.js](../../src/renderer/chat-scroll.js) preserves position when reading older content and follows the tail when appropriate.
 
+The sidebar's **Background** switch (also in Goals, the widget menu and the phone menu) is the global pause: off stops the active goal, heartbeat check, routine and memory learning, and keeps goals, heartbeat, routines, night shift, learning, dreams and page watches from starting. It persists across restarts. Turning it back on advances missed heartbeat and routine occurrences to their next time (interval goals an hour later), so it never releases a burst of posts. On, its line lists what is active.
+
 Specialized modules implement action groups, the goal ledger, provider usage, standing intents and independent-check presentation. Their panel helpers normalize/bind UI data but do not independently authorize, run or save work. The backend remains the authority.
 
 [slash-commands.js](../../src/renderer/slash-commands.js) parses local convenience commands: help, plan, execute, goal, schedule, calendar, memory, activity, settings and clear, with supported aliases. /clear clears the unsent draft/attachments; it does not erase the saved continuous timeline. Unknown/private commands are rejected.
@@ -20,7 +22,7 @@ The sidebar's **Quick session** (and the phone's Quick tab) is a side chat for o
 
 ## Usage and context display
 
-[ProviderUsage](../../src/provider-usage.cjs) normalizes provider-reported quota windows and local timing/token samples. Codex remaining percentages derive from provider usage. Local performance is whole-turn timing, including tools; tool-free samples supply a rolling average. It is not a model benchmark, price estimate or proof of KV-cache reuse.
+[ProviderUsage](../../src/provider-usage.cjs) normalizes local timing/token samples. Local performance is whole-turn timing, including tools; tool-free samples supply a rolling average. It is not a model benchmark, price estimate or proof of KV-cache reuse.
 
 Context usage and goal budgets measure different things. Engine context usage is a current-window snapshot; goal tokens/time/actions/runs/retries are execution budgets. Missing usage fields mean unavailable, not zero. The Context used panel shows the app's last captured request composition, not the provider's complete context.
 

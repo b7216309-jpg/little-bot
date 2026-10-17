@@ -83,16 +83,16 @@ test('update and flush persist the single canonical conversation', t => {
   const f = fixture(t);
   const store = new Store(f);
   store.update(data => {
-    Object.assign(data.settings, { connection: 'codex', model: 'test-model', codexModel: 'test-model' });
+    Object.assign(data.settings, { connection: 'local', model: 'test-model', localModel: 'test-model' });
     data.chats = Array.from({ length: 105 }, (_, index) => ({
       id: `chat-${index}`, title: `Chat ${index}`, status: 'idle', messages: [], createdAt: index, updatedAt: index,
     }));
   });
   store.flush();
   const reloaded = new Store(f);
-  assert.equal(reloaded.data.settings.connection, 'codex');
+  assert.equal(reloaded.data.settings.connection, 'local');
   assert.equal(reloaded.data.settings.model, 'test-model');
-  assert.equal(reloaded.data.settings.codexModel, 'test-model');
+  assert.equal(reloaded.data.settings.localModel, 'test-model');
   assert.equal(reloaded.data.chats.length, 1);
   assert.equal(reloaded.data.chats[0].createdAt, 0);
 });
@@ -130,10 +130,10 @@ test('corrupt state remains untouched until saved and is then retained in a reco
   const store = new Store(f);
   assert.match(store.warning, /original file is preserved/);
   assert.equal(fs.readFileSync(f.filePath, 'utf8'), broken);
-  store.update(data => { Object.assign(data.settings, { connection: 'codex', model: 'new-model', codexModel: 'new-model' }); });
+  store.update(data => { Object.assign(data.settings, { connection: 'local', model: 'new-model', localModel: 'new-model' }); });
   assert.equal(fs.readFileSync(store.recoveryPath, 'utf8'), broken);
   const recovered = new Store(f);
-  assert.equal(recovered.data.settings.connection, 'codex');
+  assert.equal(recovered.data.settings.connection, 'local');
   assert.equal(recovered.data.settings.model, 'new-model');
   const recoveryPath = store.recoveryPath;
   store.save();
@@ -192,17 +192,19 @@ test('v0.1 state migrates onto the current schema without losing saved content',
 
   assert.equal(store.data.settings.workspace, f.directory);
   assert.equal(store.data.settings.effort, 'medium');
-  assert.equal(store.data.settings.codexModel, 'existing-model');
+  // Records from the retired cloud connection move to the local server.
+  assert.equal(store.data.settings.connection, 'local');
+  assert.equal(store.data.settings.codexModel, undefined);
 
   const chat = store.data.chats[0];
   assert.equal(chat.id, 'legacy-chat');
-  assert.equal(chat.connection, 'codex');
+  assert.equal(chat.connection, 'local');
   assert.equal(chat.model, 'existing-model');
   assert.deepEqual(chat.messages.map(message => message.text), ['Keep my original request.', 'Keep my original answer.']);
 
   const automation = store.data.automations[0];
   assert.equal(automation.id, 'legacy-task');
-  assert.equal(automation.connection, 'codex');
+  assert.equal(automation.connection, 'local');
   assert.equal(automation.model, 'existing-model');
   assert.equal(automation.scheduleType, 'interval');
   assert.equal(automation.intervalMinutes, 1440);

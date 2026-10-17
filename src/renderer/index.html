@@ -40,6 +40,10 @@
       <button id="nav-conversation" class="nav-button active"><span class="icon" data-icon="chat"></span><span>Conversation</span></button>
       <button id="nav-quick" class="nav-button" title="A side chat for one-off tasks: no memory, goals or follow-ups, and nothing is saved"><span class="icon" data-icon="sparkles"></span><span>Quick session</span></button>
       <button id="nav-inbox" class="nav-button"><span class="icon" data-icon="heartbeat"></span><span>Activity inbox</span><span id="heartbeat-unread" class="count hidden">0</span></button>
+      <button id="background-toggle" class="background-toggle" type="button" role="switch" aria-checked="true" title="Heartbeat, goals, routines, night shift, memory learning and page watches. Off pauses them all; nothing is deleted, and missed runs are skipped, not replayed.">
+        <span class="background-toggle-copy"><strong>Background</strong><span id="background-toggle-detail">On</span></span>
+        <span class="background-switch" aria-hidden="true"><span class="background-knob"></span></span>
+      </button>
       <details id="sidebar-tools" class="sidebar-tools">
         <summary id="tools-toggle" aria-controls="tool-navigation"><span class="icon" data-icon="chevron-down"></span><span>Tools</span></summary>
         <nav id="tool-navigation" aria-label="Assistant tools">
@@ -53,7 +57,7 @@
         </nav>
       </details>
       <div class="sidebar-bottom">
-        <button id="nav-settings" class="account-button"><span class="account-avatar" aria-hidden="true"><span class="icon" data-icon="user"></span></span><span class="account-copy"><strong id="account-label">Connect your account</strong><span id="account-sublabel">Set up your assistant</span></span><span class="icon" data-icon="settings"></span></button>
+        <button id="nav-settings" class="account-button"><span class="account-avatar" aria-hidden="true"><span class="icon" data-icon="server"></span></span><span class="account-copy"><strong id="account-label">Local Qwen</strong><span id="account-sublabel">Checking · Settings</span></span><span class="icon" data-icon="settings"></span></button>
       </div>
     </aside>
     <main class="main">
@@ -65,7 +69,7 @@
           <button id="widget-collapse" class="widget-control" type="button" title="Collapse to a pill" aria-label="Collapse to a pill"><span class="icon" data-icon="minus"></span></button>
           <button id="widget-full" class="widget-control" type="button" title="Open full app · Ctrl+Shift+M" aria-label="Open full app"><span class="icon" data-icon="expand"></span></button>
           <div class="widget-menu-wrap"><button id="widget-more" class="widget-control" type="button" title="More options" aria-label="More options" aria-expanded="false" aria-controls="widget-menu"><span class="icon" data-icon="more"></span></button>
-            <div id="widget-menu" class="widget-menu" hidden><button type="button" data-widget-view="settings">Settings</button><button type="button" data-widget-view="goals">Goals & activity</button><button id="widget-compact" type="button">Compact conversation</button><button type="button" data-widget-view="chat">Open full app</button></div>
+            <div id="widget-menu" class="widget-menu" hidden><button type="button" data-widget-view="settings">Settings</button><button type="button" data-widget-view="goals">Goals & activity</button><button id="widget-compact" type="button">Compact conversation</button><button id="widget-background" type="button">Turn background off</button><button type="button" data-widget-view="chat">Open full app</button></div>
           </div>
         </div>
       </header>
@@ -89,12 +93,6 @@
             <div class="welcome-symbol" aria-hidden="true"><img class="welcome-icon" src="./assets/wink.svg" width="64" height="64" alt=""></div>
             <h1 id="welcome-title">What’s next?</h1>
             <p id="welcome-description" class="welcome-description">Ask, attach, or put something in motion.</p>
-            <div id="connection-card" class="connection-card hidden">
-              <div class="connection-heading"><span class="icon" data-icon="sparkles"></span><div><h2>Connect Codex</h2><p>ChatGPT or an OpenAI API key.</p></div></div>
-              <div class="connection-actions"><button id="connect-chatgpt" class="button primary">Sign in with ChatGPT<span class="icon" data-icon="arrow-up-right"></span></button><button id="show-api-key" class="button text-button">Use an API key</button></div>
-              <form id="api-key-form" class="api-key-form hidden"><label for="api-key">OpenAI API key</label><div class="input-action"><input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-…" required><button class="button primary" type="submit">Connect</button></div><p class="field-hint">Stored by the local Codex engine. Never included in chats.</p></form>
-              <div id="login-feedback" class="login-feedback hidden" aria-live="polite"></div>
-            </div>
             <div id="local-connection-card" class="connection-card hidden"><div class="connection-heading"><span class="icon" data-icon="server"></span><div><h2>Local model offline</h2><p id="local-connection-message">Start your model, then check the connection.</p></div></div><div class="connection-actions"><button id="local-connection-check" class="button primary" type="button">Check connection</button><button id="local-connection-settings" class="button text-button" type="button">Settings</button></div></div>
             <div class="suggestions" id="suggestions">
               <button class="suggestion" data-prompt="Look through the files in my workspace and give me a short overview of what's here."><span class="icon" data-icon="folder"></span><strong>Explore a folder</strong><span class="icon suggestion-arrow" data-icon="arrow-up-right"></span></button>
@@ -141,8 +139,8 @@
         </div>
       </section>
       <section id="goals-view" class="feature-view hidden" aria-label="Goals">
-        <div class="section-heading"><div><h1>Goals</h1><p>Set a result. Let Little Bot work on it.</p></div><div class="goal-heading-actions"><button id="pause-autonomy" class="button secondary" type="button"><span class="icon" data-icon="pause"></span>Pause all</button><button id="resume-autonomy" class="button secondary hidden" type="button"><span class="icon" data-icon="play"></span>Resume all</button><button id="create-goal" class="button primary" type="button"><span class="icon" data-icon="plus"></span>New goal</button></div></div>
-        <div id="autonomy-paused-note" class="automation-notice hidden"><span class="icon" data-icon="pause"></span><span>Goals, Heartbeat, and automations are paused.</span></div>
+        <div class="section-heading"><div><h1>Goals</h1><p>Set a result. Let Little Bot work on it.</p></div><div class="goal-heading-actions"><button id="pause-autonomy" class="button secondary" type="button"><span class="icon" data-icon="pause"></span>Pause background</button><button id="resume-autonomy" class="button secondary hidden" type="button"><span class="icon" data-icon="play"></span>Resume background</button><button id="create-goal" class="button primary" type="button"><span class="icon" data-icon="plus"></span>New goal</button></div></div>
+        <div id="autonomy-paused-note" class="automation-notice hidden"><span class="icon" data-icon="pause"></span><span>Background work is off: goals, Heartbeat, routines, night shift, memory learning and page watches are paused.</span></div>
         <p class="goal-intro">Drafts run when you choose. Keep the app open for scheduled work.</p>
         <div id="goals-list" class="goals-list"></div>
       </section>
@@ -263,14 +261,12 @@
     <section class="settings-section connection-settings">
       <div class="settings-connection-heading"><h3>Connection</h3><span id="settings-connection-status" class="service-status" role="status">Checking</span></div>
       <form id="connection-settings-form" novalidate>
-        <label class="sr-only" for="settings-connection">Model connection</label><select id="settings-connection"><option value="local">Local Qwen</option><option value="codex">Codex · optional</option></select>
         <div id="settings-local-fields"><label class="field-label" for="settings-local-url">Server URL</label><input id="settings-local-url" type="url" spellcheck="false" maxlength="2000" placeholder="http://127.0.0.1:8080/v1"><label class="field-label" for="settings-local-model">Model</label><input id="settings-local-model" spellcheck="false" maxlength="256" placeholder="Qwen model name"><p id="settings-local-capabilities" class="field-hint hidden"></p></div>
         <div class="settings-actions"><button id="settings-connection-save" class="button primary" type="submit" disabled>Save connection</button><button id="settings-connection-check" class="button secondary" type="button">Check connection</button></div><p id="settings-connection-error" class="inline-error hidden" role="alert"></p>
       </form>
-      <div id="settings-codex-account" class="settings-row"><div><strong id="settings-account">Codex account</strong><p id="settings-account-detail">ChatGPT or an OpenAI API key.</p></div><button id="settings-login" class="button secondary">Connect</button></div>
     </section>
     <section class="settings-section provider-usage-section" aria-labelledby="provider-usage-title">
-      <div class="provider-usage-heading"><div class="provider-usage-heading-copy"><h3 id="provider-usage-title">Provider usage</h3><p id="provider-usage-subtitle" class="field-hint"></p></div><div class="provider-usage-heading-actions"><span id="provider-usage-status" class="service-status provider-usage-status" role="status">Loading</span><button id="provider-usage-refresh" class="button text-button" type="button">Refresh</button></div></div>
+      <div class="provider-usage-heading"><div class="provider-usage-heading-copy"><h3 id="provider-usage-title">Provider usage</h3><p id="provider-usage-subtitle" class="field-hint"></p></div><div class="provider-usage-heading-actions"><span id="provider-usage-status" class="service-status provider-usage-status" role="status">Loading</span></div></div>
       <span id="provider-usage-updated" class="provider-usage-updated hidden"></span>
       <div id="provider-usage-content" class="provider-usage-content"></div>
       <p id="provider-usage-note" class="provider-usage-note"></p>
@@ -306,7 +302,7 @@
         <p id="independent-check-settings-error" class="inline-error hidden" role="alert"></p>
       </form>
     </section>
-    <section class="settings-section" aria-labelledby="compaction-settings-title"><h3 id="compaction-settings-title">Context compaction</h3><form id="compaction-settings-form" novalidate><label class="field-label settings-field-label" for="settings-auto-compact">Compact at</label><div class="compaction-setting-control"><div class="percent-input"><input id="settings-auto-compact" type="number" min="0" max="95" step="1" value="80" inputmode="numeric" required aria-describedby="settings-compaction-hint"><span>%</span></div><button id="save-compaction-settings" class="button secondary" type="submit" disabled>Save</button><span id="compaction-settings-saved" class="settings-save-status" role="status"></span></div><p id="settings-compaction-hint" class="field-hint">20–95%, or 0 for the engine default. Chat history stays intact.</p><p id="compaction-settings-error" class="inline-error hidden" role="alert"></p></form></section>
+    <section class="settings-section" aria-labelledby="compaction-settings-title"><h3 id="compaction-settings-title">Context compaction</h3><form id="compaction-settings-form" novalidate><label class="field-label settings-field-label" for="settings-auto-compact">Compact at</label><div class="compaction-setting-control"><div class="percent-input"><input id="settings-auto-compact" type="number" min="0" max="95" step="1" value="50" inputmode="numeric" required aria-describedby="settings-compaction-hint"><span>%</span></div><button id="save-compaction-settings" class="button secondary" type="submit" disabled>Save</button><span id="compaction-settings-saved" class="settings-save-status" role="status"></span></div><p id="settings-compaction-hint" class="field-hint">20–95%, or 0 for the engine default. Applies while a long turn works and when it ends. Chat history stays intact.</p><p id="compaction-settings-error" class="inline-error hidden" role="alert"></p></form></section>
     <section class="settings-section" aria-labelledby="services-settings-title"><h3 id="services-settings-title">Web services</h3><p class="settings-description">Optional. Your provider’s usage charges apply.</p><p id="settings-services-error" class="inline-error hidden" role="alert"></p>
       <form id="service-firecrawl-form" class="service-key-card" autocomplete="off"><div class="settings-row"><div><strong>Firecrawl</strong><p>Search and read web pages.</p></div><span id="service-firecrawl-status" class="service-status" role="status">Not configured</span></div><label class="field-label" for="service-firecrawl-key">API key</label><div class="input-action"><input id="service-firecrawl-key" type="password" autocomplete="off" spellcheck="false" maxlength="1024" placeholder="Paste your Firecrawl API key" aria-describedby="service-keys-storage"><button id="service-firecrawl-save" class="button secondary" type="submit" disabled>Save</button></div><div class="service-key-actions"><button id="service-firecrawl-page" class="service-page-link" type="button">Get a Firecrawl key<span class="icon" data-icon="arrow-up-right"></span></button><button id="service-firecrawl-remove" class="button text-button" type="button" disabled>Remove key</button></div><p id="service-firecrawl-error" class="inline-error hidden" role="alert"></p></form>
       <form id="service-brave-form" class="service-key-card" autocomplete="off"><div class="settings-row"><div><strong>Brave Search</strong><p>Fast web search.</p></div><span id="service-brave-status" class="service-status" role="status">Not configured</span></div><label class="field-label" for="service-brave-key">API key</label><div class="input-action"><input id="service-brave-key" type="password" autocomplete="off" spellcheck="false" maxlength="1024" placeholder="Paste your Brave Search API key" aria-describedby="service-keys-storage"><button id="service-brave-save" class="button secondary" type="submit" disabled>Save</button></div><div class="service-key-actions"><button id="service-brave-page" class="service-page-link" type="button">Get a Brave Search key<span class="icon" data-icon="arrow-up-right"></span></button><button id="service-brave-remove" class="button text-button" type="button" disabled>Remove key</button></div><p id="service-brave-error" class="inline-error hidden" role="alert"></p></form>

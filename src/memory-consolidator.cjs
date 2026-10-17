@@ -95,8 +95,9 @@ class MemoryConsolidator {
   }
   available() {
     const c = this.controller;
+    // Learning and dreaming are background model work, so the Background switch pauses them too.
     return !this.closed && !this.active && Date.now() >= this.notBefore && this.service
-      && c.store.data.memory?.enabled !== false && !c.closing && !c.userSendPending && c.runtime.status === 'ready'
+      && c.store.data.memory?.enabled !== false && !c.store.data.autonomy?.paused && !c.closing && !c.userSendPending && c.runtime.status === 'ready'
       && c.account.status === 'connected' && !c.extensionsBusy && !c.goalChat && !c.heartbeatChat
       && !c.independentCheck?.active && !c.manualCompactions?.size && !c.chatGoal?.holding()
       && !c.store.data.chats.some(chat => chat.status !== 'idle');
@@ -114,12 +115,12 @@ class MemoryConsolidator {
     }
     const job = this.service.pendingExtractions(1)[0];
     if (!job) return this.maybeDream();
-    const op = { kind: 'extract', job, local: this.controller.store.data.settings.connection === 'local', output: '', threadId: null, turnId: null, turnStartAttempted: false, cancelled: false };
+    const op = { kind: 'extract', job, local: true, output: '', threadId: null, turnId: null, turnStartAttempted: false, cancelled: false };
     op.completion = new Promise(resolve => { op.resolve = resolve; });
     this.active = op;
     this.controller.memoryBusy = true;
     this.controller.changed();
-    const timeoutMs = this.timeoutMs ?? (this.controller.store.data.settings.connection === 'local' ? 10 * 60000 : 90000);
+    const timeoutMs = this.timeoutMs ?? 10 * 60000;
     op.timer = setTimeout(() => { void this.stop('Memory extraction timed out.').catch(error => { this.lastError = error.message; }); }, timeoutMs);
     op.timer.unref?.();
     op.starting = this.run(op);
@@ -141,12 +142,12 @@ class MemoryConsolidator {
       state.lastDreamError = 'Nothing new to reflect on yet.'; c.changed(true);
       return false;
     }
-    const op = { kind: 'dream', material, local: c.store.data.settings.connection === 'local', output: '', threadId: null, turnId: null, turnStartAttempted: false, cancelled: false };
+    const op = { kind: 'dream', material, local: true, output: '', threadId: null, turnId: null, turnStartAttempted: false, cancelled: false };
     op.completion = new Promise(resolve => { op.resolve = resolve; });
     this.active = op;
     c.memoryBusy = true;
     c.changed();
-    const timeoutMs = this.timeoutMs ?? (this.controller.store.data.settings.connection === 'local' ? 10 * 60000 : 5 * 60000);
+    const timeoutMs = this.timeoutMs ?? 10 * 60000;
     op.timer = setTimeout(() => { void this.stop('The dream took too long.').catch(error => { this.lastError = error.message; }); }, timeoutMs);
     op.timer.unref?.();
     op.starting = this.run(op);

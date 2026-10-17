@@ -114,8 +114,6 @@ let inboxFilter = 'all';
 let inboxSource = 'all';
 let sending = false;
 let thinkingSaving = false;
-let loginPending = false;
-let loginMetadata = null;
 let editingAutomationId = null;
 let editingCalendarId = null;
 let activeApprovalId = null;
@@ -152,7 +150,7 @@ let profileSaveError = '';
 let profileBaseline = { user: '', soul: '' };
 let profilePendingValues = null;
 let compactionSettingsInitialized = false;
-let compactionSettingsBaseline = 80;
+let compactionSettingsBaseline = 50;
 let compactionSettingsSaving = false;
 let compactionSettingsError = '';
 let systemPromptInitialized = false;
@@ -176,6 +174,7 @@ const chatDrafts = new Map();
 const planModeDrafts = new Map();
 const attachmentDrafts = new Map();
 let attachmentImportPending = false;
+let backgroundPending = false;
 let connectionInitialized = false;
 let connectionBaseline = '';
 let connectionPending = false;
@@ -190,8 +189,7 @@ try { agentInspectorOpen = localStorage.getItem('little-bot.agent-inspector-open
 const currentChat = () => state?.chats?.find((chat) => chat.id === selectedChatId) || null;
 const isConnected = () => state?.account?.status === 'connected';
 const isReady = () => state?.runtime?.status === 'ready';
-const connectionType = () => state?.connection?.type || state?.settings?.connection || 'codex';
-const isStrataLocal = () => connectionType() === 'local' && state?.connection?.adapter === 'strata';
+const isStrataLocal = () => state?.connection?.adapter === 'strata';
 // The Quick session is a side chat (marked private by the main process): no memory, goals or follow-ups, never saved.
 let quickMode = false;
 const newDraftKey = () => quickMode ? '__quick__' : '__new__';
@@ -286,10 +284,6 @@ function applyState(next) {
     selectedChatId = latest?.id || null;
   }
   selectedChatId = modeChat()?.id || null;
-  if (isConnected()) {
-    loginPending = false;
-    loginMetadata = null;
-  }
   render();
 }
 
@@ -424,8 +418,37 @@ function renderSidebar() {
   const activeProfile = state.profiles?.profiles?.length > 1 ? state.profiles.profiles.find(profile => profile.active) : null;
   $('nav-profile-name').textContent = activeProfile?.name || '';
   $('nav-profile-name').classList.toggle('hidden', !activeProfile);
-  $('account-label').textContent = connectionType() === 'local' ? 'Local Qwen' : 'Codex';
+  renderBackgroundToggle();
+  $('account-label').textContent = 'Local Qwen';
   $('account-sublabel').textContent = `${isConnected() ? 'Connected' : 'Offline'} · Settings`;
+}
+
+// The Background switch: one place to stop and restart everything Little Bot does on its own.
+function backgroundSummary() {
+  const goals = (state.autonomy?.goals || []).filter(goal => goal.authorized && ['queued', 'running', 'blocked'].includes(goal.status)).length;
+  const routines = (state.automations || []).filter(item => item.enabled).length;
+  const parts = [state.heartbeat?.enabled ? 'Heartbeat' : '', goals ? `${goals} goal${goals === 1 ? '' : 's'}` : '',
+    routines ? `${routines} routine${routines === 1 ? '' : 's'}` : '', state.settings?.nightShiftEnabled ? 'night shift' : ''].filter(Boolean);
+  return parts.length ? parts.join(' · ') : 'Nothing scheduled';
+}
+function renderBackgroundToggle() {
+  const paused = Boolean(state?.autonomy?.paused);
+  const toggle = $('background-toggle');
+  toggle.setAttribute('aria-checked', String(!paused));
+  toggle.setAttribute('aria-busy', String(backgroundPending));
+  toggle.disabled = backgroundPending;
+  $('background-toggle-detail').textContent = backgroundPending ? (paused ? 'Turning on…' : 'Stopping…') : paused ? 'Off · nothing runs on its own' : `On · ${backgroundSummary()}`;
+  $('widget-background').textContent = paused ? 'Turn background on' : 'Turn background off';
+  $('widget-background').disabled = backgroundPending;
+}
+async function toggleBackground() {
+  if (backgroundPending || !state) return;
+  const paused = Boolean(state.autonomy?.paused);
+  backgroundPending = true; renderBackgroundToggle();
+  try {
+    await attempt(() => paused ? window.bot.resumeAutonomy() : window.bot.pauseAutonomy(),
+      paused ? 'Background work is on again. Missed runs were skipped.' : 'Background work is off. Nothing runs on its own until you turn it back on.');
+  } finally { backgroundPending = false; if (state) render(); }
 }
 
 function saveCurrentDraft() {
@@ -1137,17 +1160,16 @@ function thinkingChangeBlocked() {
 }
 
 function renderThinkingControl() {
-  const local = connectionType() === 'local';
   const strata = isStrataLocal();
   const enabled = state?.settings?.localThinking !== false;
   const none = $('effort-none');
   none.hidden = !strata;
-  $('effort-select').classList.toggle('hidden', local && !strata);
+  $('effort-select').classList.toggle('hidden', !strata);
   $('effort-select').title = strata ? 'Strata reasoning level' : 'Reasoning effort';
   $('effort-select').setAttribute('aria-label', strata ? 'Strata reasoning level' : 'Reasoning effort');
   if (strata) $('effort-select').value = enabled ? (state.settings.effort || 'low') : 'none';
   else if ($('effort-select').value === 'none') $('effort-select').value = state.settings.effort || 'medium';
-  $('thinking-toggle').classList.toggle('hidden', !local || strata);
+  $('thinking-toggle').classList.toggle('hidden', strata);
   $('sampling-button').classList.toggle('hidden', !strata);
   if (!strata) setSamplingOpen(false);
   else renderSampling();
@@ -1200,7 +1222,7 @@ function samplingInput(event) {
 }
 
 async function toggleThinking() {
-  if (connectionType() !== 'local' || isStrataLocal() || thinkingChangeBlocked()) return;
+  if (isStrataLocal() || thinkingChangeBlocked()) return;
   const localThinking = state.settings.localThinking === false;
   thinkingSaving = true;
   updateComposer();
@@ -1233,13 +1255,12 @@ async function changeReasoningEffort() {
   await attempt(() => window.bot.saveSettings({ model: $('model-select').value, effort: value }));
 }
 
-function taskReasoningLabel(connection, effort, model) {
-  const sameStrataModel = connection === 'local' && state?.connection?.adapter === 'strata'
-    && (!model || model === state.connection.model);
+function taskReasoningLabel(effort, model) {
+  const sameStrataModel = state?.connection?.adapter === 'strata' && (!model || model === state.connection.model);
   if (sameStrataModel) {
     return state.settings.localThinking === false ? 'Reasoning none' : `Reasoning ${effort || 'low'}`;
   }
-  return connection === 'local' ? `Thinking ${state.settings.localThinking === false ? 'off' : 'on'}` : `${effort || 'low'} effort`;
+  return `Thinking ${state.settings.localThinking === false ? 'off' : 'on'}`;
 }
 
 function compactDisabledReason(chat) {
@@ -1383,8 +1404,7 @@ function renderAgentInspector() {
   $('inspector-elapsed').textContent = inspectorElapsedText(chat);
 
   const model = chat?.model || state?.settings?.model || '—';
-  const connection = chat?.connection || state?.connection?.type || state?.settings?.connection;
-  $('inspector-model').textContent = [connection === 'local' ? 'Local' : connection === 'codex' ? 'Codex' : '', model].filter(Boolean).join(' · ') || '—';
+  $('inspector-model').textContent = `Local · ${model}`;
 
   const context = chat?.context || {};
   const used = Number.isFinite(context.usedTokens) ? context.usedTokens : null;
@@ -1445,14 +1465,13 @@ function renderChatContext() {
     $('context-usage-meter').value = Math.min(100, percentage);
     $('context-usage-meter').setAttribute('aria-valuetext', `${formatTokens(used)} of ${formatTokens(windowTokens)} tokens`);
     $('context-usage-percent').textContent = `${percentage}%`;
-    const defaultCompactPercent = state.settings.connection === 'local' ? 50 : 80;
-    $('context-usage-meter').classList.toggle('near-limit', percentage >= (state.settings.autoCompactPercent || defaultCompactPercent));
+    $('context-usage-meter').classList.toggle('near-limit', percentage >= (state.settings.autoCompactPercent || 50));
   } else {
     $('context-usage-meter').removeAttribute('value');
     $('context-usage-meter').removeAttribute('aria-valuetext');
     $('context-usage-percent').textContent = '';
   }
-  const compactPercent = state.settings.autoCompactPercent ?? (state.settings.connection === 'local' ? 50 : 80);
+  const compactPercent = state.settings.autoCompactPercent ?? 50;
   $('context-compaction-status').textContent = pending ? 'Compacting…' : compactPercent ? `Auto-compact · ${compactPercent}%` : 'Auto-compact · default';
   $('context-compaction-status').classList.toggle('compacting', pending);
   const count = Number.isInteger(compaction.count) && compaction.count > 0 ? compaction.count : 0;
@@ -1677,64 +1696,11 @@ async function sendMessage(event) {
 }
 
 function renderConnection() {
-  const local = connectionType() === 'local';
-  $('connection-card').classList.toggle('hidden', isConnected() || local);
-  $('local-connection-card').classList.toggle('hidden', isConnected() || !local);
+  $('local-connection-card').classList.toggle('hidden', isConnected());
   $('local-connection-message').textContent = state?.connection?.error || 'Start your local model, then check the connection.';
-  $('connect-chatgpt').disabled = loginPending;
-  $('connect-chatgpt').replaceChildren(document.createTextNode(loginPending ? 'Waiting for sign-in…' : 'Sign in with ChatGPT'), icon('arrow-up-right'));
-  if (loginMetadata && !isConnected()) renderLoginFeedback(loginMetadata);
-  else $('login-feedback').classList.add('hidden');
-}
-
-function renderLoginFeedback(metadata) {
-  const box = $('login-feedback');
-  box.replaceChildren();
-  box.classList.remove('hidden');
-  const error = metadata.error;
-  const message = typeof error === 'string' ? error : error?.message || metadata.message || 'Finish signing in in your browser, then come back here.';
-  box.append(element('p', '', message));
-  const code = metadata.userCode || metadata.user_code || metadata.code;
-  if (code) {
-    box.append(element('p', '', 'If the sign-in page asks for a code, use:'), element('code', '', code));
-  }
-  const url = metadata.authUrl || metadata.verificationUrl || metadata.verification_uri || metadata.url || metadata.loginUrl;
-  if (url && /^https?:\/\//i.test(url)) {
-    const link = element('a', '', 'Open the sign-in page');
-    link.href = url;
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
-    box.append(link);
-  }
-}
-
-async function login(type, apiKey) {
-  if (loginPending) return;
-  loginPending = true;
-  loginMetadata = { message: type === 'apiKey' ? 'Connecting your OpenAI account…' : 'Opening your browser to sign in…' };
-  renderConnection();
-  try {
-    const result = await window.bot.login({ type, ...(apiKey ? { apiKey } : {}) });
-    $('api-key').value = '';
-    if (result) {
-      loginMetadata = result;
-      if (result.error || result.status === 'error' || result.status === 'cancelled') loginPending = false;
-    }
-    if (type === 'apiKey') loginPending = false;
-    const fresh = await window.bot.getState();
-    applyState(fresh);
-  } catch (error) {
-    loginPending = false;
-    loginMetadata = { error: error?.message || String(error) };
-    renderConnection();
-    notify(error?.message || String(error), true);
-  }
 }
 
 function renderSettings() {
-  $('settings-account').textContent = isConnected() && connectionType() === 'codex' ? state.account.type === 'apiKey' ? 'OpenAI API key' : 'ChatGPT' : 'Codex account';
-  $('settings-account-detail').textContent = isConnected() && connectionType() === 'codex' ? state.account.plan ? `Connected · ${state.account.plan}` : 'Connected' : 'ChatGPT sign-in or an OpenAI API key.';
-  $('settings-login').textContent = isConnected() ? 'Reconnect' : 'Connect';
   $('settings-workspace').textContent = state.settings.workspace || 'No folder selected';
   $('settings-open-workspace').disabled = !state.settings.workspace;
   $('settings-engine').textContent = isReady() ? 'Running locally' : state.runtime?.status === 'error' ? 'Needs attention' : 'Starting up';
@@ -1742,10 +1708,8 @@ function renderSettings() {
   const storage = state.attachmentStorage;
   $('settings-attachment-usage').textContent = storage ? `${fileSize(storage.usedBytes)} of ${fileSize(storage.maxBytes)} · ${storage.fileCount} saved or pending files · ${fileSize(storage.unusedBytes)} unused` : 'Attachment storage unavailable.';
   $('settings-clean-attachments').disabled = !storage || !storage.unusedBytes;
-  $('settings-engine-detail').textContent = connectionType() === 'local' ? 'Your local model. No OpenAI account needed.' : 'Codex connection';
-  $('settings-data-detail').textContent = connectionType() === 'local'
-    ? 'Conversation and memory are stored on this PC. Web services connect only when used.'
-    : 'Conversation and memory are stored on this PC. Model requests go to OpenAI.';
+  $('settings-engine-detail').textContent = 'Your local model, through the bundled assistant engine.';
+  $('settings-data-detail').textContent = 'Conversation and memory are stored on this PC. Web services connect only when used.';
   renderConnectionSettings();
   renderIndependentCheckSettings();
   renderCompactionSettings();
@@ -1755,7 +1719,6 @@ function renderSettings() {
 
 function connectionFormValue() {
   return {
-    connection: $('settings-connection').value,
     localBaseUrl: $('settings-local-url').value.trim(),
     localModel: $('settings-local-model').value.trim(),
   };
@@ -1763,27 +1726,22 @@ function connectionFormValue() {
 
 function renderConnectionSettings() {
   const stored = {
-    connection: state.settings.connection || state.connection?.type || 'codex',
     localBaseUrl: state.settings.localBaseUrl || 'http://127.0.0.1:8080/v1',
     localModel: state.settings.localModel || 'Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q4_K_M',
   };
   const changed = connectionInitialized && JSON.stringify(connectionFormValue()) !== connectionBaseline;
   if (!connectionInitialized || (!changed && !connectionPending)) {
-    $('settings-connection').value = stored.connection;
     $('settings-local-url').value = stored.localBaseUrl;
     $('settings-local-model').value = stored.localModel;
     connectionBaseline = JSON.stringify(stored);
     connectionInitialized = true;
   }
-  const local = $('settings-connection').value === 'local';
   const dirty = JSON.stringify(connectionFormValue()) !== connectionBaseline;
-  $('settings-local-fields').classList.toggle('hidden', !local);
-  $('settings-codex-account').classList.toggle('hidden', local || connectionType() !== 'codex');
   $('settings-connection-save').disabled = connectionPending || !dirty;
   $('settings-connection-check').disabled = connectionPending || dirty;
   $('local-connection-check').disabled = connectionPending;
   $('settings-connection-check').textContent = connectionPending ? 'Connecting…' : 'Check connection';
-  for (const id of ['settings-connection', 'settings-local-url', 'settings-local-model']) $(id).disabled = connectionPending;
+  for (const id of ['settings-local-url', 'settings-local-model']) $(id).disabled = connectionPending;
   const status = state.connection?.status || (isConnected() ? 'connected' : 'offline');
   $('settings-connection-status').textContent = dirty ? 'Unsaved changes' : status === 'connected' ? 'Connected' : status === 'checking' ? 'Checking…' : 'Offline';
   $('settings-connection-status').classList.toggle('configured', !dirty && status === 'connected');
@@ -1793,14 +1751,14 @@ function renderConnectionSettings() {
   const capabilities = state.connection?.contextWindow ? `${Number(state.connection.contextWindow).toLocaleString()} context` : '';
   const vision = state.connection?.vision === true ? 'Images supported' : state.connection?.vision === false ? 'Text model · image understanding unavailable' : '';
   $('settings-local-capabilities').textContent = [capabilities, vision].filter(Boolean).join(' · ');
-  $('settings-local-capabilities').classList.toggle('hidden', !local || dirty || (!capabilities && !vision));
+  $('settings-local-capabilities').classList.toggle('hidden', dirty || (!capabilities && !vision));
 }
 
 async function saveConnection(event) {
   event?.preventDefault();
   if (connectionPending) return;
   const payload = connectionFormValue();
-  if (payload.connection === 'local' && (!payload.localBaseUrl || !payload.localModel)) {
+  if (!payload.localBaseUrl || !payload.localModel) {
     connectionError = 'Enter a server URL and model.';
     renderConnectionSettings();
     return;
@@ -1921,7 +1879,7 @@ async function saveIndependentCheckSettings(event) {
 function renderCompactionSettings() {
   const input = $('settings-auto-compact');
   const hadDraft = compactionSettingsInitialized && input.value !== String(compactionSettingsBaseline);
-  compactionSettingsBaseline = state.settings.autoCompactPercent ?? (state.settings.connection === 'local' ? 50 : 80);
+  compactionSettingsBaseline = state.settings.autoCompactPercent ?? 50;
   if (!compactionSettingsInitialized || (!hadDraft && !compactionSettingsSaving)) input.value = String(compactionSettingsBaseline);
   compactionSettingsInitialized = true;
   input.disabled = compactionSettingsSaving;
@@ -2261,7 +2219,7 @@ function renderAutomationScheduleEditor() {
 }
 
 function renderAutomations() {
-  $('automations-view').querySelector('.automation-notice span:last-child').textContent = state.autonomy?.paused ? 'Autonomous work is paused. Resume it from Goals to allow scheduled automations to continue.' : 'Scheduled tasks run in your conversation while Little Bot is open. They wait until other work finishes.';
+  $('automations-view').querySelector('.automation-notice span:last-child').textContent = state.autonomy?.paused ? 'Background work is off. Turn the Background switch back on to let scheduled automations continue.' : 'Scheduled tasks run in your conversation while Little Bot is open. They wait until other work finishes.';
   const fragment = document.createDocumentFragment();
   const routines = state.automations || [];
   if (!routines.length) {
@@ -2305,7 +2263,7 @@ function renderAutomations() {
       if (result?.chatId && navigationVersion === originNavigation && currentView === 'automations') selectChat(result.chatId);
     }, 'button secondary', 'play');
     runNow.disabled = Boolean(state.autonomy?.paused);
-    runNow.title = state.autonomy?.paused ? 'Resume autonomous work in Goals before running an automation.' : 'Run this automation now';
+    runNow.title = state.autonomy?.paused ? 'Turn the Background switch on before running an automation.' : 'Run this automation now';
     footer.append(runNow);
     footer.append(action('Edit', () => editAutomation(routine), 'button text-button'));
     const remove = action('', async () => {
@@ -2830,19 +2788,18 @@ function renderHeartbeatControls() {
   $('save-heartbeat').textContent = heartbeatSaving ? 'Saving…' : 'Save settings';
   $('heartbeat-checklist').required = $('heartbeat-enabled').checked;
   $('heartbeat-initiative-hint').textContent = $('heartbeat-initiative').value === 'wild'
-    ? 'Acts in the saved folder with network access, keeps agenda.md there, can save memories and manage the calendar, routines and draft goals. Pause all still stops it.'
+    ? 'Acts in the saved folder with network access, keeps agenda.md there, can save memories and manage the calendar, routines and draft goals. The Background switch still stops it.'
     : 'Can act in the saved folder. No elevated or network access.';
   $('run-heartbeat').classList.toggle('hidden', running);
   $('stop-heartbeat').classList.toggle('hidden', !running);
   $('run-heartbeat').disabled = Boolean(state.autonomy?.paused) || !isConnected() || !isReady() || !saved.checklist?.trim() || heartbeatSaving;
-  $('run-heartbeat').title = state.autonomy?.paused ? 'Resume autonomous work in Goals before running a Heartbeat check.' : 'Run a check with saved settings';
-  $('heartbeat-run-hint').textContent = state.autonomy?.paused ? 'Resume autonomous work in Goals to run a check.' : heartbeatDirty ? 'Save your changes before running a check.' : !isConnected() ? 'Connect a model to run a check.' : !isReady() ? 'Waiting for the engine.' : !saved.checklist?.trim() ? 'Write and save a checklist to get started.' : 'Uses saved settings.';
+  $('run-heartbeat').title = state.autonomy?.paused ? 'Turn the Background switch on before running a Heartbeat check.' : 'Run a check with saved settings';
+  $('heartbeat-run-hint').textContent = state.autonomy?.paused ? 'Background work is off. Turn the switch on to run a check.' : heartbeatDirty ? 'Save your changes before running a check.' : !isConnected() ? 'Connect a model to run a check.' : !isReady() ? 'Waiting for the engine.' : !saved.checklist?.trim() ? 'Write and save a checklist to get started.' : 'Uses saved settings.';
   const folder = heartbeatUseCurrentWorkspace ? state.settings.workspace : saved.workspace || state.settings.workspace;
   const model = heartbeatUseCurrentWorkspace ? state.settings.model : saved.model || state.settings.model;
   const effort = heartbeatUseCurrentWorkspace ? state.settings.effort : saved.effort || state.settings.effort;
-  const connection = heartbeatUseCurrentWorkspace ? connectionType() : saved.connection || 'codex';
   $('heartbeat-workspace').textContent = folder || 'No working folder selected';
-  $('heartbeat-model').textContent = `${model || 'Default model'} · ${taskReasoningLabel(connection, effort, model)}${heartbeatUseCurrentWorkspace ? ' · Update pending' : ''}`;
+  $('heartbeat-model').textContent = `${model || 'Default model'} · ${taskReasoningLabel(effort, model)}${heartbeatUseCurrentWorkspace ? ' · Update pending' : ''}`;
   $('heartbeat-use-workspace').title = `Use ${state.settings.workspace || 'the selected folder'} and the current model settings`;
 }
 
@@ -2860,7 +2817,7 @@ function renderHeartbeat() {
   const lastPulse = pulse[pulse.length - 1];
   const latest = running ? 'Working through your checklist…' : heartbeat.lastStatus === 'quiet' ? `All quiet.${lastPulse?.status === 'quiet' && lastPulse.note ? ` ${lastPulse.note}` : ' Nothing needs your attention.'}` : heartbeat.lastStatus === 'alert' ? 'A meaningful update is waiting in Activity inbox.' : heartbeat.lastStatus === 'error' ? 'The last check needs attention.' : 'No checks yet.';
   $('heartbeat-last-check').textContent = `${latest}${heartbeat.lastRunAt && !running ? `\n${formatDate(heartbeat.lastRunAt)}` : ''}`;
-  $('heartbeat-next-check').textContent = state.autonomy?.paused ? 'Autonomous work is paused. Resume it from Goals.' : heartbeat.enabled && heartbeat.nextRunAt ? `Next scheduled check: ${formatDate(heartbeat.nextRunAt)}` : heartbeat.enabled ? 'Next check follows your interval.' : 'Scheduled checks are paused.';
+  $('heartbeat-next-check').textContent = state.autonomy?.paused ? 'Background work is off. Turn the Background switch on to resume checks.' : heartbeat.enabled && heartbeat.nextRunAt ? `Next scheduled check: ${formatDate(heartbeat.nextRunAt)}` : heartbeat.enabled ? 'Next check follows your interval.' : 'Scheduled checks are paused.';
   $('heartbeat-run-count').textContent = `${heartbeat.runsToday || 0} of ${heartbeat.maxRunsPerDay || 12} checks used today${heartbeat.attention ? ` · ${heartbeat.attention.alertsToday || 0} of ${heartbeat.maxAlertsPerDay || 3} desktop alerts` : ''}`;
   const followups = Array.isArray(heartbeat.followups) ? heartbeat.followups : [];
   if (followups.length && !state.autonomy?.paused) $('heartbeat-next-check').textContent += `\n${followups.length} planned follow-up${followups.length === 1 ? '' : 's'} · next ${formatDate(followups[0].at)}: ${followups[0].note}`;
@@ -3019,7 +2976,7 @@ async function saveHeartbeat(event) {
 }
 
 async function runHeartbeat() {
-  if (state.autonomy?.paused) { notify('Resume autonomous work in Goals to run a Heartbeat check.'); return; }
+  if (state.autonomy?.paused) { notify('Background work is off. Turn the Background switch on to run a Heartbeat check.'); return; }
   if (heartbeatDirty) {
     notify('Save your Heartbeat changes before running a check.');
     $('save-heartbeat').focus();
@@ -3182,8 +3139,8 @@ function renderGoals() {
   $('resume-autonomy').classList.toggle('hidden', !autonomy.paused);
   $('pause-autonomy').disabled = goalPending.has('autonomy');
   $('resume-autonomy').disabled = goalPending.has('autonomy');
-  $('pause-autonomy').title = 'Pause all autonomous work, including goals, Heartbeat, and automations. Normal chat remains available.';
-  $('resume-autonomy').title = 'Allow configured goals, Heartbeat, and automations to continue.';
+  $('pause-autonomy').title = 'Same as the Background switch: pause goals, Heartbeat, routines, night shift, memory learning and page watches. Chat stays available.';
+  $('resume-autonomy').title = 'Same as the Background switch: let configured background work continue. Missed runs are skipped, not replayed.';
   $('autonomy-paused-note').classList.toggle('hidden', !autonomy.paused);
   const expanded = new Set(Array.from($('goals-list').querySelectorAll('details[open][data-goal-detail]'), (details) => details.dataset.goalDetail));
   const previousCards = new Map(Array.from($('goals-list').querySelectorAll(':scope > [data-goal-id]'), card => [card.dataset.goalId, card]));
@@ -3248,7 +3205,7 @@ function renderGoals() {
       const resume = goal.status === 'paused';
       const run = action(resume ? 'Resume' : goal.status === 'completed' ? 'Run again' : goal.status === 'blocked' ? 'Retry' : 'Run goal', () => mutateGoal(goal.id, () => resume ? window.bot.resumeGoal({ id: goal.id }) : window.bot.runGoal({ id: goal.id })), 'button primary', 'play');
       run.disabled = pending || Boolean(autonomy.paused) || !isReady() || !isConnected();
-      run.title = autonomy.paused ? 'Resume autonomous work before running this goal.' : !isConnected() ? 'Connect a model to run this goal.' : 'Run using this goal’s saved permissions, checks, and remaining budget.';
+      run.title = autonomy.paused ? 'Turn the Background switch on before running this goal.' : !isConnected() ? 'Connect a model to run this goal.' : 'Run using this goal’s saved permissions, checks, and remaining budget.';
       footer.append(run);
     }
     const edit = action('Edit', () => editGoal(goal), 'button text-button');
@@ -3412,7 +3369,7 @@ function renderGoalKind() {
 
 function editGoal(goal) {
   editingGoalId = goal?.id || null;
-  goalDraftContext = { workspace: goal?.workspace || state.settings.workspace, model: goal?.model || state.settings.model, effort: goal?.effort || state.settings.effort || 'low', connection: goal ? goal.connection || 'codex' : connectionType() };
+  goalDraftContext = { workspace: goal?.workspace || state.settings.workspace, model: goal?.model || state.settings.model, effort: goal?.effort || state.settings.effort || 'low' };
   $('goal-title').textContent = goal ? 'Edit goal' : 'New goal';
   $('goal-name').value = goal?.name || '';
   $('goal-objective').value = goal?.objective || '';
@@ -3426,7 +3383,7 @@ function editGoal(goal) {
   $('goal-review-policy').value = goal?.reviewPolicy || 'changes';
   $('goal-max-quiet-hours').value = goal?.maxQuietHours ?? 0;
   $('goal-steps').value = (goal?.steps || []).join('\n');
-  $('goal-workspace').textContent = `Folder: ${goalDraftContext.workspace}\nModel: ${goalDraftContext.model} · ${taskReasoningLabel(goalDraftContext.connection, goalDraftContext.effort, goalDraftContext.model)}`;
+  $('goal-workspace').textContent = `Folder: ${goalDraftContext.workspace}\nModel: ${goalDraftContext.model} · ${taskReasoningLabel(goalDraftContext.effort, goalDraftContext.model)}`;
   $('goal-checks').replaceChildren();
   goalCheckSequence = 0;
   (goal?.checks?.length ? goal.checks : [{ type: 'fileExists' }]).forEach(addGoalCheck);
@@ -4103,6 +4060,7 @@ $('goal-bar-toggle').addEventListener('click', () => goalCommand(currentChat()?.
 $('goal-bar-clear').addEventListener('click', () => goalCommand('clear'));
 $('dream-now').addEventListener('click', () => attempt(() => window.bot.dreamNow(), 'Little Bot will dream as soon as it is idle.'));
 $('nav-quick').addEventListener('click', () => selectChat(null, true));
+$('background-toggle').addEventListener('click', toggleBackground);
 $('quick-end').addEventListener('click', async () => {
   const chat = currentChat();
   if (!chat?.private) return;
@@ -4137,7 +4095,7 @@ $('confirm-goal-restore').addEventListener('click', restoreGoal);
 $('goal-restore-dialog').addEventListener('close', () => { goalRestoreTarget = null; });
 $('nav-settings').addEventListener('click', () => showDialog('settings-dialog'));
 $('connection-settings-form').addEventListener('submit', saveConnection);
-for (const id of ['settings-connection', 'settings-local-url', 'settings-local-model']) $(id).addEventListener('input', () => { connectionError = ''; renderConnectionSettings(); });
+for (const id of ['settings-local-url', 'settings-local-model']) $(id).addEventListener('input', () => { connectionError = ''; renderConnectionSettings(); });
 $('settings-connection-check').addEventListener('click', checkConnection);
 $('local-connection-settings').addEventListener('click', () => showDialog('settings-dialog'));
 $('local-connection-check').addEventListener('click', checkConnection);
@@ -4197,11 +4155,6 @@ $('settings-choose-workspace').addEventListener('click', chooseWorkspace);
 $('settings-open-workspace').addEventListener('click', () => attempt(() => window.bot.openWorkspace()));
 $('settings-clean-attachments').addEventListener('click', () => attempt(() => window.bot.cleanupAttachments(), 'Unused attachment files cleaned.'));
 $('settings-open-logs').addEventListener('click', () => attempt(() => window.bot.openLogs(), 'Opened diagnostic logs.'));
-$('settings-login').addEventListener('click', () => {
-  closeDialog('settings-dialog');
-  if (isConnected()) login('chatgpt');
-  else { selectChat(null); programmaticChatScroll(() => { $('chat-scroll').scrollTop = 0; }); $('connect-chatgpt').focus(); }
-});
 $('chat-scroll').addEventListener('scroll', () => {
   if (!chatScrollProgrammatic) chatFollowTail = LittleBotChatScroll.nearBottom($('chat-scroll'));
 });
@@ -4276,16 +4229,6 @@ document.querySelectorAll('[data-prompt]').forEach((button) => {
     updateComposer();
     $('message-input').focus();
   });
-});
-$('connect-chatgpt').addEventListener('click', () => login('chatgpt'));
-$('show-api-key').addEventListener('click', () => {
-  $('api-key-form').classList.toggle('hidden');
-  if (!$('api-key-form').classList.contains('hidden')) $('api-key').focus();
-});
-$('api-key-form').addEventListener('submit', (event) => {
-  event.preventDefault();
-  const key = $('api-key').value.trim();
-  if (key) login('apiKey', key);
 });
 $('create-calendar-event').addEventListener('click', () => editCalendarEvent());
 $('calendar-form').addEventListener('submit', saveCalendarEvent);
@@ -4557,14 +4500,9 @@ if (!window.bot) {
     else if (event.type === 'memory' && event.message) notify(event.message, Boolean(event.error));
     else if (event.type === 'relay') renderRelay(event.relay);
     else if (event.type === 'heartbeat' && (!window.LittleBotWidget || window.LittleBotWidget.isActive())) { inboxFilter = 'all'; inboxSource = 'all'; showFeature('inbox'); }
-    else if (event.type === 'login') {
-      loginMetadata = event;
-      if (event.error || event.status === 'error' || event.status === 'cancelled' || event.status === 'complete' || event.status === 'success') loginPending = false;
-      renderConnection();
-    }
   });
   window.LittleBotWidget?.init({
-    state: () => state, busy: () => sending || attachmentImportPending || Boolean(document.querySelector('dialog[open]')),
+    state: () => state, toggleBackground, busy: () => sending || attachmentImportPending || Boolean(document.querySelector('dialog[open]')),
     notify,
     exportDraft: () => ({ text: $('message-input').value, attachments: queuedAttachments(), plan: currentPlanMode() }),
     importDraft: draft => {

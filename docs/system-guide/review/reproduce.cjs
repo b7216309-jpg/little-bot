@@ -57,7 +57,7 @@ async function check(id, fn) { results.push({ id, ...(await fn()) }); }
   });
   await check('R2-goals', async () => {
     let fail = true;
-    const store = { data: { settings: { workspace: root, connection: 'codex', model: 'fixture-model' } }, save() { if (fail) throw new Error('Injected disk failure'); } };
+    const store = { data: { settings: { workspace: root, connection: 'local', model: 'fixture-model', localModel: 'fixture-model' } }, save() { if (fail) throw new Error('Injected disk failure'); } };
     const runner = new GoalRunner({ store, run: async () => {} });
     assert.throws(() => runner.save({ name: 'Unconfirmed goal', objective: 'Check an isolated fixture', workspace: root }), /disk failure/);
     assert.equal(runner.data.goals.length, 1);
@@ -85,9 +85,9 @@ async function check(id, fn) { results.push({ id, ...(await fn()) }); }
       async close() {}
     }
     const store = new Store({ filePath: path.join(root, 'state.json'), defaultWorkspace: root });
-    Object.assign(store.data.settings, { connection: 'codex', model: 'fixture-model', codexModel: 'fixture-model', workspace: root, independentCheckMode: 'off' });
+    Object.assign(store.data.settings, { connection: 'local', model: 'fixture-model', localModel: 'fixture-model', workspace: root, independentCheckMode: 'off' });
     const client = new Client(); const c = new Controller({ store, client });
-    c.runtime.status = 'ready'; c.account.status = 'connected'; c.connection = { type: 'codex', status: 'connected' };
+    c.runtime.status = 'ready'; c.account.status = 'connected'; c.connection = { type: 'local', status: 'connected' }; c.models = [{ id: 'fixture-model' }]; await c.localModelRelay.start();
     try {
       await assert.rejects(c.send({ text: 'Reproduce a lost start acknowledgement in an isolated fixture' }), /timed out/);
       const chat = store.data.chats[0];
@@ -100,7 +100,7 @@ async function check(id, fn) { results.push({ id, ...(await fn()) }); }
     } finally { await c.close(); }
   });
   await check('R2-automations', async () => {
-    const store = { data: { settings: { connection: 'codex', model: 'fixture-model' }, automations: [] }, save() { throw new Error('Injected disk failure'); } };
+    const store = { data: { settings: { connection: 'local', model: 'fixture-model', localModel: 'fixture-model' }, automations: [] }, save() { throw new Error('Injected disk failure'); } };
     assert.throws(() => manageSchedule(store, 'create', { name: 'Unconfirmed routine', prompt: 'Check an isolated fixture', enabled: true, intervalMinutes: 60 }, { workspace: root }), /disk failure/);
     assert.equal(store.data.automations.length, 1); assert.equal(store.data.automations[0].enabled, true);
     return { reproduced: true, failedCreateRetainedEnabledRoutine: true };
@@ -149,7 +149,7 @@ async function check(id, fn) { results.push({ id, ...(await fn()) }); }
     return { reproduced: true, basePromptPromisesCatchUp: true, bundledGuideSaysSkip: true, implementationAdvancesToFuture: true };
   });
   await check('R6', async () => {
-    const store = { data: { settings: { workspace: root, connection: 'codex', model: 'fixture-model' }, automations: [] }, save() {} };
+    const store = { data: { settings: { workspace: root, connection: 'local', model: 'fixture-model', localModel: 'fixture-model' }, automations: [] }, save() {} };
     const old = validateAutomation({ name: 'Original routine', prompt: 'Original task', enabled: true, intervalMinutes: 60 }, null, store.data.settings);
     store.data.automations.push(old);
     let release, began, executedPrompt;

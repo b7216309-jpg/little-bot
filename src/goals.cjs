@@ -90,7 +90,7 @@ function validateGoal(input, existing = null, settings = {}) {
     checkpoint: existing?.checkpoint || '', nextStep: existing?.nextStep || '',
     status: reopening ? 'draft' : existing?.status || 'draft', priority: integer(input.priority, 3, 1, 5, 'Priority'),
     workspace, model: text(input.model ?? existing?.model ?? settings.model, 'Model', 200), effort: ['low', 'medium', 'high'].includes(input.effort) ? input.effort : existing?.effort || settings.effort || 'low',
-    ...connectionBinding(existing || { ...settings, ...input }, settings.connection || 'codex'),
+    ...connectionBinding(existing || { ...settings, ...input }),
     checks, permissions, limits, usage: usageOf(reopening ? null : existing?.usage), trigger,
     respectActiveHours: (input.respectActiveHours ?? existing?.respectActiveHours) !== false,
     dependsOn: [...new Set(list(input.dependsOn, 'Dependencies', 20, value => text(value, 'Dependency', 100, true)))],

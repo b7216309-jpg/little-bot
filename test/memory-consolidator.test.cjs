@@ -45,7 +45,8 @@ test('idle extraction learns source-linked knowledge and completes a durable job
   const { service, worker, calls } = fixture(t);
   await worker.tick();
   assert.equal(worker.state.status, 'learning');
-  assert.equal(calls[1].params.outputSchema.required[0], 'memories');
+  assert.equal(calls[1].params.outputSchema, undefined);
+  assert.match(calls[1].params.input[0].text, /"memories"/);
   worker.notification('item/completed', { threadId: 'extract', item: { type: 'agentMessage', text: JSON.stringify({ memories: [
     { text: 'This project uses pnpm.', type: 'decision', scope: 'workspace', key: 'project.package-manager', sourceIds: ['u1'], supersedesId: null },
   ] }) } });

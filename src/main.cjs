@@ -4,7 +4,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { Store } = require('./store.cjs');
 const { Scheduler, validateAutomation } = require('./scheduler.cjs');
-const { CodexClient } = require('./codex.cjs');
+const { EngineClient } = require('./engine.cjs');
 const { Controller, cleanError } = require('./controller.cjs');
 const { saveFact, deleteFact, clearEpisodes } = require('./memory.cjs');
 const { MemoryConsolidator } = require('./memory-consolidator.cjs');
@@ -42,6 +42,7 @@ const { ErrorLog } = require('./error-log.cjs');
 const { MAX_EVENTS, validateCalendarEvent, listCalendarEvents, calendarEventView } = require('./calendar.cjs');
 const { randomUUID } = require('node:crypto');
 const companion = require('./companion.cjs');
+const { advanceMissedSchedules, missedCount } = require('./missed-schedules.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'little-bot-attachment', privileges: { standard: true, secure: true, supportFetchAPI: false } }]);
 
@@ -65,12 +66,6 @@ function logDiagnostic(source, error, metadata) {
 
 process.on('uncaughtExceptionMonitor', error => logDiagnostic('main:uncaught-exception', error));
 
-function safeAuthUrl(value) {
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:' && ['auth.openai.com', 'auth0.openai.com', 'chatgpt.com', 'www.chatgpt.com'].includes(url.hostname);
-  } catch { return false; }
-}
 function safeWebUrl(value) {
   try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol); }
   catch { return false; }
@@ -115,10 +110,10 @@ async function runAutomation(automation) {
 app.whenReady().then(async () => {
   const stateDir = path.join(app.getPath('userData'), 'data');
   errorLog = new ErrorLog({ root: path.join(stateDir, 'logs'), appVersion: require('../package.json').version });
-  const codexHome = path.join(stateDir, 'engine');
+  const engineHome = path.join(stateDir, 'engine');
   const defaultWorkspace = path.join(app.getPath('userData'), 'Workspace');
-  fs.mkdirSync(codexHome, { recursive: true }); fs.mkdirSync(defaultWorkspace, { recursive: true });
-  const configPath = path.join(codexHome, 'config.toml');
+  fs.mkdirSync(engineHome, { recursive: true }); fs.mkdirSync(defaultWorkspace, { recursive: true });
+  const configPath = path.join(engineHome, 'config.toml');
   if (!fs.existsSync(configPath)) fs.writeFileSync(configPath, [
     'model_reasoning_effort = "low"',
     'approval_policy = "on-request"',
@@ -138,7 +133,7 @@ app.whenReady().then(async () => {
   if (store.locked) throw new Error(store.warning || 'Encrypted app state could not be opened.');
   const backupNow = (force = false) => backups.createBackup({ stateDir, memoryService: store.memoryService, force });
   const dailyBackup = () => { try { backupNow(); } catch (error) { logDiagnostic('backup', error); } };
-  const client = new CodexClient({ homeDir: codexHome, cwd: defaultWorkspace });
+  const client = new EngineClient({ homeDir: engineHome, cwd: defaultWorkspace });
   controller = new Controller({ store, client, onError: logDiagnostic });
   controller.memoryConsolidator = new MemoryConsolidator(controller);
   controller.systemIdleSeconds = () => powerMonitor.getSystemIdleTime();
@@ -338,7 +333,7 @@ app.whenReady().then(async () => {
       if (action === 'pause') { await goals.pause(goal.id); return { id: goal.id, status: goal.status }; }
       if (action === 'resume') {
         if (!goal.authorized) throw new Error('Start this draft once from Goals to authorize its saved scope.');
-        if (store.data.autonomy.paused) throw new Error('Autonomous work is globally paused. Resume it in Goals.');
+        if (store.data.autonomy.paused) throw new Error('Background work is switched off. Ask the user to turn the Background switch back on.');
         await goals.resume(goal.id); return { id: goal.id, status: goal.status };
       }
       throw new Error('Unsupported goal action.');
@@ -488,7 +483,6 @@ app.whenReady().then(async () => {
   register('saveSettings', payload => controller.saveSettings(payload));
   register('saveConnection', payload => { ensureExtensionsIdle(); return controller.saveConnection(payload); });
   register('refreshConnection', () => controller.refreshConnection());
-  register('refreshProviderUsage', () => controller.refreshProviderUsage());
   register('chooseAttachments', async () => {
     const selected = await dialog.showOpenDialog(desktopWindows.activeWindow(), { title: 'Attach files', properties: ['openFile', 'multiSelections'] });
     return selected.canceled ? [] : importAttachments(() => controller.attachments.importPaths(selected.filePaths));
@@ -554,11 +548,6 @@ app.whenReady().then(async () => {
     const error = await shell.openPath(store.data.settings.workspace);
     if (error) throw new Error(error);
   });
-  register('login', async payload => {
-    const result = await controller.login(payload);
-    if (result.authUrl && safeAuthUrl(result.authUrl)) await shell.openExternal(result.authUrl);
-    return result;
-  });
   const sendTurn = async (payload, internal) => {
     if (internal?.goalTurn) return controller.send(payload, null, internal);
     controller.userSendPending++;
@@ -612,9 +601,19 @@ app.whenReady().then(async () => {
       const active = store.data.chats.find(chat => chat.automationId === scheduler.runningId && chat.status !== 'idle');
       if (active && controller.turns.has(active.id)) await controller.stop({ chatId: active.id });
     }
+    // Learning and dreaming wait too; their queued work stays and resumes with the switch.
+    await controller.memoryConsolidator.pauseForUser();
+    controller.changed();
     return controller.state();
   });
-  register('resumeAutonomy', async () => { await goals.resumeAll(); return controller.state(); });
+  register('resumeAutonomy', async () => {
+    // Checks and routines that fell due while paused are skipped, not replayed: turning background work back on
+    // must never become a burst of posts. They continue from their next scheduled time.
+    if (missedCount(advanceMissedSchedules(store.data, Date.now()))) store.save();
+    await goals.resumeAll();
+    controller.changed();
+    return controller.state();
+  });
   register('saveCalendarEvent', payload => {
     saveCalendarRecord(payload);
     return controller.state();

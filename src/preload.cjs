@@ -8,8 +8,8 @@ contextBridge.exposeInMainWorld('bot', {
   getState: invoke('getState'), getContextUsed: invoke('getContextUsed'), reportError: invoke('reportError'), openLogs: invoke('openLogs'), chooseWorkspace: invoke('chooseWorkspace'),
   saveProfile: invoke('saveProfile'), openProfileFolder: invoke('openProfileFolder'),
   createProfile: invoke('createProfile'), renameProfile: invoke('renameProfile'), deleteProfile: invoke('deleteProfile'), switchProfile: invoke('switchProfile'),
-  saveSettings: invoke('saveSettings'), login: invoke('login'), send: invoke('send'),
-  saveConnection: invoke('saveConnection'), refreshConnection: invoke('refreshConnection'), refreshProviderUsage: invoke('refreshProviderUsage'),
+  saveSettings: invoke('saveSettings'), send: invoke('send'),
+  saveConnection: invoke('saveConnection'), refreshConnection: invoke('refreshConnection'),
   chooseAttachments: invoke('chooseAttachments'), importAttachment: invoke('importAttachment'),
   attachFiles: files => {
     if (!Array.isArray(files) || files.length > 8) return Promise.reject(new Error('Choose up to 8 files.'));

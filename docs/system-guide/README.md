@@ -34,7 +34,7 @@ flowchart TD
   UI[Electron renderer / panels] --> IPC[Preload bridge / main IPC]
   IPC --> C[Controller]
   IPC --> R[Goals / scheduler / heartbeat]
-  C --> E[Bundled Codex app-server]
+  C --> E[Bundled assistant engine]
   E --> P[Selected model / local relay]
   P --> S[Strata / external provider]
   E --> T[Native terminal / file tools / MCP]

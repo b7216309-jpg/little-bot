@@ -1,23 +1,10 @@
 'use strict';
 
-const MAX_BUCKETS = 20;
 const MAX_SAMPLES = 10;
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-const number = value => Number.isFinite(value) && value >= 0 ? value : null;
 const integer = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
 const text = (value, maximum = 200) => typeof value === 'string'
   ? value.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, maximum) : '';
-const scrub = value => String(value?.message || value || 'Provider usage unavailable.')
-  .replace(/\bsk-[A-Za-z0-9_-]+/g, '[redacted]')
-  .replace(/((?:access[_-]?token|refresh[_-]?token|api[_-]?key|password|secret)["'\s:=]+)[^\s,}"']+/gi, '$1[redacted]')
-  .slice(0, 500);
-const clampPercent = value => Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : null;
-
-function timestamp(value) {
-  if (!Number.isFinite(value) || value <= 0) return null;
-  const milliseconds = value < 100000000000 ? value * 1000 : value;
-  return Number.isSafeInteger(Math.round(milliseconds)) ? Math.round(milliseconds) : null;
-}
 
 function normalizeUsage(value) {
   if (!object(value)) return null;
@@ -31,92 +18,6 @@ function normalizeUsage(value) {
     if (count !== null) result[target] = count;
   }
   return Object.keys(result).length ? result : null;
-}
-
-function normalizeWindow(value) {
-  if (!object(value)) return null;
-  const usedPercent = clampPercent(value.usedPercent ?? value.used_percent);
-  const windowDurationMinutes = integer(value.windowDurationMins ?? value.window_duration_mins
-    ?? value.windowDurationMinutes ?? value.window_duration_minutes);
-  const resetsAt = timestamp(value.resetsAt ?? value.resets_at);
-  if (usedPercent === null && windowDurationMinutes === null && resetsAt === null) return null;
-  return {
-    usedPercent,
-    remainingPercent: usedPercent === null ? null : Math.max(0, 100 - usedPercent),
-    windowDurationMinutes,
-    resetsAt,
-  };
-}
-
-function bucketLike(value) {
-  return object(value) && ['primary', 'secondary', 'primaryWindow', 'secondaryWindow', 'primary_window', 'secondary_window']
-    .some(key => object(value[key]));
-}
-
-function normalizeCredits(value) {
-  if (!object(value)) return null;
-  const balance = text(value.balance ?? value.remaining, 120) || null;
-  const result = {
-    hasCredits: typeof value.hasCredits === 'boolean' ? value.hasCredits
-      : typeof value.has_credits === 'boolean' ? value.has_credits : null,
-    unlimited: typeof value.unlimited === 'boolean' ? value.unlimited : null,
-    balance,
-  };
-  return Object.values(result).some(item => item !== null) ? result : null;
-}
-
-function normalizeBucket(value, id, index) {
-  if (!object(value)) return null;
-  const primary = normalizeWindow(value.primary ?? value.primaryWindow ?? value.primary_window);
-  const secondary = normalizeWindow(value.secondary ?? value.secondaryWindow ?? value.secondary_window);
-  if (!primary && !secondary) return null;
-  const bucketId = text(value.limitId ?? value.limit_id ?? id, 120) || `limit-${index + 1}`;
-  const label = text(value.limitName ?? value.limit_name ?? value.name ?? value.label, 120) || bucketId;
-  const reachedType = text(value.rateLimitReachedType ?? value.rate_limit_reached_type
-    ?? value.reachedType ?? value.reached_type, 80) || null;
-  const spendControlReached = value.spendControlReached === true || value.spend_control_reached === true;
-  const explicitReached = typeof value.limitReached === 'boolean' ? value.limitReached
-    : typeof value.limit_reached === 'boolean' ? value.limit_reached : null;
-  return {
-    id: bucketId,
-    label,
-    plan: text(value.planType ?? value.plan_type, 80) || null,
-    primary,
-    secondary,
-    limitReached: explicitReached ?? (spendControlReached || Boolean(reachedType)),
-    reachedType,
-    spendControlReached,
-    credits: normalizeCredits(value.credits),
-  };
-}
-
-function rateLimitEntries(value) {
-  if (!object(value)) return [];
-  const byId = value.rateLimitsByLimitId ?? value.rate_limits_by_limit_id;
-  if (object(byId) && Object.keys(byId).length) return Object.entries(byId);
-  const limits = value.rateLimits ?? value.rate_limits ?? value;
-  if (bucketLike(limits)) return [['default', limits]];
-  if (object(limits)) return Object.entries(limits).filter(([, entry]) => bucketLike(entry));
-  if (Array.isArray(limits)) return limits.map((entry, index) => [text(entry?.limitId ?? entry?.id, 120) || `limit-${index + 1}`, entry]);
-  return [];
-}
-
-function normalizeRateLimits(value, { now = Date.now(), plan = '' } = {}) {
-  const source = object(value) ? value : {};
-  const buckets = rateLimitEntries(source).slice(0, MAX_BUCKETS)
-    .map(([id, entry], index) => normalizeBucket(entry, id, index)).filter(Boolean);
-  const ordinaryUsageAllowed = typeof source.ordinaryUsageAllowed === 'boolean' ? source.ordinaryUsageAllowed
-    : typeof source.ordinary_usage_allowed === 'boolean' ? source.ordinary_usage_allowed : null;
-  const providerPlan = buckets.map(bucket => bucket.plan).find(Boolean) || null;
-  return {
-    kind: 'codex',
-    status: buckets.length ? 'ready' : 'unavailable',
-    updatedAt: now,
-    plan: text(source.planType ?? source.plan_type ?? plan, 80) || providerPlan,
-    ordinaryUsageAllowed,
-    buckets,
-    error: buckets.length ? null : 'The provider did not report a usable rate-limit window.',
-  };
 }
 
 function averageSamples(samples) {
@@ -134,27 +35,17 @@ function averageSamples(samples) {
 }
 
 function normalizeConnection(value = {}) {
-  return {
-    type: value.type === 'codex' ? 'codex' : 'local',
-    status: text(value.status, 40) || 'offline',
-    model: text(value.model, 200) || null,
-  };
+  return { status: text(value.status, 40) || 'offline', model: text(value.model, 200) || null };
 }
 
 class ProviderUsage {
-  constructor({ client, connection = () => ({}), account = () => ({}), onChange = () => {}, now = () => Date.now() } = {}) {
-    if (typeof connection !== 'function' || typeof account !== 'function' || typeof onChange !== 'function' || typeof now !== 'function') {
+  constructor({ connection = () => ({}), onChange = () => {}, now = () => Date.now() } = {}) {
+    if (typeof connection !== 'function' || typeof onChange !== 'function' || typeof now !== 'function') {
       throw new TypeError('Provider usage callbacks must be functions.');
     }
-    this.client = client && typeof client.request === 'function' ? client : {
-      request: async () => { throw new Error('Provider usage is unavailable for this runtime.'); },
-    };
     this.connection = connection;
-    this.account = account;
     this.onChange = onChange;
     this.now = now;
-    this.refreshing = null;
-    this.refreshAgain = false;
     this.turns = new Map();
     this.samples = [];
     this.state = { kind: 'local', status: 'waiting', updatedAt: null, model: null, latest: null, average: null, sampleCount: 0, error: null };
@@ -166,83 +57,26 @@ class ProviderUsage {
     try { this.onChange(); } catch { /* Usage display failures never affect model work. */ }
   }
 
+  localState(current) {
+    const connected = current.status === 'connected', checking = current.status === 'checking';
+    return {
+      kind: 'local', status: connected ? (this.samples.length ? 'ready' : 'waiting') : checking ? 'waiting' : 'offline',
+      updatedAt: this.samples.at(-1)?.at || null, model: current.model, latest: this.samples.at(-1) || null,
+      average: averageSamples(this.samples), sampleCount: this.samples.length,
+      error: connected || checking ? null : 'Local performance appears after a completed model turn.',
+    };
+  }
+
   connectionChanged(value = this.connection()) {
     const current = normalizeConnection(value);
     this.turns.clear();
-    if (current.type === 'codex') {
-      this.state = {
-        kind: 'codex', status: current.status === 'connected' ? 'loading' : 'signedOut', updatedAt: null,
-        plan: text(this.account()?.plan, 80) || null, ordinaryUsageAllowed: null, buckets: [], error: null,
-      };
-    } else {
-      if (current.model && this.samples.some(sample => sample.model && sample.model !== current.model)) this.samples = [];
-      const connected = current.status === 'connected';
-      const checking = current.status === 'checking';
-      this.state = {
-        kind: 'local', status: connected ? (this.samples.length ? 'ready' : 'waiting') : checking ? 'waiting' : 'offline',
-        updatedAt: this.samples.at(-1)?.at || null, model: current.model, latest: this.samples.at(-1) || null,
-        average: averageSamples(this.samples), sampleCount: this.samples.length,
-        error: connected || checking ? null : 'Local performance appears after a completed model turn.',
-      };
-    }
+    if (current.model && this.samples.some(sample => sample.model && sample.model !== current.model)) this.samples = [];
+    this.state = this.localState(current);
     this.changed();
     return this.publicState();
   }
 
-  async refresh() {
-    if (this.refreshing) return this.refreshing;
-    this.refreshing = this._refresh();
-    try { return await this.refreshing; } finally {
-      this.refreshing = null;
-      if (this.refreshAgain) { this.refreshAgain = false; this.requestRefresh(); }
-    }
-  }
-
-  requestRefresh() {
-    if (this.refreshing) { this.refreshAgain = true; return; }
-    void this.refresh();
-  }
-
-  async _refresh() {
-    const current = normalizeConnection(this.connection());
-    if (current.type !== 'codex') {
-      const connected = current.status === 'connected';
-      this.state = {
-        kind: 'local', status: connected ? (this.samples.length ? 'ready' : 'waiting') : current.status === 'checking' ? 'waiting' : 'offline',
-        updatedAt: this.samples.at(-1)?.at || null, model: current.model, latest: this.samples.at(-1) || null,
-        average: averageSamples(this.samples), sampleCount: this.samples.length,
-        error: connected || current.status === 'checking' ? null : 'Local performance appears after a completed model turn.',
-      };
-      this.changed(); return this.publicState();
-    }
-    if (current.status !== 'connected' || this.account()?.status !== 'connected') {
-      this.state = { kind: 'codex', status: 'signedOut', updatedAt: null, plan: null, ordinaryUsageAllowed: null, buckets: [], error: 'Connect Codex to read provider limits.' };
-      this.changed(); return this.publicState();
-    }
-    this.state = { ...this.state, kind: 'codex', status: 'loading', error: null, plan: text(this.account()?.plan, 80) || this.state.plan || null };
-    this.changed();
-    try {
-      const result = await this.client.request('account/rateLimits/read', {});
-      this.state = normalizeRateLimits(result, { now: this.now(), plan: this.account()?.plan });
-    } catch (error) {
-      this.state = {
-        kind: 'codex', status: 'unavailable', updatedAt: this.now(), plan: text(this.account()?.plan, 80) || null,
-        ordinaryUsageAllowed: null, buckets: [], error: text(scrub(error), 500) || 'Provider limits are unavailable.',
-      };
-    }
-    this.changed(); return this.publicState();
-  }
-
-  notification(method, params = {}) {
-    if (method === 'account/rateLimits/updated') {
-      if (normalizeConnection(this.connection()).type !== 'codex') return false;
-      // Rolling notifications are sparse; preserve the last full snapshot and refetch.
-      this.requestRefresh();
-      return true;
-    }
-    if (normalizeConnection(this.connection()).type !== 'local') return false;
-    return this.localNotification(method, params);
-  }
+  notification(method, params = {}) { return this.localNotification(method, params); }
 
   localNotification(method, params = {}) {
     const turnId = text(params.turnId ?? params.turn?.id, 160);
@@ -289,7 +123,7 @@ class ProviderUsage {
     if (!turn.completed || turn.excluded) return false;
     const outputTokens = integer(turn.usage.outputTokens) || 0;
     const reasoningTokens = integer(turn.usage.reasoningTokens) || 0;
-    // Codex reports reasoning as a subset of output tokens; never count it twice.
+    // The engine reports reasoning as a subset of output tokens; never count it twice.
     const generatedTokens = outputTokens;
     if (!generatedTokens) return false;
     const durationMs = Math.max(1, turn.completedAt - turn.startedAt);
@@ -325,7 +159,4 @@ class ProviderUsage {
   }
 }
 
-module.exports = {
-  MAX_BUCKETS, MAX_SAMPLES, normalizeUsage, normalizeWindow, normalizeRateLimits,
-  averageSamples, ProviderUsage,
-};
+module.exports = { MAX_SAMPLES, normalizeUsage, averageSamples, ProviderUsage };

@@ -9,17 +9,16 @@ const { EventRuntime } = require('../src/event-runtime.cjs');
 const { deliverHeartbeat, normalizePending } = require('../src/proactive-chat.cjs');
 
 const MINUTE = 60000;
-const settings = { workspace: 'C:\\work', model: 'test-model', effort: 'low', connection: 'codex' };
+const settings = { workspace: 'C:\\work', model: 'test-model', effort: 'low', connection: 'local', localModel: 'test-model', localBaseUrl: 'http://127.0.0.1:8080/v1' };
 const localTime = (day = 26, hour = 10, minute = 0) => new Date(2026, 8, day, hour, minute).getTime();
 const input = overrides => ({ enabled: true, checklist: 'Check the build results. Fix failed outputs in this folder.', intervalMinutes: 5, startHour: 8, endHour: 22, maxRunsPerDay: 12, ...overrides });
 
-function fixture(run = async () => ({ status: 'quiet', summary: '' }), overrides = {}, connection = 'codex') {
+function fixture(run = async () => ({ status: 'quiet', summary: '' }), overrides = {}) {
   let nowMs = localTime();
   let available = true;
   let changes = 0;
   const alerts = [];
-  const scopedSettings = { ...settings, connection,
-    ...(connection === 'local' ? { localModel: settings.model, localBaseUrl: 'http://127.0.0.1:8080/v1' } : {}) };
+  const scopedSettings = { ...settings };
   const config = validateHeartbeat(input(overrides), null, scopedSettings, nowMs);
   const store = { data: { settings: scopedSettings, heartbeat: config }, saves: 0, save() { this.saves++; } };
   const service = new Heartbeat({ store, run, now: () => nowMs, canRun: () => available,
@@ -73,7 +72,7 @@ test('editing preserves captured scope and prior counters; explicit recapture an
   assert.equal(recaptured.runsToday, 4);
 });
 
-test('remote ticks honor active hours while skipping disabled, empty, not due, and busy states', async () => {
+test('scheduled ticks honor active hours while skipping disabled, empty, not due, and busy states', async () => {
   let calls = 0;
   const f = fixture(async () => { calls++; return { status: 'quiet', summary: '' }; });
   await f.service.tick();
@@ -101,7 +100,7 @@ test('remote ticks honor active hours while skipping disabled, empty, not due, a
   assert.equal(f.config.nextRunAt, localTime(27, 8, 5));
 });
 
-test('scheduled heartbeats honor active hours on every connection', async () => {
+test('scheduled heartbeats honor active hours', async () => {
   let remoteCalls = 0;
   const remote = fixture(async () => { remoteCalls++; return { status: 'quiet', summary: '' }; });
   remote.setNow(localTime(26, 22));
@@ -111,7 +110,7 @@ test('scheduled heartbeats honor active hours on every connection', async () => 
   assert.equal(remote.config.runsToday, 0);
 
   let localCalls = 0;
-  const local = fixture(async () => { localCalls++; return { status: 'quiet', summary: '' }; }, {}, 'local');
+  const local = fixture(async () => { localCalls++; return { status: 'quiet', summary: '' }; });
   local.setNow(localTime(26, 22));
   local.config.nextRunAt = localTime(26, 21, 55);
   assert.equal(await local.service.runNow({ scheduled: true }), null);

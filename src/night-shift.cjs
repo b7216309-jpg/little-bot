@@ -171,7 +171,7 @@ class NightShift {
 
   canStart() {
     const settings = this.store.data.settings;
-    return this.enabled() && !this.store.data.autonomy?.paused && settings.connection === 'local'
+    return this.enabled() && !this.store.data.autonomy?.paused
       && this.controller.runtime?.status === 'ready' && this.controller.account?.status === 'connected'
       && !this.controller.userSendPending && !this.controller.goalChat && !this.controller.chatGoal?.holding?.()
       && !this.controller.extensionsBusy && !this.controller.memoryBusy && !this.controller.heartbeatChat
@@ -182,7 +182,7 @@ class NightShift {
   canContinue(generation) { return generation === this.generation && this.active && this.away && this.canStart(); }
   sessionContinues(generation) {
     return generation === this.generation && this.active && this.away && this.enabled()
-      && !this.store.data.autonomy?.paused && this.store.data.settings.connection === 'local' && !this.controller.userSendPending;
+      && !this.store.data.autonomy?.paused && !this.controller.userSendPending;
   }
 
   refreshSignals(now = this.now(), returning = false) {
@@ -217,7 +217,7 @@ class NightShift {
     for (const goal of this.store.data.autonomy.goals) {
       const chained = session.chainGoalId === goal.id;
       if (goal.status !== 'queued' || !goal.authorized || goal.pendingQuestion || goal.needsEffectReview
-        || session.failedGoalId === goal.id || goal.connection !== 'local' || !isConnectionSelected(goal, settings) || !this.goals.awake(goal, now)) continue;
+        || session.failedGoalId === goal.id || !isConnectionSelected(goal, settings) || !this.goals.awake(goal, now)) continue;
       const due = goal.nextRunAt == null ? goal.needsRecoveryCheck === true || goal.continueAfterAnswer === true : goal.nextRunAt <= now;
       if (!chained && !due) continue;
       result.push({ type: 'goal', id: goal.id, title: goal.name, score: (chained ? 250 : 210) - (goal.priority || 3) * 10, at: goal.nextRunAt || 0 });
@@ -367,7 +367,7 @@ class NightShift {
   }
 
   // From the moment the owner is away, goal posts wait for the return summary, even a step that began before night shift did.
-  holding() { return this.active || this.yielding || (this.away && this.enabled() && this.store.data.settings.connection === 'local'); }
+  holding() { return this.active || this.yielding || (this.away && this.enabled()); }
 
   deferGoalDelivery(goal, _data, details = {}) {
     if (!this.holding()) return undefined;
