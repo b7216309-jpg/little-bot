@@ -36,7 +36,7 @@ intentions: at most 3 things to bring up later, so the user feels remembered: fo
 
 This is a reflection task. Do not use tools.`;
 
-function mainChat(data) { return (data.chats || []).find(chat => !chat.private) || null; }
+const { mainChat } = require('./chats.cjs');
 const conversational = message => ['user', 'assistant'].includes(message.role) && typeof message.text === 'string' && message.text.trim()
   && message.kind !== 'reasoning' && !['commentary', 'analysis'].includes(message.phase) && !message.automationId;
 

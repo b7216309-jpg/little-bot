@@ -2,6 +2,7 @@
 
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
+const { mainChat } = require('./chats.cjs');
 const files = require('./goal-files.cjs');
 const contract = require('./goal-contract.cjs');
 const { connectionBinding, isConnectionSelected, requireSelectedConnection } = require('./connections.cjs');
@@ -428,7 +429,7 @@ class GoalRunner {
     return goal;
   }
   finishReview(goal, evidence, outcome, summary, refs, runId, message = summary) {
-    const previous = structuredClone(goal), chat = this.store.data.chats?.find(item => !item.private);
+    const previous = structuredClone(goal), chat = mainChat(this.store.data);
     const messages = chat?.messages.length, updatedAt = chat?.updatedAt;
     try {
     contract.consume(goal, evidence, outcome, summary, refs);

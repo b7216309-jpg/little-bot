@@ -21,6 +21,7 @@ const { normalizeCompanion } = require('./companion.cjs');
 const { normalizeNightShift } = require('./night-shift.cjs');
 const { normalizeChatGoal } = require('./chat-goal.cjs');
 const { normalizeLessons } = require('./lessons.cjs');
+const { MAX_SESSIONS, TITLE_LIMIT } = require('./chats.cjs');
 
 const INTERRUPTED = 'Interrupted because Little Bot closed before the task finished.';
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -87,6 +88,13 @@ function unprotectState(parsed, protector) {
   return result;
 }
 
+// The continuous conversation first, then the saved sessions. The Quick session is never written to disk.
+function savedChats(chats) {
+  const kept = chats.filter(isObject).filter(chat => chat.private !== true);
+  const main = kept.find(chat => chat.session !== true);
+  return [...(main ? [main] : []), ...kept.filter(chat => chat.session === true).slice(0, MAX_SESSIONS)];
+}
+
 function persistedData(data, defaultWorkspace, recovering = false) {
   const rawSettings = isObject(data.settings) ? data.settings : {};
   const settings = { ...rawSettings, ...normalizeConnectionSettings(rawSettings) };
@@ -116,10 +124,11 @@ function persistedData(data, defaultWorkspace, recovering = false) {
       localSampling: normalizeSampling(settings.localSampling),
       ...(typeof settings.systemPrompt === 'string' ? { systemPrompt: settings.systemPrompt.slice(0, 100000) } : {}),
     },
-    chats: chats.filter(isObject).filter(chat => chat.private !== true).slice(0, 1).map(chat => {
+    chats: savedChats(chats).map(chat => {
       const result = {
         id: string(chat.id) || randomUUID(),
-        title: string(chat.title, 'New chat'),
+        title: string(chat.title, 'New chat').slice(0, TITLE_LIMIT) || 'New chat',
+        ...(chat.session === true ? { session: true } : {}),
         threadId: string(chat.threadId),
         lastTurnRequestId: string(chat.lastTurnRequestId),
         workspace: string(chat.workspace, defaultWorkspace),

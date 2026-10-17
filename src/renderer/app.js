@@ -190,10 +190,17 @@ const currentChat = () => state?.chats?.find((chat) => chat.id === selectedChatI
 const isConnected = () => state?.account?.status === 'connected';
 const isReady = () => state?.runtime?.status === 'ready';
 const isStrataLocal = () => state?.connection?.adapter === 'strata';
-// The Quick session is a side chat (marked private by the main process): no memory, goals or follow-ups, never saved.
-let quickMode = false;
-const newDraftKey = () => quickMode ? '__quick__' : '__new__';
-const modeChat = () => state?.chats?.find(chat => quickMode ? chat.private : !chat.private) || null;
+// Three kinds of chat. The continuous conversation ('main'); the Quick session ('quick', marked private by the
+// main process: no memory, goals or follow-ups, never saved); and saved sessions ('session'). sessionId is the
+// open saved session; null in session mode is a new one whose first message creates it.
+let chatMode = 'main';
+let sessionId = null;
+let newSessionSince = 0;
+const isMainChat = chat => Boolean(chat) && !chat.private && !chat.session;
+const savedSessions = () => (state?.chats || []).filter(chat => chat.session && !chat.private).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+const newDraftKey = () => chatMode === 'quick' ? '__quick__' : chatMode === 'session' ? '__session__' : '__new__';
+const modeChat = () => chatMode === 'session' ? (sessionId ? state?.chats?.find(chat => chat.session && chat.id === sessionId) || null : null)
+  : state?.chats?.find(chat => chatMode === 'quick' ? chat.private : isMainChat(chat)) || null;
 const draftKey = () => selectedChatId || newDraftKey();
 const queuedAttachments = () => attachmentDrafts.get(draftKey()) || [];
 const currentPlanMode = () => planModeDrafts.has(draftKey()) ? planModeDrafts.get(draftKey()) : currentChat()?.mode === 'plan';
@@ -283,6 +290,13 @@ function applyState(next) {
     const latest = [...(state.chats || [])].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))[0];
     selectedChatId = latest?.id || null;
   }
+  // The first message of a new session creates it; follow it as soon as it appears.
+  if (chatMode === 'session' && !sessionId && newSessionSince) {
+    const created = savedSessions().filter(chat => (chat.createdAt || 0) >= newSessionSince).sort((a, b) => b.createdAt - a.createdAt)[0];
+    if (created) sessionId = created.id;
+  }
+  // A session deleted elsewhere (the phone, another window) returns to the conversation.
+  if (chatMode === 'session' && sessionId && !modeChat()) { chatMode = 'main'; sessionId = null; }
   selectedChatId = modeChat()?.id || null;
   render();
 }
@@ -350,7 +364,7 @@ function render() {
 
 function renderHeader() {
   const chat = currentChat();
-  $('page-label').textContent = currentView === 'chat' && quickMode ? 'Quick session' : { inbox: 'Activity inbox', goals: 'Goals', automations: 'Automations', calendar: 'Calendar', memory: 'Memory', profile: 'Profile', heartbeat: 'Heartbeat', extensions: 'Extensions' }[currentView] || 'Conversation';
+  $('page-label').textContent = currentView === 'chat' && chatMode === 'quick' ? 'Quick session' : currentView === 'chat' && chatMode === 'session' ? (chat?.title || 'New session') : { inbox: 'Activity inbox', goals: 'Goals', automations: 'Automations', calendar: 'Calendar', memory: 'Memory', profile: 'Profile', heartbeat: 'Heartbeat', extensions: 'Extensions' }[currentView] || 'Conversation';
   const status = state.runtime || {};
   const label = status.status === 'ready' ? 'Ready' : status.status === 'error' ? 'Needs attention' : 'Starting';
   const dot = element('span', `status-dot ${status.status === 'ready' ? '' : status.status === 'error' ? 'error' : 'starting'}`);
@@ -403,10 +417,11 @@ function renderHeader() {
 }
 
 function renderSidebar() {
-  $('nav-conversation').classList.toggle('active', currentView === 'chat' && !quickMode);
-  $('nav-conversation').setAttribute('aria-current', currentView === 'chat' && !quickMode ? 'page' : 'false');
-  $('nav-quick').classList.toggle('active', currentView === 'chat' && quickMode);
-  $('nav-quick').setAttribute('aria-current', currentView === 'chat' && quickMode ? 'page' : 'false');
+  $('nav-conversation').classList.toggle('active', currentView === 'chat' && chatMode === 'main');
+  $('nav-conversation').setAttribute('aria-current', currentView === 'chat' && chatMode === 'main' ? 'page' : 'false');
+  $('nav-quick').classList.toggle('active', currentView === 'chat' && chatMode === 'quick');
+  $('nav-quick').setAttribute('aria-current', currentView === 'chat' && chatMode === 'quick' ? 'page' : 'false');
+  renderSessionsList();
   $('nav-automations').classList.toggle('active', currentView === 'automations');
   $('nav-calendar').classList.toggle('active', currentView === 'calendar');
   $('nav-memory').classList.toggle('active', currentView === 'memory');
@@ -451,14 +466,84 @@ async function toggleBackground() {
   } finally { backgroundPending = false; if (state) render(); }
 }
 
+function relativeTime(value) {
+  if (!Number.isFinite(value)) return '';
+  const minutes = Math.max(0, Math.round((Date.now() - value) / 60000));
+  if (minutes < 1) return 'now';
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.round(hours / 24);
+  return days < 14 ? `${days}d` : new Date(value).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+function renderSessionsList() {
+  const list = savedSessions();
+  $('sessions-count').textContent = String(list.length);
+  $('sessions-count').classList.toggle('hidden', !list.length);
+  const newActive = currentView === 'chat' && chatMode === 'session' && !sessionId;
+  $('nav-new-session').classList.toggle('active', newActive);
+  const host = $('sessions-list');
+  const existing = new Map(Array.from(host.children, node => [node.dataset.sessionId, node]));
+  const nodes = list.map(chat => {
+    let node = existing.get(chat.id);
+    if (!node) {
+      node = element('button', 'nav-button session-item');
+      node.type = 'button';
+      node.dataset.sessionId = chat.id;
+      node.append(element('span', 'status-dot hidden'), element('span', 'session-title'), element('span', 'session-meta'));
+      node.addEventListener('click', () => selectChat(chat.id, 'session'));
+    }
+    const active = currentView === 'chat' && chatMode === 'session' && sessionId === chat.id;
+    node.classList.toggle('active', active);
+    node.setAttribute('aria-current', active ? 'page' : 'false');
+    node.querySelector('.session-title').textContent = chat.title || 'Session';
+    node.querySelector('.session-meta').textContent = relativeTime(chat.updatedAt);
+    const busy = chat.status === 'running' || chat.status === 'waiting';
+    node.querySelector('.status-dot').className = `status-dot ${busy ? 'starting' : 'hidden'}`;
+    node.title = `${chat.title || 'Session'}${busy ? ' · working' : ''}`;
+    return node;
+  });
+  replaceConversationItems(host, nodes);
+}
+
+async function renameSession() {
+  const chat = currentChat();
+  if (!chat?.session) return;
+  $('rename-input').value = chat.title || '';
+  $('rename-error').classList.add('hidden');
+  showDialog('rename-dialog');
+  $('rename-input').select();
+}
+async function saveSessionName(event) {
+  event.preventDefault();
+  const chat = currentChat();
+  const title = $('rename-input').value.trim();
+  if (!chat?.session || !title) { $('rename-error').textContent = 'Write a name.'; $('rename-error').classList.remove('hidden'); return; }
+  try { applyState(await window.bot.renameChat({ chatId: chat.id, title })); closeDialog('rename-dialog'); }
+  catch (error) { $('rename-error').textContent = error?.message || String(error); $('rename-error').classList.remove('hidden'); }
+}
+async function deleteSession() {
+  const chat = currentChat();
+  if (!chat?.session) return;
+  if (!await confirmAction('Delete this session?', `“${chat.title || 'Session'}” and its history will be deleted. Facts Little Bot already learned from it stay in Memory.`, 'Delete')) return;
+  if (await attempt(() => window.bot.deleteChat({ chatId: chat.id }), 'Session deleted.')) {
+    chatDrafts.delete(chat.id); attachmentDrafts.delete(chat.id); planModeDrafts.delete(chat.id);
+    selectChat(null, 'main');
+  }
+}
+
 function saveCurrentDraft() {
   chatDrafts.set(draftKey(), $('message-input').value);
 }
 
-function selectChat(id, quick = false) {
+// Opens a chat. mode is 'main', 'quick' or 'session' (with id null: a new session). Without a mode, the chat
+// with this id decides; with neither, the chat already open stays.
+function selectChat(id = null, mode = null) {
   navigationVersion += 1;
   if (currentView === 'chat') saveCurrentDraft();
-  quickMode = quick;
+  const target = id ? state?.chats?.find(chat => chat.id === id) : null;
+  chatMode = mode || (target ? (target.private ? 'quick' : target.session ? 'session' : 'main') : chatMode);
+  sessionId = chatMode !== 'session' ? null : mode === 'session' ? id : target?.session ? target.id : sessionId;
   selectedChatId = modeChat()?.id || null;
   id = selectedChatId;
   currentView = 'chat';
@@ -1088,11 +1173,16 @@ function renderConversation() {
   }
   const hasMessages = Boolean(chat?.messages?.length);
   $('welcome').classList.toggle('hidden', hasMessages);
-  $('welcome-title').textContent = quickMode ? 'Quick session' : 'What’s next?';
-  $('welcome-description').textContent = quickMode ? 'For one-off tasks. No memory, goals or follow-ups, and nothing here is saved, so your main conversation stays clean.' : 'Ask, attach, or put something in motion.';
-  $('suggestions').classList.toggle('hidden', quickMode);
-  $('quick-end').classList.toggle('hidden', !quickMode || !chat);
-  $('quick-end').disabled = chat?.status === 'running' || chat?.status === 'waiting';
+  $('welcome-title').textContent = chatMode === 'quick' ? 'Quick session' : chatMode === 'session' ? 'New session' : 'What’s next?';
+  $('welcome-description').textContent = chatMode === 'quick' ? 'For one-off tasks. No memory, goals or follow-ups, and nothing here is saved, so your main conversation stays clean.'
+    : chatMode === 'session' ? 'A separate conversation with its own saved history. Memory works here too, and the main conversation stays as it is.' : 'Ask, attach, or put something in motion.';
+  $('suggestions').classList.toggle('hidden', chatMode !== 'main');
+  const busy = chat?.status === 'running' || chat?.status === 'waiting';
+  $('quick-end').classList.toggle('hidden', chatMode !== 'quick' || !chat);
+  $('quick-end').disabled = busy;
+  $('session-rename').classList.toggle('hidden', chatMode !== 'session' || !chat);
+  $('session-delete').classList.toggle('hidden', chatMode !== 'session' || !chat);
+  $('session-delete').disabled = busy;
   $('messages').classList.toggle('hidden', !hasMessages);
   const scrollSnapshot = captureChatScroll();
   if (hasMessages) {
@@ -1144,7 +1234,7 @@ function updateComposer() {
   $('plan-mode-toggle').disabled = Boolean(running || sending || !isReady());
   $('plan-mode-toggle').setAttribute('aria-pressed', String(Boolean(currentPlanMode())));
   $('plan-mode-toggle').classList.toggle('active', Boolean(currentPlanMode()));
-  $('message-input').placeholder = currentPlanMode() ? 'Ask Little Bot to plan…' : quickMode ? 'Quick task for Little Bot…' : 'Message Little Bot…';
+  $('message-input').placeholder = currentPlanMode() ? 'Ask Little Bot to plan…' : chatMode === 'quick' ? 'Quick task for Little Bot…' : chatMode === 'session' ? 'Message this session…' : 'Message Little Bot…';
   renderThinkingControl();
   renderAttachmentQueue();
   renderChatContext();
@@ -1276,7 +1366,7 @@ function compactDisabledReason(chat) {
 
 function inspectorModeLabel(chat) {
   const mode = chat?.mode === 'plan' ? 'Plan' : 'Execute';
-  return chat?.private ? `Private · ${mode}` : mode;
+  return chat?.private ? `Private · ${mode}` : chat?.session ? `Session · ${mode}` : mode;
 }
 
 function inspectorElapsedText(chat) {
@@ -1527,7 +1617,11 @@ function commandDraftName(value, fallback) {
 
 // /goal: the goal bar above the composer and the commands behind it (see src/chat-goal.cjs).
 async function goalCommand(text) {
-  const result = await attempt(() => window.bot.chatGoal({ chatId: selectedChatId || undefined, quick: quickMode, text }));
+  const newSession = chatMode === 'session' && !selectedChatId;
+  if (newSession) newSessionSince = Date.now();
+  const result = await attempt(() => window.bot.chatGoal({ chatId: selectedChatId || undefined, quick: chatMode === 'quick', session: newSession, text }));
+  if (newSession && result?.chatId && chatMode === 'session' && !sessionId) sessionId = result.chatId;
+  newSessionSince = 0;
   if (result?.state) applyState(result.state);
   return result;
 }
@@ -1657,12 +1751,13 @@ async function sendMessage(event) {
   if ((!text && !attachmentIds.length) || sending || thinkingSaving || attachmentImportPending || !isConnected() || !isReady() || chat?.status === 'running' || chat?.status === 'waiting' || chat?.compaction?.status === 'running' || compactionPending.has(chat?.id)) return;
   const originChatId = selectedChatId;
   const originDraftKey = originChatId || newDraftKey();
-  const originQuick = quickMode;
+  const originMode = chatMode, originSession = sessionId;
+  if (originMode === 'session' && !originChatId) newSessionSince = Date.now();
   const originNavigation = navigationVersion;
   sending = true;
   updateComposer();
   try {
-    const result = await window.bot.send({ chatId: originChatId || undefined, text, attachmentIds, mode, ...(originQuick ? { quick: true } : {}) });
+    const result = await window.bot.send({ chatId: originChatId || undefined, text, attachmentIds, mode, ...(originMode === 'quick' ? { quick: true } : originMode === 'session' ? { session: true } : {}) });
     if (chatDrafts.get(originDraftKey) === submittedDraft) chatDrafts.delete(originDraftKey);
     const remainingAttachments = (attachmentDrafts.get(originDraftKey) || []).filter((attachment) => !attachmentIds.includes(attachment.id));
     if (remainingAttachments.length) attachmentDrafts.set(originDraftKey, remainingAttachments);
@@ -1672,13 +1767,15 @@ async function sendMessage(event) {
     // The user can visit another panel or chat while send is starting.
     // Clear only this submitted draft, including when they return before the RPC ends.
     // A first message creates its chat (the Quick session starts empty), so the box then belongs to result.chatId.
-    const sameBox = quickMode === originQuick && (selectedChatId === originChatId || (!originChatId && (!selectedChatId || selectedChatId === result?.chatId)));
+    const sameBox = chatMode === originMode && (sessionId === originSession || (!originSession && sessionId === result?.chatId))
+      && (selectedChatId === originChatId || (!originChatId && (!selectedChatId || selectedChatId === result?.chatId)));
     if (sameBox && $('message-input').value === submittedDraft) $('message-input').value = '';
     if (originNavigation === navigationVersion && currentView === 'chat') {
       if (result?.chatId) {
-        selectedChatId = result.chatId;
+        if (originMode === 'session' && !originSession && chatMode === 'session' && !sessionId) sessionId = result.chatId;
+        if (chatMode === originMode) selectedChatId = result.chatId;
         planModeDrafts.set(result.chatId, mode === 'plan');
-        if (originDraftKey === '__new__' || originDraftKey === '__quick__') {
+        if (['__new__', '__quick__', '__session__'].includes(originDraftKey)) {
           planModeDrafts.delete(originDraftKey);
         }
       }
@@ -1690,6 +1787,7 @@ async function sendMessage(event) {
     notify(error?.message || String(error), true);
   } finally {
     sending = false;
+    newSessionSince = 0;
     updateComposer();
     if (originNavigation === navigationVersion && currentView === 'chat') $('message-input').focus();
   }
@@ -4055,16 +4153,20 @@ function resolveConfirm(accepted) {
   resolve?.(accepted);
 }
 
-$('nav-conversation').addEventListener('click', () => selectChat(null));
+$('nav-conversation').addEventListener('click', () => selectChat(null, 'main'));
+$('nav-new-session').addEventListener('click', () => selectChat(null, 'session'));
+$('session-rename').addEventListener('click', renameSession);
+$('session-delete').addEventListener('click', deleteSession);
+$('rename-form').addEventListener('submit', saveSessionName);
 $('goal-bar-toggle').addEventListener('click', () => goalCommand(currentChat()?.goal?.status === 'pursuing' ? 'pause' : 'resume'));
 $('goal-bar-clear').addEventListener('click', () => goalCommand('clear'));
 $('dream-now').addEventListener('click', () => attempt(() => window.bot.dreamNow(), 'Little Bot will dream as soon as it is idle.'));
-$('nav-quick').addEventListener('click', () => selectChat(null, true));
+$('nav-quick').addEventListener('click', () => selectChat(null, 'quick'));
 $('background-toggle').addEventListener('click', toggleBackground);
 $('quick-end').addEventListener('click', async () => {
   const chat = currentChat();
   if (!chat?.private) return;
-  if (await attempt(() => window.bot.deleteChat({ chatId: chat.id }), 'Quick session ended.')) { chatDrafts.delete('__quick__'); selectChat(null, true); }
+  if (await attempt(() => window.bot.deleteChat({ chatId: chat.id }), 'Quick session ended.')) { chatDrafts.delete('__quick__'); selectChat(null, 'quick'); }
 });
 $('nav-automations').addEventListener('click', showAutomations);
 $('nav-calendar').addEventListener('click', () => showFeature('calendar'));
@@ -4476,7 +4578,7 @@ document.addEventListener('keydown', (event) => {
   }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'n') {
     event.preventDefault();
-    if (!document.querySelector('dialog[open]')) selectChat(null);
+    if (!document.querySelector('dialog[open]')) selectChat(null, 'session');
   }
 });
 
@@ -4502,7 +4604,10 @@ if (!window.bot) {
     else if (event.type === 'heartbeat' && (!window.LittleBotWidget || window.LittleBotWidget.isActive())) { inboxFilter = 'all'; inboxSource = 'all'; showFeature('inbox'); }
   });
   window.LittleBotWidget?.init({
-    state: () => state, toggleBackground, busy: () => sending || attachmentImportPending || Boolean(document.querySelector('dialog[open]')),
+    state: () => state, toggleBackground,
+    // The chat the composer belongs to, carried between the full window and the widget.
+    chat: () => ({ mode: chatMode, sessionId }),
+    openChat: chat => selectChat(chat?.mode === 'session' ? chat.sessionId || null : null, ['main', 'quick', 'session'].includes(chat?.mode) ? chat.mode : 'main'), busy: () => sending || attachmentImportPending || Boolean(document.querySelector('dialog[open]')),
     notify,
     exportDraft: () => ({ text: $('message-input').value, attachments: queuedAttachments(), plan: currentPlanMode() }),
     importDraft: draft => {

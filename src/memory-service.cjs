@@ -524,6 +524,17 @@ class MemoryService {
         messages: records,
       });
   }
+  // A deleted session leaves no searchable trace: its source history, work episodes, title and working state go.
+  // Knowledge already learned from it stays, like any memory, and can be forgotten on its own.
+  forgetSession(sessionId) {
+    if (typeof sessionId !== 'string' || !sessionId) return 0;
+    const removed = this.db.prepare("DELETE FROM records WHERE type IN ('history','episode') AND json_extract(source,'$.sessionId')=?").run(sessionId).changes;
+    this.db.prepare('DELETE FROM sessions WHERE id=?').run(sessionId);
+    this.db.prepare('DELETE FROM working_state WHERE session_id=?').run(sessionId);
+    this.db.prepare("DELETE FROM extraction_jobs WHERE chat_id=? AND status IN ('pending','failed')").run(sessionId);
+    for (const key of [...this.indexedMessages.keys()]) if (key.startsWith(`history:${sessionId}:`)) this.indexedMessages.delete(key);
+    return removed;
+  }
   setWorkingState(sessionId, state) {
     this.db
       .prepare("INSERT OR REPLACE INTO working_state VALUES(?,?,?)")

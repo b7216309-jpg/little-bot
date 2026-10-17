@@ -32,6 +32,12 @@ function composerDraft(value) {
     attachments: attachmentDescriptors(value.attachments), plan: value.plan === true };
 }
 
+// Which chat the composer was on: the conversation, the Quick session, or a saved session (null id: a new one).
+function chatChoice(value) {
+  if (!value || typeof value !== 'object' || !['main', 'quick', 'session'].includes(value.mode)) return null;
+  return { mode: value.mode, sessionId: value.mode === 'session' && typeof value.sessionId === 'string' && value.sessionId.length <= 128 ? value.sessionId : null };
+}
+
 // Two views of one controller. Creating the widget never starts another engine.
 class DesktopWindows {
   constructor({ fullWindow, BrowserWindow, screen, rendererFile, preloadFile, icon, file, onError = () => {}, onFocus = () => {}, onBlur = () => {}, openLink = () => {} }) {
@@ -115,7 +121,7 @@ class DesktopWindows {
     })();
     try { return await this.creating; } finally { this.creating = null; }
   }
-  async setMode({ mode, draft, view = 'chat' } = {}) {
+  async setMode({ mode, draft, view = 'chat', chat } = {}) {
     if (!['full', 'widget'].includes(mode)) throw new Error('Choose full app or widget mode.');
     if (!FULL_VIEWS.has(view)) throw new Error('Choose an app view.');
     if (this.closing) return this.state();
@@ -123,7 +129,7 @@ class DesktopWindows {
     const target = mode === 'widget' ? await this.ensureWidget() : this.fullWindow;
     if (sequence !== this.sequence || this.closing || !available(target)) return this.state();
     this.mode = this.preferences.mode = mode;
-    this.broadcast({ type: 'display', display: this.state(), target: mode, view, draft: composerDraft(draft) });
+    this.broadcast({ type: 'display', display: this.state(), target: mode, view, draft: composerDraft(draft), chat: chatChoice(chat) });
     const other = mode === 'widget' ? this.fullWindow : this.widget;
     if (available(other)) other.hide();
     if (target.isMinimized()) target.restore();
