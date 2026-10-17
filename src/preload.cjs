@@ -5,7 +5,7 @@ contextBridge.exposeInMainWorld('bot', {
   setTitleBarTheme: invoke('setTitleBarTheme'),
   dreamNow: invoke('dreamNow'), cancelIntention: invoke('cancelIntention'), chatGoal: invoke('chatGoal'),
   getDisplayState: invoke('getDisplayState'), setDisplayMode: invoke('setDisplayMode'), setWidgetState: invoke('setWidgetState'),
-  getState: invoke('getState'), getContextUsed: invoke('getContextUsed'), reportError: invoke('reportError'), openLogs: invoke('openLogs'), chooseWorkspace: invoke('chooseWorkspace'),
+  getState: invoke('getState'), getContextUsed: invoke('getContextUsed'), usageSummary: invoke('usageSummary'), reportError: invoke('reportError'), openLogs: invoke('openLogs'), chooseWorkspace: invoke('chooseWorkspace'),
   saveProfile: invoke('saveProfile'), openProfileFolder: invoke('openProfileFolder'),
   createProfile: invoke('createProfile'), renameProfile: invoke('renameProfile'), deleteProfile: invoke('deleteProfile'), switchProfile: invoke('switchProfile'),
   saveSettings: invoke('saveSettings'), send: invoke('send'),

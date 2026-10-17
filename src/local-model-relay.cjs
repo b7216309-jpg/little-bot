@@ -116,13 +116,26 @@ function streamAdapted(result, adapter, namespaceTools, response) {
   });
 }
 
-function responseEvents(namespaceTools) {
+// What the engine says about a model request in its headers: the thread, and whether it is a compaction.
+function requestMeta(headers = {}) {
+  let turn = {};
+  try { turn = JSON.parse(String(headers['x-codex-turn-metadata'] || '{}')) || {}; } catch { turn = {}; }
+  const threadId = String(headers['thread-id'] || turn.thread_id || '').slice(0, 200);
+  const kind = String(turn.request_kind || '').slice(0, 40);
+  return { threadId, kind, compaction: /compact/i.test(kind) || (turn.compaction !== undefined && turn.compaction !== null) };
+}
+
+function responseEvents(namespaceTools, meter = null) {
   const limit = 1024 * 1024;
   let parts = [], size = 0, passthrough = false;
   const line = buffer => {
     if (buffer.subarray(0, 5).toString('ascii') !== 'data:') return buffer;
     try {
       const event = JSON.parse(buffer.subarray(5).toString('utf8'));
+      if (meter) {
+        if (!meter.firstOutputAt && /\.delta$/.test(event?.type || '')) meter.firstOutputAt = Date.now();
+        if (event?.type === 'response.completed' && event.response?.usage) meter.usage = event.response.usage;
+      }
       let changed = false;
       // llama.cpp b10068 omits the single reasoning part's index. The engine
       // 0.157.1 requires it to forward response.reasoning_text.delta live.
@@ -168,7 +181,7 @@ function responseEvents(namespaceTools) {
 // The engine's custom-provider client cannot add chat_template_kwargs. This narrow
 // local transport adds Qwen's real switch without altering history or SSE data.
 class LocalModelRelay {
-  constructor({ thinking = () => true, sampling = () => ({}), onError = () => {}, onToolRepair = () => {} } = {}) {
+  constructor({ thinking = () => true, sampling = () => ({}), onError = () => {}, onToolRepair = () => {}, classify = () => null, onUsage = () => {} } = {}) {
     if (typeof thinking !== 'function') throw new TypeError('thinking must be a function.');
     if (typeof sampling !== 'function') throw new TypeError('sampling must be a function.');
     this.sampling = sampling;
@@ -177,6 +190,9 @@ class LocalModelRelay {
     this.thinking = thinking;
     this.onError = onError;
     this.onToolRepair = onToolRepair;
+    // Usage counting: who sent each request (resolved when it starts) and what it cost (when it ends).
+    this.classify = classify;
+    this.onUsage = onUsage;
     this.server = null;
     this.starting = null;
     this.closing = null;
@@ -252,7 +268,7 @@ class LocalModelRelay {
   }
 
   async _handle(request, response) {
-    let cancelled = false, upstream, upstreamResponse, heartbeat, streamStarted = false, strataAdapter = null;
+    let cancelled = false, upstream, upstreamResponse, heartbeat, streamStarted = false, strataAdapter = null, meter = null;
     const stopHeartbeat = () => { if (heartbeat) clearInterval(heartbeat); heartbeat = null; };
     const cancelUpstream = () => {
       cancelled = true;
@@ -290,6 +306,11 @@ class LocalModelRelay {
       if (!object(body) || (body.chat_template_kwargs !== undefined && !object(body.chat_template_kwargs))) throw new RequestError(400, 'The local model request has invalid template settings.');
       body.chat_template_kwargs = { ...body.chat_template_kwargs, enable_thinking: thinking };
       const namespaceTools = prepareNamespaceTools(body);
+      if (match[3] === 'responses') {
+        let source = null;
+        try { source = this.classify(requestMeta(request.headers)); } catch { source = null; }
+        meter = { source, model: typeof body.model === 'string' ? body.model : '', startedAt: Date.now(), firstOutputAt: null, usage: null };
+      }
       if (adapter === 'strata' && match[3] === 'responses/input_tokens') {
         const data = Buffer.from(JSON.stringify({ object: 'response.input_tokens', input_tokens: estimateResponsesInputTokens(body) }));
         response.writeHead(200, { 'content-type': 'application/json', 'content-length': String(data.length), 'cache-control': 'no-store' });
@@ -417,7 +438,7 @@ class LocalModelRelay {
         if (repairEvents) delete resultHeaders['content-length'];
         response.writeHead(upstreamResponse.statusCode || 502, resultHeaders);
         if (repairEvents) {
-          await pipeline(upstreamResponse, responseEvents(namespaceTools), response);
+          await pipeline(upstreamResponse, responseEvents(namespaceTools, meter), response);
         } else {
           await pipeline(upstreamResponse, response);
         }
@@ -433,12 +454,27 @@ class LocalModelRelay {
       }
     } finally {
       stopHeartbeat();
+      this.count(meter, strataAdapter);
       request.off('aborted', requestAborted);
       response.off('close', responseClosed);
       response.off('finish', stopHeartbeat);
       upstream?.destroy();
       upstreamResponse?.destroy();
     }
+  }
+
+  // One finished request into the usage ledger: Strata's own token counts, and when output began.
+  count(meter, adapter) {
+    if (!meter) return;
+    const usage = adapter ? adapter.usage : meter.usage;
+    if (!usage) return;
+    const input = Number(usage.prompt_tokens ?? usage.input_tokens) || 0;
+    const cached = Number(usage.prompt_tokens_details?.cached_tokens ?? usage.input_tokens_details?.cached_tokens) || 0;
+    const output = Number(usage.completion_tokens ?? usage.output_tokens) || 0;
+    try {
+      this.onUsage({ source: meter.source, model: adapter?.model || meter.model, input, cached, output,
+        startedAt: meter.startedAt, firstByteAt: adapter ? adapter.firstOutputAt : meter.firstOutputAt, finishedAt: Date.now() });
+    } catch (error) { this.onError('usage', error); }
   }
 
   async close() {
@@ -460,4 +496,4 @@ class LocalModelRelay {
   }
 }
 
-module.exports = { LocalModelRelay };
+module.exports = { LocalModelRelay, requestMeta };

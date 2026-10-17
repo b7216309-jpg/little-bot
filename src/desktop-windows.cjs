@@ -7,7 +7,7 @@ const { attachmentDescriptors } = require('./attachment-message.cjs');
 
 const EXPANDED = { width: 420, height: 560 };
 const COLLAPSED = { width: 310, height: 78 };
-const FULL_VIEWS = new Set(['chat', 'settings', 'goals', 'automations', 'calendar', 'memory', 'profile', 'heartbeat', 'inbox', 'extensions', 'browser']);
+const FULL_VIEWS = new Set(['chat', 'settings', 'goals', 'automations', 'calendar', 'memory', 'profile', 'heartbeat', 'inbox', 'extensions', 'browser', 'usage']);
 const available = window => window && !window.isDestroyed();
 
 function clampBounds(bounds, area, collapsed = false) {

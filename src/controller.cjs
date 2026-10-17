@@ -27,6 +27,7 @@ const { listPresets } = require('./profile-presets.cjs');
 const { TOOL_IMAGES } = require('./desktop-tools.cjs');
 const learnedLessons = require('./lessons.cjs');
 const { MAX_SESSIONS, isQuick, isSession, isMain, mainChat, chatKind, sessionTitle, validTitle } = require('./chats.cjs');
+const { UsageLedger } = require('./usage-ledger.cjs');
 
 function cleanError(error) {
   return String(error?.message || error || 'Something went wrong')
@@ -201,7 +202,10 @@ class Controller extends EventEmitter {
       sampling: () => this.store.data.settings.localSampling || {},
       onError: (source, error, metadata) => this.onError(`local-model-relay:${source}`, error, metadata),
       onToolRepair: ({ modelId, key, text }) => this.recordLesson(modelId || this.store.data.settings.localModel, key, text),
+      classify: meta => this.usageSource(meta),
+      onUsage: entry => this.usage.record(entry),
     });
+    this.usage = new UsageLedger({ store, persist: () => this.persistNow() });
     this.runtime = { status: 'starting' };
     this.account = { status: 'signedOut', type: 'local' };
     this.connection = { type: 'local', status: 'checking', label: 'Local Qwen', error: null };
@@ -265,9 +269,22 @@ class Controller extends EventEmitter {
     });
     client.on('crash', error => this.crashed(error));
   }
+  // Which part of Little Bot a model request came from, for the Usage page.
+  usageSource({ threadId, compaction } = {}) {
+    if (compaction) return 'compaction';
+    if (!threadId) return 'other';
+    const chat = this.store.data.chats.find(item => item.threadId === threadId);
+    if (chat) return isQuick(chat) ? 'quick' : isSession(chat) ? 'sessions' : chat.automationId ? 'routines' : 'conversation';
+    if (this.heartbeatChat?.threadId === threadId) return this.heartbeatChat.nightShift ? 'night' : 'heartbeat';
+    const goal = this.goalExecutor.active;
+    if (goal && [goal.threadId, goal.brokerThreadId].includes(threadId)) return 'goals';
+    if (this.memoryConsolidator?.ownsThread?.(threadId)) return this.memoryConsolidator.active?.kind === 'dream' ? 'dreams' : 'memory';
+    if (this.independentCheck.ownsThread(threadId) || this.chatGoal.ownsThread(threadId)) return 'checks';
+    return 'other';
+  }
   state() {
     return {
-      appVersion: require('../package.json').version, ...this.store.data,
+      appVersion: require('../package.json').version, ...this.store.data, usage: undefined,
       goalWaiting: this.goalWaiting?.() || {},
       memory: { ...(this.store.memoryService?.snapshot() || this.store.data.memory), learning: this.memoryConsolidator?.state || { status: 'idle' } },
       companion: companion.publicState(this.store.data.companion, this.memoryConsolidator?.active?.kind === 'dream'),
@@ -1049,7 +1066,7 @@ class Controller extends EventEmitter {
     if (this.heartbeatChat || this.store.data.chats.some(chat => chat.status !== 'idle')) throw new Error('Wait for the current task to finish.');
     const folder = workspacePath(config.workspace);
     const wild = config.initiative === 'wild';
-    const chat = { id: randomUUID(), internal: true, wild, agendaPath: wild ? path.join(folder, AGENDA_FILE) : '', workspace: folder, ...connectionBinding(config), model: config.model, status: 'running', messages: [], actions: new Map(), wroteFiles: false };
+    const chat = { id: randomUUID(), internal: true, wild, nightShift: Boolean(nightShiftTask), agendaPath: wild ? path.join(folder, AGENDA_FILE) : '', workspace: folder, ...connectionBinding(config), model: config.model, status: 'running', messages: [], actions: new Map(), wroteFiles: false };
     const schema = wild ? wildHeartbeatSchema : heartbeatSchema;
     const effort = wild && (config.effort || 'low') === 'low' ? 'medium' : config.effort || 'low';
     const network = wild;
@@ -1779,6 +1796,7 @@ class Controller extends EventEmitter {
     }
     this.manualCompactions.clear();
     this.clearStreamUpdates();
+    this.usage.close();
     clearTimeout(this.streamSaveTimer); this.streamSaveTimer = null;
     clearTimeout(this.saveTimer); clearTimeout(this.emitTimer);
     try { this.store.flush(); } finally {
