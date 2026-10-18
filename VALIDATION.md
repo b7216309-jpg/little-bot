@@ -1,3 +1,70 @@
+# Version 0.36.0 verification
+
+0.36.0 makes web search and page reading faster without changing what they return. It was measured with a paired benchmark against 0.35.1 and checked live on Strata 0.1.44.1 (qwen3.8-flash-next-iq3_s).
+
+## What changed
+
+- **Earlier page reads:** each engine's leading results start downloading as soon as that engine answers, while the slower engines are still working. The first engine to answer starts its top five, or its top three in a batch of searches. Early reads that miss the final top five are cancelled, so they never compete with the reads that matter.
+- **Passages without a straggler:** the top five results are read and the search returns once three have a passage, or after 2.5 s. Before, it waited for the slowest of the top three for up to 3.5 s.
+- **One download per page:** search passages and `web_scrape` share one download, so a page the model reads while search is still fetching it is not downloaded twice. The cache is checked before any DNS lookup.
+- **DNS:** address checks use Chromium's resolver (about 1 ms cached, about 30 ms cold), and the connection reuses its answer. Node's resolver took about 110 ms.
+- **Browser tier:** it reads from the moment the DOM is ready instead of after every image, font and tracker has loaded. Text moving by under 1% counts as settled, and text unchanged for 1.5 s is read as it is. Median render time went from 1.5–2.4 s to 0.6–0.8 s.
+- **Limits:** 10 parallel requests per engine (up from 6), so a batch of 10 searches goes out in one wave, and 48 page downloads at once.
+- **Refusing sites:** a site that refused a plain request (HTTP 401/403 or a bot check) goes straight to the browser tier for 30 minutes, with one last direct try if every tier fails.
+
+## How it was measured
+
+`evalkit/web-bench-paired.cjs` runs the 0.35.1 modules (A) and the new ones (B) through the real Electron transport.
+
+- **Same work:** each round, A and B get the same fresh queries and page URLs, in alternating order, each in a new Chromium partition so neither reuses the other's cache.
+- **Cold reads:** page URLs are gathered beforehand without downloading them.
+- **Quality:** checked by results and passages per search, query-term relevance, pages read, and agreement between A's and B's top six on the same query.
+
+The final run, seed 17, with 4 rounds:
+
+| Operation | 0.35.1 median | 0.36.0 median | Change |
+|---|---|---|---|
+| One search | 1,210 ms | 707 ms | −42% |
+| 10 searches in one call | 3,652 ms | 2,517 ms | −31% |
+| Search, then read 3 results | 2,522 ms | 1,444 ms | −43% |
+| 10 searches, then read 10 results | 5,702 ms | 2,210 ms | −61% |
+| One cold page | 212 ms | 164 ms | −22% |
+| 10 cold pages | 3,735 ms | 2,732 ms | −27% |
+
+**Totals:** the sum of medians is 42.6% lower and the total time over all operations 29.4% lower. Rare slow sites (20 s readers, 13 s servers) hit both sides and dominate totals.
+
+**Other seeds (15, 16):**
+- One search: 28–34% faster.
+- Searches with reads: 26–42% faster.
+- Totals: 10–26% lower.
+
+**Quality was unchanged:**
+- Passages per search: 2.9–3.0 against 2.6–2.7.
+- Relevance: 99.7–100%.
+- Pages read: the same, 126/128.
+- Agreement with 0.35.1's top six on the same query: 5.25–5.51/6. Engine results vary from run to run, so identical pipelines score below 6.
+
+## Tried and rejected
+
+- **Bing RSS (`format=rss`):** about 110 ms instead of 440 ms, with identical results in a fresh session. In batches of 10 it returned irrelevant lists for 20% of queries against 0% for the HTML page, and matched the HTML top five on only 1.3/5. It was removed.
+- **Not waiting for the slowest engine:** this would cut about 0.2 s more per search, but it changes about 0.45 of the top six results. It is not done.
+
+## Live on Strata
+
+These ran in the real app with a temporary data folder, with 0 web-tool failures. The times include model generation.
+
+| Scenario | 0.35.x | 0.36.0 |
+|---|---|---|
+| "French news this week" | 59 s | 31 s |
+| llama.cpp research | 137–145 s | 86 s |
+| Reddit thread | 82 s | 32 s |
+| Eiffel Tower fact | 27–28 s | 15 s |
+
+## Also
+
+- **Packaging:** the installer no longer picks up local leftovers (`little-bot-main/`, root `.zip` files, `.bench-base/`) from a working checkout. The 0.35.0 installer contained the untracked old copy.
+- **Tests:** the unit suite passes 152/152.
+
 # Version 0.35.0 verification
 
 0.35.0 replaces Firecrawl and Brave Search with built-in web search and page reading: no account, key, quota or setting. Checked live on Strata 0.1.44.1 (qwen3.8-flash-next-iq3_s) through the real app.
