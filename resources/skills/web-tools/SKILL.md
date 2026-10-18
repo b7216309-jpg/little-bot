@@ -7,7 +7,7 @@ description: Research pages and interact with websites using Little Bot's built-
 
 Use the current tool definitions. Missing tools in an older chat require a new chat, not another browser installation.
 
-- `web_search_service`: search the web (DuckDuckGo, Bing and Yahoo, ranked together). Results carry a snippet and, for the top hits, the most relevant passage of the page, so the answer is often already there. Pass `queries` (up to 10) to search several angles in parallel in one call; `limit` sets results per query.
+- `web_search_service`: search the web (DuckDuckGo, Bing and Yahoo, ranked together). Results carry a snippet and, for the top hits, the most relevant passage of the page, so the answer is often already there. Pass `queries` (up to 10) to search several angles in parallel in one call; 10 cost about the same time as 1. For broad questions start wide (5-8 queries: angles, languages, sources), then follow up only on details. `limit` sets results per query.
 - `web_scrape`: read public pages as markdown, including PDFs and JavaScript sites. Pass `urls` (up to 10) to read several in parallel in one call; `maxChars` (1,000–60,000) is the text kept per page; read long pages or papers in one call with a large `maxChars`. Links are plain text unless `links:true`.
 - `browser`: inspect dynamic or signed-in pages and perform requested website actions in the built-in browser panel the user can watch. It has its own persistent profile and is available in direct chats only. Network-enabled goals may use search and scrape; heartbeat and routines cannot.
 

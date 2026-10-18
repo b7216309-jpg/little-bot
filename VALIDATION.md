@@ -64,6 +64,15 @@ These ran in the real app with a temporary data folder, with 0 web-tool failures
 
 - **Packaging:** the installer no longer picks up local leftovers (`little-bot-main/`, root `.zip` files, `.bench-base/`) from a working checkout. The 0.35.0 installer contained the untracked old copy.
 - **Tests:** the unit suite passes 152/152.
+# Version 0.35.1 verification
+
+0.35.1 teaches the local model to search wide first. In the user's own Quick session on 0.35.0, "French news this week" took six search rounds of 2–4 queries each.
+
+- **Tool description:** `web_search_service` now says that 10 queries take about as long as 1, and tells the model to open a broad question with 5–8 queries covering different angles, languages and sources. Later calls are kept for details the first results revealed. The web-tools guide says the same (bundled skills version 25; unedited 0.35.0 guides upgrade).
+- **Live on Strata** (qwen3.8-flash-next-iq3_s, real app, temporary data folder):
+  - **The same question:** one search call with 4 queries and one read of 2 pages, answered in 59 s instead of about 140 s.
+  - **The llama.cpp research scenario:** opened with a single search of five or more queries.
+- **Tests:** the unit suite passes.
 
 # Version 0.35.0 verification
 
