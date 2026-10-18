@@ -148,6 +148,10 @@ Guide: [11-browser-web.md](11-browser-web.md)
 | --- | --- |
 | [src/embedded-browser.cjs](../../src/embedded-browser.cjs) | Production application module |
 | [src/web-services.cjs](../../src/web-services.cjs) | Production application module |
+| [src/web-engines.cjs](../../src/web-engines.cjs) | Production application module |
+| [src/web-rank.cjs](../../src/web-rank.cjs) | Production application module |
+| [src/web-worker.cjs](../../src/web-worker.cjs) | Production application module |
+| [src/web-electron.cjs](../../src/web-electron.cjs) | Production application module |
 | [src/windows-uia.cjs](../../src/windows-uia.cjs) | Production application module |
 | [src/desktop-tools.cjs](../../src/desktop-tools.cjs) | Production application module |
 | [src/windows-uia-bridge.ps1](../../src/windows-uia-bridge.ps1) | PowerShell UI Automation bridge |

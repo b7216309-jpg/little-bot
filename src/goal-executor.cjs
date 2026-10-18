@@ -472,7 +472,7 @@ class GoalExecutor {
           localBaseUrl: operation.goal.localBaseUrl, model: operation.goal.model,
         } });
         else if (['web_search_service', 'web_scrape'].includes(params.tool)) {
-          if (!operation.goal.permissions?.network || !this.controller.webServices) throw new Error('Web services require network permission for this goal.');
+          if (!operation.goal.permissions?.network || !this.controller.webServices) throw new Error('Web tools require network permission for this goal.');
           operation.actions.set(`dynamic:${params.callId}`, `Web service: ${params.tool}`);
           result = await this.controller.webServices.call(params.tool, args, { signal: operation.webAbort.signal });
         }

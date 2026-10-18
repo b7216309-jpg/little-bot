@@ -8,7 +8,7 @@ Screenshots need the panel visible (not minimized); the last 20 are kept under t
 
 ## Boundaries
 
-- Browsing is available in direct conversations. Goals with network permission use the [web services](WEB-SERVICES.md) (Firecrawl or Brave Search) instead; the heartbeat and routines keep their own access limits.
+- Browsing is available in direct conversations. Goals with network permission use the built-in [web search and page reading](WEB-SERVICES.md) instead; the heartbeat and routines keep their own access limits.
 - Only `http` and `https` pages load. Pop-ups open in the same panel.
 - The tool runs no arbitrary JavaScript and exports no cookies or credentials. It is browser automation with normal network access, not a sandbox or firewall.
 - Actions run one at a time. **Stop** in the conversation cancels browser work. Submissions to other sites still need your say-so; text on a web page never authorizes anything.

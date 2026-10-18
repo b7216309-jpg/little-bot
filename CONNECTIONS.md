@@ -28,7 +28,7 @@ The conversation, the Quick session and each saved session keep their timelines.
 
 Manual compaction follows the selected model. Switching from IQ2_XS to IQ3_S reloads the same native history with IQ3_S before summarizing it, including when compaction is the first action after the switch. The visible transcript is preserved, and the next chat turn continues with the compacted history.
 
-Image-input support is checked per model. Discovery uses catalog capability hints and the selected server’s `/props` vision state (Strata: `/health`), with the server's answer taking precedence for the active model. The installed Qwen server reports image support and a 147,456-token window. Little Bot disables provider-hosted web search for local inference; the app's browser, Firecrawl, and Brave tools remain available according to their normal permissions.
+Image-input support is checked per model. Discovery uses catalog capability hints and the selected server’s `/props` vision state (Strata: `/health`), with the server's answer taking precedence for the active model. The installed Qwen server reports image support and a 147,456-token window. Little Bot disables provider-hosted web search for local inference; the app's browser and its built-in web search and page-reading tools remain available according to their normal permissions.
 
 The installed server accepts images in incoming messages but rejects image-valued tool results. Little Bot disables the native `view_image` tool for the local connection using `features.view_image = false`. Attach photos to inspect them; returning image files and browser screenshots still works. MCP tools that return image content have the same server limitation.
 

@@ -1,4 +1,4 @@
-# Browser and web services
+# Browser and web
 
 ## Built-in browser
 
@@ -25,17 +25,17 @@ Rules:
 
 ## Search and scrape
 
-[WebServices](../../src/web-services.cjs) supplies Brave/Firecrawl service tools using keys configured in Settings. The local service vault uses Electron safeStorage. Direct chat can use the tools; goals require their saved network permission. Heartbeat has network disabled.
+[WebServices](../../src/web-services.cjs) supplies the keyless `web_search_service` and `web_scrape` tools; see [WEB-SERVICES.md](../../WEB-SERVICES.md). Search fans out to DuckDuckGo, Bing and Yahoo result pages through Electron's network stack (own partition, not the browser profile), fuses and ranks the results, and adds the best passage of the top pages. `queries` (up to 10) and `urls` (up to 10) run in parallel. Reading tries a direct fetch, then a hidden browser render for JavaScript sites, then the public reader service r.jina.ai; PDFs are supported. Direct chat can use the tools; goals require their saved network permission. Heartbeat has network disabled.
 
-Brave search returns source URLs. Firecrawl supplies configured search/scrape behavior. Requests have a 45-second timeout and a 2 MiB response limit. A five-request Firecrawl concurrency limit queues excess calls and cancellation releases queued work. Missing credentials or API errors are returned as tool errors, not fabricated search results.
+Results are cached for 30 minutes and pages for 6 hours. An engine that rate limits is paused for 2, 10, then 30 minutes. Local and private addresses are refused before and after every redirect. Failures are returned as tool errors, not fabricated results.
 
 ## Failure conditions
 
 Stale refs, an unavailable page, a closed browser, ongoing browser operation or command timeout can prevent browser action. Login, MFA, CAPTCHA and site-specific UI changes may require manual interaction. Having network access alone does not solve those interactions.
 
-Service tools need keys, network access and provider availability/quota. They accept supported public URLs, not arbitrary local addresses. Browser content and remote source data are bounded; neither tool promises to read every page/file type.
+Web tools need network access and the engines being reachable. They accept public URLs, not local addresses. Browser content and remote source data are bounded; neither tool promises to read every page/file type. Engines are read as HTML pages, so a layout change on their side shows up as "unrecognized page" until the parser is updated.
 
-Firecrawl answers HTTP 403 for sites it does not scrape; that is reported as an unsupported site, not a rejected key.
+Pages behind a sign-in or a human check (CAPTCHA) fail every reading tier or come back nearly empty with a `note`; the error says which tiers were tried and the agent falls back to the browser tool. JavaScript checks that a normal browser passes on its own, such as Reddit's, are handled by the hidden browser tier, and Reddit posts and comments are rebuilt with their scores.
 
 ## Verification
 

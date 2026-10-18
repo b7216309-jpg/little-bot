@@ -18,7 +18,7 @@ Read the current tool definitions for argument shapes. There is no Little Bot sh
 - `calendar_manage`: manage Little Bot's local calendar. Use `action:"list"` to inspect upcoming events, `create` with a title and local `startLocal`, `update` with an existing ID, and `delete` with an existing ID. Timed values use `YYYY-MM-DDTHH:MM`; all-day events use `YYYY-MM-DD` with `allDay:true`. This calendar uses the PC's local time and does not sync to Google, Outlook, or another provider.
 - `attachment_send({path,caption?})`: deliver a finished file or image as a chat attachment. Use its absolute path inside the chat folder, or a browser screenshot path. Wait for success before saying it was delivered. This sends to the current user, not another person.
 - `browser`: the built-in browser panel beside the chat, with its own persistent profile; the user can watch. The `web-tools` skill covers snapshots, interaction, and screenshots.
-- `web_search_service` and `web_scrape`: configured Brave/Firecrawl search and Firecrawl page extraction. Available in direct chats and network-enabled goals, not heartbeat or routines.
+- `web_search_service` and `web_scrape`: built-in keyless search (DuckDuckGo, Bing, Yahoo; `queries` runs up to 10 in parallel, top results include a relevant passage) and page reading as markdown (`urls` up to 10, PDFs and JavaScript sites; sign-in or bot-check pages need `browser`). Available in direct chats and network-enabled goals, not heartbeat or routines.
 
 ## Conversation and memory controls
 
@@ -98,7 +98,7 @@ Everything runs only while Little Bot is open; there is no service, tray worker,
 
 ## Controls
 
-Little Bot runs only on the local model server; there is no cloud model or fallback. Tasks keep their saved server, and follow it when it loads another model. Settings controls compaction (20–95%, default 50%, applied while a turn is working and when it ends; 0 keeps only the engine's own limit), service keys and independent checks. Profile edits apply on the next request.
+Little Bot runs only on the local model server; there is no cloud model or fallback. Tasks keep their saved server, and follow it when it loads another model. Settings controls compaction (20–95%, default 50%, applied while a turn is working and when it ends; 0 keeps only the engine's own limit) and independent checks. Profile edits apply on the next request.
 
 Goals expose permissions, budgets, dependencies, triggers, Pause background and the plan/evidence ledger. Exactly one execution runs at a time. Review undo covers captured files and refuses later-edit conflicts; it cannot undo external effects. Calendar is local with no bundled external sync. Extensions manages skills, plugins and MCP; email is not bundled.
 
@@ -110,7 +110,7 @@ Local-model goal runs finish with `goal_finish`: new goals submit outcome, summa
 
 ## App management tools
 
-Read `app_state` for settings and queued outcomes. Management tools cover profile, settings/connections/workspace, memory, goals, automations, extensions, web services, browser and heartbeat. Read the relevant records before updating them. `memory_manage` status includes learning.failedJobs; retry_learning/discard_learning take {id}. Learning stops after three failed attempts; retry only after addressing the error. Use `memory_save`/`memory_forget` for individual records. `attachment_manage` status lists stored files; cleanup preserves saved files and current drafts; delete {id} removes a saved copy and its chat references, keeping the original source file. `goal_control` supports save/run/pause/resume/answer/delete and restore operations. `extension_manage.login_server` opens MCP sign-in. Other action names and payloads are in each tool schema.
+Read `app_state` for settings and queued outcomes. Management tools cover profile, settings/connections/workspace, memory, goals, automations, extensions, browser and heartbeat. Read the relevant records before updating them. `memory_manage` status includes learning.failedJobs; retry_learning/discard_learning take {id}. Learning stops after three failed attempts; retry only after addressing the error. Use `memory_save`/`memory_forget` for individual records. `attachment_manage` status lists stored files; cleanup preserves saved files and current drafts; delete {id} removes a saved copy and its chat references, keeping the original source file. `goal_control` supports save/run/pause/resume/answer/delete and restore operations. `extension_manage.login_server` opens MCP sign-in. Other action names and payloads are in each tool schema.
 
 Operations that require an idle engine return **queued**, not completed. They are persisted and run after this reply. Report their operation ID; inspect `app_state.operations` on the next request for success or error. Do not claim success based on a queued response. UI callbacks are not agent APIs; use these tools. Existing validators and task scopes still apply. Never create a second OS scheduler to replace these tools.
 

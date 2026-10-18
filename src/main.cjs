@@ -36,6 +36,7 @@ const { DesktopWindows } = require('./desktop-windows.cjs');
 const { WindowsUia } = require('./windows-uia.cjs');
 const { DesktopTools } = require('./desktop-tools.cjs');
 const { WebServices } = require('./web-services.cjs');
+const { electronWeb } = require('./web-electron.cjs');
 const { Attachments } = require('./attachments.cjs');
 const { attachmentDescriptors } = require('./attachment-message.cjs');
 const { ErrorLog } = require('./error-log.cjs');
@@ -140,7 +141,7 @@ app.whenReady().then(async () => {
   controller.systemIdleSeconds = () => powerMonitor.getSystemIdleTime();
   try { controller.memoryConsolidator.retryFormatFailures(); } catch (error) { logDiagnostic('memory-retry', error); }
   controller.browser = new EmbeddedBrowser({ root: path.join(stateDir, 'browser'), getWindow: () => window, onChange: () => controller.changed() });
-  controller.webServices = new WebServices({ root: path.join(stateDir, 'services'), safeStorage });
+  controller.webServices = new WebServices(electronWeb(require('electron')));
   const attachmentReferences = () => store.data.chats.flatMap(chat => chat.messages.flatMap(message => (message.attachments || []).map(item => item.id)));
   controller.attachments = new Attachments({ root: path.join(stateDir, 'attachments'), nativeImage, references: attachmentReferences });
   // Drafts are not restored across app launches. Keep every saved timeline file.
@@ -533,12 +534,6 @@ app.whenReady().then(async () => {
     const { buffer } = await controller.attachments.read(id);
     await fs.promises.writeFile(selected.filePath, buffer);
     return { saved: true };
-  });
-  register('saveServiceKey', payload => { controller.webServices.save(payload); controller.changed(); return controller.state(); });
-  register('openServicePage', async ({ service } = {}) => {
-    const pages = { firecrawl: 'https://www.firecrawl.dev/app/api-keys', brave: 'https://api-dashboard.search.brave.com/app/keys' };
-    if (!Object.hasOwn(pages, service)) throw new Error('Choose Firecrawl or Brave Search.');
-    await shell.openExternal(pages[service]); return { ok: true };
   });
   register('openAgentBrowser', async () => { await controller.browser.open(); return controller.state(); });
   register('closeAgentBrowser', async () => { await controller.browser.close(); return controller.state(); });

@@ -164,8 +164,6 @@ let independentCheckSettingsSaving = false;
 let independentCheckSettingsError = '';
 let browserActionPending = '';
 let browserActionError = '';
-const serviceKeyPending = new Map();
-const serviceKeyErrors = new Map();
 const heartbeatFeedbackPending = new Set();
 const expandedTools = new Set();
 const expandedActionGroups = new Set();
@@ -1812,12 +1810,12 @@ function renderSettings() {
   $('settings-attachment-usage').textContent = storage ? `${fileSize(storage.usedBytes)} of ${fileSize(storage.maxBytes)} · ${storage.fileCount} saved or pending files · ${fileSize(storage.unusedBytes)} unused` : 'Attachment storage unavailable.';
   $('settings-clean-attachments').disabled = !storage || !storage.unusedBytes;
   $('settings-engine-detail').textContent = 'Your local model, through the bundled assistant engine.';
-  $('settings-data-detail').textContent = 'Conversation and memory are stored on this PC. Web services connect only when used.';
+  $('settings-data-detail').textContent = 'Conversation and memory are stored on this PC. Web search connects only when used.';
   renderConnectionSettings();
   renderIndependentCheckSettings();
   renderCompactionSettings();
   renderBrowserSettings();
-  renderServiceKeys();
+  renderWebSettings();
 }
 
 function connectionFormValue() {
@@ -2099,49 +2097,10 @@ async function browserAction(actionName) {
   }
 }
 
-function renderServiceKeys() {
-  const services = state.webServices || {};
-  $('settings-services-error').textContent = services.error || '';
-  $('settings-services-error').classList.toggle('hidden', !services.error);
-  for (const service of ['firecrawl', 'brave']) {
-    const configured = Boolean(services[service]?.configured);
-    const pending = serviceKeyPending.get(service);
-    const input = $('service-' + service + '-key');
-    const status = $('service-' + service + '-status');
-    status.textContent = pending === 'save' ? 'Saving…' : pending === 'remove' ? 'Removing…' : configured ? 'Key saved' : 'Not configured';
-    status.classList.toggle('configured', configured);
-    input.placeholder = configured ? 'Saved · paste a key to replace it' : `Paste your ${service === 'brave' ? 'Brave Search' : 'Firecrawl'} API key`;
-    input.disabled = Boolean(pending);
-    $('service-' + service + '-save').disabled = Boolean(pending) || !input.value.trim();
-    $('service-' + service + '-save').textContent = pending === 'save' ? 'Saving…' : 'Save';
-    $('service-' + service + '-remove').disabled = Boolean(pending) || !configured;
-    $('service-' + service + '-remove').textContent = pending === 'remove' ? 'Removing…' : 'Remove key';
-    const error = serviceKeyErrors.get(service) || '';
-    $('service-' + service + '-error').textContent = error;
-    $('service-' + service + '-error').classList.toggle('hidden', !error);
-  }
-}
-
-async function saveServiceKey(service, remove = false) {
-  if (serviceKeyPending.has(service)) return;
-  const input = $('service-' + service + '-key');
-  const apiKey = input.value.trim();
-  if (!remove && !apiKey) return;
-  serviceKeyPending.set(service, remove ? 'remove' : 'save');
-  serviceKeyErrors.delete(service);
-  renderServiceKeys();
-  try {
-    const result = await window.bot.saveServiceKey(remove ? { service, remove: true } : { service, apiKey });
-    input.value = '';
-    if (result?.settings) applyState(result);
-  } catch (error) {
-    let message = error?.message || 'Could not update the saved key.';
-    if (apiKey) message = message.replaceAll(apiKey, '[redacted]');
-    serviceKeyErrors.set(service, message);
-  } finally {
-    serviceKeyPending.delete(service);
-    renderServiceKeys();
-  }
+function renderWebSettings() {
+  const engines = state.webServices?.engines;
+  const names = { duckduckgo: 'DuckDuckGo', bing: 'Bing', yahoo: 'Yahoo' };
+  $('settings-web-status').textContent = engines ? Object.entries(names).map(([engine, name]) => `${name} ${engines[engine] || 'unavailable'}`).join(' · ') : 'Web search starts with the app.';
 }
 
 async function chooseWorkspace() {
@@ -4248,17 +4207,6 @@ new MutationObserver(scheduleBrowserBounds).observe(document.body, { subtree: tr
 $('settings-open-browser').addEventListener('click', () => browserAction('open'));
 $('settings-close-browser').addEventListener('click', () => browserAction('close'));
 $('settings-clear-browser').addEventListener('click', () => browserAction('clear'));
-for (const service of ['firecrawl', 'brave']) {
-  $('service-' + service + '-form').addEventListener('submit', (event) => { event.preventDefault(); saveServiceKey(service); });
-  $('service-' + service + '-remove').addEventListener('click', () => saveServiceKey(service, true));
-  $('service-' + service + '-key').addEventListener('input', () => { serviceKeyErrors.delete(service); renderServiceKeys(); });
-  $('service-' + service + '-page').addEventListener('click', () => attempt(() => window.bot.openServicePage({ service })));
-}
-$('settings-dialog').addEventListener('close', () => {
-  for (const service of ['firecrawl', 'brave']) $('service-' + service + '-key').value = '';
-  serviceKeyErrors.clear();
-  if (state) renderServiceKeys();
-});
 $('choose-workspace').addEventListener('click', chooseWorkspace);
 $('settings-choose-workspace').addEventListener('click', chooseWorkspace);
 $('settings-open-workspace').addEventListener('click', () => attempt(() => window.bot.openWorkspace()));

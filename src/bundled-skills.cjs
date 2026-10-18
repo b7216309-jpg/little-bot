@@ -5,7 +5,7 @@ const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { parseSkill, LIMITS } = require('./extensions.cjs');
 
-const VERSION = 23;
+const VERSION = 24;
 const BUNDLES = [
   { name: 'little-bot', introduced: 1 }, { name: 'meeting-prep', introduced: 1 },
   { name: 'research-brief', introduced: 1 }, { name: 'web-tools', introduced: 2 },
@@ -13,6 +13,7 @@ const BUNDLES = [
 ];
 const ORIGINAL_HASHES = {
   'little-bot': [
+    '672f705dc596f7b1605c01da595fd6378b9b91569074cf22673e62ba029ed942', // 0.33–0.34 guide (Brave/Firecrawl web tools)
     '578812660fcb35a8fa1c4874f74fe192471b1bc1d4bea2f057f369a59732f839', // 0.32.0 local-only guide
     '6a819e2ffc463d961094056097ad4e85a226b9368b3b8c329acd84b74fdcd046', // 0.11–0.31 guide (README refresh)
     '119d553e9c4d52fba2a3b3aafb912fbe94f178a6c36515ea209f28eea21236d1', // ongoing-goal catch-up guide
@@ -38,7 +39,10 @@ const ORIGINAL_HASHES = {
     '44ceaaee746a996fab351aa297d10347d445e1b130ed9d888d3263e2e0f8c49e', // v0.8.1
     '650d9146590bea6923d740505afd6d31fb6b7ea671a103dc9675b0383ffd4b96', // v0.8.2–0.8.8
   ],
-  'web-tools': ['ddc0f9422378b1ef3ac91d8332b6316fe63bcdbbc8bcf98c3c5e22be61ac789e'],
+  'web-tools': [
+    '266e0d314cd8d31a58feabb3a2c1c5bfc57f819ddff15051ccbb44a6da2da9a4', // 0.8.9–0.34 guide (Brave/Firecrawl web tools)
+    'ddc0f9422378b1ef3ac91d8332b6316fe63bcdbbc8bcf98c3c5e22be61ac789e',
+  ],
 };
 const instructionHash = skill => createHash('sha256').update(JSON.stringify({
   name: skill.name, description: skill.description, content: skill.content,
