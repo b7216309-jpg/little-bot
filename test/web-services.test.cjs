@@ -79,6 +79,22 @@ test('ten queries in one call run in parallel and return fused, hydrated results
   } finally { web.close(); }
 });
 
+test('a page read by search and web_scrape at once is downloaded once, and a refusing site is not asked twice', async () => {
+  let renders = 0;
+  const { web, seen } = harness({
+    pages: { 'https://refusing.example/a': () => page(403, 'no'), 'https://refusing.example/b': () => page(403, 'no') },
+    render: async url => { renders += 1; return { html: ARTICLE(LONG), url }; },
+  });
+  try {
+    await Promise.all([web.call('web_search_service', { query: 'heat pump shared' }), web.call('web_scrape', { url: 'https://example.org/heat-pump' })]);
+    assert.equal(seen.filter(url => url === 'https://example.org/heat-pump').length, 1);
+    assert.equal((await web.call('web_scrape', { url: 'https://refusing.example/a' })).via, 'browser');
+    assert.equal((await web.call('web_scrape', { url: 'https://refusing.example/b' })).via, 'browser');
+    assert.equal(seen.filter(url => url.startsWith('https://refusing.example/')).length, 1);
+    assert.equal(renders, 2);
+  } finally { web.close(); }
+});
+
 test('a rate-limited engine is paused while the others still answer', async () => {
   const { web, seen } = harness({ engines: { duckduckgo: () => page(202, '<html><body><div class="anomaly-modal__modal">bots</div></body></html>') } });
   try {

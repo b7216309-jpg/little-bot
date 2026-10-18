@@ -13,7 +13,8 @@ const { execFileSync } = require('node:child_process');
     dir: root, out: outputRoot, name: 'Little Bot',
     platform: 'win32', arch: 'x64', electronVersion: '44.4.5',
     overwrite: true, prune: true, asar: false, icon: path.join(root, 'resources', 'icons', 'little-bot.ico'),
-    ignore: [/^\/dist($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/\.test-data($|\/)/,
+    // Local leftovers in a working checkout (an old copy, archives, benchmark baselines) never ship.
+    ignore: [/^\/dist($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/\.test-data($|\/)/, /^\/\.bench-base($|\/)/, /^\/little-bot-main($|\/)/, /^\/[^/]+\.zip$/,
       /^\/node_modules\/onnxruntime-node\/bin\/napi-v6\/(?:darwin|linux|win32\/arm64)(?:\/|$)/],
     win32metadata: { CompanyName: 'Personal project', FileDescription: 'Little Bot — local assistant', ProductName: 'Little Bot' },
   });

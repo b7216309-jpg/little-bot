@@ -4,6 +4,7 @@ const net = require('node:net');
 const path = require('node:path');
 const dns = require('node:dns').promises;
 const { Worker } = require('node:worker_threads');
+const { performance } = require('node:perf_hooks');
 const { fuse, passages, normalizeUrl, stripLinks } = require('./web-rank.cjs');
 const { ENGINES, engineRequest } = require('./web-engines.cjs');
 
@@ -17,7 +18,9 @@ const ENGINE_TIMEOUT_MS = 10000;
 const PAGE_TIMEOUT_MS = 20000;
 const RENDER_TIMEOUT_MS = 25000;
 const READER_TIMEOUT_MS = 30000;
-const HYDRATE_BUDGET_MS = 3500;
+const HYDRATE_BUDGET_MS = 2500;
+const HYDRATE_CANDIDATES = 5;
+const HYDRATE_PASSAGES = 3;
 const MAX_QUERIES = 10;
 const MAX_URLS = 10;
 const MAX_TOTAL_CHARS = 60000;
@@ -27,6 +30,7 @@ const READER_PER_MINUTE = 18;
 const SEARCH_TTL_MS = 30 * 60000;
 const PAGE_TTL_MS = 6 * 3600000;
 const FAILURE_TTL_MS = 5 * 60000;
+const REFUSING_TTL_MS = 30 * 60000;
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const spec = (name, description, properties, required) => ({ type: 'function', name, description, inputSchema: { type: 'object', properties, required, additionalProperties: false } });
 const tagged = (message, code) => Object.assign(new Error(message), { code });
@@ -209,14 +213,19 @@ function nodeRequest(fetchImpl) {
 }
 
 class WebServices {
-  #request; #render; #lookup; #now; #workers; #closed = false; #pending = new Set();
-  #engineGates = Object.fromEntries(ENGINES.map(engine => [engine, new Gate(6)]));
-  #pageGate = new Gate(16); #renderGate = new Gate(3); #readerGate = new Gate(4); #hostGates = new Map();
+  #request; #render; #lookup; #resolve; #now; #workers; #trace; #closed = false; #pending = new Set();
+  #engineGates = Object.fromEntries(ENGINES.map(engine => [engine, new Gate(10)]));
+  #pageGate = new Gate(48); #renderGate = new Gate(3); #readerGate = new Gate(4); #hostGates = new Map();
   #health = Object.fromEntries(ENGINES.map(engine => [engine, { failures: 0, until: 0, status: 'ready' }]));
   #reader = [];
-  #searches = new Cache(200); #pages = new Cache(150); #inflight = new Map();
-  constructor({ request, render = null, fetchImpl = globalThis.fetch, lookupImpl = dns.lookup, now = Date.now, workers = 3 } = {}) {
+  #searches = new Cache(200); #pages = new Cache(150); #inflight = new Map(); #directs = new Map();
+  // Sites that refused a plain request recently: their next pages go straight to the browser tier.
+  #refusing = new Cache(500);
+  // `trace(stage, ms, detail)` is an optional timing hook for benchmarks; it never changes results.
+  constructor({ request, render = null, fetchImpl = globalThis.fetch, lookupImpl = dns.lookup, now = Date.now, workers = 3, trace = null, resolve = null } = {}) {
     this.#request = request || nodeRequest(fetchImpl);
+    this.#resolve = resolve;
+    this.#trace = trace;
     this.#render = render;
     this.#lookup = lookupImpl;
     this.#now = now;
@@ -253,9 +262,13 @@ class WebServices {
       const { url, init = {} } = engineRequest(engine, query);
       let response;
       try {
+        const started = performance.now();
         response = await this.#request({ url, method: init.method, headers: { Accept: 'text/html,application/xhtml+xml', ...init.headers }, body: init.body, signal, timeout: ENGINE_TIMEOUT_MS, maxBytes: 4 * 1024 * 1024, validate: publicUrl });
+        this.#trace?.('engine.net', performance.now() - started, engine);
       } catch (error) { health.status = error.code === 'timeout' ? 'slow' : 'unreachable'; throw error; }
+      const parseStarted = performance.now();
       const parsed = await this.#workers.run({ kind: 'serp', engine, html: decode(response.body, response.headers.get('content-type')) });
+      this.#trace?.('engine.parse', performance.now() - parseStarted, engine);
       if (parsed.blocked || [403, 429, 503].includes(response.status) || (response.status === 202 && !parsed.results.length)) {
         health.failures += 1;
         health.until = this.#now() + COOLDOWN_MINUTES[Math.min(health.failures, COOLDOWN_MINUTES.length) - 1] * 60000;
@@ -269,7 +282,7 @@ class WebServices {
     }, signal);
   }
 
-  async #searchOne(query, limit, signal) {
+  async #searchOne(query, limit, signal, { batch = false } = {}) {
     const key = `${limit}|${query.toLowerCase().replace(/\s+/g, ' ').trim()}`;
     const cached = this.#searches.get(key, this.#now());
     if (cached) return { ...cached, cached: true };
@@ -278,8 +291,31 @@ class WebServices {
     // Every engine paused: try the one whose pause ends first rather than fail outright.
     if (!engines.length) engines = [ENGINES.reduce((best, engine) => this.#health[engine].until < this.#health[best].until ? engine : best)];
     const lists = {}, statuses = {};
+    // Early reads of each engine's leading results, while slower engines still answer. Each has its own
+    // controller so the ones that do not make the final top five can be cancelled: on a home connection,
+    // unneeded downloads slow every other read.
+    const early = new Map();
+    const speculate = (rows, count) => {
+      for (const row of rows.slice(0, count)) {
+        const id = normalizeUrl(row.url);
+        if (!id || early.has(id)) continue;
+        const controller = new AbortController();
+        const abort = () => controller.abort();
+        signal?.addEventListener('abort', abort, { once: true });
+        early.set(id, controller);
+        this.#readPage(row.url, { signal: controller.signal, render: false, reader: false }).catch(() => {}).finally(() => signal?.removeEventListener('abort', abort));
+      }
+    };
+    const phase = performance.now();
     await Promise.all(engines.map(async engine => {
-      try { lists[engine] = await this.#engineSearch(engine, query, signal); statuses[engine] = lists[engine].length ? 'ok' : 'no results'; }
+      try {
+        lists[engine] = await this.#engineSearch(engine, query, signal);
+        statuses[engine] = lists[engine].length ? 'ok' : 'no results';
+        // The first engine to answer has the most time, so its top five start; in a batch of searches only
+        // its top three, to keep the connection free.
+        const lead = Object.keys(statuses).length === 1;
+        speculate(lists[engine], lead ? (batch ? 3 : HYDRATE_CANDIDATES) : (batch ? 0 : 2));
+      }
       catch (error) { if (error.code === 'aborted') throw error; statuses[engine] = error.code === 'blocked' ? 'rate limited' : error.code === 'parser' ? 'unrecognized page' : error.code || 'failed'; }
     }));
     for (const engine of ENGINES) if (!statuses[engine]) statuses[engine] = 'paused';
@@ -295,12 +331,17 @@ class WebServices {
         } catch (error) { if (error.code === 'aborted') throw error; }
       }
     }
+    this.#trace?.('search.engines', performance.now() - phase);
     const results = fuse(lists, query, { limit });
+    const kept = new Set(results.slice(0, HYDRATE_CANDIDATES).map(result => normalizeUrl(result.url)));
+    for (const [id, controller] of early) if (!kept.has(id)) controller.abort();
     if (!results.length) {
       if (Object.values(statuses).every(status => status === 'no results' || status === 'paused')) return { query, results: [], engines: statuses, message: 'No results. Try fewer or different words.' };
       throw new Error(`Search failed: ${Object.entries(statuses).map(([engine, status]) => `${engine} ${status}`).join(', ')}. Try again in a minute, or use the browser tool.`);
     }
+    const hydrateStarted = performance.now();
     await this.#hydrate(results, query, signal);
+    this.#trace?.('search.hydrate', performance.now() - hydrateStarted);
     const value = { query, results, engines: statuses };
     this.#searches.set(key, value, SEARCH_TTL_MS, this.#now());
     return value;
@@ -308,17 +349,26 @@ class WebServices {
 
   // Adds each top result's best passage. Reads still running at the deadline finish in the background
   // and land in the page cache, ready for web_scrape.
+  // The top five are read at once and the search returns when three of them have a passage, so one slow
+  // site no longer holds every search back; a passage that arrives later still lands in the page cache.
   async #hydrate(results, query, signal) {
-    let timer;
-    const deadline = new Promise(resolve => { timer = setTimeout(resolve, HYDRATE_BUDGET_MS); });
-    await Promise.race([deadline, Promise.all(results.slice(0, 3).map(async result => {
-      try {
-        const page = await this.#readPage(result.url, { signal, render: false, reader: false });
-        const best = passages(page.markdown, query, { count: 2, size: 450 });
-        if (best.length) result.passage = best.join('\n…\n');
-      } catch { /* The snippet stays. */ }
-    }))]);
-    clearTimeout(timer);
+    const candidates = results.slice(0, HYDRATE_CANDIDATES);
+    await new Promise(resolve => {
+      let settled = 0, found = 0, done = false;
+      const finish = () => { if (!done) { done = true; clearTimeout(timer); resolve(); } };
+      const timer = setTimeout(finish, HYDRATE_BUDGET_MS);
+      for (const result of candidates) {
+        this.#readPage(result.url, { signal, render: false, reader: false }).then(page => {
+          if (done) return;
+          const best = passages(page.markdown, query, { count: 2, size: 450 });
+          if (best.length) { result.passage = best.join('\n…\n'); found += 1; }
+        }, () => { /* The snippet stays. */ }).finally(() => {
+          settled += 1;
+          if (found >= HYDRATE_PASSAGES || settled === candidates.length) finish();
+        });
+      }
+      if (!candidates.length) finish();
+    });
   }
 
   // Pages
@@ -328,14 +378,15 @@ class WebServices {
     const host = url.hostname.replace(/^\[|\]$/g, '');
     if (net.isIP(host)) return url;
     let timer;
+    const started = performance.now();
     try {
-      const addresses = await Promise.race([this.#lookup(host, { all: true, verbatim: true }), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('lookup timeout')), LOOKUP_TIMEOUT_MS); })]);
+      const addresses = await Promise.race([this.#resolve ? this.#resolve(host) : this.#lookup(host, { all: true, verbatim: true }), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('lookup timeout')), LOOKUP_TIMEOUT_MS); })]);
       if (!Array.isArray(addresses) || !addresses.length) throw new Error('no address');
       if (addresses.some(item => !publicAddress(item.address))) throw tagged('This hostname points to a local or private network address.', 'private');
     } catch (error) {
       if (error.code === 'private') throw error;
       throw tagged(`The site ${host} could not be found (DNS).`, 'dns');
-    } finally { clearTimeout(timer); }
+    } finally { clearTimeout(timer); this.#trace?.('page.dns', performance.now() - started, host); }
     return url;
   }
 
@@ -347,10 +398,13 @@ class WebServices {
 
   async #direct(url, signal) {
     const host = url.hostname;
-    const response = await this.#hostGate(host).run(() => this.#pageGate.run(() => this.#request({
+    const queued = performance.now();
+    let fetched;
+    const response = await this.#hostGate(host).run(() => this.#pageGate.run(() => { fetched = performance.now(); this.#trace?.('page.queue', fetched - queued, host); return this.#request({
       url: url.href, signal, timeout: PAGE_TIMEOUT_MS, maxBytes: MAX_PAGE_BYTES, validate: publicUrl,
       headers: { Accept: 'text/html,application/xhtml+xml,application/pdf;q=0.9,text/plain;q=0.8,*/*;q=0.5' },
-    }), signal), signal).finally(() => { const gate = this.#hostGates.get(host); if (gate && !gate.active && !gate.queue.length) this.#hostGates.delete(host); });
+    }); }, signal), signal).finally(() => { const gate = this.#hostGates.get(host); if (gate && !gate.active && !gate.queue.length) this.#hostGates.delete(host); });
+    this.#trace?.('page.net', performance.now() - fetched, host);
     const type = (response.headers.get('content-type') || '').toLowerCase();
     if (response.status === 404 || response.status === 410) throw tagged(`The page does not exist (HTTP ${response.status}).`, 'missing');
     if (response.status >= 400) throw tagged(`HTTP ${response.status}`, [401, 403, 429, 503].includes(response.status) ? 'blocked' : 'http');
@@ -359,11 +413,16 @@ class WebServices {
     if (/^(?:image|audio|video|font)\/|application\/(?:zip|octet-stream|x-msdownload)/.test(type)) throw tagged(`This address is a ${type.split(';')[0]} file, not a readable page.`, 'type');
     const content = decode(body, type);
     if (type && !/html|xml/.test(type) && !/^\s*</.test(content)) return { title: '', markdown: content.trim(), url: response.url, blocked: false, needsBrowser: false };
-    return { ...(await this.#workers.run({ kind: 'page', html: content, url: response.url })), url: response.url };
+    const parseStarted = performance.now();
+    const page = await this.#workers.run({ kind: 'page', html: content, url: response.url });
+    this.#trace?.('page.parse', performance.now() - parseStarted, host);
+    return { ...page, url: response.url };
   }
 
   async #rendered(url, signal) {
+    const started = performance.now();
     const page = await this.#renderGate.run(() => this.#render(url.href, { signal, timeout: RENDER_TIMEOUT_MS, validate: publicUrl }), signal);
+    this.#trace?.('page.render', performance.now() - started, url.hostname);
     // A page that passed a JavaScript check comes back with the check's parameters in its address: keep the one asked for.
     let final = url.href;
     try { const landed = new URL(page.url); if (landed.origin !== url.origin || landed.pathname !== url.pathname) final = landed.href; } catch { /* Keep the requested address. */ }
@@ -376,32 +435,55 @@ class WebServices {
     this.#reader = this.#reader.filter(time => time > now - 60000);
     if (this.#reader.length >= READER_PER_MINUTE) throw tagged('the reader service minute quota is used up', 'quota');
     this.#reader.push(now);
-    const response = await this.#readerGate.run(() => this.#request({ url: `https://r.jina.ai/${url.href}`, signal, timeout: READER_TIMEOUT_MS, maxBytes: MAX_PAGE_BYTES, headers: { Accept: 'application/json', 'X-Return-Format': 'markdown' } }), signal);
+    const started = performance.now();
+    const response = await this.#readerGate.run(() => this.#request({ url: `https://r.jina.ai/${url.href}`, signal, timeout: READER_TIMEOUT_MS, maxBytes: MAX_PAGE_BYTES, headers: { Accept: 'application/json', 'X-Return-Format': 'markdown' } }), signal)
+      .finally(() => this.#trace?.('page.reader', performance.now() - started, url.hostname));
     if (response.status >= 400) throw tagged(`reader service HTTP ${response.status}`, 'http');
     const data = JSON.parse(decode(response.body, 'utf-8'))?.data;
     if (!object(data) || typeof data.content !== 'string' || data.content.trim().length < 50) throw tagged('the reader service returned no text', 'empty');
     return { title: text(data.title, 300), markdown: data.content.trim(), url: typeof data.url === 'string' ? data.url : url.href, blocked: false, needsBrowser: false };
   }
 
+  // One download per page at a time, shared by quick reads (search passages) and full reads (web_scrape).
+  async #sharedDirect(key, url, signal) {
+    let task = this.#directs.get(key);
+    if (!task) {
+      task = this.#direct(url, signal).finally(() => this.#directs.delete(key));
+      this.#directs.set(key, task);
+    }
+    try { return await task; }
+    catch (error) { if (error.code === 'aborted' && !signal?.aborted) return this.#direct(url, signal); throw error; }
+  }
+
   async #readPage(value, { signal, render = true, reader = true } = {}) {
-    const url = await this.#checkHost(canonical(value));
-    const key = normalizeUrl(url.href);
+    // The cache and reads under way come before DNS: a cached page's address was checked when it was read.
+    const requested = publicUrl(canonical(value));
+    const key = normalizeUrl(requested.href);
     const cached = this.#pages.get(key, this.#now());
     if (cached && !cached.error) return cached;
     // A failure of the quick direct-only read (search previews) does not stop a full read with the slower tiers.
     if (cached && (cached.full || !(render || reader))) throw tagged(cached.error, 'failed');
-    // Concurrent reads of the same page share one fetch.
     const inflightKey = `${key}|${render}|${reader}`;
     if (this.#inflight.has(inflightKey)) return this.#inflight.get(inflightKey);
     const task = (async () => {
+      const url = await this.#checkHost(requested.href);
       const attempts = [];
       const good = candidate => candidate && !candidate.blocked && !candidate.incomplete && candidate.markdown.length >= (candidate.needsBrowser ? 600 : 200);
       const note = (tier, candidate) => attempts.push(`${tier}: ${candidate.blocked ? 'blocked by a bot check' : candidate.incomplete ? 'only part of the page' : 'almost no text'}`);
       let page = null, via = null;
-      try { page = await this.#direct(url, signal); via = 'direct'; if (!good(page)) note('direct', page); }
-      catch (error) {
-        if (['aborted', 'missing', 'type', 'private', 'dns'].includes(error.code)) throw error;
-        attempts.push(`direct: ${error.message}`);
+      const host = url.hostname;
+      if (this.#refusing.get(host, this.#now())) {
+        attempts.push('direct: skipped, this site refused plain requests a moment ago');
+        if (!render && !reader) throw tagged(`Could not read ${url.href} quickly (the site refuses plain requests).`, 'failed');
+      } else {
+        try { page = await this.#sharedDirect(key, url, signal); via = 'direct'; if (!good(page)) note('direct', page); }
+        catch (error) {
+          if (['aborted', 'missing', 'type', 'private', 'dns'].includes(error.code)) throw error;
+          attempts.push(`direct: ${error.message}`);
+          // Only a lasting refusal counts: 429 and 503 are often momentary.
+          if (/HTTP 40[13]/.test(error.message)) this.#refusing.set(host, true, REFUSING_TTL_MS, this.#now());
+        }
+        if (page?.blocked) this.#refusing.set(host, true, REFUSING_TTL_MS, this.#now());
       }
       if (!good(page) && render && this.#render) {
         try {
@@ -413,6 +495,11 @@ class WebServices {
       if (!good(page) && reader) {
         try { page = await this.#readerService(url, signal); via = 'reader'; }
         catch (error) { if (error.code === 'aborted') throw error; attempts.push(`reader: ${error.message}`); }
+      }
+      // The site refused a plain request earlier, but this page may not: one direct try before giving up.
+      if (!good(page) && via === null && attempts[0]?.startsWith('direct: skipped')) {
+        try { const direct = await this.#sharedDirect(key, url, signal); if (good(direct) || (!direct.blocked && direct.markdown.length > (page?.markdown.length || 0))) { page = direct; via = 'direct'; } }
+        catch (error) { if (error.code === 'aborted') throw error; attempts.push(`direct retry: ${error.message}`); }
       }
       if (!page || page.blocked || !page.markdown.trim()) {
         const error = `Could not read ${url.href} (${attempts.join('; ') || 'no text'}). If it needs a sign-in or a human check, open it with the browser tool.`;
@@ -454,7 +541,7 @@ class WebServices {
         if (list.length > MAX_QUERIES) throw new Error(`Search at most ${MAX_QUERIES} queries per call.`);
         for (const query of list) if (typeof query !== 'string' || !query || query.length > 600 || /[\u0000-\u001f]/.test(query) || query.split(' ').length > 75) throw new Error('Each search query must contain 1–600 characters and at most 75 words.');
         const limit = bounded(args.limit, 6, 1, 10);
-        const searches = await Promise.all(list.map(query => this.#searchOne(query, limit, signal).then(result => result, error => {
+        const searches = await Promise.all(list.map(query => this.#searchOne(query, limit, signal, { batch: list.length > 2 }).then(result => result, error => {
           if (error.code === 'aborted' || signal.aborted) throw tagged('The web request was cancelled.', 'aborted');
           return { query, results: [], error: error.message };
         })));

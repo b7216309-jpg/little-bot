@@ -4,8 +4,8 @@
 // decompression and cookie jar), in a partition of their own: never the user's signed-in browser profile.
 const PARTITION = 'persist:little-bot-web';
 
-function webSession(electron) {
-  const session = electron.session.fromPartition(PARTITION);
+function webSession(electron, partition = PARTITION) {
+  const session = electron.session.fromPartition(partition);
   session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   session.setPermissionCheckHandler(() => false);
   session.on('will-download', event => event.preventDefault());
@@ -74,14 +74,25 @@ function renderer(electron, session) {
         signal?.addEventListener('abort', abort, { once: true });
       });
       const settle = async () => {
-        await contents.loadURL(url).catch(error => { if (!/ERR_ABORTED/.test(error.message)) throw error; });
-        // Client-rendered pages keep filling in after load: wait until the text stops growing.
-        let previous = -1;
-        for (let step = 0; step < 12; step++) {
-          await new Promise(resolve => setTimeout(resolve, step ? 400 : 600));
-          const length = await contents.executeJavaScript('document.body ? document.body.innerText.length : 0', true);
-          if (length > 200 && length === previous) break;
+        // Text is read from the first DOM on, not after every ad, font and tracker has loaded.
+        let loaded = false;
+        contents.on('did-finish-load', () => { loaded = true; });
+        const ready = new Promise((resolve, reject) => {
+          contents.once('dom-ready', resolve);
+          contents.on('did-fail-load', (_event, code, description, _url, mainFrame) => { if (mainFrame && code !== -3) reject(new Error(description || 'The page failed to load.')); });
+        });
+        contents.loadURL(url).catch(() => { /* Reported by did-fail-load. */ });
+        await ready;
+        // Client-rendered pages keep filling in: wait until the text stops growing. Text that moves by under 1%
+        // (tickers, carousels) counts as settled, and text that has not moved for 1.5 s (a short page, a bot
+        // check that will not pass) is read as it is. A check page that navigates on by itself keeps the loop going.
+        let previous = -1, stable = 0;
+        for (let step = 0; step < 28; step++) {
+          await new Promise(resolve => setTimeout(resolve, 250));
+          const length = await contents.executeJavaScript('document.body ? document.body.innerText.length : 0', true).catch(() => 0);
+          stable = previous >= 0 && Math.abs(length - previous) <= Math.max(2, previous * 0.01) ? stable + 1 : 0;
           previous = length;
+          if ((length > 500 && stable >= 2) || (loaded && length > 200 && stable >= 1) || stable >= 6) break;
         }
         return { html: await contents.executeJavaScript('document.documentElement.outerHTML', true), url: contents.getURL() };
       };
@@ -93,9 +104,12 @@ function renderer(electron, session) {
   };
 }
 
-function electronWeb(electron) {
-  const session = webSession(electron);
-  return { request: requester(electron, session), render: renderer(electron, session) };
+// `partition` exists for benchmarks that must not share a cache; the app uses the default.
+function electronWeb(electron, { partition } = {}) {
+  const session = webSession(electron, partition);
+  // Chromium's own resolver: cached, and the connection that follows reuses its answer.
+  const resolve = async host => (await session.resolveHost(host)).endpoints.map(endpoint => ({ address: endpoint.address }));
+  return { request: requester(electron, session), render: renderer(electron, session), resolve };
 }
 
 module.exports = { electronWeb, PARTITION };
