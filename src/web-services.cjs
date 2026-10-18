@@ -231,7 +231,7 @@ class WebServices {
   }
   specs() {
     return [
-      spec('web_search_service', 'Search the web. Built in and free: no key, no quota. Combines DuckDuckGo, Bing and Yahoo, ranks the results, and adds the most relevant passage from the top pages, so you often have the answer without opening anything. Pass `queries` (up to 10) to run several searches in parallel in one call. Then read the best pages with web_scrape. Never put private file contents or credentials in a query.', {
+      spec('web_search_service', 'Search the web. Built in and free: no key, no quota. Combines DuckDuckGo, Bing and Yahoo, ranks the results, and adds the most relevant passage from the top pages, so you often have the answer without opening anything. Pass `queries` (up to 10) to run several searches in parallel in one call: 10 queries take about as long as 1. For news, research or any broad question, start wide with 5-8 queries covering different angles, languages and sources, then use later calls only for details the first results revealed. Read the best pages with web_scrape, several at once with `urls`. Never put private file contents or credentials in a query.', {
         query: { type: 'string', minLength: 1, maxLength: 600, description: 'One search query.' },
         queries: { type: 'array', items: { type: 'string', minLength: 1, maxLength: 600 }, minItems: 1, maxItems: MAX_QUERIES, description: 'Several queries searched in parallel, instead of query.' },
         limit: { type: 'integer', minimum: 1, maximum: 10, description: 'Results per query (default 6).' },
