@@ -13,7 +13,7 @@
   <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-2b2a24?style=flat-square">
   <img alt="Local first" src="https://img.shields.io/badge/runs-local%20first-65846c?style=flat-square">
   <img alt="Electron 44" src="https://img.shields.io/badge/Electron-44-2b2a24?style=flat-square">
-  <img alt="Version 0.23" src="https://img.shields.io/badge/version-0.23-bc623f?style=flat-square">
+  <img alt="Version 0.35" src="https://img.shields.io/badge/version-0.35-bc623f?style=flat-square">
 </p>
 
 <p align="center"><img src="docs/screenshots/hero.png" alt="Little Bot on the desktop and on a phone, suggesting a break after a long coding session"></p>
@@ -58,7 +58,7 @@ Most assistants wait for you to type. Little Bot keeps one continuous conversati
 |---|---|
 | **Finish things** | Type `/goal <done when…>` and it keeps working across turns until an independent check (and an optional test command) confirms it, like Claude Code's goal mode. Pause, resume or clear it any time, from the PC or the phone. |
 | **Work on your PC** | Files and terminal in a working folder (*Execute*), or read-only *Plan* mode. Attach images, PDFs, Word and text files; it can hand files back. |
-| **Use the web** | A built-in browser panel it drives while you watch (logins persist), plus built-in web search (DuckDuckGo, Bing, Yahoo) and page reading that need no account or key. |
+| **Use the web** | Built-in search across DuckDuckGo, Bing and Yahoo, ranked together with the best passage of each top page, and page reading for articles, docs, PDFs, Reddit threads and JavaScript sites. Up to 10 searches or pages at once, no account, key or quota. For sign-ins and clicking through sites, a built-in browser panel it drives while you watch (logins persist). |
 | **Use your apps** | Windows UI Automation: list windows, read controls, click, type and select in ordinary desktop apps. |
 | **Know your life** | A local calendar, your Steam library (with one-click launch offers), web pages it watches for changes, and opt-in awareness of the app you are using. |
 | **Remember** | Facts, preferences and decisions in a local SQLite memory with offline semantic search (bundled BGE embeddings). Inspect, edit, pin or forget anything, with sources. |
@@ -72,7 +72,7 @@ Most assistants wait for you to type. Little Bot keeps one continuous conversati
 ## Runs on your machine
 
 - **Local model first.** Any OpenAI-compatible local server works; Little Bot is tuned for [Strata](integrations/strata/README.md) with Qwen models, including reasoning levels and sampling controls (temperature, top-p, top-k, max tokens, seed). [Codex](CONNECTIONS.md) (ChatGPT sign-in or an OpenAI API key) is optional. There is no silent cloud fallback.
-- **Your data stays local.** Conversations, the dream diary and intentions are encrypted with Windows DPAPI. Memory is a local SQLite database, backed up daily with one-click restore. The phone relay only answers paired devices, ideally over Tailscale HTTPS.
+- **Your data stays local.** Conversations, the dream diary and intentions are encrypted with Windows DPAPI. Memory is a local SQLite database, backed up daily with one-click restore. The phone relay only answers paired devices, ideally over Tailscale HTTPS. Web search sends queries only to DuckDuckGo, Bing and Yahoo, and page addresses to the sites themselves (a public reader is the last resort for pages that refuse the rest).
 - **One lane at a time.** Your conversation always comes first; the heartbeat, goals, routines, memory learning and dreaming share a single background lane and step aside when you write.
 
 ```mermaid
@@ -114,7 +114,7 @@ On first launch: check the connection in **Settings**, choose a working folder, 
 | Memory, dreaming and intentions | [MEMORY.md](MEMORY.md), [system guide: memory](docs/system-guide/04-memory.md) |
 | Goals and their ledger | [GOALS.md](GOALS.md), [LEDGER.md](LEDGER.md) |
 | Heartbeat, events and routines | [EVENTS.md](EVENTS.md), [system guide: heartbeat](docs/system-guide/08-heartbeat-inbox.md) |
-| Browser, web services, files | [BROWSER.md](BROWSER.md), [WEB-SERVICES.md](WEB-SERVICES.md), [ATTACHMENTS.md](ATTACHMENTS.md) |
+| Browser, web search, files | [BROWSER.md](BROWSER.md), [WEB-SERVICES.md](WEB-SERVICES.md), [ATTACHMENTS.md](ATTACHMENTS.md) |
 | Widget, extensions, checks, compaction | [WIDGET.md](WIDGET.md), [EXTENSIONS.md](EXTENSIONS.md), [INDEPENDENT-CHECK.md](INDEPENDENT-CHECK.md), [COMPACTION.md](COMPACTION.md) |
 | What changed in each release | [VALIDATION.md](VALIDATION.md) |
 
