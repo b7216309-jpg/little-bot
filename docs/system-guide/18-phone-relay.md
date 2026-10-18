@@ -10,7 +10,7 @@ The [relay](../../src/relay.cjs) is an optional local web server (port 8787 by d
 
 **Tabs.** The phone has **Conversation**, **Quick** and **Sessions**. Sessions lists the 20 most recent saved sessions (their last 80 messages each travel with the snapshot); **+ New session** starts one whose first message creates it, and an open session has a back button and **Delete**. Requests name the chat they target: `quick: true`, `sessionId`, or `newSession: true`; a `sessionId` must be one the phone was shown. A finished reply in a session notifies like one in the conversation, titled with the session. Replies render lists, headings and quotes like the desktop.
 
-**What a phone can see.** Only the conversation, labels, proactive buttons, attachment names and thumbnails, pending questions and approvals, and goal name/status/next step. Settings, the system prompt, profile, memory, service keys, workspace paths and extensions never leave the PC. A test checks this.
+**What a phone can see.** Only the conversation, labels, proactive buttons, attachment names and thumbnails, pending questions and approvals, and goal name/status/next step. Settings, the system prompt, profile, memory, workspace paths and extensions never leave the PC. A test checks this.
 
 ## Pairing and security
 

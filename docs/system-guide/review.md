@@ -109,7 +109,7 @@ All source modules are assigned to a guide in the [source map](source-map.md). T
 | Questions and answer challenge | Controller/goal/check suites | Live RPC ownership, model review quality, tools disabled in checker |
 | Skills, plugins and MCP | Extension/runtime/GitHub protocol tests | Enable/import/auth/command/tool availability |
 | Browser | Source review + successful native --version launch | End-to-end websites/login not exercised this pass |
-| Brave / Firecrawl | Routing/concurrency/cancellation fixtures | No fresh paid-provider calls; keys/quota/network required |
+| Web search and reading | Fusion, engine pause, cache, private-address, cancellation and PDF fixtures | Engine page layouts can change; live engines and sites not exercised by the suite |
 | Profile and settings | Controller/settings/profile source and fixtures | Text limits, busy lane, invalid files/configuration |
 | Provider usage | Protocol/UI/Electron tests | Missing provider data is unavailable, not zero; no paid-account probe |
 | Renderer navigation, scroll and commands | Electron fixtures | Backend remains authoritative; R6 UI/backend mismatch |

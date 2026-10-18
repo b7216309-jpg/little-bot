@@ -1,3 +1,32 @@
+# Version 0.35.0 verification
+
+0.35.0 replaces Firecrawl and Brave Search with built-in web search and page reading: no account, key, quota or setting. Checked live on Strata 0.1.44.1 (qwen3.8-flash-next-iq3_s) through the real app.
+
+## How it works
+
+- **Search:** `web_search_service` reads the HTML result pages of DuckDuckGo, Bing and Yahoo through Electron's Chromium network stack, in its own partition (`persist:little-bot-web`), never the signed-in browser profile. Results are fused (reciprocal rank fusion, BM25, query coverage, two per site first), and the top three pages are read for up to 3.5 s to attach their best passages. `queries` runs up to 10 searches in parallel in one call. Rate-limited engines are paused for 2, 10, then 30 minutes while the others answer.
+- **Reading:** `web_scrape` reads `url` or up to 10 `urls` in parallel. The tiers are a direct fetch with Readability and markdown, then a hidden sandboxed browser window for JavaScript sites and checks a normal browser passes, then the public reader `r.jina.ai`. PDFs are read page by page. Links are plain text unless `links:true`. Reddit is rebuilt from its post and comment elements, with scores and comment counts. Reddit JSON and old.reddit addresses are read as the regular page.
+- **Limits:** sizes are clamped, not refused. A request for 63,000 characters failed in the first live run and now returns the page.
+- **Threads:** parsing runs in worker threads, so the main thread never parses a page.
+- **Network safety:** private and local addresses are refused, and every redirect hop is checked before it is followed.
+- **Removed:** the Firecrawl and Brave key forms, the key vault use, the `service_manage` tool and their IPC. Settings now shows a read-only Web search line with each engine's state. Tool names are unchanged, so existing chats keep working, and an old `provider` argument is ignored.
+
+## Checks
+
+- **Unit tests:** `test/web-engines.test.cjs` covers the engine parsers, using synthetic fixtures modelled on 29 real result pages. `test/web-services.test.cjs` covers fusion, 10 parallel queries, engine pause, total failure, the reading tiers, the shared character budget, private redirects, Reddit and cancellation. The full suite passes.
+- **Electron transport, four rounds:**
+  - Searches: 40 distinct searches in batches of 10 per call, 2.6–4.6 s per batch. All 120 engine requests succeeded with no rate limit.
+  - Pages: 10 pages per call in 3.4 s cold and 12–110 ms from cache. The pages were Python docs, React, Wikipedia, Hacker News, an arXiv PDF, Reddit, GitHub, Le Monde, Stack Overflow (via the hidden browser) and MDN.
+- **Live app, temporary data folder, eight scenarios:**
+  - News, version comparison, page summary, multi-query research, a fact check and a PDF question.
+  - The Qwen used `queries` and `urls` on its own. It made 0 web-tool failures after the fixes and 0 search failures in any run.
+- **Fixed during the live checks:**
+  - Out-of-range `maxChars` was refused; it is now clamped.
+  - Reddit came back without scores and its thread URLs were lost to link stripping; both are now kept.
+  - Reddit thread comments loaded by script were missed; such threads now go to the browser tier.
+  - The model's `.json` and old.reddit attempts failed; they now read the regular page.
+  - The last Reddit thread run took 2 calls in 82 s, with no shell or browser detour.
+
 # Version 0.34.0 verification
 
 0.34.0 adds the Usage page: the tokens Little Bot read and wrote on this PC, per day, source, hour and model. Checked live on Strata 0.1.44.1 (qwen3.8-flash-next-iq3_s).

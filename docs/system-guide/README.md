@@ -16,7 +16,7 @@ Start with the [second functional review](review.md) for confirmed problems and 
 | Proactive checks, notification preferences and inbox | [Heartbeat and inbox](08-heartbeat-inbox.md) |
 | Calendar, event routing and standing intents | [Events, intents and calendar](09-events-intents-calendar.md) |
 | App management, dynamic tools and terminal execution | [Agent tools and terminal](10-agent-tools-terminal.md) |
-| Visible browser, Brave search and Firecrawl | [Browser and web](11-browser-web.md) |
+| Visible browser, built-in web search and page reading | [Browser and web](11-browser-web.md) |
 | Operating guide, imported skills, plugins, MCP and GitHub | [Extensions](12-skills-plugins-mcp.md) |
 | Workspace, model settings and USER.md / SOUL.md | [Settings and profile](13-settings-profile.md) |
 | Imports, previews, document extraction and delivered files | [Attachments](14-attachments.md) |

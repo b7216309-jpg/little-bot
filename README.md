@@ -58,7 +58,7 @@ Most assistants wait for you to type. Little Bot keeps one continuous conversati
 |---|---|
 | **Finish things** | Type `/goal <done when…>` and it keeps working across turns until an independent check (and an optional test command) confirms it, like Claude Code's goal mode. Pause, resume or clear it any time, from the PC or the phone. |
 | **Work on your PC** | Files and terminal in a working folder (*Execute*), or read-only *Plan* mode. Attach images, PDFs, Word and text files; it can hand files back. |
-| **Use the web** | A built-in browser panel it drives while you watch (logins persist), plus optional Firecrawl or Brave Search keys for search and scraping. |
+| **Use the web** | A built-in browser panel it drives while you watch (logins persist), plus built-in web search (DuckDuckGo, Bing, Yahoo) and page reading that need no account or key. |
 | **Use your apps** | Windows UI Automation: list windows, read controls, click, type and select in ordinary desktop apps. |
 | **Know your life** | A local calendar, your Steam library (with one-click launch offers), web pages it watches for changes, and opt-in awareness of the app you are using. |
 | **Remember** | Facts, preferences and decisions in a local SQLite memory with offline semantic search (bundled BGE embeddings). Inspect, edit, pin or forget anything, with sources. |

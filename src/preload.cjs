@@ -20,7 +20,6 @@ contextBridge.exposeInMainWorld('bot', {
   openAttachment: invoke('openAttachment'), saveAttachment: invoke('saveAttachment'),
   releaseAttachment: invoke('releaseAttachment'), deleteAttachment: invoke('deleteAttachment'),
   attachmentStorage: invoke('attachmentStorage'), cleanupAttachments: invoke('cleanupAttachments'),
-  saveServiceKey: invoke('saveServiceKey'), openServicePage: invoke('openServicePage'),
   openAgentBrowser: invoke('openAgentBrowser'), closeAgentBrowser: invoke('closeAgentBrowser'),
   browserBounds: invoke('browserBounds'), browserPanel: invoke('browserPanel'), browserNavigate: invoke('browserNavigate'), browserClearData: invoke('browserClearData'),
   stop: invoke('stop'), challengeIndependentCheck: invoke('challengeIndependentCheck'), compact: invoke('compact'), deleteChat: invoke('deleteChat'), renameChat: invoke('renameChat'), respondApproval: invoke('respondApproval'),

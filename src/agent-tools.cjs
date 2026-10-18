@@ -287,12 +287,12 @@ class AgentTools {
       return this.desktop.call(name, args, { chat });
     }
     if (['browser', 'web_search_service', 'web_scrape'].includes(name)) {
-      if (!chat || chat.internal || chat.automationId) throw new Error('Browser and service tools require a user conversation; goals need their saved network permission.');
+      if (!chat || chat.internal || chat.automationId) throw new Error('Browser and web tools require a user conversation; goals need their saved network permission.');
       if (name === 'browser') {
         if (!this.browser) throw new Error('The browser is unavailable.');
         return this.browser.call(args, { isActive: () => chat.status === 'running', owner: chat.id });
       }
-      if (!this.webServices) throw new Error('Web services are unavailable.');
+      if (!this.webServices) throw new Error('Web tools are unavailable.');
       return this.webServices.call(name, args);
     }
     const allowed = {

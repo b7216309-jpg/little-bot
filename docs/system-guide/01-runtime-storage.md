@@ -14,7 +14,7 @@ The normal Windows user-data folder is `%APPDATA%/Little Bot`. Its `data` direct
 | `attachments/` | Imported copies, image derivatives and extracted text |
 | `goal-backups/` | Workspace file snapshots and manifests |
 | `profile/` | USER.md and SOUL.md |
-| `browser/`, `services/`, `extensions/` | Browser profile, service vault and managed plugin files |
+| `browser/`, `extensions/` | Browser profile and managed plugin files |
 | `app-operations.json`, `logs/` | Deferred app operations and diagnostics |
 
 ## Profiles

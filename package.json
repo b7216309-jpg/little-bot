@@ -1,7 +1,7 @@
 {
   "name": "little-bot",
   "productName": "Little Bot",
-  "version": "0.34.0",
+  "version": "0.35.0",
   "private": true,
   "description": "A focused local Windows assistant for chat, files, commands, and scheduled tasks.",
   "main": "src/main.cjs",
@@ -20,10 +20,14 @@
   },
   "dependencies": {
     "@huggingface/tokenizers": "0.2.0",
+    "@mozilla/readability": "0.6.0",
     "@openai/codex": "0.157.1",
+    "linkedom": "0.18.13",
     "mammoth": "1.12.3",
     "onnxruntime-node": "1.30.0",
     "qrcode-generator": "2.0.4",
+    "turndown": "7.2.4",
+    "turndown-plugin-gfm": "1.0.2",
     "unpdf": "1.8.1"
   },
   "devDependencies": {

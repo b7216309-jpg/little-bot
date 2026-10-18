@@ -30,9 +30,9 @@ The read-only set contains skills, recall and calendar_list. Direct full chat re
 - Captured and copied images are resized to at most 1600 pixels and saved as JPEG in `data/screenshots` (the last 20 are kept), where attachment_send can deliver them.
 - The pixels go back to the engine as an `inputImage` content item, carried beside the JSON result under a Symbol key so the 25,000-character text cap never meets the base64.
 - Screen and clipboard work only for the user's running direct conversation, never for heartbeat, goals or automations.
-- `document_render` loads an HTML file from the working folder in a hidden window, with scripts off and every non-file request cancelled, and saves `printToPDF` output (preferring CSS `@page` size) or an offscreen PNG. Browsers on the PC are not used: Edge can be missing, and headless Brave hung on `--print-to-pdf` during testing.
+- `document_render` loads an HTML file from the working folder in a hidden window, with scripts off and every non-file request cancelled, and saves `printToPDF` output (preferring CSS `@page` size) or an offscreen PNG. Browsers on the PC are not used: Edge can be missing, and a headless third-party Chromium browser hung on `--print-to-pdf` during testing.
 
-[AppManagement](../../src/app-management.cjs) exposes richer settings, goals, heartbeat, services, attachments and extension controls. app_state gives a compact overview; management get/list actions return details. Configuration needing an idle engine is queued until the reply ends.
+[AppManagement](../../src/app-management.cjs) exposes richer settings, goals, heartbeat, attachments and extension controls. app_state gives a compact overview; management get/list actions return details. Configuration needing an idle engine is queued until the reply ends.
 
 ## Deferred operations
 
