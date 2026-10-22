@@ -370,6 +370,8 @@ function render() {
   renderSettings();
   window.LittleBotProviderUsagePanel?.render(state.providerUsage || null);
   if (currentView === 'chat') renderConversation();
+  // The chat's own top-bar actions belong to the chat view only.
+  else for (const id of ['quick-keep', 'quick-end', 'session-rename', 'session-delete']) $(id).classList.add('hidden');
   if (currentView === 'automations') renderAutomations();
   if (currentView === 'calendar') renderCalendar();
   if (currentView === 'memory') renderMemory();
@@ -563,9 +565,19 @@ async function deleteSession() {
 }
 
 // The Quick session becomes a saved session in the sidebar; the chat id, history and draft stay.
+// Before its first message there is nothing to keep, so the draft moves to a new session instead.
 async function keepQuickSession() {
+  if (chatMode !== 'quick') return notify('Open the Quick session to keep it.');
   const chat = currentChat();
-  if (!chat?.private) return notify('Open the Quick session to keep it.');
+  if (!chat?.messages?.some(message => message.role === 'user')) {
+    const from = draftKey();
+    chatDrafts.set('__session__', $('message-input').value);
+    for (const drafts of [attachmentDrafts, planModeDrafts]) if (drafts.has(from)) { drafts.set('__session__', drafts.get(from)); drafts.delete(from); }
+    chatDrafts.delete(from);
+    $('message-input').value = '';
+    selectChat(null, 'session');
+    return notify('New saved session: your first message starts it.');
+  }
   if (await attempt(() => window.bot.saveQuickSession({ chatId: chat.id }), 'Saved as a session. Memory works here from now on.')) selectChat(chat.id, 'session');
 }
 
@@ -1220,9 +1232,10 @@ function renderConversation() {
   const busy = chat?.status === 'running' || chat?.status === 'waiting';
   $('quick-end').classList.toggle('hidden', chatMode !== 'quick' || !chat);
   $('quick-end').disabled = busy;
-  $('quick-keep').classList.toggle('hidden', chatMode !== 'quick' || !chat?.messages?.some(message => message.role === 'user'));
+  $('quick-keep').classList.toggle('hidden', chatMode !== 'quick');
   $('quick-keep').disabled = busy;
-  $('quick-keep').title = busy ? 'Wait for the reply to finish, then keep this session.' : 'Keep this Quick session as a saved session, with its history';
+  $('quick-keep').title = busy ? 'Wait for the reply to finish, then keep this session.'
+    : chat?.messages?.some(message => message.role === 'user') ? 'Keep this Quick session as a saved session, with its history' : 'Make this a saved session instead · /keep';
   $('session-rename').classList.toggle('hidden', chatMode !== 'session' || !chat);
   $('session-delete').classList.toggle('hidden', chatMode !== 'session' || !chat);
   $('session-delete').disabled = busy;
