@@ -7,16 +7,16 @@ const { SHELL_CONDUCT } = require('./shell-conduct.cjs');
 
 // Fixed texts Little Bot sends with each request. The user can replace any of them
 // on the Security page; null restores the default.
-// engineBase is the bundled engine's own base prompt, sent before everything else.
-// Its default is not sent by Little Bot at all: the engine supplies it. The bundled
-// copy, recorded from engine 0.157.1 with a local model, is only the editor's
-// starting text.
+// engineBase replaces the bundled engine's own base prompt, sent before everything
+// else. The default is Little Bot's trimmed version of it (BASE.md); the engine's
+// original, recorded from engine 0.157.1 with a local model, is kept for reference
+// in ENGINE-BASE.md.
 const PROMPT_LIMIT = 20000;
 const LIMITS = { quickNote: PROMPT_LIMIT, shellConduct: PROMPT_LIMIT, engineBase: 60000 };
 const DEFAULTS = Object.freeze({
   quickNote: 'This is a Quick session: a side chat for one-off work. Saved memory, background goals and follow-ups are off here, and nothing from it is remembered. You keep your own personality.',
   shellConduct: SHELL_CONDUCT,
-  engineBase: fs.readFileSync(path.resolve(__dirname, '../resources/prompts/ENGINE-BASE.md'), 'utf8'),
+  engineBase: fs.readFileSync(path.resolve(__dirname, '../resources/prompts/BASE.md'), 'utf8').replace(/\r\n/g, '\n'),
 });
 const NAMES = { quickNote: 'The Quick session note', shellConduct: 'Shell conduct', engineBase: 'The engine base prompt' };
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -44,14 +44,11 @@ function applyInjectedPromptsPatch(current, patch) {
 
 const injectedPrompt = (settings, key) => normalizeInjectedPrompts(settings)[key] ?? DEFAULTS[key];
 
-// The base prompt to send when a thread starts, or undefined to let the engine use its own.
-const engineBaseInstructions = settings => normalizeInjectedPrompts(settings).engineBase;
+// The base prompt sent when a thread starts.
+const engineBaseInstructions = settings => injectedPrompt(settings, 'engineBase');
 // A thread keeps the base prompt it started with, so a chat records this key and moves
-// to a new thread when it changes. '' is the engine's own prompt.
-function engineBaseKey(settings) {
-  const text = engineBaseInstructions(settings);
-  return text === undefined ? '' : `custom:${createHash('sha256').update(text).digest('hex').slice(0, 16)}`;
-}
+// to a new thread when it changes. Threads from before 0.37.0 have '', the engine's own.
+const engineBaseKey = settings => createHash('sha256').update(engineBaseInstructions(settings)).digest('hex').slice(0, 16);
 
 function publicInjectedPrompts(settings) {
   const saved = normalizeInjectedPrompts(settings);

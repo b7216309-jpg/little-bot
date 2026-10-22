@@ -653,11 +653,8 @@ class Controller extends EventEmitter {
   securityInstructions(options = {}) { return security.securityInstructions(this.store.data.settings.security, options); }
   systemWithSecurity(options = {}) { return [this.systemPrompt(), this.securityInstructions(options)].filter(Boolean).join('\n\n'); }
   injectedPrompt(key) { return injectedPrompts.injectedPrompt(this.store.data.settings.injectedPrompts, key); }
-  // The engine's base prompt goes first in every request; undefined keeps the engine's own.
-  engineBaseOptions() {
-    const text = injectedPrompts.engineBaseInstructions(this.store.data.settings.injectedPrompts);
-    return text === undefined ? {} : { baseInstructions: text };
-  }
+  // Replaces the engine's own base prompt, which goes first in every request.
+  engineBaseOptions() { return { baseInstructions: injectedPrompts.engineBaseInstructions(this.store.data.settings.injectedPrompts) }; }
   recordLesson(modelId, key, text) {
     if (!modelId || !learnedLessons.record(this.store.data.lessons, modelId, key, text)) return false;
     this.persistNow();
@@ -959,7 +956,7 @@ class Controller extends EventEmitter {
         at: capturedAt,
         mode: turnMode,
         private: chat.private === true,
-        engineBase: { label: common.baseInstructions === undefined ? 'Engine base prompt · engine default' : 'Engine base prompt · edited', text: common.baseInstructions ?? injectedPrompts.DEFAULTS.engineBase },
+        engineBase: { label: `Base prompt · ${this.store.data.settings.injectedPrompts?.engineBase === undefined ? 'Little Bot default' : 'edited'}`, text: common.baseInstructions },
         developerInstructions: common.developerInstructions,
         developerInstructionsLabel: `System prompt${this.securityInstructions() ? ' + SECURITY.md' : ''}${turnMode === 'plan' ? ' + Plan mode' : ''}`,
         inputBlocks,
