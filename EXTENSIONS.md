@@ -35,6 +35,8 @@ Preserve the author's meaning. Offer a revised passage and explain the main edit
 
 Use `$concise-review` in your message, or click **Use in chat**. That button only adds the invocation to your draft. Enabled skills are applied only when explicitly invoked; their full bodies are not automatically added to every conversation. Up to three skills can be selected per message, with a combined 30,000-character limit. A disabled skill or disabled parent plugin cannot be invoked.
 
+Little Bot ships 34 skills. Twelve start enabled; the other 22 (coding, writing, trips, meals, budgets, learning, creative work and home security) start disabled and cost nothing until you turn one on in **Extensions → Skills**. See [resources/skills/SOURCES.md](resources/skills/SOURCES.md).
+
 Imports snapshot the instruction body into local app state. Standalone skill imports do not copy supporting scripts or reference files. Plugin instruction changes require removing and reimporting the plugin. This version supports simple quoted or block-scalar name/description frontmatter, not arbitrary YAML features.
 
 ## MCP servers

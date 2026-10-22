@@ -25,3 +25,9 @@ Changes made for Little Bot: removed Notion-specific commands, OAuth setup, data
 Anthropic repository reviewed commit: `33375500bcea98d610eb30ce10ac4e59b89c390d`.
 
 `little-bot`, the app command guide, `web-tools`, and the version 21 skills (`pc-care`, `documents`, `data-analysis`, `file-organizer`, `voice`, `game-master`, `journal`, `morning-brief`) are authored specifically for Little Bot and are not upstream adaptations. A skill supplies instructions; it does not grant tools, credentials, or permissions.
+
+## Optional skills (version 26)
+
+Reviewed 2026-10-22. Twenty-two skills install **disabled** and wait in Extensions → Skills until the user turns one on: `debug-detective`, `code-review`, `plan-first`, `webapp-check`, `email-drafter`, `meeting-notes`, `writing-coach`, `trip-planner`, `meal-planner`, `deal-hunter`, `budget-tracker`, `language-tutor`, `flashcards`, `generative-art`, `story-studio`, `songwriter`, `svg-illustrator`, `naming-studio`, `pc-security-checkup`, `home-network-check`, `phishing-check` and `home-safety-plan`.
+
+The topics follow what public skill collections commonly offer, among them Anthropic's skills repository (generative art, document co-authoring, web app testing), obra/superpowers (brainstorming, written plans, root-cause debugging, verification before completion) and productivity collections (meeting notes, email drafting). No text from those collections is included. Each skill is written for Little Bot: Windows and PowerShell, the built-in browser, `document_render` (which runs without JavaScript), the calendar, page watches and memory. The security skills are defensive and limited to the user's own PC, network and home.

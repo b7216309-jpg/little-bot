@@ -5,14 +5,25 @@ const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { parseSkill, LIMITS } = require('./extensions.cjs');
 
-const VERSION = 25;
+const VERSION = 26;
+// Skills from 26 on arrive disabled: they wait in Extensions until the user turns one on, and
+// a disabled skill is not named in requests, so they cost nothing until then.
+const OPTIONAL_SKILLS = [
+  'debug-detective', 'code-review', 'plan-first', 'webapp-check', 'email-drafter', 'meeting-notes', 'writing-coach',
+  'trip-planner', 'meal-planner', 'deal-hunter', 'budget-tracker', 'language-tutor', 'flashcards',
+  'generative-art', 'story-studio', 'songwriter', 'svg-illustrator', 'naming-studio',
+  'pc-security-checkup', 'home-network-check', 'phishing-check', 'home-safety-plan',
+];
 const BUNDLES = [
   { name: 'little-bot', introduced: 1 }, { name: 'meeting-prep', introduced: 1 },
   { name: 'research-brief', introduced: 1 }, { name: 'web-tools', introduced: 2 },
   ...['pc-care', 'documents', 'data-analysis', 'file-organizer', 'voice', 'game-master', 'journal', 'morning-brief'].map(name => ({ name, introduced: 21 })),
+  ...OPTIONAL_SKILLS.map(name => ({ name, introduced: 26, enabled: false })),
 ];
 const ORIGINAL_HASHES = {
   'little-bot': [
+    '34c1e581669115bd383e5a19c1ac8a0e791bc9588ed37558cbda1ad111e61e7a', // 0.40.0 guide, trimmed under the 20,000-character limit
+    // The 0.35–0.39 guide was 81 characters over the limit, so it never installed and needs no entry.
     '672f705dc596f7b1605c01da595fd6378b9b91569074cf22673e62ba029ed942', // 0.33–0.34 guide (Brave/Firecrawl web tools)
     '578812660fcb35a8fa1c4874f74fe192471b1bc1d4bea2f057f369a59732f839', // 0.32.0 local-only guide
     '6a819e2ffc463d961094056097ad4e85a226b9368b3b8c329acd84b74fdcd046', // 0.11–0.31 guide (README refresh)
@@ -65,7 +76,7 @@ async function installBundledSkills(store, root = path.join(__dirname, '..', 're
     const skill = parseSkill(await fs.readFile(path.join(root, bundle.name, 'SKILL.md'), 'utf8'));
     if (skill.name !== bundle.name) throw new Error(`Bundled skill name does not match ${bundle.name}.`);
     if (upgradeGuide) next[index] = { ...existing, description: skill.description, content: skill.content, updatedAt: Date.now() };
-    else next.push({ ...skill, bundled: true });
+    else next.push({ ...skill, bundled: true, enabled: bundle.enabled !== false });
   }
   if (next.length > LIMITS.skills) throw new Error('There is not enough room for the starter skills. Remove an unused skill and reopen Little Bot.');
   const previous = extensions.skills;
