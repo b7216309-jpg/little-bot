@@ -1,3 +1,24 @@
+# Version 0.40.0 verification
+
+0.40.0 adds 22 optional skills, installed disabled, and fixes the starter-skill install that had stopped since 0.35.0.
+
+## What changed
+
+- **Optional skills:** they wait in Extensions → Skills until turned on. A disabled skill is not named in requests, so they cost nothing until then.
+  - **Coding:** debug-detective, code-review, plan-first, webapp-check.
+  - **Writing and work:** email-drafter, meeting-notes, writing-coach.
+  - **Life:** trip-planner, meal-planner, deal-hunter, budget-tracker.
+  - **Learning:** language-tutor, flashcards.
+  - **Creative:** generative-art, story-studio, songwriter, svg-illustrator, naming-studio.
+  - **Home security:** pc-security-checkup, home-network-check, phishing-check, home-safety-plan. These are read-only and limited to the user's own PC, network and home.
+- **Install fix:** since 0.35.0 the `little-bot` guide was 20,081 characters, over the 20,000 limit. Reading it threw, so every launch stopped the starter-skill install: fresh installs got no skills, and older guides were never upgraded. The guide is tightened to 19,854 characters without losing content, and its new fingerprint is recorded for future upgrades.
+- **Provenance:** the new skills are written for Little Bot. Their topics follow public skill collections, but no text from them is included. See resources/skills/SOURCES.md.
+
+## How it was checked
+
+- **`test/bundled-skills.test.cjs`:** a fresh install gets all 34 skills, each within the limits, with only the original 12 enabled. A disabled skill is refused when invoked. An upgrade from version 25 adds the new skills once, leaves an edited, disabled skill untouched, and respects a deletion on the next launch.
+- **Full suite:** 166 of 166 Node tests pass.
+
 # Version 0.39.0 verification
 
 0.39.0 gives this chat's goal its own drawer and keeps background goals in one place.

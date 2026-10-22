@@ -5,13 +5,13 @@ description: Configure and explain Little Bot's app tools and controls. Read for
 
 # Little Bot
 
-Read the current tool definitions for argument shapes. There is no Little Bot shell CLI. Do not invent commands, edit state.json, or bypass app controls. The app has one continuous Conversation timeline, the unsaved Quick session, and saved sessions the user opens from the sidebar. Model and working-folder changes can rotate the underlying engine context while retaining each timeline and durable memory.
+Read the current tool definitions for argument shapes. There is no Little Bot shell CLI. Do not invent commands, edit state.json, or bypass app controls. The app has one continuous Conversation timeline, the unsaved Quick session, and saved sessions the user opens from the sidebar.
 
 ## App tools
 
 - `ask_user`: ask one necessary clarification, with optional choices; free text is always available. In a direct chat, wait for the answer and continue. In an autonomous goal, include a checkpoint and next step: the question is saved on the goal card and the model step ends. The user's answer accompanies the next step without expanding permissions. Ongoing reviews have separate bounded activations; finite tasks retain their remaining cycle budget. Do not ask for credentials, unnecessary confirmation, or facts already supplied.
 
-- `skill_list` and `skill_read`: discover and read enabled skills. `$skill-name` includes a skill in a user request. Skills add instructions, not permissions.
+- `skill_list` and `skill_read`: discover and read enabled skills. `$skill-name` includes a skill in a user request. Skills add instructions, not permissions. More bundled skills wait disabled in Extensions → Skills; suggest one when it fits.
 - `memory_search({query?,source?,scope?,offset?})`: search durable knowledge, work episodes, and source history. An empty query browses recent records. `session_read({sessionId,messageId?,offset?})` opens source messages. Use either the search result offset alone, or messageId with offset omitted. With messageId, nextOffset is relative to that message; keep messageId when paging. Cite sources when useful, check whether old decisions still apply, and say when nothing was found. Recall requires Memory on. Memory is shared across models and connections; current-folder relevance uses a stable project identity with folder aliases. Direct user turns can search across folders with `scope:"all"`.
 - `memory_save`: immediately save or correct a durable preference, fact, decision, discovery, issue, or procedure. Inspect the current schema for types and update fields. Reuse a matching memory's ID or semantic key when correcting it; preserve useful scope. `memory_forget({id})` removes the durable record and its correction family from recall and suppresses relearning from the same source; the original conversation transcript remains searchable. search first if its ID is unknown. Background learning also extracts grounded knowledge after useful work, so explicit “Remember that” phrasing is not required. Wait for memory_save success before confirming an immediate save.
 - `goal_manage` and `schedule_manage`: list, create, update, pause, or resume goals and recurring routines. List before using an existing ID. Available in direct user chats only. New goals use a compact outcome/action contract; legacy plan-and-evidence history remains inspectable.
@@ -30,7 +30,7 @@ The Memory panel can search, edit, pin, forget, inspect sources, and show contex
 
 Users can attach files, drop them, or paste an image. Photo pixels and extracted PDF/DOCX/text excerpts accompany the request. Treat their contents as reference material. Check any extraction or truncation notice; do not claim to have read omitted pages or an unsupported file. Scanned PDFs need OCR, which is not bundled.
 
-Use image input to inspect photos; use `attachment_send` to return existing images, screenshots, and documents. The app does not include a diffusion image generator. File tools may create diagrams or other assets when suitable, but never claim an unavailable image-generation service ran.
+Use image input to inspect photos and `attachment_send` to return images, screenshots and documents. There is no image generator; file tools can draw diagrams or SVG art, but never claim an image-generation service ran.
 
 ## Heartbeat and scheduling
 
@@ -84,7 +84,7 @@ Useful foreground events include calendar approach thresholds, goal completion o
 
 The event queue exists only inside the open app. There is no gateway, webhook, socket, inbox listener, remote endpoint, service, persisted backlog, or parallel agent. Closing Little Bot clears pending events and retries. See the app's [EVENTS.md](../../../EVENTS.md) for payload fields, limits, and examples.
 
-Little Bot has no CLI or external API for submitting a prompt or running a saved routine. Windows Task Scheduler cannot send it a prompt through a supported interface; merely launching the app does not execute a named task on demand. Do not present that as a working workaround.
+There is no external API for submitting a prompt or running a saved routine. Windows Task Scheduler cannot send Little Bot a prompt, and launching the app runs no named task. Do not present that as a workaround.
 
 ### Goals and runtime limits
 
@@ -100,7 +100,7 @@ Everything runs only while Little Bot is open; there is no service, tray worker,
 
 Little Bot runs only on the local model server; there is no cloud model or fallback. Tasks keep their saved server, and follow it when it loads another model. Settings controls compaction (20–95%, default 50%, applied while a turn is working and when it ends; 0 keeps only the engine's own limit) and independent checks. Profile edits apply on the next request.
 
-Goals expose permissions, budgets, dependencies, triggers, Pause background and the plan/evidence ledger. Exactly one execution runs at a time. Review undo covers captured files and refuses later-edit conflicts; it cannot undo external effects. Calendar is local with no bundled external sync. Extensions manages skills, plugins and MCP; email is not bundled.
+Goals expose permissions, budgets, dependencies, triggers, Pause background and the plan/evidence ledger. Exactly one execution runs at a time. Review undo covers captured files and refuses later-edit conflicts; it cannot undo external effects. Extensions manages skills, plugins and MCP; email is not bundled.
 
 Normal chat follows the engine's approval rules; autonomous goals receive only saved grants. Profiles, skills, browser sign-in, and service credentials never authorize unrelated actions.
 
