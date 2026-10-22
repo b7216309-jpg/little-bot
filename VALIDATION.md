@@ -1,3 +1,20 @@
+# Version 0.39.0 verification
+
+0.39.0 gives this chat's goal its own drawer and keeps background goals in one place.
+
+## What changed
+
+- **Goal drawer:** a **Goal** button next to **Plan**, or `/goal` alone, opens a drawer above the composer.
+  - Its form sets this chat's goal: the condition, an optional check command, and turn and minute budgets. It starts the same `/goal` the command does.
+  - While the goal runs, the drawer shows its status, a turn meter, the check and the latest verdicts, with Pause, Resume and Clear. The button shows a dot, and the goal bar opens the drawer.
+- **One place for background goals:** the top-bar **Goals** button and its list are gone. Tools → Goals keeps them, and its New goal and Edit open the tabbed editor beside the page.
+
+## How it was checked
+
+- **`test/slash-commands.test.cjs`:** the drawer's fields become `/goal` arguments that the chat-goal parser reads back exactly, including check commands with quotes. Empty budgets keep the defaults, and bad input is refused.
+- **Full suite:** 164 of 164 Node tests pass.
+- **UI:** rendered in Electron with demo data: the empty drawer, a running goal with verdicts, the goal bar, `/goal` in the Quick session, and the editor on the Goals page.
+
 # Version 0.38.1 verification
 
 0.38.1 shows **Keep as session** in every Quick session, not only after its first message, where it was easy to miss. Before the first message it opens a new saved session and moves the draft, attachments and Plan choice there. Outside the chat view, the chat's own top-bar buttons (Keep as session, End session, Rename, Delete) are hidden.
