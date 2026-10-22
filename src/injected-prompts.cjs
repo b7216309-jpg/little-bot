@@ -1,21 +1,30 @@
 'use strict';
 
+const fs = require('node:fs');
+const path = require('node:path');
+const { createHash } = require('node:crypto');
 const { SHELL_CONDUCT } = require('./shell-conduct.cjs');
 
-// Fixed texts Little Bot adds to each Quick session message. The user can replace
-// either one on the Security page; null restores the default.
+// Fixed texts Little Bot sends with each request. The user can replace any of them
+// on the Security page; null restores the default.
+// engineBase is the bundled engine's own base prompt, sent before everything else.
+// Its default is not sent by Little Bot at all: the engine supplies it. The bundled
+// copy, recorded from engine 0.157.1 with a local model, is only the editor's
+// starting text.
 const PROMPT_LIMIT = 20000;
+const LIMITS = { quickNote: PROMPT_LIMIT, shellConduct: PROMPT_LIMIT, engineBase: 60000 };
 const DEFAULTS = Object.freeze({
   quickNote: 'This is a Quick session: a side chat for one-off work. Saved memory, background goals and follow-ups are off here, and nothing from it is remembered. You keep your own personality.',
   shellConduct: SHELL_CONDUCT,
+  engineBase: fs.readFileSync(path.resolve(__dirname, '../resources/prompts/ENGINE-BASE.md'), 'utf8'),
 });
-const NAMES = { quickNote: 'The Quick session note', shellConduct: 'Shell conduct' };
+const NAMES = { quickNote: 'The Quick session note', shellConduct: 'Shell conduct', engineBase: 'The engine base prompt' };
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 function normalizeInjectedPrompts(raw) {
   const source = object(raw) ? raw : {};
   return Object.fromEntries(Object.keys(DEFAULTS)
-    .filter(key => typeof source[key] === 'string' && source[key].length <= PROMPT_LIMIT)
+    .filter(key => typeof source[key] === 'string' && source[key].length <= LIMITS[key])
     .map(key => [key, source[key]]));
 }
 
@@ -25,8 +34,8 @@ function applyInjectedPromptsPatch(current, patch) {
   for (const [key, value] of Object.entries(patch)) {
     if (!Object.hasOwn(DEFAULTS, key)) throw new Error(`Unknown injected prompt: ${key}.`);
     if (value === null) { delete next[key]; continue; }
-    if (typeof value !== 'string' || value.length > PROMPT_LIMIT || /[\0-\x08\x0b\x0c\x0e-\x1f]/.test(value)) {
-      throw new Error(`${NAMES[key]} must be plain text of at most ${PROMPT_LIMIT.toLocaleString('en-US')} characters.`);
+    if (typeof value !== 'string' || value.length > LIMITS[key] || /[\0-\x08\x0b\x0c\x0e-\x1f]/.test(value)) {
+      throw new Error(`${NAMES[key]} must be plain text of at most ${LIMITS[key].toLocaleString('en-US')} characters.`);
     }
     next[key] = value.replace(/\r\n/g, '\n');
   }
@@ -35,6 +44,15 @@ function applyInjectedPromptsPatch(current, patch) {
 
 const injectedPrompt = (settings, key) => normalizeInjectedPrompts(settings)[key] ?? DEFAULTS[key];
 
+// The base prompt to send when a thread starts, or undefined to let the engine use its own.
+const engineBaseInstructions = settings => normalizeInjectedPrompts(settings).engineBase;
+// A thread keeps the base prompt it started with, so a chat records this key and moves
+// to a new thread when it changes. '' is the engine's own prompt.
+function engineBaseKey(settings) {
+  const text = engineBaseInstructions(settings);
+  return text === undefined ? '' : `custom:${createHash('sha256').update(text).digest('hex').slice(0, 16)}`;
+}
+
 function publicInjectedPrompts(settings) {
   const saved = normalizeInjectedPrompts(settings);
   return Object.fromEntries(Object.keys(DEFAULTS).map(key => [key, { text: saved[key] ?? DEFAULTS[key], customized: saved[key] !== undefined }]));
@@ -42,8 +60,11 @@ function publicInjectedPrompts(settings) {
 
 module.exports = {
   PROMPT_LIMIT,
+  LIMITS,
   DEFAULTS,
   applyInjectedPromptsPatch,
+  engineBaseInstructions,
+  engineBaseKey,
   injectedPrompt,
   normalizeInjectedPrompts,
   publicInjectedPrompts,

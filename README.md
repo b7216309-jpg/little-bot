@@ -64,7 +64,7 @@ Most assistants wait for you to type. Little Bot keeps one continuous conversati
 | **Remember** | Facts, preferences and decisions in a local SQLite memory with offline semantic search (bundled BGE embeddings). Inspect, edit, pin or forget anything, with sources. |
 | **Stay honest** | Optional *Independent Check* reviews answers for sycophancy, and you can right-click any reply to challenge it. |
 | **Grow** | Skills, plugins and MCP servers; recurring routines; a profile in `USER.md`, a personality in `SOUL.md`, and separate profiles, each with its own personality, system prompt and memory. |
-| **Resist prompt injection** | One `SECURITY.md` injected right after the system prompt in every chat, editable on the Security page with the prompts Little Bot adds to Quick session messages. A private owner code stamps each of your messages so web pages and files can't pass as you; any tool call that carries the code is blocked. |
+| **Resist prompt injection** | One `SECURITY.md` injected right after the system prompt in every chat, editable on the Security page with the prompts Little Bot adds to Quick session messages and the engine's own base prompt. A private owner code stamps each of your messages so web pages and files can't pass as you; any tool call that carries the code is blocked. |
 | **Stay in control** | Saved sessions beside the main conversation and a Quick session for one-offs; one Background switch that pauses everything it does on its own; a Usage page with the tokens it read and wrote per day, source and model. |
 
 <p align="center"><img src="docs/screenshots/conversation-light.png" width="820" alt="The conversation in the light theme"></p>

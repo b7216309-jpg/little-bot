@@ -653,6 +653,11 @@ class Controller extends EventEmitter {
   securityInstructions(options = {}) { return security.securityInstructions(this.store.data.settings.security, options); }
   systemWithSecurity(options = {}) { return [this.systemPrompt(), this.securityInstructions(options)].filter(Boolean).join('\n\n'); }
   injectedPrompt(key) { return injectedPrompts.injectedPrompt(this.store.data.settings.injectedPrompts, key); }
+  // The engine's base prompt goes first in every request; undefined keeps the engine's own.
+  engineBaseOptions() {
+    const text = injectedPrompts.engineBaseInstructions(this.store.data.settings.injectedPrompts);
+    return text === undefined ? {} : { baseInstructions: text };
+  }
   recordLesson(modelId, key, text) {
     if (!modelId || !learnedLessons.record(this.store.data.lessons, modelId, key, text)) return false;
     this.persistNow();
@@ -740,7 +745,7 @@ class Controller extends EventEmitter {
     }
     return {
       cwd: folder, model: chat.model || undefined, approvalPolicy: 'never',
-      approvalsReviewer: 'user', sandbox: planning ? 'read-only' : 'danger-full-access',
+      approvalsReviewer: 'user', sandbox: planning ? 'read-only' : 'danger-full-access', ...this.engineBaseOptions(),
       developerInstructions: chat.lessonBlock ? `${baseInstructions}\n\n${chat.lessonBlock}` : baseInstructions,
       config: { ...this.extensionRuntime?.config({ heartbeat: planning }), ...compactionConfig(this.store.data.settings, this.connection?.contextWindow), ...this.providerConfig(),
         'features.multi_agent': false, 'model_reasoning_effort': chat.effort || 'low' },
@@ -812,7 +817,10 @@ class Controller extends EventEmitter {
     const folder = workspacePath(settings.workspace);
     const binding = connectionBinding(settings);
     const toolMode = turnMode === 'plan' || Boolean(override?.automationId) ? 'readOnly' : 'full';
-    const rotate = chat && (chat.toolMode !== toolMode || chat.workspace !== folder || chat.model !== selectedModel || chat.connection !== binding.connection || chat.localBaseUrl !== binding.localBaseUrl);
+    // The engine fixes a thread's base prompt when it starts, so an edited one needs a new thread.
+    const baseKey = injectedPrompts.engineBaseKey(this.store.data.settings.injectedPrompts);
+    const rotate = chat && (chat.toolMode !== toolMode || chat.workspace !== folder || chat.model !== selectedModel || chat.connection !== binding.connection || chat.localBaseUrl !== binding.localBaseUrl
+      || (Boolean(chat.threadId) && (chat.baseKey || '') !== baseKey));
     const retiredThreadId = rotate ? chat.threadId : null;
     let historyBridge = (!chat?.threadId || rotate) && chat?.messages.length
       ? 'Recent conversation before this engine session (historical context):\n' + chat.messages.filter(item => item.role !== 'tool' && item.kind !== 'reasoning').slice(-24).map(item => `${item.automationId ? (item.role === 'user' ? 'Scheduled task' : 'Automation result') + ' [' + (item.automationName || item.automationId) + ']' : item.role}: ${item.text}`).join('\n\n').slice(-24000) : '';
@@ -882,7 +890,7 @@ class Controller extends EventEmitter {
       const common = this.threadOptions(chat, folder);
       const startThread = async () => {
         const result = await this.client.request('thread/start', { ...common, ...(chat.private ? { ephemeral: true } : {}), ...(this.agentTools ? { dynamicTools: this.agentTools.specs({ readOnly: turnMode === 'plan' || Boolean(override?.automationId), quick: chat.private === true }) } : {}) }, 60000);
-        chat.threadId = result.thread.id; chat.toolSchema = fingerprint(this.agentTools?.specs({ readOnly: toolMode === 'readOnly', quick: chat.private === true }) || []); this.resumed.add(chat.threadId);
+        chat.threadId = result.thread.id; chat.baseKey = baseKey; chat.toolSchema = fingerprint(this.agentTools?.specs({ readOnly: toolMode === 'readOnly', quick: chat.private === true }) || []); this.resumed.add(chat.threadId);
         this.threadCompactionSettings.set(chat.threadId, compactionKey(common.config));
         this.threadInstructionSettings.set(chat.threadId, this.threadSignature(common));
         if (!chat.private) this.persistNow();
@@ -951,6 +959,7 @@ class Controller extends EventEmitter {
         at: capturedAt,
         mode: turnMode,
         private: chat.private === true,
+        engineBase: { label: common.baseInstructions === undefined ? 'Engine base prompt · engine default' : 'Engine base prompt · edited', text: common.baseInstructions ?? injectedPrompts.DEFAULTS.engineBase },
         developerInstructions: common.developerInstructions,
         developerInstructionsLabel: `System prompt${this.securityInstructions() ? ' + SECURITY.md' : ''}${turnMode === 'plan' ? ' + Plan mode' : ''}`,
         inputBlocks,
@@ -1101,7 +1110,7 @@ class Controller extends EventEmitter {
       const extensionConfig = this.extensionRuntime ? await this.extensionRuntime.heartbeatConfig(folder) : {};
       if (!shouldContinue()) throw new Error('Night shift yielded before the model request started.');
       const started = await this.client.request('thread/start', {
-        cwd: folder, model: config.model || undefined, ephemeral: true,
+        cwd: folder, model: config.model || undefined, ephemeral: true, ...this.engineBaseOptions(),
         approvalPolicy: 'never', approvalsReviewer: 'user', sandbox: 'workspace-write',
         ...(this.agentTools ? { dynamicTools: wild ? this.agentTools.specs().filter(tool => WILD_HEARTBEAT_TOOLS.has(tool.name)) : this.agentTools.specs({ readOnly: true }) } : {}),
         developerInstructions: this.threadInstructions((wild ? wildHeartbeatInstructions : heartbeatInstructions)(this.systemWithSecurity({ ownerCode: false })), config.model),

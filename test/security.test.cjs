@@ -208,3 +208,50 @@ test('the prompts Little Bot adds to Quick session messages can be edited and re
   await controller.send({ quick: true, text: 'Fourth' });
   assert.match(lastTurnText(client), /^This is a Quick session[^]*Shell conduct for Windows/);
 });
+
+test('the engine base prompt can be replaced, and existing chats move to a new thread when it changes', async t => {
+  const { root, client, controller } = await setup(t);
+  const starts = () => client.calls.filter(call => call.method === 'thread/start');
+
+  const main = controller.chat((await controller.send({ text: 'Hello' })).chatId);
+  assert.equal(Object.hasOwn(starts()[0].params, 'baseInstructions'), false, 'by default the engine sends its own');
+  assert.equal(controller.contextUsedFor(main.id).engineBase.label, 'Engine base prompt · engine default');
+  assert.match(controller.contextUsedFor(main.id).engineBase.text, /^You are a coding agent running in the Codex CLI/);
+  assert.match(controller.state().settings.injectedPrompts.engineBase.text, /keep going until the query is completely resolved/);
+  client.answer(main, 'Hi');
+  await controller.send({ text: 'Same thread' });
+  assert.equal(starts().length, 1, 'no new thread while the base prompt is unchanged');
+  client.answer(main, 'Ok');
+
+  controller.saveSettings({ injectedPrompts: { engineBase: 'You are Little Bot. Keep going until the task is done.' } });
+  const oldThread = main.threadId;
+  await controller.send({ text: 'After the edit' });
+  assert.equal(starts().length, 2);
+  assert.equal(starts().at(-1).params.baseInstructions, 'You are Little Bot. Keep going until the task is done.');
+  assert.notEqual(main.threadId, oldThread);
+  assert.ok(client.calls.some(call => call.method === 'thread/unsubscribe' && call.params.threadId === oldThread));
+  assert.match(lastTurnText(client), /Recent conversation before this engine session[^]*Same thread/, 'the chat keeps its recent messages');
+  assert.equal(controller.contextUsedFor(main.id).engineBase.label, 'Engine base prompt · edited');
+  client.answer(main, 'Ok');
+  await controller.send({ text: 'Still edited' });
+  assert.equal(starts().length, 2, 'the new thread is reused');
+  client.answer(main, 'Ok');
+
+  const reloaded = new Store({ filePath: path.join(root, 'state.json'), defaultWorkspace: root });
+  assert.equal(reloaded.data.chats.find(chat => chat.id === main.id).baseKey, main.baseKey, 'the thread key survives a restart');
+
+  const quick = controller.chat((await controller.send({ quick: true, text: 'Quick one' })).chatId);
+  assert.equal(starts().at(-1).params.baseInstructions, 'You are Little Bot. Keep going until the task is done.');
+  client.answer(quick, 'Ok');
+
+  controller.saveSettings({ injectedPrompts: { engineBase: '' } });
+  await controller.send({ text: 'No base' });
+  assert.equal(starts().at(-1).params.baseInstructions, '', 'an empty base prompt is sent as empty');
+  client.answer(main, 'Ok');
+
+  assert.throws(() => controller.saveSettings({ injectedPrompts: { engineBase: 'x'.repeat(60001) } }), /60,000 characters/);
+  controller.saveSettings({ injectedPrompts: { engineBase: null } });
+  await controller.send({ text: 'Back to default' });
+  assert.equal(Object.hasOwn(starts().at(-1).params, 'baseInstructions'), false);
+  assert.equal(main.baseKey, '');
+});

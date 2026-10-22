@@ -145,6 +145,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
         mode: (recovering && chat.automationPreviousMode ? chat.automationPreviousMode : chat.mode) === 'plan' ? 'plan' : 'execute',
         toolMode: chat.toolMode === 'readOnly' ? 'readOnly' : 'full',
         toolSchema: string(chat.toolSchema),
+        baseKey: string(chat.baseKey),
         status: ['running', 'waiting'].includes(chat.status) ? chat.status : 'idle',
         messages: (Array.isArray(chat.messages) ? chat.messages : []).filter(isObject).map(message => {
           const entry = {

@@ -166,12 +166,14 @@ const SECURITY_EDITORS = [
     read: current => current.settings.injectedPrompts?.quickNote, patch: value => ({ injectedPrompts: { quickNote: value } }) },
   { key: 'shellConduct', input: 'security-shell', save: 'save-security-shell', reset: 'reset-security-shell', dirty: 'security-shell-dirty', status: 'security-shell-saved',
     read: current => current.settings.injectedPrompts?.shellConduct, patch: value => ({ injectedPrompts: { shellConduct: value } }) },
+  { key: 'engineBase', input: 'security-engine', save: 'save-security-engine', reset: 'reset-security-engine', dirty: 'security-engine-dirty', status: 'security-engine-saved',
+    read: current => current.settings.injectedPrompts?.engineBase, patch: value => ({ injectedPrompts: { engineBase: value } }) },
 ];
 const editorValue = editor => {
   const source = editor.read(state);
   return editor.key === 'prompt' ? { text: source.prompt, customized: source.promptCustomized } : source || { text: '', customized: false };
 };
-const securityBaselines = { prompt: null, quickNote: null, shellConduct: null };
+const securityBaselines = { prompt: null, quickNote: null, shellConduct: null, engineBase: null };
 let securitySaving = false;
 let securityError = '';
 let independentCheckSettingsInitialized = false;
@@ -1448,6 +1450,7 @@ function renderContextUsedSnapshot(snapshot, chat) {
 
   $('inspector-memory-status').textContent = `${snapshot.memoryStatus || 'Memory status unavailable'} · Captured ${formatDate(snapshot.at)} · This snapshot is kept only for the current app session.`;
   const entries = [
+    ...(snapshot.engineBase ? [{ ...snapshot.engineBase, kind: 'engine' }] : []),
     { label: snapshot.developerInstructionsLabel || 'System prompt', text: snapshot.developerInstructions, kind: 'system' },
     ...(Array.isArray(snapshot.inputBlocks) ? snapshot.inputBlocks : []),
   ].filter(entry => typeof entry.text === 'string' && entry.text.length);
@@ -1979,6 +1982,8 @@ function renderSecurity() {
     $(editor.reset).disabled = securitySaving || !customized;
     $(editor.dirty).classList.toggle('hidden', !dirty);
   }
+  const engineText = $('security-engine').value;
+  $('security-engine-count').textContent = `${engineText.length.toLocaleString()} chars · about ${Math.round(engineText.length / 4).toLocaleString()} tokens`;
   const owner = security.ownerCode;
   const ownerAvailable = security.enabled && !securitySaving;
   $('security-owner-enabled').checked = owner.enabled;
