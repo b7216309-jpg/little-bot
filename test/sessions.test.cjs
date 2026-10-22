@@ -73,3 +73,43 @@ test('saved sessions live beside the conversation, persist, rename, and leave no
   assert.deepEqual(store.data.chats.filter(chat => chat.session).map(chat => chat.title), ['Plan the Lisbon trip']);
   await assert.rejects(controller.send({ session: true, chatId: printer.id, text: 'Still there?' }), /no longer exists/);
 });
+
+test('a Quick session can be kept as a saved session with its history', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'little-bot-keep-'));
+  const server = await fakeLocalServer();
+  const filePath = path.join(root, 'state.json');
+  const store = new Store({ filePath, defaultWorkspace: root });
+  Object.assign(store.data.settings, { localBaseUrl: server.url, localModel: 'test-model', model: 'test-model', workspace: root });
+  const client = new FakeClient();
+  const controller = new Controller({ store, client });
+  await controller.start();
+  t.after(async () => { await controller.close(); await server.close(); await rm(root, { recursive: true, force: true }); });
+
+  const main = controller.chat((await controller.send({ text: 'Hello main' })).chatId);
+  client.answer(main, 'Hi');
+  await assert.rejects(controller.saveQuickSession({ chatId: main.id }), /Only the Quick session/);
+  const quick = controller.chat((await controller.send({ quick: true, text: 'Rename the trip photos\nto .jpg' })).chatId);
+  const quickThread = quick.threadId;
+  assert.equal(client.calls.find(call => call.method === 'thread/start' && call.params.ephemeral)?.params.ephemeral, true);
+  await assert.rejects(controller.saveQuickSession({ chatId: quick.id }), /Wait for the current reply/);
+  client.answer(quick, 'Renamed 14 photos');
+
+  await controller.saveQuickSession({ chatId: quick.id });
+  assert.equal(quick.private, undefined);
+  assert.equal(quick.session, true);
+  assert.equal(quick.title, 'Rename the trip photos');
+  assert.equal(quick.threadId, null);
+  assert.equal(quick.messages.length, 2, 'the timeline stays');
+  assert.ok(client.calls.some(call => call.method === 'thread/unsubscribe' && call.params.threadId === quickThread));
+  assert.ok(store.memoryService.search({ query: 'trip photos', source: 'history', scope: 'all', limit: 5 }).results.length > 0, 'its history becomes searchable');
+  const reloaded = new Store({ filePath, defaultWorkspace: root });
+  assert.ok(reloaded.data.chats.some(chat => chat.id === quick.id && chat.session === true), 'it is saved now');
+  reloaded.close();
+
+  await controller.send({ chatId: quick.id, text: 'And the videos?' });
+  const start = client.calls.filter(call => call.method === 'thread/start').at(-1);
+  assert.notEqual(start.params.ephemeral, true, 'the next message starts a normal thread');
+  assert.match(client.calls.filter(call => call.method === 'turn/start').at(-1).params.input[0].text, /Rename the trip photos[\s\S]*Renamed 14 photos/);
+  client.answer(quick, 'Videos too');
+  await assert.rejects(controller.saveQuickSession({ chatId: quick.id }), /Only the Quick session/);
+});

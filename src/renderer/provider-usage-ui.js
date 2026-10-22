@@ -37,12 +37,12 @@
     const status = ['ready', 'waiting', 'offline'].includes(value.status) ? value.status : 'waiting';
     return {
       kind: 'local',
-      title: 'Local performance',
+      title: 'Speed',
       subtitle: text(value.model) || text(latest?.model) || 'Local model',
       status,
       statusLabel: { ready: 'Measured', waiting: 'Waiting for a turn', offline: 'Offline' }[status],
       message: status === 'offline' ? text(value.error) || 'Start the local model to measure performance.'
-        : !latest ? 'Complete a local model turn to show provider-reported token throughput.' : '',
+        : !latest ? 'Appears after a local model turn.' : '',
       latest: latest ? {
         tokensPerSecond: formatRate(latest.tokensPerSecond),
         firstOutput: formatDuration(latest.firstOutputMs),
@@ -61,7 +61,7 @@
       sampleCount: Number.isSafeInteger(value.sampleCount) ? value.sampleCount : 0,
       updatedAt: time(value.updatedAt),
       updatedLabel: time(value.updatedAt) ? `Last turn ${new Date(value.updatedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}` : '',
-      note: 'Whole-turn timing from engine-reported tokens. Tool-free turns form the rolling average. This is not a price, quota, or model benchmark.',
+      note: 'As reported by the engine. The average uses turns without tools.',
     };
   }
 

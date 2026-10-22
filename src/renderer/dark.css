@@ -447,3 +447,9 @@ html[data-theme=dark].widget-mode .toast{background:rgba(27,34,31,0.969)}
 html[data-theme=dark].widget-mode.widget-collapsed #widget-pill{border:1px solid rgba(26,26,26,0.69);background:linear-gradient(145deg,rgba(29,34,37,0.961),rgba(34,38,43,0.933))}
 html[data-theme=dark] .widget-pill-label{color:#b8c2c7}
 html[data-theme=dark].widget-mode .widget-chat{border:1px solid rgba(26,26,26,0.565);background:rgba(26,26,26,0.439);color:#a1afb5}
+html[data-theme=dark] .goal-panel-note{color:#aa7853;background:#302c26}
+html[data-theme=dark] .goal-status.chat-goal-pursuing{color:#aa7853;background:#302c26}
+html[data-theme=dark] .goal-status.chat-goal-achieved{color:#a2ad97;background:#2f3328}
+html[data-theme=dark] .goal-status.chat-goal-unmet,html[data-theme=dark] .goal-status.chat-goal-budget{color:#b17860;background:#2c2623}
+html[data-theme=dark] .settings-jump button{color:#969e8f}
+html[data-theme=dark] .setting-field{color:#94a288}

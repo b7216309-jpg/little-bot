@@ -580,6 +580,7 @@ app.whenReady().then(async () => {
   register('compact', payload => controller.compact(payload));
   register('deleteChat', payload => controller.deleteChat(payload));
   register('renameChat', payload => controller.renameChat(payload));
+  register('saveQuickSession', payload => controller.saveQuickSession(payload));
   register('respondApproval', payload => controller.respondApproval(payload));
   register('saveGoal', async payload => { await goals.save(payload); return controller.state(); });
   register('runGoal', async ({ id } = {}) => { await nightShift?.ownerReturned('message'); controller.ensureReady(); await goals.runNow(id); return controller.state(); });

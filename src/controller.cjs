@@ -1354,6 +1354,27 @@ class Controller extends EventEmitter {
     this.persistNow(); this.changed();
     return this.state();
   }
+  // Keeps the Quick session as a saved session. Its timeline stays; its ephemeral thread with the
+  // smaller Quick tool set is dropped, so the next message starts a normal thread carrying the
+  // recent history. Memory learns from new turns only, as the Quick session promised.
+  async saveQuickSession({ chatId } = {}) {
+    const chat = this.chat(chatId);
+    if (!isQuick(chat)) throw new Error('Only the Quick session can be saved as a session.');
+    if (chat.status !== 'idle') throw new Error('Wait for the current reply, or stop it first.');
+    const first = chat.messages.find(message => message.role === 'user' && message.text);
+    if (!first) throw new Error('Send a message in the Quick session first.');
+    if (this.store.data.chats.filter(isSession).length >= MAX_SESSIONS) throw new Error(`You have ${MAX_SESSIONS} saved sessions. Delete one you no longer need first.`);
+    if (chat.threadId) await this.client.request('thread/unsubscribe', { threadId: chat.threadId }, 10000).catch(() => {});
+    this.resumed.delete(chat.threadId);
+    this.threadCompactionSettings.delete(chat.threadId);
+    this.threadInstructionSettings.delete(chat.threadId);
+    delete chat.private; delete chat.lessonBlock; delete chat.lessonKeys; delete chat.toolSchema; delete chat.baseKey;
+    Object.assign(chat, { session: true, title: sessionTitle(first.text), threadId: null, updatedAt: Date.now() });
+    if (chat.context) chat.context.stale = true;
+    try { this.store.memoryService?.indexChat(chat); } catch (error) { this.onError('session-index', error, { chatId: chat.id }); }
+    this.persistNow(); this.changed();
+    return this.state();
+  }
   // A shell command, MCP call or native search that carries an owner code is a leak in
   // progress: it already started, so the turn is stopped rather than the call refused.
   guardItem(chat, item) {
