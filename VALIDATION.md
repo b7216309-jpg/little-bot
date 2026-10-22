@@ -1,3 +1,9 @@
+# Version 0.38.1 verification
+
+0.38.1 shows **Keep as session** in every Quick session, not only after its first message, where it was easy to miss. Before the first message it opens a new saved session and moves the draft, attachments and Plan choice there. Outside the chat view, the chat's own top-bar buttons (Keep as session, End session, Rename, Delete) are hidden.
+
+Checked by rendering the empty Quick session, the button's result and the Goals page in Electron with demo data. Full suite: 163 of 163 Node tests pass.
+
 # Version 0.38.0 verification
 
 0.38.0 reworks the chat's controls: a Quick session can be kept, goals get a panel, `/` lists the commands, Tools are reordered and Settings are redesigned. See [the interface guide](docs/system-guide/16-interface.md).
