@@ -12,9 +12,11 @@ Specialized modules implement action groups, the goal ledger, provider usage, st
 
 [slash-commands.js](../../src/renderer/slash-commands.js) parses local convenience commands: help, goal, goals, plan, execute, keep, schedule, calendar, memory, activity, settings and clear, with supported aliases. Typing `/` opens a menu of them above the composer that narrows as you type; arrows pick one, Enter or Tab uses it (a command without arguments runs at once), Escape closes it, and /help reopens it. /clear clears the unsent draft/attachments; it does not erase the saved continuous timeline. Unknown/private commands are rejected.
 
-## Goal panel
+## Goal drawer and goal editor
 
-The top bar's **Goals** button (or /goals) opens a drawer over the right side of any page. Its list shows this chat's `/goal` with Pause, Resume and Clear, and every background goal with its status, next run, token and run budget, and Run, Pause or Edit. **New goal** and **Edit**, here or on the Goals page, open the editor in the same drawer, with six tabs: Basics, Evidence, Checks, Access, Limits and Schedule. Tokens, minutes and actions each have a **No limit** switch that saves 0. Saving fails on the tab holding the first invalid field. **All details** opens the Goals page with plans, evidence and history.
+The **Goal** button next to **Plan** (or `/goal` alone) opens a drawer above the composer for this chat's goal, in the conversation, a session or the Quick session. Its form takes the condition ("done when…"), an optional check command, and turn and minute budgets; [goalArguments](../../src/renderer/slash-commands.js) turns them into the same `/goal` arguments the chat-goal parser reads, so both paths start the same goal. While a goal runs, the drawer shows its status, a turn meter, the check command and the latest verdicts, with Pause, Resume and Clear; the button carries a dot. The compact goal bar above the composer opens the drawer too, and hides while it is open.
+
+Background goals live on **Tools → Goals**. **New goal** and **Edit** there, or `/goals <objective>`, open the goal editor beside the page, with six tabs: Basics, Evidence, Checks, Access, Limits and Schedule. Tokens, minutes and actions each have a **No limit** switch that saves 0. Saving fails on the tab holding the first invalid field. Switching chats or pages closes the drawer and the editor.
 
 ## Glass widget
 

@@ -6,7 +6,7 @@
   const commands = Object.freeze([
     { name: 'help', usage: '/help', description: 'Show available chat commands.' },
     { name: 'goal', usage: '/goal <done when…> [--check "cmd"] [--turns N] [--time 90m]', description: 'Keep working until the condition is met. Also /goal status, pause, resume, clear.' },
-    { name: 'goals', usage: '/goals [objective]', description: 'Open the goal panel, with a new goal when you add an objective.' },
+    { name: 'goals', usage: '/goals [objective]', description: 'Open background goals, or start a new one with an objective.' },
     { name: 'plan', usage: '/plan', description: 'Use Plan mode for the next turn.' },
     { name: 'execute', usage: '/execute', description: 'Use Execute mode for the next turn.' },
     { name: 'keep', usage: '/keep', description: 'Keep this Quick session as a saved session.' },
@@ -61,5 +61,22 @@
     return commands.map(command => command.usage).join(' · ');
   }
 
-  return { commands, parse, matches, takesArguments, helpText };
+  // The goal drawer's fields as /goal arguments, so both paths share one parser. The check
+  // command is wrapped in the first quote character it does not contain.
+  function goalArguments({ condition, check, turns, minutes } = {}) {
+    const parts = [String(condition ?? '').replace(/\s+/g, ' ').trim()];
+    if (!parts[0]) throw new Error('Describe what must be true when the goal is done.');
+    if (/(^|\s)--(check|turns?|time)\b/i.test(parts[0])) throw new Error('Leave --check, --turns and --time out of the condition; use the fields below it.');
+    const command = String(check ?? '').trim();
+    if (command) {
+      const quote = ['"', "'", '`'].find(mark => !command.includes(mark));
+      if (!quote) throw new Error('The check command cannot use all three quote characters.');
+      parts.push(`--check ${quote}${command}${quote}`);
+    }
+    if (Number.isInteger(turns) && turns > 0) parts.push(`--turns ${turns}`);
+    if (Number.isInteger(minutes) && minutes > 0) parts.push(`--time ${minutes}m`);
+    return parts.join(' ');
+  }
+
+  return { commands, parse, matches, takesArguments, helpText, goalArguments };
 });

@@ -16,7 +16,7 @@ The controller reserves the public chat before asynchronous preparation. A new s
 
 ## /goal: keep working until it is done
 
-`/goal <condition>` (in the conversation, the Quick session or on the phone) works like Claude Code's goal mode. [ChatGoalRunner](../../src/chat-goal.cjs) starts an ordinary turn whose request asks the model to work autonomously toward the condition. When the turn ends, [Controller.finish](../../src/controller.cjs) hands it to the runner:
+`/goal <condition>` (in the conversation, the Quick session or on the phone, or the **Goal** drawer next to Plan) works like Claude Code's goal mode. [ChatGoalRunner](../../src/chat-goal.cjs) starts an ordinary turn whose request asks the model to work autonomously toward the condition. When the turn ends, [Controller.finish](../../src/controller.cjs) hands it to the runner:
 
 1. An optional check command (`--check "npm test"`) runs in the working folder with the conversation's own access (Plan mode stays read-only), for up to five minutes.
 2. An independent checker, a separate tool-less, read-only model turn in its own ephemeral thread, reads the work since the goal was set (newest turn kept whole) and returns `met`, `impossible`, a one-line reason and the next step. The worker never grades itself, and a failing check command overrides a "met".

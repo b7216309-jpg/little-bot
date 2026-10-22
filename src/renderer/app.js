@@ -383,7 +383,7 @@ function render() {
   if (currentView === 'security') renderSecurity();
   if (currentView === 'usage') window.LittleBotUsage?.refresh();
   renderAgentInspector();
-  renderGoalPanel();
+  renderGoalDrawer();
   renderBrowserPanel();
   renderApprovals();
   updateComposer();
@@ -590,6 +590,8 @@ function saveCurrentDraft() {
 function selectChat(id = null, mode = null) {
   navigationVersion += 1;
   if (currentView === 'chat') saveCurrentDraft();
+  closeGoalEditor();
+  if (goalDrawerOpen) setGoalDrawerOpen(false);
   const target = id ? state?.chats?.find(chat => chat.id === id) : null;
   chatMode = mode || (target ? (target.private ? 'quick' : target.session ? 'session' : 'main') : chatMode);
   sessionId = chatMode !== 'session' ? null : mode === 'session' ? id : target?.session ? target.id : sessionId;
@@ -622,6 +624,8 @@ function showAutomations() {
 function showFeature(view) {
   if (window.LittleBotWidget?.widget) { void window.LittleBotWidget.openFull(view); return; }
   navigationVersion += 1;
+  if (view !== 'goals') closeGoalEditor();
+  if (goalDrawerOpen) setGoalDrawerOpen(false);
   if (currentView === 'chat') saveCurrentDraft();
   currentView = view;
   $('chat-view').classList.add('hidden');
@@ -1693,10 +1697,88 @@ function goalStatusLine(chat, goal) {
   if (goal.status === 'paused') return `Paused · ${goal.pausedReason || 'Resume to continue.'}`;
   return `${{ achieved: 'Reached', unmet: 'Can’t be finished', budget: 'Budget used' }[goal.status] || goal.status} · ${goal.endReason || ''}`;
 }
+// The goal drawer above the composer: set this chat's /goal, then follow and steer it.
+let goalDrawerOpen = false;
+let goalDrawerPending = false;
+const CHAT_GOAL_STATUS = { pursuing: 'Working', paused: 'Paused', achieved: 'Reached', unmet: 'Can’t be finished', budget: 'Budget used' };
+function setGoalDrawerOpen(open) {
+  goalDrawerOpen = open;
+  $('goal-drawer').classList.toggle('hidden', !open);
+  $('goal-drawer-toggle').setAttribute('aria-expanded', String(open));
+  $('goal-drawer-error').classList.add('hidden');
+  renderGoalBar();
+  if (open && !$('goal-drawer-form').classList.contains('hidden')) $('goal-drawer-condition').focus();
+}
+function renderGoalDrawer() {
+  const chat = currentView === 'chat' ? currentChat() : null;
+  const goal = chat?.goal || null;
+  const live = Boolean(goal && ['pursuing', 'paused'].includes(goal.status));
+  $('goal-drawer-toggle').classList.toggle('active', live);
+  $('goal-drawer-toggle').dataset.status = live ? goal.status : '';
+  $('goal-drawer-toggle').title = live ? `Goal: ${goal.condition}` : 'Set a goal Little Bot keeps working on in this chat';
+  if (!goalDrawerOpen) return;
+  $('goal-drawer-form').classList.toggle('hidden', live);
+  $('goal-drawer-active').classList.toggle('hidden', !goal);
+  const busy = chat?.status === 'running' || chat?.status === 'waiting';
+  $('goal-drawer-start').disabled = goalDrawerPending || busy || !isConnected() || !isReady();
+  $('goal-drawer-start').title = busy ? 'Wait for the current reply.' : !isConnected() ? 'Connect a model first.' : '';
+  if (!goal) { $('goal-drawer-active').replaceChildren(); return; }
+  const card = element('div', 'goal-drawer-card');
+  const top = element('div', 'goal-drawer-card-top');
+  top.append(element('strong', '', goal.condition), element('span', `goal-status chat-goal-${goal.status}`, CHAT_GOAL_STATUS[goal.status] || goal.status));
+  const meter = document.createElement('progress');
+  meter.className = 'goal-drawer-meter';
+  meter.max = goal.maxTurns || 1;
+  meter.value = Math.min(goal.turns || 0, meter.max);
+  meter.setAttribute('aria-label', 'Turns used');
+  card.append(top, element('p', 'goal-drawer-line', goalStatusLine(chat, goal)), meter);
+  if (goal.check) {
+    const check = element('p', 'goal-drawer-line');
+    check.append('Check: ', element('code', '', goal.check));
+    card.append(check);
+  }
+  const history = (goal.history || []).slice(-4).reverse();
+  if (history.length) {
+    const list = element('ol', 'goal-drawer-history');
+    for (const item of history) list.append(element('li', item.met ? 'met' : '', `Turn ${item.turn} · ${item.reason || (item.met ? 'Met' : 'Not yet')}`));
+    card.append(list);
+  }
+  const actions = element('div', 'goal-drawer-actions');
+  if (live) actions.append(action(goal.status === 'pursuing' ? 'Pause' : 'Resume', () => goalCommand(goal.status === 'pursuing' ? 'pause' : 'resume'), 'button secondary', goal.status === 'pursuing' ? 'pause' : 'play'));
+  actions.append(action(live ? 'Clear goal' : 'Dismiss', () => goalCommand('clear'), 'button text-button'));
+  if (!live) actions.append(element('span', 'goal-drawer-hint', 'Or set a new goal below.'));
+  card.append(actions);
+  $('goal-drawer-active').replaceChildren(card);
+}
+async function startDrawerGoal(event) {
+  event.preventDefault();
+  let text;
+  try {
+    text = LittleBotSlashCommands.goalArguments({ condition: $('goal-drawer-condition').value, check: $('goal-drawer-check').value,
+      turns: Number.parseInt($('goal-drawer-turns').value, 10), minutes: Number.parseInt($('goal-drawer-minutes').value, 10) });
+  } catch (error) {
+    $('goal-drawer-error').textContent = error.message;
+    $('goal-drawer-error').classList.remove('hidden');
+    return;
+  }
+  $('goal-drawer-error').classList.add('hidden');
+  goalDrawerPending = true;
+  renderGoalDrawer();
+  const result = await goalCommand(text);
+  goalDrawerPending = false;
+  if (!result) return renderGoalDrawer();
+  $('goal-drawer-condition').value = '';
+  $('goal-drawer-check').value = '';
+  setGoalDrawerOpen(false);
+  scrollChatToBottom();
+}
+
 function renderGoalBar() {
+  renderGoalDrawer();
   const chat = currentView === 'chat' ? currentChat() : null;
   const goal = chat?.goal;
-  $('goal-bar').classList.toggle('hidden', !goal);
+  // The drawer shows the same goal in full while it is open.
+  $('goal-bar').classList.toggle('hidden', !goal || goalDrawerOpen);
   if (!goal) return;
   $('goal-bar').dataset.status = goal.status;
   $('goal-bar-condition').textContent = goal.condition;
@@ -1741,6 +1823,8 @@ async function executeSlashCommand(parsed) {
       return true;
     case 'goal': {
       clearComposerDraft();
+      // /goal alone opens the drawer: the goal's full status, or a form to set one.
+      if (!args) { setGoalDrawerOpen(true); return true; }
       const result = await goalCommand(args);
       if (!result) {
         // Keep what was typed so a typo can be fixed.
@@ -1755,7 +1839,7 @@ async function executeSlashCommand(parsed) {
     }
     case 'goals':
       clearComposerDraft();
-      if (!args) { setGoalPanelOpen(true); return true; }
+      if (!args) { showFeature('goals'); return true; }
       editGoal();
       $('goal-name').value = commandDraftName(args, 'New goal');
       $('goal-objective').value = args.slice(0, 12000);
@@ -3544,23 +3628,9 @@ function renderGoalKind() {
   for (const field of $('goal-checks').querySelectorAll('input,textarea')) field.required = !ongoing;
 }
 
-// The goal panel: a drawer over any page with this chat's /goal, the background goals and the goal editor.
-let goalPanelOpen = false;
+// The goal editor: a drawer beside the Goals page for creating and editing background goals.
 let goalTab = 'basics';
-function setGoalPanelOpen(open) {
-  goalPanelOpen = open;
-  $('goal-panel').classList.toggle('hidden', !open);
-  $('goal-panel-toggle').setAttribute('aria-pressed', String(open));
-  $('goal-panel-toggle').classList.toggle('active', open);
-  if (open) { showGoalPanelList(); $('goal-panel-close').focus(); }
-}
-function showGoalPanelList() {
-  $('goal-form').classList.add('hidden');
-  $('goal-panel-list').classList.remove('hidden');
-  $('goal-panel-back').classList.add('hidden');
-  $('goal-title').textContent = 'Goals';
-  renderGoalPanel();
-}
+const closeGoalEditor = () => $('goal-panel').classList.add('hidden');
 function showGoalTab(name) {
   goalTab = name;
   for (const tab of document.querySelectorAll('[data-goal-tab]')) {
@@ -3582,76 +3652,6 @@ function syncGoalLimits(changed) {
     input.placeholder = toggle.checked ? '∞' : '';
   }
 }
-const CHAT_GOAL_STATUS = { pursuing: 'Working', paused: 'Paused', achieved: 'Reached', unmet: 'Can’t be finished', budget: 'Budget used' };
-function renderGoalPanel() {
-  const goals = state?.autonomy?.goals || [];
-  const active = goals.filter(goal => goal.pendingQuestion || goal.status === 'running' || goal.status === 'queued').length;
-  $('goal-panel-count').textContent = String(active);
-  $('goal-panel-count').classList.toggle('hidden', !active);
-  if (!goalPanelOpen || $('goal-panel-list').classList.contains('hidden')) return;
-  $('goal-panel-paused').classList.toggle('hidden', !state.autonomy?.paused);
-  const chat = currentView === 'chat' ? currentChat() : null;
-  const card = element('div', 'goal-mini');
-  if (chatMode === 'quick' && currentView === 'chat') card.append(element('p', 'goal-mini-line', 'Goals are off in the Quick session.'));
-  else if (chat?.goal) {
-    const goal = chat.goal;
-    const top = element('div', 'goal-mini-top');
-    top.append(element('strong', '', goal.condition), element('span', `goal-status chat-goal-${goal.status}`, CHAT_GOAL_STATUS[goal.status] || goal.status));
-    const actions = element('div', 'goal-mini-actions');
-    if (['pursuing', 'paused'].includes(goal.status)) actions.append(action(goal.status === 'pursuing' ? 'Pause' : 'Resume', () => goalCommand(goal.status === 'pursuing' ? 'pause' : 'resume'), 'button secondary', goal.status === 'pursuing' ? 'pause' : 'play'));
-    actions.append(action(['pursuing', 'paused'].includes(goal.status) ? 'Clear' : 'Dismiss', () => goalCommand('clear'), 'button text-button'));
-    card.append(top, element('p', 'goal-mini-line', goalStatusLine(chat, goal)), actions);
-  } else {
-    card.append(element('p', 'goal-mini-line', 'Set a condition and Little Bot keeps working on it until it’s met.'));
-    const actions = element('div', 'goal-mini-actions');
-    actions.append(action('Set a chat goal', () => {
-      setGoalPanelOpen(false);
-      if (currentView !== 'chat') selectChat();
-      $('message-input').value = '/goal ';
-      sizeComposer(); updateComposer(); $('message-input').focus();
-    }, 'button secondary', 'goal'));
-    card.append(actions);
-  }
-  $('goal-panel-chat-goal').replaceChildren(card);
-  const sorted = [...goals].sort((a, b) => (a.priority || 3) - (b.priority || 3) || new Date(b.updatedAt) - new Date(a.updatedAt));
-  $('goal-panel-goals').replaceChildren(...(sorted.length ? sorted.map(goalMiniCard) : [element('p', 'goal-mini-empty', 'No background goals yet.')]));
-}
-function goalMiniCard(goal) {
-  const autonomy = state.autonomy || {};
-  const card = element('article', 'goal-mini');
-  const top = element('div', 'goal-mini-top');
-  top.append(element('strong', '', goal.name), element('span', `goal-status ${goal.status || 'draft'}`, goal.pendingQuestion ? 'Needs your answer' : humanStatus(goal.status || 'draft')));
-  const waiting = goal.status === 'queued' && !autonomy.paused ? state.goalWaiting?.[goal.id] : '';
-  const line = goal.status === 'running' && goal.currentAction ? goal.currentAction
-    : waiting ? `Waiting: ${waiting}`
-      : goal.nextRunAt && goal.status === 'queued' && !autonomy.paused ? `Next: ${formatDate(goal.nextRunAt)}`
-        : goalText(goal.review?.lastResult?.summary || goal.checkpoint) || goal.objective;
-  const usage = goal.usage || {}, limits = goal.limits || {};
-  const cap = value => value > 0 ? value.toLocaleString() : '∞';
-  card.append(top, element('p', 'goal-mini-line', line), element('p', 'goal-mini-budget', `${(usage.tokens || 0).toLocaleString()} / ${cap(limits.maxTokens)} tokens · ${usage.runs || 0} / ${limits.maxRuns ?? '—'} runs`));
-  const actions = element('div', 'goal-mini-actions');
-  const pending = goalPending.has(goal.id);
-  const active = goal.status === 'running' || goal.status === 'queued';
-  if (goal.pendingQuestion) actions.append(action('Answer', () => { setGoalPanelOpen(false); showFeature('goals'); }, 'button primary'));
-  else if (active) {
-    const pause = action('Pause', () => mutateGoal(`pause:${goal.id}`, () => window.bot.pauseGoal({ id: goal.id })), 'button secondary', 'pause');
-    pause.disabled = goalPending.has(`pause:${goal.id}`);
-    actions.append(pause);
-  } else {
-    const resume = goal.status === 'paused';
-    const run = action(resume ? 'Resume' : goal.status === 'completed' ? 'Run again' : goal.status === 'blocked' ? 'Retry' : 'Run', () => mutateGoal(goal.id, () => resume ? window.bot.resumeGoal({ id: goal.id }) : window.bot.runGoal({ id: goal.id })), 'button primary', 'play');
-    run.disabled = pending || Boolean(autonomy.paused) || !isReady() || !isConnected();
-    run.title = autonomy.paused ? 'Turn Background on first.' : !isConnected() ? 'Connect a model first.' : 'Run with this goal’s saved access and budget.';
-    actions.append(run);
-  }
-  const edit = action('Edit', () => editGoal(goal), 'button text-button', 'edit');
-  edit.disabled = active || pending;
-  edit.title = active ? 'Pause the goal before editing it.' : 'Edit this goal';
-  actions.append(edit);
-  card.append(actions);
-  return card;
-}
-
 function editGoal(goal) {
   editingGoalId = goal?.id || null;
   goalDraftContext = { workspace: goal?.workspace || state.settings.workspace, model: goal?.model || state.settings.model, effort: goal?.effort || state.settings.effort || 'low' };
@@ -3707,13 +3707,7 @@ function editGoal(goal) {
   renderGoalWriteScope();
   renderGoalKind();
   showGoalTab('basics');
-  goalPanelOpen = true;
   $('goal-panel').classList.remove('hidden');
-  $('goal-panel-toggle').setAttribute('aria-pressed', 'true');
-  $('goal-panel-toggle').classList.add('active');
-  $('goal-panel-list').classList.add('hidden');
-  $('goal-form').classList.remove('hidden');
-  $('goal-panel-back').classList.remove('hidden');
   $('goal-name').focus();
 }
 
@@ -3802,7 +3796,7 @@ async function saveGoal(event) {
     };
     const result = await window.bot.saveGoal(payload);
     if (result?.settings) applyState(result);
-    showGoalPanelList();
+    closeGoalEditor();
     if (currentView === 'goals') renderGoals();
     notify(editingGoalId ? 'Goal updated.' : 'Draft saved.');
   } catch (error) {
@@ -4357,6 +4351,15 @@ $('session-delete').addEventListener('click', deleteSession);
 $('rename-form').addEventListener('submit', saveSessionName);
 $('goal-bar-toggle').addEventListener('click', () => goalCommand(currentChat()?.goal?.status === 'pursuing' ? 'pause' : 'resume'));
 $('goal-bar-clear').addEventListener('click', () => goalCommand('clear'));
+$('goal-bar').querySelector('.goal-bar-copy').addEventListener('click', () => setGoalDrawerOpen(true));
+$('goal-drawer-toggle').addEventListener('click', () => setGoalDrawerOpen(!goalDrawerOpen));
+$('goal-drawer-close').addEventListener('click', () => setGoalDrawerOpen(false));
+$('goal-drawer-form').addEventListener('submit', startDrawerGoal);
+$('goal-drawer').addEventListener('keydown', event => {
+  if (event.key === 'Escape') { event.preventDefault(); setGoalDrawerOpen(false); $('message-input').focus(); }
+  // Ctrl+Enter starts the goal from the condition box.
+  if (event.key === 'Enter' && event.ctrlKey && event.target.id === 'goal-drawer-condition') $('goal-drawer-form').requestSubmit();
+});
 $('dream-now').addEventListener('click', () => attempt(() => window.bot.dreamNow(), 'Little Bot will dream as soon as it is idle.'));
 $('nav-quick').addEventListener('click', () => selectChat(null, 'quick'));
 $('background-toggle').addEventListener('click', toggleBackground);
@@ -4401,12 +4404,8 @@ $('profile-create-form').addEventListener('submit', createProfile);
 $('profile-create-name').addEventListener('input', renderProfiles);
 $('create-goal').addEventListener('click', () => editGoal());
 $('goal-form').addEventListener('submit', saveGoal);
-$('goal-panel-toggle').addEventListener('click', () => setGoalPanelOpen(!goalPanelOpen));
-$('goal-panel-close').addEventListener('click', () => setGoalPanelOpen(false));
-$('goal-panel-back').addEventListener('click', showGoalPanelList);
-$('goal-cancel').addEventListener('click', showGoalPanelList);
-$('goal-panel-new').addEventListener('click', () => editGoal());
-$('goal-panel-page').addEventListener('click', () => { setGoalPanelOpen(false); showFeature('goals'); });
+$('goal-panel-close').addEventListener('click', closeGoalEditor);
+$('goal-cancel').addEventListener('click', closeGoalEditor);
 for (const tab of document.querySelectorAll('[data-goal-tab]')) tab.addEventListener('click', () => showGoalTab(tab.dataset.goalTab));
 $('goal-form').querySelector('.goal-tabs').addEventListener('keydown', event => {
   if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
@@ -4419,7 +4418,7 @@ for (const toggle of document.querySelectorAll('[data-limit]')) toggle.addEventL
 $('goal-panel').addEventListener('keydown', event => {
   if (event.key !== 'Escape' || event.defaultPrevented) return;
   event.preventDefault();
-  if ($('goal-form').classList.contains('hidden')) setGoalPanelOpen(false); else showGoalPanelList();
+  closeGoalEditor();
 });
 $('goal-kind').addEventListener('change', renderGoalKind);
 $('goal-add-check').addEventListener('click', () => addGoalCheck());
