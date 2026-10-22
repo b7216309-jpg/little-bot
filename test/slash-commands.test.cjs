@@ -17,6 +17,20 @@ test('the / menu lists every command, narrows by name and alias, and closes once
   assert.equal(slash.parse('/save').name, 'keep');
 });
 
+test('/skill lists matching enabled skills and reads a skill name with its message', () => {
+  const skills = [{ name: 'phishing-check', description: 'Is this email a scam?' }, { name: 'pc-security-checkup', description: 'Antivirus and firewall' }, { name: 'trip-planner', description: 'Plan a trip' }];
+  assert.deepEqual(slash.skillMatches('/skill ', skills).map(skill => skill.name), ['phishing-check', 'pc-security-checkup', 'trip-planner']);
+  assert.deepEqual(slash.skillMatches('/skill p', skills).map(skill => skill.name), ['phishing-check', 'pc-security-checkup', 'trip-planner'], 'names first, then names containing the text');
+  assert.deepEqual(slash.skillMatches('/Skill $SCAM', skills).map(skill => skill.name), ['phishing-check'], 'descriptions match too');
+  assert.deepEqual(slash.skillMatches('/skill nothing', skills), []);
+  assert.equal(slash.skillMatches('/skill phishing-check is this legit', skills), null, 'the list closes once the message starts');
+  assert.equal(slash.skillMatches('/skills', skills), null);
+  assert.deepEqual(slash.matches('/sk').map(command => command.name), ['skill']);
+  assert.deepEqual(slash.skillInvocation('Phishing-Check  is this\nlegit?'), { name: 'phishing-check', message: 'is this\nlegit?' });
+  assert.deepEqual(slash.skillInvocation('$trip-planner'), { name: 'trip-planner', message: '' });
+  assert.equal(slash.skillInvocation(''), null);
+});
+
 test('the goal drawer fields become /goal arguments the goal parser reads back exactly', () => {
   const { parseGoalCommand } = require('../src/chat-goal.cjs');
   const read = fields => parseGoalCommand(slash.goalArguments(fields));
