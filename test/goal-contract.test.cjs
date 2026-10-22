@@ -434,6 +434,26 @@ test('a retry after the token budget runs with a fresh budget instead of re-bloc
   assert.notEqual(g.status, 'blocked');
 });
 
+test('new goals have no token, time or action limit, and 0 keeps a goal running past any usage', async t => {
+  const fresh = validateGoal({ name: 'Open', objective: 'No limits', workspace: process.cwd() });
+  assert.deepEqual([fresh.limits.maxTokens, fresh.limits.maxMinutes, fresh.limits.maxActions], [0, 0, 0]);
+  assert.throws(() => validateGoal({ ...fresh, limits: { maxTokens: -1 } }, fresh), /maxTokens/);
+  let calls = 0;
+  const { runner, g } = await runnerFixture(t, async (_goal, { onProgress }) => {
+    calls++;
+    onProgress({ tokens: 5000000, actions: 1000, elapsedMs: 0 });
+    return result('no-change');
+  });
+  Object.assign(g.limits, { maxTokens: 0, maxMinutes: 0, maxActions: 0 });
+  g.usage.elapsedMs = 1000 * 60000;
+  assert.equal(runner.budgetReason(g), null);
+  await runner.execute(g);
+  assert.equal(calls, 1);
+  assert.notEqual(g.status, 'blocked');
+  g.usage.tokens = 5000; g.limits.maxTokens = 1000;
+  assert.match(runner.budgetReason(g), /token budget/, 'a set limit still applies');
+});
+
 test('goal messages carry no Do it / Later / Not interested buttons; the user just replies', () => {
   const g = goal(process.cwd()), d = data(g);
   const notice = contract.deliver(g, d, { runId: 'blocked:1', summary: 'The goal token budget was reached.', actions: false });

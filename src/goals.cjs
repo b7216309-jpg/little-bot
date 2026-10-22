@@ -16,8 +16,10 @@ const {
 } = require('./goal-ledger.cjs');
 
 const STATUSES = ['draft', 'queued', 'running', 'paused', 'blocked', 'completed'];
-const DEFAULT_LIMITS = { maxTokens: 50000, maxMinutes: 30, maxActions: 50, maxRuns: 10, maxRetries: 2 };
-const LIMIT_RANGES = { maxTokens: [1000, 2000000], maxMinutes: [1, 240], maxActions: [1, 500], maxRuns: [1, 100], maxRetries: [0, 5] };
+const DEFAULT_LIMITS = { maxTokens: 0, maxMinutes: 0, maxActions: 0, maxRuns: 10, maxRetries: 2 };
+const LIMIT_RANGES = { maxTokens: [0, 2000000], maxMinutes: [0, 240], maxActions: [0, 500], maxRuns: [1, 100], maxRetries: [0, 5] };
+// A token, minute or action limit of 0 means the goal has no limit for it.
+const cap = value => value > 0 ? value : Infinity;
 const isObject = value => value && typeof value === 'object' && !Array.isArray(value);
 const number = value => Number.isFinite(value) && value >= 0 ? value : 0;
 const clean = value => String(value?.message || value || '').replace(/sk-[A-Za-z0-9_-]+/g, '[redacted]').replace(/(api_key|access_token|refresh_token)([\s"':=]+)[^\s,}]+/gi, '$1$2[redacted]').slice(0, 2000);
@@ -459,9 +461,9 @@ class GoalRunner {
     if (nextStep != null) goal.nextStep = text(nextStep, 'Next step', 2000);
   }
   budgetReason(goal) {
-    if (goal.usage.tokens >= goal.limits.maxTokens) return 'The goal token budget was reached.';
-    if (goal.usage.elapsedMs >= goal.limits.maxMinutes * 60000) return 'The goal time budget was reached.';
-    if (goal.usage.actions >= goal.limits.maxActions) return 'The goal action budget was reached.';
+    if (goal.usage.tokens >= cap(goal.limits.maxTokens)) return 'The goal token budget was reached.';
+    if (goal.usage.elapsedMs >= cap(goal.limits.maxMinutes) * 60000) return 'The goal time budget was reached.';
+    if (goal.usage.actions >= cap(goal.limits.maxActions)) return 'The goal action budget was reached.';
     if (goal.usage.runs >= goal.limits.maxRuns) return 'The goal run limit was reached.';
     return null;
   }
@@ -471,7 +473,7 @@ class GoalRunner {
       charge(false);
       let result;
       if (check.type === 'command') {
-        if (this.stopReason || goal.usage.actions >= goal.limits.maxActions || goal.usage.elapsedMs >= goal.limits.maxMinutes * 60000) result = { passed: false, detail: 'Verification command skipped because the goal is stopped or its budget is exhausted.' };
+        if (this.stopReason || goal.usage.actions >= cap(goal.limits.maxActions) || goal.usage.elapsedMs >= cap(goal.limits.maxMinutes) * 60000) result = { passed: false, detail: 'Verification command skipped because the goal is stopped or its budget is exhausted.' };
         else {
           charge(true); this.changed();
           try { result = await this.verifyCommand?.(goal, check) || { passed: false, detail: 'Command verification is unavailable.' }; } catch (error) { result = { passed: false, detail: clean(error) }; }
@@ -576,13 +578,13 @@ class GoalRunner {
       if (this.stopReason || goal.status === 'paused' || this.closing) return;
       goal.usage.runs++; this.record(goal, 'started', 'Started one bounded goal step.', { runId, snapshot }); this.changed();
       // The run limit bounds starts; reaching it does not cancel the last allowed run.
-      timer = setInterval(() => { updateUsage(); if (goal.usage.elapsedMs >= goal.limits.maxMinutes * 60000 && !this.stopReason) { this.stopReason = 'The goal time budget was reached.'; void Promise.resolve(this.stopRun?.(this.stopReason)).catch(() => {}); } }, 1000); timer.unref?.();
+      timer = setInterval(() => { updateUsage(); if (goal.usage.elapsedMs >= cap(goal.limits.maxMinutes) * 60000 && !this.stopReason) { this.stopReason = 'The goal time budget was reached.'; void Promise.resolve(this.stopRun?.(this.stopReason)).catch(() => {}); } }, 1000); timer.unref?.();
       result = await this.run(goal, { quietNudge, onProgress: reported => {
         for (const key of ['tokens', 'actions', 'elapsedMs', 'inputTokens', 'outputTokens']) if (Number.isFinite(reported?.[key])) modelUsage[key] = Math.max(number(modelUsage[key]), number(reported[key]));
         if (typeof reported?.currentAction === 'string') goal.currentAction = clean(reported.currentAction);
         updateUsage();
         if (reported?.clarification) this.saveQuestion(goal, reported.clarification, reported.checkpoint, reported.nextStep);
-        const reason = goal.usage.tokens >= goal.limits.maxTokens ? 'The goal token budget was reached.' : goal.usage.actions > goal.limits.maxActions ? 'The goal action budget was reached.' : goal.usage.elapsedMs >= goal.limits.maxMinutes * 60000 ? 'The goal time budget was reached.' : null;
+        const reason = goal.usage.tokens >= cap(goal.limits.maxTokens) ? 'The goal token budget was reached.' : goal.usage.actions > cap(goal.limits.maxActions) ? 'The goal action budget was reached.' : goal.usage.elapsedMs >= cap(goal.limits.maxMinutes) * 60000 ? 'The goal time budget was reached.' : null;
         if (reason && !this.stopReason) { this.stopReason = reason; void Promise.resolve(this.stopRun?.(reason)).catch(() => {}); }
         this.changed();
       } });
