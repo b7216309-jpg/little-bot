@@ -158,6 +158,13 @@ let systemPromptInitialized = false;
 let systemPromptBaseline = '';
 let systemPromptSaving = false;
 let systemPromptError = '';
+const SECURITY_EDITORS = [
+  { key: 'prompt', input: 'security-prompt', save: 'save-security-prompt', reset: 'reset-security-prompt', dirty: 'security-prompt-dirty', status: 'security-prompt-saved' },
+  { key: 'quickPrompt', input: 'security-quick-prompt', save: 'save-security-quick', reset: 'reset-security-quick', dirty: 'security-quick-dirty', status: 'security-quick-saved' },
+];
+const securityBaselines = { prompt: null, quickPrompt: null };
+let securitySaving = false;
+let securityError = '';
 let independentCheckSettingsInitialized = false;
 let independentCheckSettingsBaseline = 'selective';
 let independentCheckSettingsSaving = false;
@@ -354,6 +361,7 @@ function render() {
   if (currentView === 'extensions') renderExtensions();
   if (currentView === 'goals') renderGoals();
   if (currentView === 'profile') renderProfile();
+  if (currentView === 'security') renderSecurity();
   if (currentView === 'usage') window.LittleBotUsage?.refresh();
   renderAgentInspector();
   renderBrowserPanel();
@@ -364,7 +372,7 @@ function render() {
 
 function renderHeader() {
   const chat = currentChat();
-  $('page-label').textContent = currentView === 'chat' && chatMode === 'quick' ? 'Quick session' : currentView === 'chat' && chatMode === 'session' ? (chat?.title || 'New session') : { inbox: 'Activity inbox', usage: 'Usage', goals: 'Goals', automations: 'Automations', calendar: 'Calendar', memory: 'Memory', profile: 'Profile', heartbeat: 'Heartbeat', extensions: 'Extensions' }[currentView] || 'Conversation';
+  $('page-label').textContent = currentView === 'chat' && chatMode === 'quick' ? 'Quick session' : currentView === 'chat' && chatMode === 'session' ? (chat?.title || 'New session') : { inbox: 'Activity inbox', usage: 'Usage', goals: 'Goals', automations: 'Automations', calendar: 'Calendar', memory: 'Memory', profile: 'Profile', heartbeat: 'Heartbeat', extensions: 'Extensions', security: 'Security' }[currentView] || 'Conversation';
   const status = state.runtime || {};
   const label = status.status === 'ready' ? 'Ready' : status.status === 'error' ? 'Needs attention' : 'Starting';
   const dot = element('span', `status-dot ${status.status === 'ready' ? '' : status.status === 'error' ? 'error' : 'starting'}`);
@@ -431,6 +439,9 @@ function renderSidebar() {
   $('nav-goals').classList.toggle('active', currentView === 'goals');
   $('nav-profile').classList.toggle('active', currentView === 'profile');
   $('nav-usage').classList.toggle('active', currentView === 'usage');
+  $('nav-security').classList.toggle('active', currentView === 'security');
+  $('security-blocked-count').textContent = String(state.securityGuard?.blocked || 0);
+  $('security-blocked-count').classList.toggle('hidden', !state.securityGuard?.blocked);
   const activeProfile = state.profiles?.profiles?.length > 1 ? state.profiles.profiles.find(profile => profile.active) : null;
   $('nav-profile-name').textContent = activeProfile?.name || '';
   $('nav-profile-name').classList.toggle('hidden', !activeProfile);
@@ -560,6 +571,7 @@ function selectChat(id = null, mode = null) {
   $('goals-view').classList.add('hidden');
   $('profile-view').classList.add('hidden');
   $('usage-view').classList.add('hidden');
+  $('security-view').classList.add('hidden');
   render();
   sizeComposer();
   scrollChatToBottom();
@@ -576,7 +588,7 @@ function showFeature(view) {
   if (currentView === 'chat') saveCurrentDraft();
   currentView = view;
   $('chat-view').classList.add('hidden');
-  for (const feature of ['goals', 'automations', 'calendar', 'memory', 'profile', 'heartbeat', 'inbox', 'extensions', 'usage']) $(feature + '-view').classList.toggle('hidden', feature !== view);
+  for (const feature of ['goals', 'automations', 'calendar', 'memory', 'profile', 'heartbeat', 'inbox', 'extensions', 'usage', 'security']) $(feature + '-view').classList.toggle('hidden', feature !== view);
   if (view === 'usage') void window.LittleBotUsage?.open();
   // Show where you are: a tool page opens the Tools group so its item is visible and highlighted.
   if (view !== 'inbox' && !sidebarTools.open) sidebarTools.open = true;
@@ -963,8 +975,8 @@ function conversationMessage(chat, message, index) {
         else expandedTools.delete(key);
       });
       const summary = element('summary');
-      const label = message.kind === 'command' ? 'Terminal command' : message.kind === 'file' ? 'File changes' : message.kind === 'mcp' ? 'External MCP tool' : message.kind || 'Tool activity';
-      summary.append(icon(message.kind === 'command' ? 'terminal' : message.kind === 'file' ? 'folder' : message.kind === 'mcp' ? 'extensions' : 'sparkles'), element('strong', '', label), element('span', 'tool-status'));
+      const label = message.kind === 'command' ? 'Terminal command' : message.kind === 'file' ? 'File changes' : message.kind === 'mcp' ? 'External MCP tool' : message.kind === 'security' ? 'Security guard' : message.kind || 'Tool activity';
+      summary.append(icon(message.kind === 'command' ? 'terminal' : message.kind === 'file' ? 'folder' : message.kind === 'mcp' ? 'extensions' : message.kind === 'security' ? 'shield' : 'sparkles'), element('strong', '', label), element('span', 'tool-status'));
       details.append(summary, element('pre'));
       node.append(details);
     }
@@ -1938,6 +1950,61 @@ async function resetSystemPromptSettings() {
   } finally {
     systemPromptSaving = false;
     renderSystemPromptSettings();
+  }
+}
+
+function renderSecurity() {
+  const security = state.settings.security;
+  if (!security) return;
+  $('security-enabled').checked = security.enabled;
+  $('security-enabled').disabled = securitySaving;
+  for (const editor of SECURITY_EDITORS) {
+    const input = $(editor.input);
+    const initialized = securityBaselines[editor.key] !== null;
+    const hadDraft = initialized && input.value !== securityBaselines[editor.key];
+    securityBaselines[editor.key] = security[editor.key];
+    if (!initialized || (!hadDraft && !securitySaving)) input.value = security[editor.key];
+    const dirty = input.value !== security[editor.key];
+    input.disabled = securitySaving;
+    $(editor.save).disabled = securitySaving || !dirty;
+    $(editor.reset).disabled = securitySaving || security[`${editor.key}Customized`] !== true;
+    $(editor.dirty).classList.toggle('hidden', !dirty);
+  }
+  const owner = security.ownerCode;
+  const ownerAvailable = security.enabled && !securitySaving;
+  $('security-owner-enabled').checked = owner.enabled;
+  $('security-owner-enabled').disabled = !ownerAvailable;
+  $('security-owner-rotation').value = owner.rotation;
+  $('security-owner-rotation').disabled = !ownerAvailable || !owner.enabled;
+  $('security-owner-fixed').classList.toggle('hidden', owner.rotation !== 'fixed');
+  $('security-owner-code').textContent = owner.code;
+  $('security-owner-regenerate').disabled = !ownerAvailable || !owner.enabled;
+  const guard = state.securityGuard || { blocked: 0, last: null };
+  $('security-guard-status').textContent = !security.enabled ? 'SECURITY.md is off, so messages are not stamped.'
+    : !owner.enabled ? 'Messages are not stamped.'
+      : guard.blocked ? `${guard.blocked} leak${guard.blocked === 1 ? '' : 's'} caught since Little Bot started. Latest: ${guard.last.what}, ${new Date(guard.last.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.`
+        : 'No leaks caught since Little Bot started.';
+  $('security-error').textContent = securityError;
+  $('security-error').classList.toggle('hidden', !securityError);
+}
+
+async function saveSecurity(patch, editor = null, done = 'Saved') {
+  if (securitySaving) return false;
+  securitySaving = true;
+  securityError = '';
+  if (editor) $(editor.status).textContent = '';
+  renderSecurity();
+  try {
+    const result = await window.bot.saveSettings({ security: patch });
+    if (result?.settings) applyState(result);
+    if (editor) $(editor.status).textContent = done;
+    return true;
+  } catch (error) {
+    securityError = error?.message || 'Could not save the security settings.';
+    return false;
+  } finally {
+    securitySaving = false;
+    renderSecurity();
   }
 }
 
@@ -4145,6 +4212,20 @@ $('nav-extensions').addEventListener('click', () => showFeature('extensions'));
 $('nav-goals').addEventListener('click', () => showFeature('goals'));
 $('nav-profile').addEventListener('click', () => showFeature('profile'));
 $('nav-usage').addEventListener('click', () => showFeature('usage'));
+$('nav-security').addEventListener('click', () => showFeature('security'));
+$('security-enabled').addEventListener('change', event => { void saveSecurity({ enabled: event.target.checked }); });
+for (const editor of SECURITY_EDITORS) {
+  $(editor.input).addEventListener('input', () => { $(editor.status).textContent = ''; renderSecurity(); });
+  $(editor.save).addEventListener('click', () => { void saveSecurity({ [editor.key]: $(editor.input).value }, editor); });
+  $(editor.reset).addEventListener('click', async () => {
+    if (!await saveSecurity({ [editor.key]: null }, editor, 'Default restored')) return;
+    $(editor.input).value = state.settings.security[editor.key];
+    renderSecurity();
+  });
+}
+$('security-owner-enabled').addEventListener('change', event => { void saveSecurity({ ownerCode: { enabled: event.target.checked } }); });
+$('security-owner-rotation').addEventListener('change', event => { void saveSecurity({ ownerCode: { rotation: event.target.value } }); });
+$('security-owner-regenerate').addEventListener('click', () => { void saveSecurity({ ownerCode: { regenerate: true } }); });
 window.LittleBotUsage?.init({ isVisible: () => currentView === 'usage' });
 $('profile-form').addEventListener('submit', saveProfile);
 for (const key of ['user', 'soul']) $('profile-' + key).addEventListener('input', () => { profileSaveError = ''; renderProfile(); });

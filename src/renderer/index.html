@@ -64,6 +64,7 @@
           <button id="nav-usage" class="nav-button"><span class="icon" data-icon="chart"></span><span>Usage</span></button>
           <button id="nav-profile" class="nav-button"><span class="icon" data-icon="user"></span><span>Profile</span><span id="nav-profile-name" class="nav-profile-name hidden"></span></button>
           <button id="nav-extensions" class="nav-button"><span class="icon" data-icon="extensions"></span><span>Extensions</span></button>
+          <button id="nav-security" class="nav-button"><span class="icon" data-icon="shield"></span><span>Security</span><span id="security-blocked-count" class="count hidden">0</span></button>
         </nav>
       </details>
       <div class="sidebar-bottom">
@@ -228,6 +229,34 @@
           </form>
         </section>
         <p class="feature-footnote">Included in future requests. Editable here or in your own editor.</p>
+      </section>
+      <section id="security-view" class="feature-view hidden" aria-label="Security">
+        <div class="section-heading"><div><h1>Security</h1><p>Rules the model reads right after the system prompt.</p></div><label class="feature-toggle"><span>Inject SECURITY.md</span><span class="switch"><input id="security-enabled" type="checkbox" checked aria-label="Inject SECURITY.md"><span class="switch-track"></span></span></label></div>
+        <div class="automation-notice"><span class="icon" data-icon="info"></span><span>These rules make prompt injection less likely to work. They guide the model; they are not a sandbox.</span></div>
+        <p id="security-error" class="inline-error hidden" role="alert"></p>
+        <section class="profile-file security-file" aria-labelledby="security-prompt-title">
+          <div class="profile-file-heading"><span class="profile-file-icon"><span class="icon" data-icon="shield"></span></span><div><h2 id="security-prompt-title">Conversation, sessions and background work</h2><code>SECURITY.md</code></div><span id="security-prompt-dirty" class="draft-label hidden">Edited</span></div>
+          <p class="profile-description">Used by the conversation, saved sessions, scheduled tasks, Heartbeat and goals.</p>
+          <label class="sr-only" for="security-prompt">Edit SECURITY.md</label>
+          <textarea id="security-prompt" rows="14" maxlength="20000" spellcheck="false"></textarea>
+          <div class="settings-actions"><button id="save-security-prompt" class="button primary" type="button" disabled>Save</button><button id="reset-security-prompt" class="button text-button" type="button">Restore default</button><span id="security-prompt-saved" class="settings-save-status" role="status"></span></div>
+        </section>
+        <section class="profile-file security-file" aria-labelledby="security-quick-title">
+          <div class="profile-file-heading"><span class="profile-file-icon"><span class="icon" data-icon="sparkles"></span></span><div><h2 id="security-quick-title">Quick session</h2><code>SECURITY.md · Quick</code></div><span id="security-quick-dirty" class="draft-label hidden">Edited</span></div>
+          <p class="profile-description">The same rules, said the cute way, for the Quick side chat.</p>
+          <label class="sr-only" for="security-quick-prompt">Edit the Quick session SECURITY.md</label>
+          <textarea id="security-quick-prompt" rows="14" maxlength="20000" spellcheck="false"></textarea>
+          <div class="settings-actions"><button id="save-security-quick" class="button primary" type="button" disabled>Save</button><button id="reset-security-quick" class="button text-button" type="button">Restore default</button><span id="security-quick-saved" class="settings-save-status" role="status"></span></div>
+        </section>
+        <section class="feature-card security-owner-code" aria-labelledby="security-owner-title">
+          <div class="card-heading"><h2 id="security-owner-title">Owner code</h2><label class="feature-toggle"><span>Stamp my messages</span><span class="switch"><input id="security-owner-enabled" type="checkbox" checked aria-label="Stamp my messages with the owner code"><span class="switch-track"></span></span></label></div>
+          <p class="field-hint">Little Bot adds a private code to every message you send, so text inside web pages, files or tool output cannot pretend to be you. You never type it. Any tool call that carries the code is blocked, and a terminal command that carries it stops the task.</p>
+          <label class="field-label" for="security-owner-rotation">Code</label>
+          <select id="security-owner-rotation"><option value="turn">A new code for every message (recommended)</option><option value="fixed">One fixed code</option></select>
+          <div id="security-owner-fixed" class="security-owner-fixed hidden"><code id="security-owner-code">····-····-····</code><button id="security-owner-regenerate" class="button secondary" type="button">New code</button></div>
+          <p id="security-guard-status" class="field-hint" role="status">No leaks caught.</p>
+        </section>
+        <p class="feature-footnote">Saved with your settings. Your system prompt stays as it is; SECURITY.md is added after it.</p>
       </section>
       <section id="inbox-view" class="feature-view hidden" aria-label="Activity inbox">
         <div class="section-heading"><div><h1>Activity inbox</h1><p id="inbox-summary">Updates from Heartbeat and goals appear here.</p></div><button id="heartbeat-read-all" class="button secondary" type="button">Mark all read</button></div>
