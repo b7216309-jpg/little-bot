@@ -242,7 +242,9 @@ test('a trimmed base prompt replaces the engine one, and chats move to a new thr
   client.answer(old, 'Ok');
 
   const reloaded = new Store({ filePath: path.join(root, 'state.json'), defaultWorkspace: root });
-  assert.equal(reloaded.data.chats.find(chat => chat.id === old.id).baseKey, old.baseKey, 'the thread key survives a restart');
+  // Windows cannot remove the folder while the reloaded memory database is open.
+  try { assert.equal(reloaded.data.chats.find(chat => chat.id === old.id).baseKey, old.baseKey, 'the thread key survives a restart'); }
+  finally { reloaded.close(); }
 
   const quick = controller.chat((await controller.send({ quick: true, text: 'Quick one' })).chatId);
   assert.equal(starts().at(-1).params.baseInstructions, 'You are Little Bot. Keep going until the task is done.');
