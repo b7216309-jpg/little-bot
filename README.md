@@ -13,7 +13,7 @@
   <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-2b2a24?style=flat-square">
   <img alt="Local first" src="https://img.shields.io/badge/runs-local%20first-65846c?style=flat-square">
   <img alt="Electron 44" src="https://img.shields.io/badge/Electron-44-2b2a24?style=flat-square">
-  <img alt="Version 0.35" src="https://img.shields.io/badge/version-0.35-bc623f?style=flat-square">
+  <img alt="Version 0.37" src="https://img.shields.io/badge/version-0.37-bc623f?style=flat-square">
 </p>
 
 <p align="center"><img src="docs/screenshots/hero.png" alt="Little Bot on the desktop and on a phone, suggesting a break after a long coding session"></p>
@@ -64,6 +64,7 @@ Most assistants wait for you to type. Little Bot keeps one continuous conversati
 | **Remember** | Facts, preferences and decisions in a local SQLite memory with offline semantic search (bundled BGE embeddings). Inspect, edit, pin or forget anything, with sources. |
 | **Stay honest** | Optional *Independent Check* reviews answers for sycophancy, and you can right-click any reply to challenge it. |
 | **Grow** | Skills, plugins and MCP servers; recurring routines; a profile in `USER.md`, a personality in `SOUL.md`, and separate profiles, each with its own personality, system prompt and memory. |
+| **Resist prompt injection** | One `SECURITY.md` right after the system prompt in every chat: web pages, robots.txt and files are data, credentials like `.env` are never read or sent. A private owner code stamps each of your messages so pages and files can't pass as you, and a tool call that carries it is blocked. Every fixed prompt is editable on the Security page, including a trimmed base prompt about 3,400 tokens shorter than the engine's own. |
 | **Stay in control** | Saved sessions beside the main conversation and a Quick session for one-offs; one Background switch that pauses everything it does on its own; a Usage page with the tokens it read and wrote per day, source and model. |
 
 <p align="center"><img src="docs/screenshots/conversation-light.png" width="820" alt="The conversation in the light theme"></p>
@@ -116,13 +117,14 @@ On first launch: check the connection in **Settings**, choose a working folder, 
 | Heartbeat, events and routines | [EVENTS.md](EVENTS.md), [system guide: heartbeat](docs/system-guide/08-heartbeat-inbox.md) |
 | Browser, web search, files | [BROWSER.md](BROWSER.md), [WEB-SERVICES.md](WEB-SERVICES.md), [ATTACHMENTS.md](ATTACHMENTS.md) |
 | Widget, extensions, checks, compaction | [WIDGET.md](WIDGET.md), [EXTENSIONS.md](EXTENSIONS.md), [INDEPENDENT-CHECK.md](INDEPENDENT-CHECK.md), [COMPACTION.md](COMPACTION.md) |
+| Prompts, SECURITY.md and the owner code | [PROMPT-SECURITY.md](PROMPT-SECURITY.md) |
 | What changed in each release | [VALIDATION.md](VALIDATION.md) |
 
 ## Development
 
 ```powershell
 npm run check:syntax
-npm test                 # about 90 Node tests, a few seconds
+npm test                 # about 160 Node tests, under a minute
 npm run test:electron    # embedded browser and Glass widget
 npm start
 npm run package          # unpacked app, portable ZIP and Setup EXE
@@ -134,4 +136,4 @@ Plain JavaScript and Electron with a strict renderer (no Node access, context is
 
 ## Status
 
-Little Bot is a personal, experimental project and an unsigned build. In *Execute* mode it has your user account's access to the working folder and terminal, so choose that folder with care. Autonomous work runs only while the app is open and the PC is awake.
+Little Bot is a personal, experimental project and an unsigned build. In *Execute* mode it has your user account's access to the working folder and terminal, so choose that folder with care. The Security page's rules make prompt injection less likely to work, but they guide the model; they are not a sandbox. Autonomous work runs only while the app is open and the PC is awake.
