@@ -33,7 +33,7 @@ description: Review supplied text for clarity and concision.
 Preserve the author's meaning. Offer a revised passage and explain the main edits.
 ```
 
-Use `$concise-review` in your message, or click **Use in chat**. That button only adds the invocation to your draft. Enabled skills are applied only when explicitly invoked; their full bodies are not automatically added to every conversation. Up to three skills can be selected per message, with a combined 30,000-character limit. A disabled skill or disabled parent plugin cannot be invoked.
+Type `/skill` to pick from a list of your enabled skills (it narrows as you type), write `/skill concise-review your message`, use `$concise-review` in your message, or click **Use in chat**. That button only adds the invocation to your draft. Enabled skills are applied only when explicitly invoked; their full bodies are not automatically added to every conversation. Up to three skills can be selected per message, with a combined 30,000-character limit. A disabled skill or disabled parent plugin cannot be invoked.
 
 Little Bot ships 34 skills. Twelve start enabled; the other 22 (coding, writing, trips, meals, budgets, learning, creative work and home security) start disabled and cost nothing until you turn one on in **Extensions → Skills**. See [resources/skills/SOURCES.md](resources/skills/SOURCES.md).
 

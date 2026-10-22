@@ -1,3 +1,9 @@
+# Version 0.41.0 verification
+
+0.41.0 adds `/skill`, so a skill can be used without typing `. Typing `/skill ` lists the enabled skills with their descriptions and narrows as you type. Picking one puts `$name` in front of the message, and `/skill name message` sends the message with that skill. With no skill on, the menu offers to open Extensions → Skills. `$name` still works.
+
+Checked by `test/slash-commands.test.cjs` (skill matching by name and description, closing once the message starts, reading the name and message; 167 of 167 Node tests pass) and by rendering the list, a narrowed list, a picked skill and the no-skills hint in Electron with demo data.
+
 # Version 0.40.0 verification
 
 0.40.0 adds 22 optional skills, installed disabled, and fixes the starter-skill install that had stopped since 0.35.0.

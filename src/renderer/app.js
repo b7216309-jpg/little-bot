@@ -1809,6 +1809,24 @@ async function executeSlashCommand(parsed) {
       clearComposerDraft();
       await keepQuickSession();
       return true;
+    case 'skill': {
+      // "/skill name message" sends the message with that skill, the same as "$name message".
+      const invocation = LittleBotSlashCommands.skillInvocation(args);
+      const skill = invocation && (extensionData().skills || []).find(item => item.name === invocation.name);
+      if (!invocation || !skill) {
+        if (args) notify(`No skill named ${args.split(/\s/)[0]}. Pick one from the list.`, true);
+        $('message-input').value = '/skill ';
+        sizeComposer(); updateComposer(); $('message-input').focus();
+        renderSlashMenu();
+        return true;
+      }
+      if (!extensionEnabled(skill)) { notify(`Turn ${skill.name} on in Extensions → Skills first. Your draft was kept.`, true); return true; }
+      $('message-input').value = `$${skill.name} ${invocation.message}`.trimEnd() + (invocation.message ? '' : ' ');
+      sizeComposer(); updateComposer();
+      if (!invocation.message) { $('message-input').focus(); return true; }
+      void sendMessage();
+      return true;
+    }
     case 'plan':
     case 'execute':
       if (running) {
@@ -4520,32 +4538,57 @@ $('chat-view').addEventListener('dragleave', () => {
   if (!dragDepth) $('chat-view').classList.remove('drop-active');
 });
 $('compact-chat').addEventListener('click', compactChat);
-// The "/" menu: a slash lists the commands; arrows pick one, Enter or Tab uses it, Escape closes it.
+// The "/" menu: a slash lists the commands, "/skill " lists the enabled skills; arrows pick one,
+// Enter or Tab uses it, Escape closes it.
 let slashActive = 0;
-const slashMenuItems = () => LittleBotSlashCommands.matches($('message-input').value);
+const enabledSkills = () => (extensionData().skills || []).filter(extensionEnabled).sort((a, b) => a.name.localeCompare(b.name));
+function openSkillsInExtensions() {
+  closeSlashMenu();
+  showFeature('extensions');
+  $('extensions-tab-skills').click();
+}
+function slashMenuItems() {
+  const value = $('message-input').value;
+  const skills = LittleBotSlashCommands.skillMatches(value, enabledSkills());
+  if (skills) {
+    if (skills.length) return skills.map(skill => ({ id: `skill-${skill.name}`, title: `$${skill.name}`, args: '', description: skill.description, pick: () => pickSkill(skill) }));
+    const none = !enabledSkills().length;
+    return [{ id: 'skill-none', title: none ? 'No skills are on' : 'No enabled skill matches', args: '',
+      description: none ? 'Turn some on in Extensions → Skills.' : 'Open Extensions → Skills to see them all.', pick: openSkillsInExtensions }];
+  }
+  return LittleBotSlashCommands.matches(value).map(command => {
+    const [title, ...rest] = command.usage.split(' ');
+    return { id: command.name, title, args: rest.join(' '), description: command.description, pick: () => pickSlashCommand(command) };
+  });
+}
 function renderSlashMenu() {
   const items = slashMenuItems();
   $('slash-menu').classList.toggle('hidden', !items.length);
   $('message-input').setAttribute('aria-expanded', String(Boolean(items.length)));
   if (!items.length) { $('slash-menu').replaceChildren(); $('message-input').removeAttribute('aria-activedescendant'); return; }
   slashActive = Math.min(slashActive, items.length - 1);
-  $('slash-menu').replaceChildren(...items.map((command, index) => {
+  $('slash-menu').replaceChildren(...items.map((item, index) => {
     const option = element('button', `slash-option${index === slashActive ? ' active' : ''}`);
     option.type = 'button';
-    option.id = `slash-option-${command.name}`;
+    option.id = `slash-option-${item.id}`;
     option.setAttribute('role', 'option');
     option.setAttribute('aria-selected', String(index === slashActive));
-    const [name, ...rest] = command.usage.split(' ');
     const head = element('span', 'slash-option-head');
-    head.append(element('strong', '', name), element('span', 'slash-option-args', rest.join(' ')));
-    option.append(head, element('span', 'slash-option-description', command.description));
+    head.append(element('strong', '', item.title), element('span', 'slash-option-args', item.args));
+    option.append(head, element('span', 'slash-option-description', item.description));
     // Keep focus in the composer so the click does not close the menu first.
     option.addEventListener('mousedown', event => event.preventDefault());
-    option.addEventListener('click', () => pickSlashCommand(command));
+    option.addEventListener('click', item.pick);
     return option;
   }));
-  $('message-input').setAttribute('aria-activedescendant', `slash-option-${items[slashActive].name}`);
+  $('message-input').setAttribute('aria-activedescendant', `slash-option-${items[slashActive].id}`);
   $('slash-menu').querySelector('.active')?.scrollIntoView({ block: 'nearest' });
+}
+// A picked skill goes in front of the message as $name; the message is written after it.
+function pickSkill(skill) {
+  closeSlashMenu();
+  $('message-input').value = `$${skill.name} `;
+  sizeComposer(); updateComposer(); $('message-input').focus();
 }
 function closeSlashMenu() {
   slashActive = 0;
@@ -4559,6 +4602,7 @@ function pickSlashCommand(command) {
   $('message-input').value = LittleBotSlashCommands.takesArguments(command) ? `/${command.name} ` : `/${command.name}`;
   sizeComposer(); updateComposer(); $('message-input').focus();
   if (!LittleBotSlashCommands.takesArguments(command)) sendMessage();
+  else renderSlashMenu(); // "/skill " goes straight on to the list of skills.
 }
 function slashMenuKey(event) {
   const items = $('slash-menu').classList.contains('hidden') ? [] : slashMenuItems();
@@ -4566,7 +4610,7 @@ function slashMenuKey(event) {
   if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
     slashActive = (slashActive + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
     renderSlashMenu();
-  } else if ((event.key === 'Enter' && !event.shiftKey && !event.isComposing) || event.key === 'Tab') pickSlashCommand(items[slashActive]);
+  } else if ((event.key === 'Enter' && !event.shiftKey && !event.isComposing) || event.key === 'Tab') items[slashActive].pick();
   else if (event.key === 'Escape') closeSlashMenu();
   else return false;
   event.preventDefault();

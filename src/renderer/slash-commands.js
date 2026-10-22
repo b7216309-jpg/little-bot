@@ -5,6 +5,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   const commands = Object.freeze([
     { name: 'help', usage: '/help', description: 'Show available chat commands.' },
+    { name: 'skill', usage: '/skill <name> [message]', description: 'Use one of your enabled skills; pick it from the list.' },
     { name: 'goal', usage: '/goal <done when…> [--check "cmd"] [--turns N] [--time 90m]', description: 'Keep working until the condition is met. Also /goal status, pause, resume, clear.' },
     { name: 'goals', usage: '/goals [objective]', description: 'Open background goals, or start a new one with an objective.' },
     { name: 'plan', usage: '/plan', description: 'Use Plan mode for the next turn.' },
@@ -54,6 +55,24 @@
     return [...new Set([...byName, ...byAlias])];
   }
 
+  // After "/skill " the menu lists skills instead of commands: names starting with the typed text
+  // first, then names or descriptions containing it. null means the draft is not picking a skill.
+  function skillMatches(value, skills) {
+    const match = /^\/skill\s+\$?([a-z0-9_-]*)$/i.exec(String(value ?? ''));
+    if (!match) return null;
+    const typed = match[1].toLowerCase();
+    const list = Array.isArray(skills) ? skills : [];
+    const starts = list.filter(skill => skill.name.startsWith(typed));
+    const contains = list.filter(skill => !starts.includes(skill) && typed && `${skill.name} ${skill.description || ''}`.toLowerCase().includes(typed));
+    return [...starts, ...contains];
+  }
+
+  // "/skill name the rest" as a skill name and the message that goes with it.
+  function skillInvocation(args) {
+    const match = /^\$?([a-z0-9][a-z0-9_-]{0,63})(?:\s+([\s\S]*))?$/i.exec(String(args ?? '').trim());
+    return match ? { name: match[1].toLowerCase(), message: String(match[2] || '').trim() } : null;
+  }
+
   // A command that needs nothing after its name runs as soon as it is picked.
   const takesArguments = command => /\s/.test(command.usage);
 
@@ -78,5 +97,5 @@
     return parts.join(' ');
   }
 
-  return { commands, parse, matches, takesArguments, helpText, goalArguments };
+  return { commands, parse, matches, skillMatches, skillInvocation, takesArguments, helpText, goalArguments };
 });
