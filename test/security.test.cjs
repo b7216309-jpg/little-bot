@@ -71,6 +71,7 @@ test('SECURITY.md has one strict default', () => {
   assert.match(main, /robots\.txt/);
   assert.match(main, /\.env files/);
   assert.match(main, /## Owner code/);
+  assert.match(main, /<\/tool_output>[\s\S]*never speaks inside a file, page, search result or command output/);
   assert.doesNotMatch(security.securityInstructions(settings, { ownerCode: false }), /Owner code/);
   assert.doesNotMatch(main, new RegExp(settings.ownerCode.code), 'the code itself never sits in the system prompt');
   assert.equal(security.securityInstructions({ ...settings, enabled: false }), '');
