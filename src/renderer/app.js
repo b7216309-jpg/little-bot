@@ -54,6 +54,12 @@ const icons = {
   'arrow-left': ['M19 12H5', 'm12 19-7-7 7-7'],
   'arrow-right': ['M5 12h14', 'm12 5 7 7-7 7'],
   chart: ['M3 21h18', 'M6 17v-6', 'M11 17V5', 'M16 17v-9', 'M21 17v-3'],
+  bookmark: ['M6 3h12v18l-6-4-6 4Z'],
+  slash: ['M15 4 9 20'],
+  phone: ['M7 2h10v20H7Z', 'M11 18h2'],
+  globe: ['M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0', 'M3 12h18', 'M12 3a14 14 0 0 1 0 18', 'M12 3a14 14 0 0 0 0 18'],
+  sun: ['M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0', 'M12 2v2', 'M12 20v2', 'M4.9 4.9l1.4 1.4', 'M17.7 17.7l1.4 1.4', 'M2 12h2', 'M20 12h2', 'M4.9 19.1l1.4-1.4', 'M17.7 6.3l1.4-1.4'],
+  box: ['M3 7l9-4 9 4v10l-9 4-9-4Z', 'M3 7l9 4 9-4', 'M12 11v10'],
 };
 
 function fillIcon(node, name) {
@@ -375,6 +381,7 @@ function render() {
   if (currentView === 'security') renderSecurity();
   if (currentView === 'usage') window.LittleBotUsage?.refresh();
   renderAgentInspector();
+  renderGoalPanel();
   renderBrowserPanel();
   renderApprovals();
   updateComposer();
@@ -553,6 +560,13 @@ async function deleteSession() {
     chatDrafts.delete(chat.id); attachmentDrafts.delete(chat.id); planModeDrafts.delete(chat.id);
     selectChat(null, 'main');
   }
+}
+
+// The Quick session becomes a saved session in the sidebar; the chat id, history and draft stay.
+async function keepQuickSession() {
+  const chat = currentChat();
+  if (!chat?.private) return notify('Open the Quick session to keep it.');
+  if (await attempt(() => window.bot.saveQuickSession({ chatId: chat.id }), 'Saved as a session. Memory works here from now on.')) selectChat(chat.id, 'session');
 }
 
 function saveCurrentDraft() {
@@ -1206,6 +1220,9 @@ function renderConversation() {
   const busy = chat?.status === 'running' || chat?.status === 'waiting';
   $('quick-end').classList.toggle('hidden', chatMode !== 'quick' || !chat);
   $('quick-end').disabled = busy;
+  $('quick-keep').classList.toggle('hidden', chatMode !== 'quick' || !chat?.messages?.some(message => message.role === 'user'));
+  $('quick-keep').disabled = busy;
+  $('quick-keep').title = busy ? 'Wait for the reply to finish, then keep this session.' : 'Keep this Quick session as a saved session, with its history';
   $('session-rename').classList.toggle('hidden', chatMode !== 'session' || !chat);
   $('session-delete').classList.toggle('hidden', chatMode !== 'session' || !chat);
   $('session-delete').disabled = busy;
@@ -1260,7 +1277,7 @@ function updateComposer() {
   $('plan-mode-toggle').disabled = Boolean(running || sending || !isReady());
   $('plan-mode-toggle').setAttribute('aria-pressed', String(Boolean(currentPlanMode())));
   $('plan-mode-toggle').classList.toggle('active', Boolean(currentPlanMode()));
-  $('message-input').placeholder = currentPlanMode() ? 'Ask Little Bot to plan…' : chatMode === 'quick' ? 'Quick task for Little Bot…' : chatMode === 'session' ? 'Message this session…' : 'Message Little Bot…';
+  $('message-input').placeholder = `${currentPlanMode() ? 'Ask Little Bot to plan…' : chatMode === 'quick' ? 'Quick task for Little Bot…' : chatMode === 'session' ? 'Message this session…' : 'Message Little Bot…'}  ·  / for commands`;
   renderThinkingControl();
   renderAttachmentQueue();
   renderChatContext();
@@ -1689,8 +1706,13 @@ async function executeSlashCommand(parsed) {
   const args = parsed.args;
   switch (parsed.name) {
     case 'help':
+      $('message-input').value = '/';
+      sizeComposer(); updateComposer(); $('message-input').focus();
+      renderSlashMenu();
+      return true;
+    case 'keep':
       clearComposerDraft();
-      notify(`Commands: ${LittleBotSlashCommands.helpText()}`);
+      await keepQuickSession();
       return true;
     case 'plan':
     case 'execute':
@@ -1720,12 +1742,10 @@ async function executeSlashCommand(parsed) {
     }
     case 'goals':
       clearComposerDraft();
-      showFeature('goals');
+      if (!args) { setGoalPanelOpen(true); return true; }
       editGoal();
-      if (args) {
-        $('goal-name').value = commandDraftName(args, 'New goal');
-        $('goal-objective').value = args.slice(0, 12000);
-      }
+      $('goal-name').value = commandDraftName(args, 'New goal');
+      $('goal-objective').value = args.slice(0, 12000);
       $('goal-objective').focus();
       return true;
     case 'schedule':
@@ -1831,10 +1851,10 @@ function renderSettings() {
   $('settings-engine').textContent = isReady() ? 'Running locally' : state.runtime?.status === 'error' ? 'Needs attention' : 'Starting up';
   $('settings-version').textContent = `v${state.appVersion || '0.1.0'}`;
   const storage = state.attachmentStorage;
-  $('settings-attachment-usage').textContent = storage ? `${fileSize(storage.usedBytes)} of ${fileSize(storage.maxBytes)} · ${storage.fileCount} saved or pending files · ${fileSize(storage.unusedBytes)} unused` : 'Attachment storage unavailable.';
+  $('settings-attachment-usage').textContent = storage ? `${fileSize(storage.usedBytes)} of ${fileSize(storage.maxBytes)} · ${storage.fileCount} files · ${fileSize(storage.unusedBytes)} unused` : 'Unavailable';
   $('settings-clean-attachments').disabled = !storage || !storage.unusedBytes;
-  $('settings-engine-detail').textContent = 'Your local model, through the bundled assistant engine.';
-  $('settings-data-detail').textContent = 'Conversation and memory are stored on this PC. Web search connects only when used.';
+  $('settings-engine-detail').textContent = 'Local model · bundled engine';
+  $('settings-data-detail').textContent = 'Chats and memory stay on this PC';
   renderConnectionSettings();
   renderIndependentCheckSettings();
   renderCompactionSettings();
@@ -3511,6 +3531,114 @@ function renderGoalKind() {
   for (const field of $('goal-checks').querySelectorAll('input,textarea')) field.required = !ongoing;
 }
 
+// The goal panel: a drawer over any page with this chat's /goal, the background goals and the goal editor.
+let goalPanelOpen = false;
+let goalTab = 'basics';
+function setGoalPanelOpen(open) {
+  goalPanelOpen = open;
+  $('goal-panel').classList.toggle('hidden', !open);
+  $('goal-panel-toggle').setAttribute('aria-pressed', String(open));
+  $('goal-panel-toggle').classList.toggle('active', open);
+  if (open) { showGoalPanelList(); $('goal-panel-close').focus(); }
+}
+function showGoalPanelList() {
+  $('goal-form').classList.add('hidden');
+  $('goal-panel-list').classList.remove('hidden');
+  $('goal-panel-back').classList.add('hidden');
+  $('goal-title').textContent = 'Goals';
+  renderGoalPanel();
+}
+function showGoalTab(name) {
+  goalTab = name;
+  for (const tab of document.querySelectorAll('[data-goal-tab]')) {
+    const selected = tab.dataset.goalTab === name;
+    tab.setAttribute('aria-selected', String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+  }
+  for (const panel of document.querySelectorAll('[data-goal-panel]')) panel.classList.toggle('hidden', panel.dataset.goalPanel !== name);
+}
+// A "No limit" switch shows ∞ and saves 0 (an empty field counts as 0). Turning one off offers
+// a budget to edit instead.
+const LIMIT_SUGGESTIONS = { 'goal-max-tokens': 500000, 'goal-max-minutes': 120, 'goal-max-actions': 150 };
+function syncGoalLimits(changed) {
+  for (const toggle of document.querySelectorAll('[data-limit]')) {
+    const input = $(toggle.dataset.limit);
+    if (toggle === changed && !toggle.checked && !Number(input.value)) input.value = LIMIT_SUGGESTIONS[input.id];
+    if (toggle.checked) input.value = '';
+    input.disabled = toggle.checked;
+    input.placeholder = toggle.checked ? '∞' : '';
+  }
+}
+const CHAT_GOAL_STATUS = { pursuing: 'Working', paused: 'Paused', achieved: 'Reached', unmet: 'Can’t be finished', budget: 'Budget used' };
+function renderGoalPanel() {
+  const goals = state?.autonomy?.goals || [];
+  const active = goals.filter(goal => goal.pendingQuestion || goal.status === 'running' || goal.status === 'queued').length;
+  $('goal-panel-count').textContent = String(active);
+  $('goal-panel-count').classList.toggle('hidden', !active);
+  if (!goalPanelOpen || $('goal-panel-list').classList.contains('hidden')) return;
+  $('goal-panel-paused').classList.toggle('hidden', !state.autonomy?.paused);
+  const chat = currentView === 'chat' ? currentChat() : null;
+  const card = element('div', 'goal-mini');
+  if (chatMode === 'quick' && currentView === 'chat') card.append(element('p', 'goal-mini-line', 'Goals are off in the Quick session.'));
+  else if (chat?.goal) {
+    const goal = chat.goal;
+    const top = element('div', 'goal-mini-top');
+    top.append(element('strong', '', goal.condition), element('span', `goal-status chat-goal-${goal.status}`, CHAT_GOAL_STATUS[goal.status] || goal.status));
+    const actions = element('div', 'goal-mini-actions');
+    if (['pursuing', 'paused'].includes(goal.status)) actions.append(action(goal.status === 'pursuing' ? 'Pause' : 'Resume', () => goalCommand(goal.status === 'pursuing' ? 'pause' : 'resume'), 'button secondary', goal.status === 'pursuing' ? 'pause' : 'play'));
+    actions.append(action(['pursuing', 'paused'].includes(goal.status) ? 'Clear' : 'Dismiss', () => goalCommand('clear'), 'button text-button'));
+    card.append(top, element('p', 'goal-mini-line', goalStatusLine(chat, goal)), actions);
+  } else {
+    card.append(element('p', 'goal-mini-line', 'Set a condition and Little Bot keeps working on it until it’s met.'));
+    const actions = element('div', 'goal-mini-actions');
+    actions.append(action('Set a chat goal', () => {
+      setGoalPanelOpen(false);
+      if (currentView !== 'chat') selectChat();
+      $('message-input').value = '/goal ';
+      sizeComposer(); updateComposer(); $('message-input').focus();
+    }, 'button secondary', 'goal'));
+    card.append(actions);
+  }
+  $('goal-panel-chat-goal').replaceChildren(card);
+  const sorted = [...goals].sort((a, b) => (a.priority || 3) - (b.priority || 3) || new Date(b.updatedAt) - new Date(a.updatedAt));
+  $('goal-panel-goals').replaceChildren(...(sorted.length ? sorted.map(goalMiniCard) : [element('p', 'goal-mini-empty', 'No background goals yet.')]));
+}
+function goalMiniCard(goal) {
+  const autonomy = state.autonomy || {};
+  const card = element('article', 'goal-mini');
+  const top = element('div', 'goal-mini-top');
+  top.append(element('strong', '', goal.name), element('span', `goal-status ${goal.status || 'draft'}`, goal.pendingQuestion ? 'Needs your answer' : humanStatus(goal.status || 'draft')));
+  const waiting = goal.status === 'queued' && !autonomy.paused ? state.goalWaiting?.[goal.id] : '';
+  const line = goal.status === 'running' && goal.currentAction ? goal.currentAction
+    : waiting ? `Waiting: ${waiting}`
+      : goal.nextRunAt && goal.status === 'queued' && !autonomy.paused ? `Next: ${formatDate(goal.nextRunAt)}`
+        : goalText(goal.review?.lastResult?.summary || goal.checkpoint) || goal.objective;
+  const usage = goal.usage || {}, limits = goal.limits || {};
+  const cap = value => value > 0 ? value.toLocaleString() : '∞';
+  card.append(top, element('p', 'goal-mini-line', line), element('p', 'goal-mini-budget', `${(usage.tokens || 0).toLocaleString()} / ${cap(limits.maxTokens)} tokens · ${usage.runs || 0} / ${limits.maxRuns ?? '—'} runs`));
+  const actions = element('div', 'goal-mini-actions');
+  const pending = goalPending.has(goal.id);
+  const active = goal.status === 'running' || goal.status === 'queued';
+  if (goal.pendingQuestion) actions.append(action('Answer', () => { setGoalPanelOpen(false); showFeature('goals'); }, 'button primary'));
+  else if (active) {
+    const pause = action('Pause', () => mutateGoal(`pause:${goal.id}`, () => window.bot.pauseGoal({ id: goal.id })), 'button secondary', 'pause');
+    pause.disabled = goalPending.has(`pause:${goal.id}`);
+    actions.append(pause);
+  } else {
+    const resume = goal.status === 'paused';
+    const run = action(resume ? 'Resume' : goal.status === 'completed' ? 'Run again' : goal.status === 'blocked' ? 'Retry' : 'Run', () => mutateGoal(goal.id, () => resume ? window.bot.resumeGoal({ id: goal.id }) : window.bot.runGoal({ id: goal.id })), 'button primary', 'play');
+    run.disabled = pending || Boolean(autonomy.paused) || !isReady() || !isConnected();
+    run.title = autonomy.paused ? 'Turn Background on first.' : !isConnected() ? 'Connect a model first.' : 'Run with this goal’s saved access and budget.';
+    actions.append(run);
+  }
+  const edit = action('Edit', () => editGoal(goal), 'button text-button', 'edit');
+  edit.disabled = active || pending;
+  edit.title = active ? 'Pause the goal before editing it.' : 'Edit this goal';
+  actions.append(edit);
+  card.append(actions);
+  return card;
+}
+
 function editGoal(goal) {
   editingGoalId = goal?.id || null;
   goalDraftContext = { workspace: goal?.workspace || state.settings.workspace, model: goal?.model || state.settings.model, effort: goal?.effort || state.settings.effort || 'low' };
@@ -3541,7 +3669,8 @@ function editGoal(goal) {
   $('goal-trigger').value = goal?.trigger?.type || 'manual';
   $('goal-interval').value = goal?.trigger?.intervalMinutes || 30;
   $('goal-trigger-paths').value = (goal?.trigger?.paths || []).join('\n');
-  $('goal-advanced').open = false;
+  for (const toggle of document.querySelectorAll('[data-limit]')) toggle.checked = Number($(toggle.dataset.limit).value) === 0;
+  syncGoalLimits();
   $('goal-form-error').classList.add('hidden');
   $('save-goal').textContent = goal ? 'Save changes' : 'Save draft';
   $('save-goal').disabled = false;
@@ -3564,7 +3693,15 @@ function editGoal(goal) {
   renderGoalTrigger();
   renderGoalWriteScope();
   renderGoalKind();
-  showDialog('goal-dialog');
+  showGoalTab('basics');
+  goalPanelOpen = true;
+  $('goal-panel').classList.remove('hidden');
+  $('goal-panel-toggle').setAttribute('aria-pressed', 'true');
+  $('goal-panel-toggle').classList.add('active');
+  $('goal-panel-list').classList.add('hidden');
+  $('goal-form').classList.remove('hidden');
+  $('goal-panel-back').classList.remove('hidden');
+  $('goal-name').focus();
 }
 
 function renderGoalPermissions(goal) {
@@ -3620,8 +3757,9 @@ function renderGoalWriteScope() {
 
 async function saveGoal(event) {
   event.preventDefault();
-  const invalidAdvanced = $('goal-advanced').querySelector('input:invalid,textarea:invalid,select:invalid');
-  if (invalidAdvanced) $('goal-advanced').open = true;
+  // A field can only show its problem on the tab that holds it.
+  const invalid = $('goal-form').querySelector('input:invalid,textarea:invalid,select:invalid');
+  if (invalid) showGoalTab(invalid.closest('[data-goal-panel]')?.dataset.goalPanel || goalTab);
   if (!$('goal-form').reportValidity()) return;
   $('goal-form-error').classList.add('hidden');
   $('save-goal').disabled = true;
@@ -3635,7 +3773,7 @@ async function saveGoal(event) {
     });
     const selectedMcp = Array.from($('goal-mcp-tools').querySelectorAll('input:checked'));
     if (checks.some((check) => check.type === 'command') && !$('goal-permission-shell').checked) {
-      $('goal-advanced').open = true;
+      showGoalTab('access');
       throw new Error('Enable terminal commands under Access to use a command verification check.');
     }
     if (selectedMcp.some((input) => input.dataset.unavailable === 'true')) throw new Error('Refresh Extensions to discover the saved MCP tools, or remove their grants before saving.');
@@ -3651,7 +3789,7 @@ async function saveGoal(event) {
     };
     const result = await window.bot.saveGoal(payload);
     if (result?.settings) applyState(result);
-    closeDialog('goal-dialog');
+    showGoalPanelList();
     if (currentView === 'goals') renderGoals();
     notify(editingGoalId ? 'Goal updated.' : 'Draft saved.');
   } catch (error) {
@@ -4214,6 +4352,7 @@ $('quick-end').addEventListener('click', async () => {
   if (!chat?.private) return;
   if (await attempt(() => window.bot.deleteChat({ chatId: chat.id }), 'Quick session ended.')) { chatDrafts.delete('__quick__'); selectChat(null, 'quick'); }
 });
+$('quick-keep').addEventListener('click', keepQuickSession);
 $('nav-automations').addEventListener('click', showAutomations);
 $('nav-calendar').addEventListener('click', () => showFeature('calendar'));
 $('nav-memory').addEventListener('click', () => showFeature('memory'));
@@ -4249,6 +4388,26 @@ $('profile-create-form').addEventListener('submit', createProfile);
 $('profile-create-name').addEventListener('input', renderProfiles);
 $('create-goal').addEventListener('click', () => editGoal());
 $('goal-form').addEventListener('submit', saveGoal);
+$('goal-panel-toggle').addEventListener('click', () => setGoalPanelOpen(!goalPanelOpen));
+$('goal-panel-close').addEventListener('click', () => setGoalPanelOpen(false));
+$('goal-panel-back').addEventListener('click', showGoalPanelList);
+$('goal-cancel').addEventListener('click', showGoalPanelList);
+$('goal-panel-new').addEventListener('click', () => editGoal());
+$('goal-panel-page').addEventListener('click', () => { setGoalPanelOpen(false); showFeature('goals'); });
+for (const tab of document.querySelectorAll('[data-goal-tab]')) tab.addEventListener('click', () => showGoalTab(tab.dataset.goalTab));
+$('goal-form').querySelector('.goal-tabs').addEventListener('keydown', event => {
+  if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+  const tabs = [...document.querySelectorAll('[data-goal-tab]')];
+  const next = tabs[(tabs.findIndex(tab => tab.dataset.goalTab === goalTab) + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
+  showGoalTab(next.dataset.goalTab);
+  next.focus();
+});
+for (const toggle of document.querySelectorAll('[data-limit]')) toggle.addEventListener('change', () => syncGoalLimits(toggle));
+$('goal-panel').addEventListener('keydown', event => {
+  if (event.key !== 'Escape' || event.defaultPrevented) return;
+  event.preventDefault();
+  if ($('goal-form').classList.contains('hidden')) setGoalPanelOpen(false); else showGoalPanelList();
+});
 $('goal-kind').addEventListener('change', renderGoalKind);
 $('goal-add-check').addEventListener('click', () => addGoalCheck());
 $('goal-trigger').addEventListener('change', renderGoalTrigger);
@@ -4261,7 +4420,7 @@ $('nav-settings').addEventListener('click', () => showDialog('settings-dialog'))
 $('connection-settings-form').addEventListener('submit', saveConnection);
 for (const id of ['settings-local-url', 'settings-local-model']) $(id).addEventListener('input', () => { connectionError = ''; renderConnectionSettings(); });
 $('settings-connection-check').addEventListener('click', checkConnection);
-$('local-connection-settings').addEventListener('click', () => showDialog('settings-dialog'));
+$('local-connection-settings').addEventListener('click', () => { showDialog('settings-dialog'); showSettingsTab('model'); });
 $('local-connection-check').addEventListener('click', checkConnection);
 $('system-prompt-settings-form').addEventListener('submit', saveSystemPromptSettings);
 $('settings-system-prompt').addEventListener('input', () => {
@@ -4349,8 +4508,62 @@ $('chat-view').addEventListener('dragleave', () => {
   if (!dragDepth) $('chat-view').classList.remove('drop-active');
 });
 $('compact-chat').addEventListener('click', compactChat);
-$('message-input').addEventListener('input', () => { sizeComposer(); updateComposer(); });
+// The "/" menu: a slash lists the commands; arrows pick one, Enter or Tab uses it, Escape closes it.
+let slashActive = 0;
+const slashMenuItems = () => LittleBotSlashCommands.matches($('message-input').value);
+function renderSlashMenu() {
+  const items = slashMenuItems();
+  $('slash-menu').classList.toggle('hidden', !items.length);
+  $('message-input').setAttribute('aria-expanded', String(Boolean(items.length)));
+  if (!items.length) { $('slash-menu').replaceChildren(); $('message-input').removeAttribute('aria-activedescendant'); return; }
+  slashActive = Math.min(slashActive, items.length - 1);
+  $('slash-menu').replaceChildren(...items.map((command, index) => {
+    const option = element('button', `slash-option${index === slashActive ? ' active' : ''}`);
+    option.type = 'button';
+    option.id = `slash-option-${command.name}`;
+    option.setAttribute('role', 'option');
+    option.setAttribute('aria-selected', String(index === slashActive));
+    const [name, ...rest] = command.usage.split(' ');
+    const head = element('span', 'slash-option-head');
+    head.append(element('strong', '', name), element('span', 'slash-option-args', rest.join(' ')));
+    option.append(head, element('span', 'slash-option-description', command.description));
+    // Keep focus in the composer so the click does not close the menu first.
+    option.addEventListener('mousedown', event => event.preventDefault());
+    option.addEventListener('click', () => pickSlashCommand(command));
+    return option;
+  }));
+  $('message-input').setAttribute('aria-activedescendant', `slash-option-${items[slashActive].name}`);
+  $('slash-menu').querySelector('.active')?.scrollIntoView({ block: 'nearest' });
+}
+function closeSlashMenu() {
+  slashActive = 0;
+  $('slash-menu').classList.add('hidden');
+  $('slash-menu').replaceChildren();
+  $('message-input').setAttribute('aria-expanded', 'false');
+  $('message-input').removeAttribute('aria-activedescendant');
+}
+function pickSlashCommand(command) {
+  closeSlashMenu();
+  $('message-input').value = LittleBotSlashCommands.takesArguments(command) ? `/${command.name} ` : `/${command.name}`;
+  sizeComposer(); updateComposer(); $('message-input').focus();
+  if (!LittleBotSlashCommands.takesArguments(command)) sendMessage();
+}
+function slashMenuKey(event) {
+  const items = $('slash-menu').classList.contains('hidden') ? [] : slashMenuItems();
+  if (!items.length) return false;
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    slashActive = (slashActive + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+    renderSlashMenu();
+  } else if ((event.key === 'Enter' && !event.shiftKey && !event.isComposing) || event.key === 'Tab') pickSlashCommand(items[slashActive]);
+  else if (event.key === 'Escape') closeSlashMenu();
+  else return false;
+  event.preventDefault();
+  return true;
+}
+$('message-input').addEventListener('input', () => { sizeComposer(); updateComposer(); slashActive = 0; renderSlashMenu(); });
+$('message-input').addEventListener('blur', closeSlashMenu);
 $('message-input').addEventListener('keydown', (event) => {
+  if (slashMenuKey(event)) return;
   if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
     sendMessage();
@@ -4460,19 +4673,30 @@ for (const id of ['heartbeat-start-hour', 'heartbeat-end-hour']) {
 $('heartbeat-form').addEventListener('input', markHeartbeatDirty);
 $('heartbeat-form').addEventListener('change', markHeartbeatDirty);
 $('heartbeat-form').addEventListener('submit', saveHeartbeat);
-// Quick links to each Settings section; the dialog is long.
-function renderSettingsJump() {
-  $('settings-theme').value = themeChoice();
-  const sections = [...$('settings-dialog').querySelectorAll('.settings-section')].filter(section => !section.classList.contains('hidden'));
-  $('settings-jump').replaceChildren(...sections.map(section => {
-    const title = section.querySelector('h3')?.textContent.trim();
-    if (!title) return null;
-    const chip = element('button', 'settings-jump-chip', title);
-    chip.type = 'button';
-    chip.addEventListener('click', () => section.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-    return chip;
-  }).filter(Boolean));
+// Settings show one category at a time, picked from the list on the left.
+let settingsTab = 'general';
+function showSettingsTab(name) {
+  settingsTab = name;
+  for (const tab of document.querySelectorAll('[data-settings-tab]')) {
+    const selected = tab.dataset.settingsTab === name;
+    tab.setAttribute('aria-selected', String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+  }
+  for (const panel of document.querySelectorAll('[data-settings-panel]')) panel.classList.toggle('hidden', panel.dataset.settingsPanel !== name);
 }
+function renderSettingsJump(tab) {
+  $('settings-theme').value = themeChoice();
+  showSettingsTab(tab || settingsTab);
+}
+for (const tab of document.querySelectorAll('[data-settings-tab]')) tab.addEventListener('click', () => showSettingsTab(tab.dataset.settingsTab));
+$('settings-jump').addEventListener('keydown', event => {
+  if (!['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+  event.preventDefault();
+  const tabs = [...document.querySelectorAll('[data-settings-tab]')];
+  const next = tabs[(tabs.findIndex(tab => tab.dataset.settingsTab === settingsTab) + (event.key === 'ArrowDown' ? 1 : -1) + tabs.length) % tabs.length];
+  showSettingsTab(next.dataset.settingsTab);
+  next.focus();
+});
 
 $('settings-theme').addEventListener('change', event => {
   try { localStorage.setItem('little-bot.theme', event.target.value); } catch { /* The theme still applies for this session. */ }
@@ -4516,8 +4740,8 @@ function renderRelay(relay) {
   const secure = relay.urls.some(item => item.secure);
   $('relay-https').classList.toggle('hidden', secure);
   $('relay-https-hint').textContent = secure
-    ? 'Tailscale HTTPS is on: pair with the https link to get notifications and install Little Bot as an app on the phone.'
-    : 'Notifications and installing as an app need https. Install Tailscale on this PC and your phone (same account), then use Turn on Tailscale HTTPS. Over plain Wi-Fi the chat works, but without notifications.';
+    ? 'HTTPS is on: pair with the https link for notifications and the app.'
+    : 'Notifications need https: install Tailscale on this PC and the phone, then turn on HTTPS.';
   const pairing = relay.pairing;
   $('relay-pairing').classList.toggle('hidden', !pairing);
   $('relay-pair').disabled = !relay.running;

@@ -6,9 +6,9 @@ Goals share Little Bot's continuous conversation. A **Task** has a finite outcom
 
 ## Create a goal
 
-Open **Goals → New goal**. Choose the type, describe the desired outcome, select evidence sources, and set access, schedule and limits. Save the draft and choose **Run goal**. New goals use the outcome contract; legacy goals retain their history and behavior until edited.
+Open the **Goals** button in the top bar (or /goals) and choose **New goal**. The editor has six tabs: Basics (type and outcome), Evidence, Checks, Access, Limits and Schedule. Save the draft and choose **Run**. New goals use the outcome contract; legacy goals retain their history and behavior until edited.
 
-The continuous chat is enabled as a source by default, together with upcoming calendar events. Optional **Evidence files** are absolute paths to regular text files, each up to 2 MiB. They may live outside the goal's working folder. The collector supplies bounded excerpts, source IDs and versions; inaccessible files are reported as coverage gaps. They do not expand writable access. Memory off disables recent chat recall and semantic memory access.
+The continuous chat is enabled as a source by default, together with upcoming calendar events. Optional **Files** on the Evidence tab are absolute paths to regular text files, each up to 2 MiB. They may live outside the goal's working folder. The collector supplies bounded excerpts, source IDs and versions; inaccessible files are reported as coverage gaps. They do not expand writable access. Memory off disables recent chat recall and semantic memory access.
 
 Ongoing goals can provide advice without file checks. Tasks require at least one acceptance check. A **fileExists** or **fileContains** check verifies an artifact; a **command** check runs read-only with network disabled, requires terminal permission and has a 20-second timeout. Choose checks that establish the actual outcome: a heading alone cannot prove substantive progress. A recurring task cannot claim fresh completion from checks that already passed unless this run produced observable file changes.
 

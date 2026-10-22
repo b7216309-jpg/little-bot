@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="./provider-usage.css">
   <link rel="stylesheet" href="./goal-ledger.css">
   <link rel="stylesheet" href="./standing-intents.css">
+  <link rel="stylesheet" href="./panels.css">
   <link rel="stylesheet" href="./dark.css">
   <link rel="stylesheet" href="./widget-mode.css">
   <link rel="stylesheet" href="./usage.css">
@@ -57,13 +58,13 @@
         <summary id="tools-toggle" aria-controls="tool-navigation"><span class="icon" data-icon="chevron-down"></span><span>Tools</span></summary>
         <nav id="tool-navigation" aria-label="Assistant tools">
           <button id="nav-goals" class="nav-button"><span class="icon" data-icon="goal"></span><span>Goals</span><span id="goals-count" class="count hidden">0</span></button>
-          <button id="nav-automations" class="nav-button"><span class="icon" data-icon="clock"></span><span>Automations</span><span id="automation-count" class="count hidden">0</span></button>
           <button id="nav-calendar" class="nav-button"><span class="icon" data-icon="calendar"></span><span>Calendar</span><span id="calendar-count" class="count hidden">0</span></button>
-          <button id="nav-heartbeat" class="nav-button"><span class="icon" data-icon="heartbeat"></span><span>Heartbeat</span></button>
+          <button id="nav-automations" class="nav-button"><span class="icon" data-icon="clock"></span><span>Automations</span><span id="automation-count" class="count hidden">0</span></button>
           <button id="nav-memory" class="nav-button"><span class="icon" data-icon="memory"></span><span>Memory</span></button>
-          <button id="nav-usage" class="nav-button"><span class="icon" data-icon="chart"></span><span>Usage</span></button>
+          <button id="nav-heartbeat" class="nav-button"><span class="icon" data-icon="heartbeat"></span><span>Heartbeat</span></button>
           <button id="nav-profile" class="nav-button"><span class="icon" data-icon="user"></span><span>Profile</span><span id="nav-profile-name" class="nav-profile-name hidden"></span></button>
           <button id="nav-extensions" class="nav-button"><span class="icon" data-icon="extensions"></span><span>Extensions</span></button>
+          <button id="nav-usage" class="nav-button"><span class="icon" data-icon="chart"></span><span>Usage</span></button>
           <button id="nav-security" class="nav-button"><span class="icon" data-icon="shield"></span><span>Security</span><span id="security-blocked-count" class="count hidden">0</span></button>
         </nav>
       </details>
@@ -86,7 +87,7 @@
       </header>
       <header class="topbar">
         <div class="topbar-left"><span id="page-label" class="page-label">Conversation</span><span class="topbar-divider"></span><span id="runtime-status" class="runtime-status"><span class="status-dot starting"></span><span>Starting engine</span></span></div>
-        <div class="topbar-actions"><button id="quick-end" class="workspace-button hidden" type="button" title="End this Quick session; it is not saved"><span class="icon" data-icon="x"></span><span>End session</span></button><button id="session-rename" class="workspace-button hidden" type="button" title="Rename this session"><span class="icon" data-icon="edit"></span><span>Rename</span></button><button id="session-delete" class="workspace-button hidden" type="button" title="Delete this session and its history"><span class="icon" data-icon="trash"></span><span>Delete</span></button><button id="enter-widget" class="workspace-button" type="button" title="Glass widget mode · Ctrl+Shift+M"><span class="icon" data-icon="compact"></span><span>Widget</span></button><button id="agent-inspector-toggle" class="workspace-button inspector-toggle" type="button" aria-pressed="false" title="Show agent activity"><span class="icon" data-icon="info"></span><span>Activity</span></button><button id="open-agent-browser" class="workspace-button agent-browser-button" type="button" title="Open the agent’s browser"><span class="icon" data-icon="browser"></span><span>Browser</span></button><button id="choose-workspace" class="workspace-button" title="Choose a workspace"><span class="icon" data-icon="folder"></span><span id="workspace-label">Choose workspace</span><span class="icon small" data-icon="chevron-down"></span></button></div>
+        <div class="topbar-actions"><button id="quick-keep" class="workspace-button hidden" type="button" title="Keep this Quick session as a saved session, with its history"><span class="icon" data-icon="bookmark"></span><span>Keep as session</span></button><button id="quick-end" class="workspace-button hidden" type="button" title="End this Quick session; it is not saved"><span class="icon" data-icon="x"></span><span>End session</span></button><button id="session-rename" class="workspace-button hidden" type="button" title="Rename this session"><span class="icon" data-icon="edit"></span><span>Rename</span></button><button id="session-delete" class="workspace-button hidden" type="button" title="Delete this session and its history"><span class="icon" data-icon="trash"></span><span>Delete</span></button><button id="enter-widget" class="workspace-button" type="button" title="Glass widget mode · Ctrl+Shift+M"><span class="icon" data-icon="compact"></span><span>Widget</span></button><button id="goal-panel-toggle" class="workspace-button" type="button" aria-pressed="false" aria-controls="goal-panel" title="Goals · /goals"><span class="icon" data-icon="goal"></span><span>Goals</span><span id="goal-panel-count" class="count hidden">0</span></button><button id="agent-inspector-toggle" class="workspace-button inspector-toggle" type="button" aria-pressed="false" title="Show agent activity"><span class="icon" data-icon="info"></span><span>Activity</span></button><button id="open-agent-browser" class="workspace-button agent-browser-button" type="button" title="Open the agent’s browser"><span class="icon" data-icon="browser"></span><span>Browser</span></button><button id="choose-workspace" class="workspace-button" title="Choose a workspace"><span class="icon" data-icon="folder"></span><span id="workspace-label">Choose workspace</span><span class="icon small" data-icon="chevron-down"></span></button></div>
       </header>
       <section id="chat-view" class="chat-view"><div class="attachment-drop-overlay" aria-hidden="true"><span class="icon" data-icon="paperclip"></span><span>Drop files here</span></div>
         <aside id="agent-inspector" class="agent-inspector hidden" aria-label="Agent activity">
@@ -116,6 +117,7 @@
         <div id="chat-error" class="chat-error hidden" role="alert"></div>
         <div id="approval-banner" class="approval-banner hidden"><span class="icon" data-icon="shield"></span><span id="approval-banner-text">Your approval is needed to continue.</span><button id="review-approval" class="button small-button">Review request</button></div>
         <div class="composer-area">
+          <div id="slash-menu" class="slash-menu hidden" role="listbox" aria-label="Commands"></div>
           <section id="chat-context" class="context-panel hidden" aria-label="Model context">
             <div class="context-main"><div class="context-usage" title="Latest context usage reported by the engine, not cumulative token usage."><span class="icon" data-icon="compact"></span><span id="context-usage-label">Usage not reported yet</span><progress id="context-usage-meter" class="context-meter hidden" max="100" aria-label="Model context usage"></progress><span id="context-usage-percent" class="context-percent hidden"></span></div><button id="compact-chat" class="button context-compact-button" type="button" title="Summarize older model context now. Your conversation and durable memory are preserved."><span class="icon" data-icon="compact"></span>Compact now</button></div>
             <div class="context-meta"><span id="context-compaction-status" aria-live="polite">Automatic compaction is on</span><span id="context-compaction-summary">No compactions yet</span></div>
@@ -140,7 +142,7 @@
           </section>
           <form id="composer" class="composer"><div id="attachment-queue" class="hidden" aria-label="Attached files"></div><p id="attachment-import-status" class="attachment-import-status hidden" role="status"></p>
             <label for="message-input" class="sr-only">Message Little Bot</label>
-            <textarea id="message-input" rows="2" placeholder="Message Little Bot…" maxlength="32000"></textarea>
+            <textarea id="message-input" rows="2" placeholder="Message Little Bot…  ·  / for commands" maxlength="32000" role="combobox" aria-autocomplete="list" aria-controls="slash-menu" aria-expanded="false"></textarea>
             <div class="composer-toolbar">
               <div class="composer-options"><button id="attach-button" class="icon-button attach-button" type="button" aria-label="Attach files or images" title="Attach files or images"><span class="icon" data-icon="paperclip"></span></button><label class="sr-only" for="model-select">Model</label><select id="model-select"><option value="">Loading models…</option></select><span class="options-divider"></span><label class="sr-only" for="effort-select">Reasoning effort</label><select id="effort-select" title="Reasoning effort"><option id="effort-none" value="none" hidden>None</option><option value="low">Low effort</option><option value="medium" selected>Medium effort</option><option value="high">High effort</option></select><button id="sampling-button" class="icon-button sampling-button hidden" type="button" aria-expanded="false" aria-controls="sampling-panel" title="Sampling for Strata" aria-label="Sampling for Strata"><span class="icon" data-icon="sliders"></span></button><button id="thinking-toggle" class="thinking-toggle hidden" type="button" role="switch" aria-label="Thinking" aria-checked="true" title="For all local Qwen tasks. Applies to the next run."><span>Thinking</span><span class="thinking-track" aria-hidden="true"></span><span id="thinking-value" aria-hidden="true">On</span></button><span class="options-divider"></span><button id="plan-mode-toggle" class="plan-mode-toggle" type="button" aria-pressed="false" title="Plan only: inspect and design, but do not make changes.">Plan</button></div>
               <button id="stop-button" class="button stop-button hidden" type="button"><span class="stop-square"></span>Stop</button>
@@ -312,6 +314,75 @@
         <section id="extensions-panel-plugins" class="extensions-panel hidden" role="tabpanel" aria-labelledby="extensions-tab-plugins"><div class="extensions-panel-heading"><div><h2>Plugins</h2><p>Import a folder of skills and MCP connections.</p></div><button id="import-plugin" class="button primary" type="button"><span class="icon" data-icon="import"></span>Import plugin</button></div><p class="extension-panel-note">Imports start disabled. Local bundles only.</p><div id="extensions-plugins" class="extensions-list"></div></section>
         <p class="feature-footnote">External tools ask for approval; their service permissions apply.</p>
       </section>
+    <aside id="goal-panel" class="goal-panel hidden" aria-labelledby="goal-title">
+      <div class="goal-panel-header">
+        <button id="goal-panel-back" class="icon-button hidden" type="button" aria-label="Back to goals" title="Back to goals"><span class="icon" data-icon="arrow-left"></span></button>
+        <h2 id="goal-title">Goals</h2>
+        <button id="goal-panel-close" class="icon-button" type="button" aria-label="Close goal panel" title="Close"><span class="icon" data-icon="x"></span></button>
+      </div>
+      <div id="goal-panel-list" class="goal-panel-body">
+        <div class="goal-panel-actions"><button id="goal-panel-new" class="button primary" type="button"><span class="icon" data-icon="plus"></span>New goal</button><button id="goal-panel-page" class="button text-button" type="button">All details<span class="icon small" data-icon="arrow-up-right"></span></button></div>
+        <p id="goal-panel-paused" class="goal-panel-note hidden"><span class="icon" data-icon="pause"></span><span>Background is off, so goals wait.</span></p>
+        <h3 class="goal-panel-heading">This chat</h3>
+        <div id="goal-panel-chat-goal" class="goal-panel-chat-goal"></div>
+        <h3 class="goal-panel-heading">Background goals</h3>
+        <div id="goal-panel-goals" class="goal-panel-goals"></div>
+      </div>
+      <form id="goal-form" class="goal-editor hidden" novalidate>
+        <div class="goal-tabs" role="tablist" aria-label="Goal setup">
+          <button type="button" role="tab" data-goal-tab="basics" aria-selected="true">Basics</button><button type="button" role="tab" data-goal-tab="evidence" aria-selected="false">Evidence</button><button type="button" role="tab" data-goal-tab="checks" aria-selected="false">Checks</button><button type="button" role="tab" data-goal-tab="access" aria-selected="false">Access</button><button type="button" role="tab" data-goal-tab="limits" aria-selected="false">Limits</button><button type="button" role="tab" data-goal-tab="schedule" aria-selected="false">Schedule</button>
+        </div>
+        <div class="goal-editor-body">
+          <section class="goal-tab" data-goal-panel="basics" role="tabpanel">
+            <label class="field-label" for="goal-name">Name</label><input id="goal-name" maxlength="80" required placeholder="Weekly project summary">
+            <label class="field-label" for="goal-kind">Type</label><select id="goal-kind"><option value="task">Task · reach a concrete result</option><option value="ongoing">Ongoing · act and coach over time</option></select>
+            <label class="field-label" for="goal-objective">Objective</label><textarea id="goal-objective" rows="5" maxlength="12000" required placeholder="The result you want, and what makes it useful."></textarea>
+            <label class="field-label" for="goal-steps">Steps <span class="optional-label">optional</span></label><textarea id="goal-steps" rows="3" maxlength="16000" placeholder="One per line, or leave blank to let Little Bot plan."></textarea>
+            <div id="goal-workspace" class="automation-context"></div>
+          </section>
+          <section class="goal-tab hidden" data-goal-panel="evidence" role="tabpanel">
+            <h4 class="goal-group">Reads</h4>
+            <label class="toggle-row"><span><strong>Conversation</strong><small>The continuous chat</small></span><span class="switch"><input id="goal-source-chat" type="checkbox" checked><span class="switch-track"></span></span></label>
+            <label class="toggle-row"><span><strong>Calendar</strong><small>Upcoming events</small></span><span class="switch"><input id="goal-source-calendar" type="checkbox" checked><span class="switch-track"></span></span></label>
+            <label class="toggle-row"><span><strong>Reactions and heartbeat log</strong><small>For a self-review goal</small></span><span class="switch"><input id="goal-source-feedback" type="checkbox"><span class="switch-track"></span></span></label>
+            <label class="field-label" for="goal-source-files">Files</label><textarea id="goal-source-files" rows="2" placeholder="Absolute paths, one per line" spellcheck="false"></textarea>
+            <h4 class="goal-group">Results</h4>
+            <label class="toggle-row"><span><strong>Post in the chat</strong><small>Off: results stay on the goal card and in the inbox</small></span><span class="switch"><input id="goal-delivery-chat" type="checkbox" checked><span class="switch-track"></span></span></label>
+            <label class="field-label" for="goal-review-policy">Ongoing reviews</label><select id="goal-review-policy"><option value="changes">When evidence changes</option><option value="always">Every scheduled run</option></select>
+            <label class="field-label" for="goal-max-quiet-hours">Speak up after hours of quiet</label><input id="goal-max-quiet-hours" type="number" min="0" max="720" value="0"><p class="field-hint">0 = never.</p>
+          </section>
+          <section class="goal-tab hidden" data-goal-panel="checks" role="tabpanel">
+            <div class="goal-check-heading"><p class="field-hint">How Little Bot proves a task is done. Paths start from the workspace.</p><button id="goal-add-check" class="button text-button" type="button"><span class="icon" data-icon="plus"></span>Add check</button></div>
+            <div id="goal-checks" class="goal-checks"></div>
+          </section>
+          <section class="goal-tab hidden" data-goal-panel="access" role="tabpanel">
+            <label class="toggle-row"><span><strong>Change files</strong><small>Only in the folders below</small></span><span class="switch"><input id="goal-permission-write" type="checkbox"><span class="switch-track"></span></span></label>
+            <textarea id="goal-write-paths" rows="2" placeholder="src&#10;outputs" spellcheck="false" aria-label="Writable folders"></textarea>
+            <label class="toggle-row"><span><strong>Run terminal commands</strong></span><span class="switch"><input id="goal-permission-shell" type="checkbox"><span class="switch-track"></span></span></label>
+            <label class="toggle-row"><span><strong>Use the network</strong></span><span class="switch"><input id="goal-permission-network" type="checkbox"><span class="switch-track"></span></span></label>
+            <h4 class="goal-group">MCP tools</h4>
+            <div id="goal-mcp-tools" class="goal-mcp-tools"></div>
+          </section>
+          <section class="goal-tab hidden" data-goal-panel="limits" role="tabpanel">
+            <div class="limit-row"><label for="goal-max-tokens">Tokens</label><input id="goal-max-tokens" type="number" min="0" max="2000000" value="0" required><label class="limit-none"><input type="checkbox" data-limit="goal-max-tokens" checked><span>No limit</span></label></div>
+            <div class="limit-row"><label for="goal-max-minutes">Minutes</label><input id="goal-max-minutes" type="number" min="0" max="240" value="0" required><label class="limit-none"><input type="checkbox" data-limit="goal-max-minutes" checked><span>No limit</span></label></div>
+            <div class="limit-row"><label for="goal-max-actions">Actions</label><input id="goal-max-actions" type="number" min="0" max="500" value="0" required><label class="limit-none"><input type="checkbox" data-limit="goal-max-actions" checked><span>No limit</span></label></div>
+            <div class="limit-row"><label for="goal-max-runs">Runs</label><input id="goal-max-runs" type="number" min="1" max="100" value="10" required><span></span></div>
+            <div class="limit-row"><label for="goal-max-retries">Retries</label><input id="goal-max-retries" type="number" min="0" max="5" value="2" required><span></span></div>
+            <div class="limit-row"><label for="goal-priority">Priority</label><select id="goal-priority"><option value="1">1 · Highest</option><option value="2">2 · High</option><option value="3" selected>3 · Normal</option><option value="4">4 · Low</option><option value="5">5 · Lowest</option></select><span></span></div>
+          </section>
+          <section class="goal-tab hidden" data-goal-panel="schedule" role="tabpanel">
+            <label class="field-label" for="goal-trigger">Runs</label><select id="goal-trigger"><option value="manual">When I start it</option><option value="interval">On an interval</option><option value="files">When files change</option></select>
+            <div id="goal-interval-field" class="hidden"><label class="field-label" for="goal-interval">Every · minutes</label><input id="goal-interval" type="number" min="1" max="10080" value="30"></div>
+            <div id="goal-trigger-paths-field" class="hidden"><label class="field-label" for="goal-trigger-paths">Files to watch</label><textarea id="goal-trigger-paths" rows="2" placeholder="notes.md&#10;src" spellcheck="false"></textarea></div>
+            <label class="toggle-row"><span><strong>Only during active hours</strong><small>The Heartbeat hours</small></span><span class="switch"><input id="goal-active-hours" type="checkbox" checked><span class="switch-track"></span></span></label>
+            <h4 class="goal-group">Waits for</h4>
+            <div id="goal-dependencies" class="goal-dependencies"></div>
+          </section>
+        </div>
+        <div class="goal-editor-footer"><p id="goal-form-error" class="inline-error hidden" role="alert"></p><button id="goal-cancel" class="button secondary" type="button">Cancel</button><button id="save-goal" class="button primary" type="submit">Save draft</button></div>
+      </form>
+    </aside>
     </main>
     <aside id="browser-panel" class="browser-panel hidden" aria-label="Built-in browser">
       <div class="browser-bar">
@@ -326,78 +397,105 @@
     </aside>
   </div>
   <dialog id="settings-dialog" class="dialog settings-dialog" aria-labelledby="settings-title">
-    <div class="dialog-header"><div><h2 id="settings-title">Settings</h2></div><button class="icon-button" data-close="settings-dialog" aria-label="Close settings"><span class="icon" data-icon="x"></span></button></div>
-    <nav id="settings-jump" class="settings-jump" aria-label="Settings sections"></nav>
-    <section class="settings-section connection-settings">
-      <div class="settings-connection-heading"><h3>Connection</h3><span id="settings-connection-status" class="service-status" role="status">Checking</span></div>
-      <form id="connection-settings-form" novalidate>
-        <div id="settings-local-fields"><label class="field-label" for="settings-local-url">Server URL</label><input id="settings-local-url" type="url" spellcheck="false" maxlength="2000" placeholder="http://127.0.0.1:8080/v1"><label class="field-label" for="settings-local-model">Model</label><input id="settings-local-model" spellcheck="false" maxlength="256" placeholder="Qwen model name"><p id="settings-local-capabilities" class="field-hint hidden"></p></div>
-        <div class="settings-actions"><button id="settings-connection-save" class="button primary" type="submit" disabled>Save connection</button><button id="settings-connection-check" class="button secondary" type="button">Check connection</button></div><p id="settings-connection-error" class="inline-error hidden" role="alert"></p>
-      </form>
-    </section>
-    <section class="settings-section provider-usage-section" aria-labelledby="provider-usage-title">
-      <div class="provider-usage-heading"><div class="provider-usage-heading-copy"><h3 id="provider-usage-title">Provider usage</h3><p id="provider-usage-subtitle" class="field-hint"></p></div><div class="provider-usage-heading-actions"><span id="provider-usage-status" class="service-status provider-usage-status" role="status">Loading</span></div></div>
-      <span id="provider-usage-updated" class="provider-usage-updated hidden"></span>
-      <div id="provider-usage-content" class="provider-usage-content"></div>
-      <p id="provider-usage-note" class="provider-usage-note"></p>
-    </section>
-    <div class="settings-section"><h3>Workspace</h3><p class="field-hint">The conversation and new automations use this working folder.</p><div class="workspace-setting"><span class="icon" data-icon="folder"></span><span id="settings-workspace">No folder selected</span></div><div class="settings-actions"><button id="settings-choose-workspace" class="button secondary">Choose folder</button><button id="settings-open-workspace" class="button text-button">Open in Explorer<span class="icon small" data-icon="arrow-up-right"></span></button></div></div>
-    <section class="settings-section" aria-labelledby="appearance-settings-title"><h3 id="appearance-settings-title">Appearance</h3><div class="settings-row"><div><strong>Theme</strong><p>Follow Windows, or always use light or dark.</p></div><select id="settings-theme" class="theme-select" aria-label="Theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></div></section>
-    <section class="settings-section relay-settings" aria-labelledby="relay-settings-title">
-      <div class="settings-connection-heading"><h3 id="relay-settings-title">Phone relay</h3><span id="relay-status" class="service-status" role="status">Off</span></div>
-      <label class="feature-toggle relay-toggle"><span>Use this conversation from your phone</span><span class="switch"><input id="relay-enabled" type="checkbox" aria-label="Phone relay"><span class="switch-track"></span></span></label>
-      <p class="field-hint">Your phone shows the same live conversation, gets notified when Little Bot reaches out, and can reply, answer questions and run goals. Everything stays on this PC; phones only connect to it directly over Wi-Fi or Tailscale.</p>
-      <div id="relay-body" class="hidden">
-        <div id="relay-urls" class="relay-urls"></div>
-        <p id="relay-phone" class="field-hint relay-phone hidden"></p>
-        <p id="relay-apk" class="field-hint hidden"></p>
-        <div id="relay-pairing" class="relay-pairing hidden"><img id="relay-qr" alt="Pairing QR code"><div><strong>Scan with your phone's camera</strong><p class="field-hint">Or open <span id="relay-pair-url" class="relay-code"></span> on the phone. The code works once and expires <span id="relay-pair-expiry"></span>.</p><button id="relay-cancel-pair" class="button text-button" type="button">Cancel</button></div></div>
-        <div class="settings-actions"><button id="relay-pair" class="button primary" type="button">Pair a phone</button><button id="relay-https" class="button secondary" type="button">Turn on Tailscale HTTPS</button></div>
-        <p id="relay-https-hint" class="field-hint">Notifications and installing as an app need https. Install Tailscale on this PC and your phone (same account), then use Turn on Tailscale HTTPS. Over plain Wi-Fi the chat works, but without notifications.</p>
-        <label class="feature-toggle relay-toggle"><span>Allow approving actions from the phone</span><span class="switch"><input id="relay-approvals" type="checkbox" aria-label="Allow approvals from phone"><span class="switch-track"></span></span></label>
-        <h4 class="relay-subtitle">Paired phones</h4>
-        <div id="relay-devices" class="relay-devices"></div>
+    <nav class="settings-nav" aria-label="Settings">
+      <h2 id="settings-title">Settings</h2>
+      <div id="settings-jump" class="settings-jump" role="tablist" aria-orientation="vertical">
+        <button type="button" role="tab" data-settings-tab="general" aria-selected="true"><span class="icon" data-icon="settings"></span><span>General</span></button>
+        <button type="button" role="tab" data-settings-tab="model" aria-selected="false" tabindex="-1"><span class="icon" data-icon="server"></span><span>Model</span></button>
+        <button type="button" role="tab" data-settings-tab="phone" aria-selected="false" tabindex="-1"><span class="icon" data-icon="phone"></span><span>Phone</span></button>
+        <button type="button" role="tab" data-settings-tab="web" aria-selected="false" tabindex="-1"><span class="icon" data-icon="globe"></span><span>Browser & web</span></button>
+        <button type="button" role="tab" data-settings-tab="storage" aria-selected="false" tabindex="-1"><span class="icon" data-icon="box"></span><span>Storage</span></button>
+        <button type="button" role="tab" data-settings-tab="about" aria-selected="false" tabindex="-1"><span class="icon" data-icon="info"></span><span>About</span></button>
       </div>
-      <p id="relay-error" class="inline-error hidden" role="alert"></p>
-    </section>
-    <section class="settings-section" aria-labelledby="browser-settings-title"><h3 id="browser-settings-title">Browser</h3><div class="settings-row"><div><strong>Built-in browser</strong><p>Opens beside the chat with its own private profile. Sign-ins are kept until you clear browsing data.</p></div><span id="settings-browser-status" class="service-status" role="status">Checking</span></div><p id="settings-browser-location" class="field-hint hidden"></p><div class="settings-actions"><button id="settings-open-browser" class="button secondary" type="button"><span class="icon" data-icon="browser"></span>Open browser</button><button id="settings-close-browser" class="button text-button" type="button" disabled>Close browser</button><button id="settings-clear-browser" class="button text-button" type="button">Clear browsing data</button></div><p id="settings-browser-error" class="inline-error hidden" role="alert"></p></section>
-    <div class="settings-section"><h3>Attachments</h3><p id="settings-attachment-usage" class="field-hint">Checking storage…</p><button id="settings-clean-attachments" class="button secondary" type="button">Clean unused files</button><p class="field-hint">Files in the conversation and current drafts are kept. Use Remove on a saved attachment to free its space.</p></div>
-    <section class="settings-section" aria-labelledby="independent-check-settings-title">
-      <h3 id="independent-check-settings-title">Independent Check</h3>
-      <p class="settings-description">Review judgment-oriented answers without automatically agreeing with the framing.</p>
-      <form id="independent-check-settings-form" novalidate>
-        <label class="field-label settings-field-label" for="settings-independent-check">Review mode</label>
-        <div class="settings-actions"><select id="settings-independent-check" aria-describedby="settings-independent-check-hint"><option value="selective">Selective · recommended</option><option value="always">Always</option><option value="off">Off</option></select><button id="save-independent-check-settings" class="button secondary" type="submit" disabled>Save</button><span id="independent-check-settings-saved" class="settings-save-status" role="status"></span></div>
-        <p id="settings-independent-check-hint" class="field-hint">Uses one sequential pass by the same selected model. It has no tools, network access, or parallel worker.</p>
-        <p id="independent-check-settings-error" class="inline-error hidden" role="alert"></p>
-      </form>
-    </section>
-    <section class="settings-section" aria-labelledby="compaction-settings-title"><h3 id="compaction-settings-title">Context compaction</h3><form id="compaction-settings-form" novalidate><label class="field-label settings-field-label" for="settings-auto-compact">Compact at</label><div class="compaction-setting-control"><div class="percent-input"><input id="settings-auto-compact" type="number" min="0" max="95" step="1" value="50" inputmode="numeric" required aria-describedby="settings-compaction-hint"><span>%</span></div><button id="save-compaction-settings" class="button secondary" type="submit" disabled>Save</button><span id="compaction-settings-saved" class="settings-save-status" role="status"></span></div><p id="settings-compaction-hint" class="field-hint">20–95%, or 0 for the engine default. Applies while a long turn works and when it ends. Chat history stays intact.</p><p id="compaction-settings-error" class="inline-error hidden" role="alert"></p></form></section>
-    <section class="settings-section" aria-labelledby="web-settings-title"><h3 id="web-settings-title">Web search</h3><p class="settings-description">Built in: searches DuckDuckGo, Bing and Yahoo and reads pages directly. No account or key needed.</p><p id="settings-web-status" class="field-hint" role="status"></p></section>
-    <div class="settings-section"><h3>About</h3><div class="settings-row"><div><strong id="settings-engine">Starting</strong><p id="settings-engine-detail">Local model connection</p></div><span id="settings-version" class="version-badge">v0.1.0</span></div><p id="settings-data-detail" class="field-hint">Chats stay on this computer.</p><div class="settings-actions"><button id="settings-open-logs" class="button text-button" type="button">Open diagnostic logs</button></div><p class="field-hint">Errors are stored locally with common secrets redacted and old logs rotated.</p></div>
+    </nav>
+    <div class="settings-pane">
+      <button class="icon-button settings-close" type="button" data-close="settings-dialog" aria-label="Close settings" title="Close"><span class="icon" data-icon="x"></span></button>
+      <section class="settings-panel" data-settings-panel="general" role="tabpanel" aria-label="General">
+        <h3>General</h3>
+        <div class="settings-card">
+          <div class="setting-row"><div class="setting-copy"><strong>Working folder</strong><span><span id="settings-workspace">No folder selected</span></span></div><div class="setting-control"><button id="settings-choose-workspace" class="button secondary" type="button">Change</button><button id="settings-open-workspace" class="icon-button" type="button" title="Open in Explorer" aria-label="Open in Explorer"><span class="icon" data-icon="arrow-up-right"></span></button></div></div>
+          <div class="setting-row"><div class="setting-copy"><strong>Theme</strong></div><div class="setting-control"><select id="settings-theme" class="theme-select" aria-label="Theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></div></div>
+        </div>
+      </section>
+      <section class="settings-panel hidden" data-settings-panel="model" role="tabpanel" aria-label="Model">
+        <h3>Model</h3>
+        <form id="connection-settings-form" class="settings-card connection-settings" novalidate>
+          <div class="settings-card-head"><strong>Connection</strong><span id="settings-connection-status" class="service-status" role="status">Checking</span></div>
+          <div id="settings-local-fields" class="setting-fields">
+            <label class="setting-field" for="settings-local-url"><span>Server URL</span><input id="settings-local-url" type="url" spellcheck="false" maxlength="2000" placeholder="http://127.0.0.1:8080/v1"></label>
+            <label class="setting-field" for="settings-local-model"><span>Model</span><input id="settings-local-model" spellcheck="false" maxlength="256" placeholder="Qwen model name"></label>
+            <p id="settings-local-capabilities" class="field-hint hidden"></p>
+          </div>
+          <div class="settings-actions"><button id="settings-connection-save" class="button primary" type="submit" disabled>Save</button><button id="settings-connection-check" class="button secondary" type="button">Check connection</button></div>
+          <p id="settings-connection-error" class="inline-error hidden" role="alert"></p>
+        </form>
+        <section class="settings-card provider-usage-section" aria-labelledby="provider-usage-title">
+          <div class="provider-usage-heading"><div class="provider-usage-heading-copy"><h4 id="provider-usage-title">Speed</h4><p id="provider-usage-subtitle" class="field-hint"></p></div><div class="provider-usage-heading-actions"><span id="provider-usage-status" class="service-status provider-usage-status" role="status">Loading</span></div></div>
+          <span id="provider-usage-updated" class="provider-usage-updated hidden"></span>
+          <div id="provider-usage-content" class="provider-usage-content"></div>
+          <p id="provider-usage-note" class="provider-usage-note"></p>
+        </section>
+        <div class="settings-card">
+          <form id="compaction-settings-form" class="setting-row" novalidate aria-labelledby="compaction-settings-title">
+            <div class="setting-copy"><strong id="compaction-settings-title">Compact context at</strong><span id="settings-compaction-hint">20–95%, or 0 for the engine default</span></div>
+            <div class="setting-control"><div class="percent-input"><input id="settings-auto-compact" type="number" min="0" max="95" step="1" value="50" inputmode="numeric" required aria-describedby="settings-compaction-hint"><span>%</span></div><button id="save-compaction-settings" class="button secondary" type="submit" disabled>Save</button><span id="compaction-settings-saved" class="settings-save-status" role="status"></span></div>
+          </form>
+          <p id="compaction-settings-error" class="inline-error hidden" role="alert"></p>
+          <form id="independent-check-settings-form" class="setting-row" novalidate aria-labelledby="independent-check-settings-title">
+            <div class="setting-copy"><strong id="independent-check-settings-title">Independent check</strong><span id="settings-independent-check-hint">A second look at judgment calls, by the same model</span></div>
+            <div class="setting-control"><select id="settings-independent-check" aria-describedby="settings-independent-check-hint"><option value="selective">Selective</option><option value="always">Always</option><option value="off">Off</option></select><button id="save-independent-check-settings" class="button secondary" type="submit" disabled>Save</button><span id="independent-check-settings-saved" class="settings-save-status" role="status"></span></div>
+          </form>
+          <p id="independent-check-settings-error" class="inline-error hidden" role="alert"></p>
+        </div>
+      </section>
+      <section class="settings-panel hidden relay-settings" data-settings-panel="phone" role="tabpanel" aria-label="Phone">
+        <h3>Phone</h3>
+        <div class="settings-card">
+          <div class="setting-row"><div class="setting-copy"><strong id="relay-settings-title">Phone relay</strong><span>The same live chat on your phone, over Wi-Fi or Tailscale</span></div><div class="setting-control"><span id="relay-status" class="service-status" role="status">Off</span><span class="switch"><input id="relay-enabled" type="checkbox" aria-label="Phone relay"><span class="switch-track"></span></span></div></div>
+          <div id="relay-body" class="hidden">
+            <div id="relay-urls" class="relay-urls"></div>
+            <p id="relay-phone" class="field-hint relay-phone hidden"></p>
+            <p id="relay-apk" class="field-hint hidden"></p>
+            <div id="relay-pairing" class="relay-pairing hidden"><img id="relay-qr" alt="Pairing QR code"><div><strong>Scan with your phone's camera</strong><p class="field-hint">Or open <span id="relay-pair-url" class="relay-code"></span>. Works once, expires <span id="relay-pair-expiry"></span>.</p><button id="relay-cancel-pair" class="button text-button" type="button">Cancel</button></div></div>
+            <div class="settings-actions"><button id="relay-pair" class="button primary" type="button">Pair a phone</button><button id="relay-https" class="button secondary" type="button">Turn on Tailscale HTTPS</button></div>
+            <p id="relay-https-hint" class="field-hint"></p>
+            <div class="setting-row"><div class="setting-copy"><strong>Approve actions from the phone</strong></div><div class="setting-control"><span class="switch"><input id="relay-approvals" type="checkbox" aria-label="Allow approvals from phone"><span class="switch-track"></span></span></div></div>
+            <h4 class="relay-subtitle">Paired phones</h4>
+            <div id="relay-devices" class="relay-devices"></div>
+          </div>
+          <p id="relay-error" class="inline-error hidden" role="alert"></p>
+        </div>
+      </section>
+      <section class="settings-panel hidden" data-settings-panel="web" role="tabpanel" aria-label="Browser and web">
+        <h3>Browser &amp; web</h3>
+        <div class="settings-card">
+          <div class="setting-row"><div class="setting-copy"><strong><span id="browser-settings-title">Built-in browser</span></strong><span>Private profile; sign-ins stay until you clear them</span></div><div class="setting-control"><span id="settings-browser-status" class="service-status" role="status">Checking</span></div></div>
+          <p id="settings-browser-location" class="field-hint hidden"></p>
+          <div class="settings-actions"><button id="settings-open-browser" class="button secondary" type="button"><span class="icon" data-icon="browser"></span>Open</button><button id="settings-close-browser" class="button text-button" type="button" disabled>Close</button><button id="settings-clear-browser" class="button text-button" type="button">Clear browsing data</button></div>
+          <p id="settings-browser-error" class="inline-error hidden" role="alert"></p>
+        </div>
+        <div class="settings-card">
+          <div class="setting-row"><div class="setting-copy"><strong><span id="web-settings-title">Web search</span></strong><span>Built in · DuckDuckGo, Bing and Yahoo · no key</span></div><div class="setting-control"></div></div>
+          <p id="settings-web-status" class="field-hint" role="status"></p>
+        </div>
+      </section>
+      <section class="settings-panel hidden" data-settings-panel="storage" role="tabpanel" aria-label="Storage">
+        <h3>Storage</h3>
+        <div class="settings-card">
+          <div class="setting-row"><div class="setting-copy"><strong>Attachments</strong><span><span id="settings-attachment-usage">Checking storage…</span></span></div><div class="setting-control"><button id="settings-clean-attachments" class="button secondary" type="button">Clean unused</button></div></div>
+        </div>
+      </section>
+      <section class="settings-panel hidden" data-settings-panel="about" role="tabpanel" aria-label="About">
+        <h3>About</h3>
+        <div class="settings-card">
+          <div class="setting-row"><div class="setting-copy"><strong><span id="settings-engine">Starting</span></strong><span><span id="settings-engine-detail">Local model connection</span></span></div><div class="setting-control"><span id="settings-version" class="version-badge">v0.1.0</span></div></div>
+          <div class="setting-row"><div class="setting-copy"><strong>Your data</strong><span><span id="settings-data-detail">Chats stay on this computer.</span></span></div><div class="setting-control"></div></div>
+          <div class="setting-row"><div class="setting-copy"><strong>Diagnostic logs</strong><span>Local only, secrets redacted</span></div><div class="setting-control"><button id="settings-open-logs" class="button secondary" type="button">Open</button></div></div>
+        </div>
+      </section>
+    </div>
   </dialog>
   <dialog id="fact-dialog" class="dialog fact-dialog" aria-labelledby="fact-title"><form id="fact-form"><div class="dialog-header"><div><h2 id="fact-title">Add a fact</h2></div><button class="icon-button" type="button" data-close="fact-dialog" aria-label="Close fact editor"><span class="icon" data-icon="x"></span></button></div><label class="field-label" for="fact-text">Fact</label><textarea id="fact-text" rows="4" maxlength="12000" required placeholder="For example: Keep explanations short and use PowerShell for Windows commands."></textarea><label class="field-label" for="fact-type">Type</label><select id="fact-type"><option value="fact">Fact</option><option value="preference">Preference</option><option value="decision">Decision</option><option value="discovery">Discovery</option><option value="issue">Open issue</option><option value="procedure">Procedure</option><option value="history">Source history</option><option value="episode">Work episode</option></select><label class="field-label" for="fact-scope">Scope</label><select id="fact-scope"><option value="workspace">This workspace</option><option value="global">All workspaces</option></select><p id="fact-workspace" class="field-hint"></p><div class="dialog-footer"><button class="button secondary" type="button" data-close="fact-dialog">Cancel</button><button id="save-fact" class="button primary" type="submit">Save memory</button></div></form></dialog>
-  <dialog id="goal-dialog" class="dialog goal-dialog" aria-labelledby="goal-title"><form id="goal-form" novalidate><div class="dialog-header"><div><h2 id="goal-title">New goal</h2></div><button class="icon-button" type="button" data-close="goal-dialog" aria-label="Close goal editor"><span class="icon" data-icon="x"></span></button></div>
-    <label class="field-label" for="goal-name">Name</label><input id="goal-name" maxlength="80" required placeholder="Prepare the weekly project summary">
-    <label class="field-label" for="goal-kind">Goal type</label><select id="goal-kind"><option value="task">Task · finish a concrete outcome</option><option value="ongoing">Ongoing · act and coach over time</option></select>
-    <label><input id="goal-source-chat" type="checkbox" checked> Read the continuous chat as evidence</label>
-    <label><input id="goal-delivery-chat" type="checkbox" checked> Post results in the chat (off: work silently; results stay on this card and in the Activity inbox, and questions still reach you)</label>
-    <label><input id="goal-active-hours" type="checkbox" checked> Scheduled reviews only during Heartbeat active hours</label>
-    <label><input id="goal-source-feedback" type="checkbox"> Read your reactions and the heartbeat log (for a self-review goal)</label>
-    <label><input id="goal-source-calendar" type="checkbox" checked> Include upcoming calendar events</label>
-    <label class="field-label" for="goal-source-files">Evidence files</label><textarea id="goal-source-files" rows="2" placeholder="Absolute file paths, one per line" spellcheck="false"></textarea><p class="field-hint">Selected text files can be outside the working folder. They provide evidence; writes still use your access settings.</p>
-    <label class="field-label" for="goal-review-policy">Ongoing reviews</label><select id="goal-review-policy"><option value="changes">Review when evidence changes; otherwise stay quiet</option><option value="always">Review at every scheduled activation</option></select>
-    <label class="field-label" for="goal-max-quiet-hours">Speak up after · hours quiet</label><input id="goal-max-quiet-hours" type="number" min="0" max="720" value="0"><p class="field-hint">Ongoing goals review anyway when nothing meaningful came out for this long. 0 = off.</p>
-    <label class="field-label" for="goal-objective">Objective</label><textarea id="goal-objective" rows="3" maxlength="12000" required placeholder="Describe the result you want and what makes it useful."></textarea>
-    <div class="goal-check-heading"><label class="field-label">How will we verify it?</label><button id="goal-add-check" class="button text-button" type="button"><span class="icon" data-icon="plus"></span>Add check</button></div>
-    <div id="goal-checks" class="goal-checks"></div><p class="field-hint">Tasks need acceptance checks. Ongoing goals can give advice without file checks; verified bot work still needs concrete evidence. Paths start from the workspace.</p>
-    <label class="field-label" for="goal-steps">Suggested steps <span class="optional-label">optional</span></label><textarea id="goal-steps" rows="2" maxlength="16000" placeholder="One step per line. Leave blank to let Little Bot plan."></textarea>
-    <div id="goal-workspace" class="automation-context"></div>
-    <details id="goal-advanced" class="goal-advanced"><summary>Access, limits, and scheduling</summary>
-      <fieldset class="goal-fieldset"><legend>Access for this goal</legend><label class="checkbox-label"><input id="goal-permission-write" type="checkbox"><span>Allow file changes in selected folders</span></label><label class="field-label" for="goal-write-paths">Writable folders</label><textarea id="goal-write-paths" rows="2" placeholder="src&#10;outputs" spellcheck="false"></textarea><p class="field-hint">Existing workspace folders, one per line.</p><label class="checkbox-label"><input id="goal-permission-shell" type="checkbox"><span>Allow terminal commands</span></label><label class="checkbox-label"><input id="goal-permission-network" type="checkbox"><span>Allow network access</span></label><details class="goal-mcp-access"><summary>External MCP tools</summary><p class="field-hint">Select individual discovered tools. MCP tools act with the server's permissions; file undo covers local write folders. Local MCP servers run outside the file sandbox.</p><div id="goal-mcp-tools"></div></details></fieldset>
-      <fieldset class="goal-fieldset"><legend>Work limits</legend><div class="goal-budget-grid"><div><label class="field-label" for="goal-max-tokens">Input + output tokens</label><input id="goal-max-tokens" type="number" min="0" max="2000000" value="0" required></div><div><label class="field-label" for="goal-max-minutes">Minutes</label><input id="goal-max-minutes" type="number" min="0" max="240" value="0" required></div><div><label class="field-label" for="goal-max-actions">Actions</label><input id="goal-max-actions" type="number" min="0" max="500" value="0" required></div><div><label class="field-label" for="goal-max-runs">Runs</label><input id="goal-max-runs" type="number" min="1" max="100" value="10" required></div><div><label class="field-label" for="goal-max-retries">Retries</label><input id="goal-max-retries" type="number" min="0" max="5" value="2" required></div><div><label class="field-label" for="goal-priority">Priority</label><select id="goal-priority"><option value="1">1 · Highest</option><option value="2">2 · High</option><option value="3" selected>3 · Normal</option><option value="4">4 · Low</option><option value="5">5 · Lowest</option></select></div></div><p class="field-hint">0 tokens, minutes or actions means no limit.</p></fieldset>
-      <fieldset class="goal-fieldset"><legend>When to work</legend><label class="field-label" for="goal-trigger">Trigger</label><select id="goal-trigger"><option value="manual">When I run it</option><option value="interval">On an interval</option><option value="files">When selected files change</option></select><div id="goal-interval-field" class="hidden"><label class="field-label" for="goal-interval">Repeat every · minutes</label><input id="goal-interval" type="number" min="1" max="10080" value="30"></div><div id="goal-trigger-paths-field" class="hidden"><label class="field-label" for="goal-trigger-paths">Files to watch</label><textarea id="goal-trigger-paths" rows="2" placeholder="notes.md&#10;src" spellcheck="false"></textarea><p class="field-hint">Relative paths, one per line.</p></div><p class="field-hint">Saved as a draft until you run it.</p><label class="field-label">Dependencies</label><div id="goal-dependencies" class="goal-dependencies"></div></fieldset>
-    </details><p id="goal-form-error" class="inline-error hidden" role="alert"></p><div class="dialog-footer"><button class="button secondary" type="button" data-close="goal-dialog">Cancel</button><button id="save-goal" class="button primary" type="submit">Save draft</button></div></form></dialog>
   <dialog id="goal-restore-dialog" class="dialog goal-restore-dialog" aria-labelledby="goal-restore-title"><div class="dialog-header"><div><h2 id="goal-restore-title">Undo this run</h2></div><button class="icon-button" type="button" data-close="goal-restore-dialog" aria-label="Close restore review"><span class="icon" data-icon="x"></span></button></div><p id="goal-restore-description" class="approval-description"></p><div id="goal-restore-changes" class="goal-restore-changes"></div><p id="goal-restore-error" class="inline-error hidden" role="alert"></p><p class="field-hint">Review the files above before restoring their saved versions. This cannot undo external service actions or arbitrary side effects of commands.</p><div class="dialog-footer"><button class="button secondary" type="button" data-close="goal-restore-dialog">Cancel</button><button id="confirm-goal-restore" class="button danger-button" type="button" disabled>Restore these files</button></div></dialog>
   <dialog id="mcp-server-dialog" class="dialog extension-editor" aria-labelledby="mcp-server-title"><form id="mcp-server-form"><div class="dialog-header"><div><h2 id="mcp-server-title">Add MCP server</h2></div><button class="icon-button" type="button" data-close="mcp-server-dialog" aria-label="Close server editor"><span class="icon" data-icon="x"></span></button></div><label class="field-label" for="mcp-server-name">Server name</label><input id="mcp-server-name" maxlength="64" pattern="[a-z0-9][a-z0-9_\-]{0,63}" placeholder="my-tools" required><p class="field-hint">Lowercase letters, numbers, hyphens, and underscores.</p><label class="field-label" for="mcp-server-transport">Connection</label><select id="mcp-server-transport"><option value="stdio">Local stdio</option><option value="http">Remote HTTP</option></select><div id="mcp-stdio-fields"><label class="field-label" for="mcp-server-command">Executable</label><input id="mcp-server-command" maxlength="1000" spellcheck="false" placeholder="C:\path\to\server.exe"><p class="field-hint">A single executable or command name. Put arguments in the array below.</p><label class="field-label" for="mcp-server-args">Arguments · JSON string array</label><textarea id="mcp-server-args" rows="3" spellcheck="false" placeholder='["--config", "C:\\path\\to\\config.json"]'>[]</textarea><label class="field-label" for="mcp-server-env">Environment variable names</label><textarea id="mcp-server-env" rows="2" spellcheck="false" placeholder="SERVICE_API_KEY, SERVICE_REGION"></textarea><p class="field-hint">Names only, separated by commas or new lines. Values come from your Windows environment; never paste secrets here.</p></div><div id="mcp-http-fields" class="hidden"><label class="field-label" for="mcp-server-url">Server URL</label><input id="mcp-server-url" type="url" maxlength="2000" spellcheck="false" placeholder="https://example.com/mcp"><label class="field-label" for="mcp-server-bearer">Bearer-token environment variable</label><input id="mcp-server-bearer" maxlength="128" spellcheck="false" placeholder="SERVICE_API_TOKEN"><p class="field-hint">Optional variable name, not the token itself. OAuth sign-in is available from the server card when supported.</p></div><label class="checkbox-label editor-checkbox"><input id="mcp-server-enabled" type="checkbox"><span>Enable this server</span></label><p class="field-hint">Local servers run with your Windows user permissions. New configurations start disabled.</p><p id="mcp-server-error" class="inline-error hidden" role="alert"></p><div class="dialog-footer"><button class="button secondary" type="button" data-close="mcp-server-dialog">Cancel</button><button id="save-mcp-server" class="button primary" type="submit">Save server</button></div></form></dialog>
   <dialog id="skill-dialog" class="dialog extension-editor skill-editor" aria-labelledby="skill-title"><form id="skill-form"><div class="dialog-header"><div><h2 id="skill-title">New skill</h2></div><button class="icon-button" type="button" data-close="skill-dialog" aria-label="Close skill editor"><span class="icon" data-icon="x"></span></button></div><label class="field-label" for="skill-name">Skill name</label><input id="skill-name" maxlength="64" pattern="[a-z0-9][a-z0-9_\-]{0,63}" required placeholder="project-review"><p class="field-hint">Use this name in chat, for example <code>$project-review</code>.</p><label class="field-label" for="skill-description">Description</label><textarea id="skill-description" rows="2" maxlength="12000" required placeholder="What this skill helps with."></textarea><label class="field-label" for="skill-content">Instructions</label><textarea id="skill-content" class="code-input" rows="9" maxlength="20000" required spellcheck="false" placeholder="Describe the steps, preferred approach, and what a useful result looks like."></textarea><label class="checkbox-label editor-checkbox"><input id="skill-enabled" type="checkbox" checked><span>Enable this skill</span></label><p id="skill-error" class="inline-error hidden" role="alert"></p><div class="dialog-footer"><button class="button secondary" type="button" data-close="skill-dialog">Cancel</button><button id="save-skill" class="button primary" type="submit">Save skill</button></div></form></dialog>
