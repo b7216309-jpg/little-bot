@@ -10,6 +10,8 @@ const contract = require('./goal-contract.cjs');
 const { parseModelJson, normalizeModelOutput } = require('./model-json.cjs');
 const { timeContext } = require('./local-time.cjs');
 const { SHELL_CONDUCT } = require('./shell-conduct.cjs');
+// A token, minute or action limit of 0 means the goal has no limit for it.
+const cap = value => value > 0 ? value : Infinity;
 
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const safe = (value, limit = 8000) => String(value ?? '').replace(/sk-[A-Za-z0-9_-]+/g, '[redacted]')
@@ -127,11 +129,11 @@ class GoalExecutor {
     if (this.active || this.controller.heartbeatChat || this.controller.extensionsBusy || this.controller.store.data.chats.some(chat => chat.status !== 'idle')) throw new Error('Wait for the current task to finish.');
     const previous = goal.usage || {}, limits = goal.limits || {};
     const remaining = {
-      tokens: limits.maxTokens - (previous.tokens || 0),
-      elapsedMs: limits.maxMinutes * 60000 - (previous.elapsedMs || 0),
-      actions: limits.maxActions - (previous.actions || 0),
+      tokens: cap(limits.maxTokens) - (previous.tokens || 0),
+      elapsedMs: cap(limits.maxMinutes) * 60000 - (previous.elapsedMs || 0),
+      actions: cap(limits.maxActions) - (previous.actions || 0),
     };
-    if (Object.values(remaining).some(value => !Number.isFinite(value) || value <= 0)) throw new Error('This goal has reached its execution budget.');
+    if (Object.values(remaining).some(value => Number.isNaN(value) || value <= 0)) throw new Error('This goal has reached its execution budget.');
     const operation = { goal, onProgress, remaining, startedAt: Date.now(), tokens: 0, actionIds: new Set(), actions: new Map(), calls: new Map(), threadId: null, brokerThreadId: null, turnId: null, phase: 'starting', terminal: false, error: null, cancelReason: null, interruptSent: false, final: '', stopTimer: null };
     operation.webAbort = new AbortController();
     operation.done = new Promise(resolve => { operation.finish = resolve; });
@@ -179,7 +181,7 @@ class GoalExecutor {
         workspace: operation.workspace, shellWorkingDirectory: operation.cwd, writableFolders: writableRoots,
         ...(this.controller.store.data.settings.activityAwareness === true && this.controller.activity?.snapshot?.() ? { currentActivity: this.controller.activity.snapshot() } : {}),
         ...(this.controller.phoneSummary?.() ? { phone: this.controller.phoneSummary() } : {}),
-        permissions: goal.permissions, remainingBudget: remaining };
+        permissions: goal.permissions, remainingBudget: Object.fromEntries(Object.entries(remaining).map(([key, value]) => [key, Number.isFinite(value) ? value : 'unlimited'])) };
       operation.phase = 'turnStarting';
       const turn = await this.client.request('turn/start', {
         threadId: operation.threadId, input: [{ type: 'text', text: [profile, timeContext(), `Perform one goal step.\n${JSON.stringify(prompt)}`, contract.isV2(goal) ? 'Use freshEvidence and saved actions first. Retrieve only a specific missing fact. Do not repeat stale searches or rewrite notes when nothing changed.' : 'Start with the saved state/checkpoint. Retrieve only specific evidence missing for the active step. Prefer one focused memory search (3 results) and at most two short source reads. Stop searching when you can act or identify a necessary user question. Do not read the entire conversation or unrelated skills. The token budget counts input again on every model request, not only generated output.', memory,

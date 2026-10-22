@@ -3332,8 +3332,9 @@ function renderGoals() {
     const limits = goal.limits || {};
     const budget = element('div', 'goal-budget-row');
     const number = (value) => Number.isFinite(value) ? value.toLocaleString() : '—';
+    const cap = (value) => value === 0 ? '∞' : number(value);
     const elapsed = Number.isFinite(usage.elapsedMs) ? Math.round(usage.elapsedMs / 6000) / 10 : 0;
-    budget.append(element('span', '', `${number(usage.tokens || 0)} / ${number(limits.maxTokens)} input + output tokens`), element('span', '', `${elapsed} / ${number(limits.maxMinutes)} min`), element('span', '', `${usage.actions || 0} / ${number(limits.maxActions)} actions`), element('span', '', `${usage.runs || 0} / ${number(limits.maxRuns)} runs`), element('span', '', `${usage.retries || 0} / ${number(limits.maxRetries)} retries`));
+    budget.append(element('span', '', `${number(usage.tokens || 0)} / ${cap(limits.maxTokens)} input + output tokens`), element('span', '', `${elapsed} / ${cap(limits.maxMinutes)} min`), element('span', '', `${usage.actions || 0} / ${cap(limits.maxActions)} actions`), element('span', '', `${usage.runs || 0} / ${number(limits.maxRuns)} runs`), element('span', '', `${usage.retries || 0} / ${number(limits.maxRetries)} retries`));
     if (Number.isFinite(usage.inputTokens) && Number.isFinite(usage.outputTokens)) budget.append(element('span', '', `${number(usage.inputTokens)} input · ${number(usage.outputTokens)} generated`));
     card.append(budget);
     if (goal.status === 'running' && goal.currentAction) card.append(element('p', 'goal-no-data', `Current action: ${goal.currentAction}`));
@@ -3534,7 +3535,7 @@ function editGoal(goal) {
   $('goal-write-paths').value = (goal?.permissions?.writePaths || []).join('\n');
   $('goal-permission-shell').checked = Boolean(goal?.permissions?.shell);
   $('goal-permission-network').checked = Boolean(goal?.permissions?.network);
-  const defaults = { maxTokens: 50000, maxMinutes: 30, maxActions: 50, maxRuns: 10, maxRetries: 2 };
+  const defaults = { maxTokens: 0, maxMinutes: 0, maxActions: 0, maxRuns: 10, maxRetries: 2 };
   for (const [field, id] of Object.entries({ maxTokens: 'goal-max-tokens', maxMinutes: 'goal-max-minutes', maxActions: 'goal-max-actions', maxRuns: 'goal-max-runs', maxRetries: 'goal-max-retries' })) $(id).value = goal?.limits?.[field] ?? defaults[field];
   $('goal-priority').value = goal?.priority || 3;
   $('goal-trigger').value = goal?.trigger?.type || 'manual';
