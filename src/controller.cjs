@@ -16,7 +16,7 @@ const { attachmentDescriptors } = require('./attachment-message.cjs');
 const { localBaseUrl, localModel, connectionBinding, normalizeModelCapabilities, modelSupportsVision, probeLocal, providerConfig } = require('./connections.cjs');
 const { LocalModelRelay } = require('./local-model-relay.cjs');
 const { questionInput, questionText } = require('./user-questions.cjs');
-const { SHELL_CONDUCT, commandTranscript, appendCommandDelta } = require('./shell-conduct.cjs');
+const { commandTranscript, appendCommandDelta } = require('./shell-conduct.cjs');
 const { IndependentCheckRunner } = require('./independent-check-runner.cjs');
 const { ChatGoalRunner, turnInstructions, activeGoalNote } = require('./chat-goal.cjs');
 const { INDEPENDENT_CHECK_MODES, normalizeIndependentCheckMode } = require('./independent-check.cjs');
@@ -29,6 +29,7 @@ const learnedLessons = require('./lessons.cjs');
 const { MAX_SESSIONS, isQuick, isSession, isMain, mainChat, chatKind, sessionTitle, validTitle } = require('./chats.cjs');
 const { UsageLedger } = require('./usage-ledger.cjs');
 const security = require('./security.cjs');
+const injectedPrompts = require('./injected-prompts.cjs');
 
 function cleanError(error) {
   return String(error?.message || error || 'Something went wrong')
@@ -299,6 +300,7 @@ class Controller extends EventEmitter {
         systemPrompt: this.systemPrompt(),
         systemPromptCustomized: typeof this.store.data.settings.systemPrompt === 'string',
         security: security.publicSecurity(this.store.data.settings.security),
+        injectedPrompts: injectedPrompts.publicInjectedPrompts(this.store.data.settings.injectedPrompts),
       },
       securityGuard: { ...this.securityGuard },
       stateRevision: this.stateRevision,
@@ -502,9 +504,11 @@ class Controller extends EventEmitter {
       if (typeof input.systemPrompt === 'string' && input.systemPrompt.length > 100000) throw new Error('System prompt is too long.');
     }
     const nextSecurity = input.security !== undefined ? security.applySecurityPatch(this.store.data.settings.security, input.security) : undefined;
+    const nextInjected = input.injectedPrompts !== undefined ? injectedPrompts.applyInjectedPromptsPatch(this.store.data.settings.injectedPrompts, input.injectedPrompts) : undefined;
     const previous = this.store.data.settings;
     this.store.data.settings = { ...previous };
     if (nextSecurity) this.store.data.settings.security = nextSecurity;
+    if (nextInjected) this.store.data.settings.injectedPrompts = nextInjected;
     if (input.model !== undefined) {
       this.store.data.settings.model = input.model;
       this.store.data.settings.localModel = input.model;
@@ -648,6 +652,7 @@ class Controller extends EventEmitter {
   // SECURITY.md goes right after the system prompt, whether that prompt is the default or the user's own.
   securityInstructions(options = {}) { return security.securityInstructions(this.store.data.settings.security, options); }
   systemWithSecurity(options = {}) { return [this.systemPrompt(), this.securityInstructions(options)].filter(Boolean).join('\n\n'); }
+  injectedPrompt(key) { return injectedPrompts.injectedPrompt(this.store.data.settings.injectedPrompts, key); }
   recordLesson(modelId, key, text) {
     if (!modelId || !learnedLessons.record(this.store.data.lessons, modelId, key, text)) return false;
     this.persistNow();
@@ -726,7 +731,7 @@ class Controller extends EventEmitter {
   }
   threadOptions(chat, folder) {
     const planning = chat.mode === 'plan';
-    const system = this.systemWithSecurity({ quick: chat.private === true });
+    const system = this.systemWithSecurity();
     const baseInstructions = [planning ? planInstructions(system) : system, this.skillIndex()].filter(Boolean).join('\n\n');
     if (!chat.threadId) {
       const snapshot = this.lessonSnapshot(chat.model);
@@ -912,11 +917,11 @@ class Controller extends EventEmitter {
       // Proactive messages and things to bring up belong to the continuous conversation.
       const unseenProactive = override || !isMain(chat) || goalTurn ? [] : proactive.unseen(chat);
       const intentionsDue = override || !isMain(chat) || goalTurn ? [] : companion.forChat(this.store.data.companion, text);
-      const chatNote = chat.private ? 'This is a Quick session: a side chat for one-off work. Saved memory, background goals and follow-ups are off here, and nothing from it is remembered. You keep your own personality.'
+      const chatNote = chat.private ? this.injectedPrompt('quickNote')
         : isSession(chat) ? `This is a separate saved session, "${chat.title}". The continuous conversation and other sessions are not in this context; use memory_search and session_read when they matter.` : '';
       const inputBlocks = [
         chatNote ? { kind: chat.private ? 'quick' : 'session', label: chat.private ? 'Quick session' : 'Session', text: chatNote } : null,
-        { kind: 'shell', label: 'Shell conduct', text: SHELL_CONDUCT },
+        this.injectedPrompt('shellConduct').trim() ? { kind: 'shell', label: 'Shell conduct', text: this.injectedPrompt('shellConduct') } : null,
         !override && !goalTurn && chat.goal?.status === 'pursuing' ? { kind: 'goal', label: 'Active goal', text: activeGoalNote(chat.goal) } : null,
         !override && !chat.private && chatContext(this.store.data) ? { kind: 'goals', label: 'Current goals', text: chatContext(this.store.data) } : null,
         unseenProactive.length ? { kind: 'proactive', label: 'Your messages since the user last wrote', text: proactive.bridgeText(unseenProactive) } : null,

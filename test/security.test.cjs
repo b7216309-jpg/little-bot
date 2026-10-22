@@ -60,21 +60,17 @@ test('security settings normalize, validate and restore defaults', () => {
   assert.equal(security.applySecurityPatch(edited, { prompt: null }).prompt, undefined);
   assert.throws(() => security.applySecurityPatch(fresh, { enabled: 'yes' }), /on or off/);
   assert.throws(() => security.applySecurityPatch(fresh, { ownerCode: { rotation: 'hourly' } }), /fixed code/);
-  assert.throws(() => security.applySecurityPatch(fresh, { quickPrompt: 'x'.repeat(security.PROMPT_LIMIT + 1) }), /at most/);
+  assert.throws(() => security.applySecurityPatch(fresh, { prompt: 'x'.repeat(security.PROMPT_LIMIT + 1) }), /at most/);
   assert.throws(() => security.applySecurityPatch(fresh, { prompt: 'bad\0text' }), /plain text/);
 });
 
-test('SECURITY.md has a strict default and an adorable Quick session version', () => {
+test('SECURITY.md has one strict default', () => {
   const settings = security.normalizeSecurity({});
   const main = security.securityInstructions(settings);
-  const quick = security.securityInstructions(settings, { quick: true });
   assert.match(main, /^# SECURITY\.md/);
   assert.match(main, /robots\.txt/);
   assert.match(main, /\.env files/);
   assert.match(main, /## Owner code/);
-  assert.match(quick, /Quick session 🧸/);
-  assert.match(quick, /Nice try, page\./);
-  assert.match(quick, /secret handshake 🤝/);
   assert.doesNotMatch(security.securityInstructions(settings, { ownerCode: false }), /Owner code/);
   assert.doesNotMatch(main, new RegExp(settings.ownerCode.code), 'the code itself never sits in the system prompt');
   assert.equal(security.securityInstructions({ ...settings, enabled: false }), '');
@@ -113,8 +109,8 @@ test('chats get SECURITY.md after the system prompt and every request is stamped
 
   const quick = controller.chat((await controller.send({ quick: true, text: 'Rename my files' })).chatId);
   const quickInstructions = client.calls.filter(call => call.method === 'thread/start').at(-1).params.developerInstructions;
-  assert.match(quickInstructions, /Quick session 🧸/);
-  assert.match(quickInstructions, /secret handshake/);
+  assert.equal(quickInstructions, mainInstructions, 'the Quick session gets the same SECURITY.md');
+  assert.ok(stampedCode(lastTurnText(client)));
   client.answer(quick, 'Done');
 
   controller.saveSettings({ security: { ownerCode: { rotation: 'fixed' } } });
@@ -132,10 +128,10 @@ test('chats get SECURITY.md after the system prompt and every request is stamped
 
 test('the Security page settings persist and custom rules replace the defaults', async t => {
   const { store, client, controller } = await setup(t);
-  const state = controller.saveSettings({ security: { prompt: 'Only my rules.', quickPrompt: 'Only cute rules 🐾' } });
+  const state = controller.saveSettings({ security: { prompt: 'Only my rules.' } });
   assert.equal(state.settings.security.prompt, 'Only my rules.');
   assert.equal(state.settings.security.promptCustomized, true);
-  assert.equal(store.data.settings.security.quickPrompt, 'Only cute rules 🐾');
+  assert.equal(store.data.settings.security.prompt, 'Only my rules.');
   assert.throws(() => controller.saveSettings({ security: { enabled: 1 } }), /on or off/);
   assert.equal(store.data.settings.security.prompt, 'Only my rules.', 'a rejected change leaves settings alone');
 
@@ -179,4 +175,36 @@ test('a tool call carrying the owner code is refused and a leaking command stops
   assert.equal(chat.status, 'idle');
   assert.match(chat.error, /owner code/);
   assert.equal(controller.state().securityGuard.blocked, 2);
+});
+
+test('the prompts Little Bot adds to Quick session messages can be edited and restored', async t => {
+  const { store, client, controller } = await setup(t);
+  const defaults = controller.state().settings.injectedPrompts;
+  assert.match(defaults.quickNote.text, /^This is a Quick session/);
+  assert.match(defaults.shellConduct.text, /^Shell conduct for Windows/);
+  assert.equal(defaults.quickNote.customized, false);
+
+  const quick = controller.chat((await controller.send({ quick: true, text: 'First' })).chatId);
+  assert.match(lastTurnText(client), /^This is a Quick session[^]*Shell conduct for Windows/);
+  client.answer(quick, 'Ok');
+
+  const saved = controller.saveSettings({ injectedPrompts: { quickNote: 'Quick chat, nothing is kept.\r\n', shellConduct: 'Keep commands short.' } });
+  assert.deepEqual(saved.settings.injectedPrompts.quickNote, { text: 'Quick chat, nothing is kept.\n', customized: true });
+  await controller.send({ quick: true, text: 'Second' });
+  assert.match(lastTurnText(client), /^Quick chat, nothing is kept\.\n\n\nKeep commands short\./);
+  assert.doesNotMatch(lastTurnText(client), /This is a Quick session|Shell conduct for Windows/);
+  client.answer(quick, 'Ok');
+
+  controller.saveSettings({ injectedPrompts: { shellConduct: '' } });
+  await controller.send({ quick: true, text: 'Third' });
+  assert.doesNotMatch(lastTurnText(client), /Keep commands short/, 'an empty prompt is not sent');
+  client.answer(quick, 'Ok');
+
+  assert.throws(() => controller.saveSettings({ injectedPrompts: { mystery: 'x' } }), /Unknown injected prompt/);
+  assert.throws(() => controller.saveSettings({ injectedPrompts: { quickNote: 42 } }), /plain text/);
+  const restored = controller.saveSettings({ injectedPrompts: { quickNote: null, shellConduct: null } });
+  assert.equal(restored.settings.injectedPrompts.quickNote.customized, false);
+  assert.deepEqual(store.data.settings.injectedPrompts, {});
+  await controller.send({ quick: true, text: 'Fourth' });
+  assert.match(lastTurnText(client), /^This is a Quick session[^]*Shell conduct for Windows/);
 });

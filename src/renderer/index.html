@@ -235,18 +235,11 @@
         <div class="automation-notice"><span class="icon" data-icon="info"></span><span>These rules make prompt injection less likely to work. They guide the model; they are not a sandbox.</span></div>
         <p id="security-error" class="inline-error hidden" role="alert"></p>
         <section class="profile-file security-file" aria-labelledby="security-prompt-title">
-          <div class="profile-file-heading"><span class="profile-file-icon"><span class="icon" data-icon="shield"></span></span><div><h2 id="security-prompt-title">Conversation, sessions and background work</h2><code>SECURITY.md</code></div><span id="security-prompt-dirty" class="draft-label hidden">Edited</span></div>
-          <p class="profile-description">Used by the conversation, saved sessions, scheduled tasks, Heartbeat and goals.</p>
+          <div class="profile-file-heading"><span class="profile-file-icon"><span class="icon" data-icon="shield"></span></span><div><h2 id="security-prompt-title">Security rules</h2><code>SECURITY.md</code></div><span id="security-prompt-dirty" class="draft-label hidden">Edited</span></div>
+          <p class="profile-description">The same rules everywhere: the conversation, saved sessions, the Quick session, scheduled tasks, Heartbeat and goals.</p>
           <label class="sr-only" for="security-prompt">Edit SECURITY.md</label>
           <textarea id="security-prompt" rows="14" maxlength="20000" spellcheck="false"></textarea>
           <div class="settings-actions"><button id="save-security-prompt" class="button primary" type="button" disabled>Save</button><button id="reset-security-prompt" class="button text-button" type="button">Restore default</button><span id="security-prompt-saved" class="settings-save-status" role="status"></span></div>
-        </section>
-        <section class="profile-file security-file" aria-labelledby="security-quick-title">
-          <div class="profile-file-heading"><span class="profile-file-icon"><span class="icon" data-icon="sparkles"></span></span><div><h2 id="security-quick-title">Quick session</h2><code>SECURITY.md · Quick</code></div><span id="security-quick-dirty" class="draft-label hidden">Edited</span></div>
-          <p class="profile-description">The same rules, said the cute way, for the Quick side chat.</p>
-          <label class="sr-only" for="security-quick-prompt">Edit the Quick session SECURITY.md</label>
-          <textarea id="security-quick-prompt" rows="14" maxlength="20000" spellcheck="false"></textarea>
-          <div class="settings-actions"><button id="save-security-quick" class="button primary" type="button" disabled>Save</button><button id="reset-security-quick" class="button text-button" type="button">Restore default</button><span id="security-quick-saved" class="settings-save-status" role="status"></span></div>
         </section>
         <section class="feature-card security-owner-code" aria-labelledby="security-owner-title">
           <div class="card-heading"><h2 id="security-owner-title">Owner code</h2><label class="feature-toggle"><span>Stamp my messages</span><span class="switch"><input id="security-owner-enabled" type="checkbox" checked aria-label="Stamp my messages with the owner code"><span class="switch-track"></span></span></label></div>
@@ -255,6 +248,20 @@
           <select id="security-owner-rotation"><option value="turn">A new code for every message (recommended)</option><option value="fixed">One fixed code</option></select>
           <div id="security-owner-fixed" class="security-owner-fixed hidden"><code id="security-owner-code">····-····-····</code><button id="security-owner-regenerate" class="button secondary" type="button">New code</button></div>
           <p id="security-guard-status" class="field-hint" role="status">No leaks caught.</p>
+        </section>
+        <div class="security-injected-heading"><h2>Prompts Little Bot adds in the Quick session</h2><p class="field-hint">Little Bot adds these to every Quick session message, before your request. Leave one empty to stop sending it.</p></div>
+        <section class="profile-file security-file" aria-labelledby="security-quick-note-title">
+          <div class="profile-file-heading"><span class="profile-file-icon"><span class="icon" data-icon="sparkles"></span></span><div><h2 id="security-quick-note-title">Quick session note</h2><code>Quick session only</code></div><span id="security-quick-note-dirty" class="draft-label hidden">Edited</span></div>
+          <label class="sr-only" for="security-quick-note">Edit the Quick session note</label>
+          <textarea id="security-quick-note" rows="4" maxlength="20000" spellcheck="false"></textarea>
+          <div class="settings-actions"><button id="save-security-quick-note" class="button primary" type="button" disabled>Save</button><button id="reset-security-quick-note" class="button text-button" type="button">Restore default</button><span id="security-quick-note-saved" class="settings-save-status" role="status"></span></div>
+        </section>
+        <section class="profile-file security-file" aria-labelledby="security-shell-title">
+          <div class="profile-file-heading"><span class="profile-file-icon"><span class="icon" data-icon="terminal"></span></span><div><h2 id="security-shell-title">Shell conduct</h2><code>Every chat and goal</code></div><span id="security-shell-dirty" class="draft-label hidden">Edited</span></div>
+          <p class="profile-description">Terminal habits. Also added to the conversation, saved sessions and goal runs.</p>
+          <label class="sr-only" for="security-shell">Edit Shell conduct</label>
+          <textarea id="security-shell" rows="12" maxlength="20000" spellcheck="false"></textarea>
+          <div class="settings-actions"><button id="save-security-shell" class="button primary" type="button" disabled>Save</button><button id="reset-security-shell" class="button text-button" type="button">Restore default</button><span id="security-shell-saved" class="settings-save-status" role="status"></span></div>
         </section>
         <p class="feature-footnote">Saved with your settings. Your system prompt stays as it is; SECURITY.md is added after it.</p>
       </section>

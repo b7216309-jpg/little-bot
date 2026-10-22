@@ -24,6 +24,7 @@ const { normalizeLessons } = require('./lessons.cjs');
 const { MAX_SESSIONS, TITLE_LIMIT } = require('./chats.cjs');
 const { normalizeUsage } = require('./usage-ledger.cjs');
 const { normalizeSecurity } = require('./security.cjs');
+const { normalizeInjectedPrompts } = require('./injected-prompts.cjs');
 
 const INTERRUPTED = 'Interrupted because Little Bot closed before the task finished.';
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -127,6 +128,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
       localSampling: normalizeSampling(settings.localSampling),
       ...(typeof settings.systemPrompt === 'string' ? { systemPrompt: settings.systemPrompt.slice(0, 100000) } : {}),
       security: normalizeSecurity(settings.security),
+      injectedPrompts: normalizeInjectedPrompts(settings.injectedPrompts),
     },
     chats: savedChats(chats).map(chat => {
       const result = {

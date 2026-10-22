@@ -158,11 +158,20 @@ let systemPromptInitialized = false;
 let systemPromptBaseline = '';
 let systemPromptSaving = false;
 let systemPromptError = '';
+// Editors on the Security page: SECURITY.md and the prompts Little Bot adds in the Quick session.
 const SECURITY_EDITORS = [
-  { key: 'prompt', input: 'security-prompt', save: 'save-security-prompt', reset: 'reset-security-prompt', dirty: 'security-prompt-dirty', status: 'security-prompt-saved' },
-  { key: 'quickPrompt', input: 'security-quick-prompt', save: 'save-security-quick', reset: 'reset-security-quick', dirty: 'security-quick-dirty', status: 'security-quick-saved' },
+  { key: 'prompt', input: 'security-prompt', save: 'save-security-prompt', reset: 'reset-security-prompt', dirty: 'security-prompt-dirty', status: 'security-prompt-saved',
+    read: current => current.settings.security, patch: value => ({ security: { prompt: value } }) },
+  { key: 'quickNote', input: 'security-quick-note', save: 'save-security-quick-note', reset: 'reset-security-quick-note', dirty: 'security-quick-note-dirty', status: 'security-quick-note-saved',
+    read: current => current.settings.injectedPrompts?.quickNote, patch: value => ({ injectedPrompts: { quickNote: value } }) },
+  { key: 'shellConduct', input: 'security-shell', save: 'save-security-shell', reset: 'reset-security-shell', dirty: 'security-shell-dirty', status: 'security-shell-saved',
+    read: current => current.settings.injectedPrompts?.shellConduct, patch: value => ({ injectedPrompts: { shellConduct: value } }) },
 ];
-const securityBaselines = { prompt: null, quickPrompt: null };
+const editorValue = editor => {
+  const source = editor.read(state);
+  return editor.key === 'prompt' ? { text: source.prompt, customized: source.promptCustomized } : source || { text: '', customized: false };
+};
+const securityBaselines = { prompt: null, quickNote: null, shellConduct: null };
 let securitySaving = false;
 let securityError = '';
 let independentCheckSettingsInitialized = false;
@@ -1959,15 +1968,15 @@ function renderSecurity() {
   $('security-enabled').checked = security.enabled;
   $('security-enabled').disabled = securitySaving;
   for (const editor of SECURITY_EDITORS) {
-    const input = $(editor.input);
+    const input = $(editor.input), { text, customized } = editorValue(editor);
     const initialized = securityBaselines[editor.key] !== null;
     const hadDraft = initialized && input.value !== securityBaselines[editor.key];
-    securityBaselines[editor.key] = security[editor.key];
-    if (!initialized || (!hadDraft && !securitySaving)) input.value = security[editor.key];
-    const dirty = input.value !== security[editor.key];
+    securityBaselines[editor.key] = text;
+    if (!initialized || (!hadDraft && !securitySaving)) input.value = text;
+    const dirty = input.value !== text;
     input.disabled = securitySaving;
     $(editor.save).disabled = securitySaving || !dirty;
-    $(editor.reset).disabled = securitySaving || security[`${editor.key}Customized`] !== true;
+    $(editor.reset).disabled = securitySaving || !customized;
     $(editor.dirty).classList.toggle('hidden', !dirty);
   }
   const owner = security.ownerCode;
@@ -1995,7 +2004,7 @@ async function saveSecurity(patch, editor = null, done = 'Saved') {
   if (editor) $(editor.status).textContent = '';
   renderSecurity();
   try {
-    const result = await window.bot.saveSettings({ security: patch });
+    const result = await window.bot.saveSettings(patch);
     if (result?.settings) applyState(result);
     if (editor) $(editor.status).textContent = done;
     return true;
@@ -4213,19 +4222,19 @@ $('nav-goals').addEventListener('click', () => showFeature('goals'));
 $('nav-profile').addEventListener('click', () => showFeature('profile'));
 $('nav-usage').addEventListener('click', () => showFeature('usage'));
 $('nav-security').addEventListener('click', () => showFeature('security'));
-$('security-enabled').addEventListener('change', event => { void saveSecurity({ enabled: event.target.checked }); });
+$('security-enabled').addEventListener('change', event => { void saveSecurity({ security: { enabled: event.target.checked } }); });
 for (const editor of SECURITY_EDITORS) {
   $(editor.input).addEventListener('input', () => { $(editor.status).textContent = ''; renderSecurity(); });
-  $(editor.save).addEventListener('click', () => { void saveSecurity({ [editor.key]: $(editor.input).value }, editor); });
+  $(editor.save).addEventListener('click', () => { void saveSecurity(editor.patch($(editor.input).value), editor); });
   $(editor.reset).addEventListener('click', async () => {
-    if (!await saveSecurity({ [editor.key]: null }, editor, 'Default restored')) return;
-    $(editor.input).value = state.settings.security[editor.key];
+    if (!await saveSecurity(editor.patch(null), editor, 'Default restored')) return;
+    $(editor.input).value = editorValue(editor).text;
     renderSecurity();
   });
 }
-$('security-owner-enabled').addEventListener('change', event => { void saveSecurity({ ownerCode: { enabled: event.target.checked } }); });
-$('security-owner-rotation').addEventListener('change', event => { void saveSecurity({ ownerCode: { rotation: event.target.value } }); });
-$('security-owner-regenerate').addEventListener('click', () => { void saveSecurity({ ownerCode: { regenerate: true } }); });
+$('security-owner-enabled').addEventListener('change', event => { void saveSecurity({ security: { ownerCode: { enabled: event.target.checked } } }); });
+$('security-owner-rotation').addEventListener('change', event => { void saveSecurity({ security: { ownerCode: { rotation: event.target.value } } }); });
+$('security-owner-regenerate').addEventListener('click', () => { void saveSecurity({ security: { ownerCode: { regenerate: true } } }); });
 window.LittleBotUsage?.init({ isVisible: () => currentView === 'usage' });
 $('profile-form').addEventListener('submit', saveProfile);
 for (const key of ['user', 'soul']) $('profile-' + key).addEventListener('input', () => { profileSaveError = ''; renderProfile(); });
