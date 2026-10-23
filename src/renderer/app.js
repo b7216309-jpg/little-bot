@@ -180,6 +180,7 @@ const editorValue = editor => {
   return editor.key === 'prompt' ? { text: source.prompt, customized: source.promptCustomized } : source || { text: '', customized: false };
 };
 const securityBaselines = { prompt: null, quickNote: null, shellConduct: null, engineBase: null };
+let securityDetailsBaseline = null;
 let securitySaving = false;
 let securityError = '';
 let independentCheckSettingsInitialized = false;
@@ -2128,6 +2129,18 @@ function renderSecurity() {
   $('security-owner-fixed').classList.toggle('hidden', owner.rotation !== 'fixed');
   $('security-owner-code').textContent = owner.code;
   $('security-owner-regenerate').disabled = !ownerAvailable || !owner.enabled;
+  const details = security.details || { enabled: true, extra: [], found: [] };
+  const extraInput = $('security-details-extra'), extraText = details.extra.join('\n');
+  const extraDraft = securityDetailsBaseline !== null && extraInput.value !== securityDetailsBaseline;
+  securityDetailsBaseline = extraText;
+  if (!extraDraft && !securitySaving) extraInput.value = extraText;
+  $('security-details-enabled').checked = details.enabled;
+  $('security-details-enabled').disabled = securitySaving;
+  extraInput.disabled = securitySaving;
+  $('save-security-details').disabled = securitySaving || extraInput.value === extraText;
+  $('security-details-found').textContent = details.found.length
+    ? details.found.map(item => `${item.kind === 'email' ? 'Email' : 'Phone'}: ${item.value}`).join(' · ')
+    : 'No email or phone number. Add them to USER.md, or list them below.';
   const guard = state.securityGuard || { blocked: 0, last: null };
   $('security-guard-status').textContent = !security.enabled ? 'SECURITY.md is off, so messages are not stamped.'
     : !owner.enabled ? 'Messages are not stamped.'
@@ -4414,6 +4427,13 @@ for (const editor of SECURITY_EDITORS) {
 $('security-owner-enabled').addEventListener('change', event => { void saveSecurity({ security: { ownerCode: { enabled: event.target.checked } } }); });
 $('security-owner-rotation').addEventListener('change', event => { void saveSecurity({ security: { ownerCode: { rotation: event.target.value } } }); });
 $('security-owner-regenerate').addEventListener('click', () => { void saveSecurity({ security: { ownerCode: { regenerate: true } } }); });
+$('security-details-enabled').addEventListener('change', event => { void saveSecurity({ security: { details: { enabled: event.target.checked } } }); });
+$('security-details-extra').addEventListener('input', () => { $('security-details-saved').textContent = ''; renderSecurity(); });
+$('save-security-details').addEventListener('click', async () => {
+  if (!await saveSecurity({ security: { details: { extra: $('security-details-extra').value } } }, { status: 'security-details-saved' })) return;
+  $('security-details-extra').value = state.settings.security.details.extra.join('\n');
+  renderSecurity();
+});
 window.LittleBotUsage?.init({ isVisible: () => currentView === 'usage' });
 $('profile-form').addEventListener('submit', saveProfile);
 for (const key of ['user', 'soul']) $('profile-' + key).addEventListener('input', () => { profileSaveError = ''; renderProfile(); });
