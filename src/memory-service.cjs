@@ -9,6 +9,12 @@ const clean = (value) =>
   typeof value === "string" ? value.replace(/\u0000/g, "").trim() : "";
 const key = (value) =>
   clean(value).normalize("NFKC").toLowerCase().replace(/\s+/g, " ");
+// A key names one subject (project.package-manager). A category such as user.preference names none, and
+// two unrelated facts filed under it must not replace or forget each other.
+const familyKey = (value) =>
+  /^(?:(?:user|owner|me|my|project|global|workspace)[ ._-]?)?(?:preferences?|facts?|info|notes?|decisions?|procedures?|issues?|misc|general|memory|memories|data|details?|other)?$/.test(value)
+    ? ""
+    : value;
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const MAX_EXTRACTION_ATTEMPTS = 3;
 function workspaceKey(value) {
@@ -207,7 +213,7 @@ class MemoryService {
         .prepare(
           "SELECT 1 FROM suppressions WHERE project_id=? AND (fingerprint=? OR (semantic_key<>'' AND semantic_key=?))",
         )
-        .get(projectId || "", fingerprint, semanticKey)
+        .get(projectId || "", fingerprint, familyKey(semanticKey))
     )
       return null;
     if (
@@ -223,7 +229,7 @@ class MemoryService {
       return null;
     const old =
       previous ||
-      (semanticKey
+      (familyKey(semanticKey)
         ? this.decode(
             this.db
               .prepare(
@@ -312,7 +318,7 @@ class MemoryService {
         .all(
           current.supersedes || "",
           current.id,
-          current.key,
+          familyKey(current.key || ""),
           current.projectId || "",
         );
       for (const row of related)
@@ -327,7 +333,7 @@ class MemoryService {
         const item = this.get(target);
         this.db
           .prepare("INSERT OR REPLACE INTO suppressions VALUES(?,?,?)")
-          .run(hash(key(item.text)), item.key, item.projectId || "");
+          .run(hash(key(item.text)), familyKey(item.key || ""), item.projectId || "");
         for (const source of item.sources)
           this.db
             .prepare("INSERT OR IGNORE INTO suppressed_sources VALUES(?,?,?)")
@@ -549,6 +555,25 @@ class MemoryService {
       null,
     );
   }
+  // Cosine similarity of a stored vector with the query's. Parsed vectors are kept between searches (until
+  // the stored text changes): parsing every one on each message took seconds once a long history was indexed.
+  similarity(row, query, queryNorm) {
+    this.vectors ||= new Map();
+    let cached = this.vectors.get(row.id);
+    if (!cached || cached.raw !== row.embedding) {
+      const vector = parse(row.embedding, []);
+      let norm = 0;
+      for (const value of vector) norm += value * value;
+      cached = { raw: row.embedding, vector, norm: Math.sqrt(norm) };
+      this.vectors.delete(row.id);
+      this.vectors.set(row.id, cached);
+      if (this.vectors.size > 30000) this.vectors.delete(this.vectors.keys().next().value);
+    }
+    if (cached.vector.length !== query.length) return -1;
+    let dot = 0;
+    for (let i = 0; i < query.length; i++) dot += cached.vector[i] * query[i];
+    return dot / (cached.norm * queryNorm || 1);
+  }
   search({
     query = "",
     source = "all",
@@ -596,14 +621,23 @@ class MemoryService {
         .all(...params, Math.max(1, limit) + 1, offset);
     const lexicalIds = new Set(rows.map(row => row.id));
     const semantic = this.semantic.get(key(query));
+    const queryNorm = semantic ? Math.sqrt(semantic.reduce((sum, value) => sum + value * value, 0)) : 0;
     if (terms.length && semantic) {
-      const extra = this.db
-        .prepare(
-          `SELECT r.*,0 AS rank FROM records r WHERE r.embedding IS NOT NULL AND r.embedding_model=? AND ${where.join(" AND ")}`,
-        )
-        .all(this.embeddingIdentity(), ...params);
+      // Every vector is compared, but whole records are read only for the closest ones.
       const seen = new Set(rows.map((r) => r.id));
-      for (const row of extra) if (!seen.has(row.id)) rows.push(row);
+      const closest = this.db
+        .prepare(
+          `SELECT r.id,r.embedding FROM records r WHERE r.embedding IS NOT NULL AND r.embedding_model=? AND ${where.join(" AND ")}`,
+        )
+        .all(this.embeddingIdentity(), ...params)
+        .filter((row) => !seen.has(row.id))
+        .map((row) => ({ id: row.id, similarity: this.similarity(row, semantic, queryNorm) }))
+        .sort((a, b) => b.similarity - a.similarity)
+        .slice(0, Math.max(100, (offset + limit) * 5));
+      for (let index = 0; index < closest.length; index += 500) {
+        const ids = closest.slice(index, index + 500).map((item) => item.id);
+        rows.push(...this.db.prepare(`SELECT r.*,0 AS rank FROM records r WHERE r.id IN (${ids.map(() => "?").join(",")})`).all(...ids));
+      }
     }
     rows = rows.map((row) => {
       let score = 0;
@@ -615,19 +649,8 @@ class MemoryService {
           terms.filter((t) => key(row.text).includes(key(t))).length /
           Math.max(1, terms.length);
         if (semantic && row.embedding) {
-          const vector = parse(row.embedding, []);
-          if (vector.length === semantic.length) {
-            let dot = 0,
-              a = 0,
-              b = 0;
-            for (let i = 0; i < vector.length; i++) {
-              dot += vector[i] * semantic[i];
-              a += vector[i] ** 2;
-              b += semantic[i] ** 2;
-            }
-            similarity = dot / (Math.sqrt(a * b) || 1);
-            score += 2 * similarity;
-          }
+          similarity = this.similarity(row, semantic, queryNorm);
+          if (similarity > -1) score += 2 * similarity;
         }
       }
       const minimumSimilarity = this.embedding?.provider === 'bundled' ? embeddingManifest.minimumSimilarity : 0.3;

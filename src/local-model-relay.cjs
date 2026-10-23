@@ -410,9 +410,19 @@ class LocalModelRelay {
             return;
           }
           if (status >= 400) {
-            if (status >= 500) this.onError('upstream-status', new Error(`Local model server returned HTTP ${status}.`), { status });
-            upstreamResponse.resume();
-            response.end(strataAdapter.failure(`The local model server returned HTTP ${status}.`, 'upstream_status'));
+            // The server's own message says what went wrong (a prompt over the context size, a bad parameter).
+            const chunks = []; let size = 0;
+            try {
+              for await (const chunk of upstreamResponse) { chunks.push(chunk); size += chunk.length; if (size >= 8192) break; }
+            } catch { /* The status alone is still worth reporting. */ }
+            if (cancelled || response.destroyed || response.writableEnded) return;
+            const raw = Buffer.concat(chunks).toString('utf8').slice(0, 8192);
+            let detail = raw;
+            try { const parsed = JSON.parse(raw); detail = parsed?.error?.message || parsed?.message || (typeof parsed?.error === 'string' ? parsed.error : raw); } catch { /* Plain text. */ }
+            detail = String(detail || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+            const overflow = /context|n_ctx|too (?:long|many tokens)|exceeds? (?:the )?(?:available|maximum)/i.test(detail);
+            if (status >= 500) this.onError('upstream-status', new Error(`Local model server returned HTTP ${status}.`), { status, detail });
+            response.end(strataAdapter.failure(`The local model server returned HTTP ${status}${detail ? `: ${detail}` : '.'}`, overflow ? 'context_length_exceeded' : 'upstream_status'));
             return;
           }
           if (!/^text\/event-stream(?:\s*;|$)/i.test(upstreamResponse.headers['content-type'] || '')) {

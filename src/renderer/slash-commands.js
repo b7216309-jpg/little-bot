@@ -28,11 +28,15 @@
     save: 'keep',
   });
 
+  // A draft is a command only when it starts with "/" and a command-like word. "/etc/hosts is wrong" or
+  // "//note" is an ordinary message, and so is anything typed after a leading space.
   function parse(value) {
-    const text = String(value ?? '').trim();
-    if (!text.startsWith('/')) return null;
-    const match = /^\/([^\s]+)(?:\s+([\s\S]*))?$/.exec(text);
-    if (!match) return { known: false, name: '', args: '' };
+    const raw = String(value ?? '');
+    if (!raw.startsWith('/')) return null;
+    const text = raw.trim();
+    if (text === '/') return { known: false, name: '', args: '' };
+    const match = /^\/([a-z][a-z0-9_-]{0,31})(?:\s+([\s\S]*))?$/i.exec(text);
+    if (!match) return null;
     const rawName = match[1].toLowerCase();
     const name = aliases[rawName] || rawName;
     const command = commands.find(item => item.name === name) || null;

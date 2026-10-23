@@ -62,23 +62,29 @@ const instructionHash = skill => createHash('sha256').update(JSON.stringify({
 
 // Install each bundle once. Upgrade only a byte-identical original guide;
 // preserve user edits, disabled state, IDs, and deletions from earlier versions.
+// One unreadable skill, or a full skill list, skips only what cannot be installed: the others still arrive,
+// and the result names what was skipped so the app can say so.
 async function installBundledSkills(store, root = path.join(__dirname, '..', 'resources', 'skills')) {
   const extensions = store.data.extensions;
   const installedVersion = extensions.starterSkillsVersion || 0;
-  if (installedVersion >= VERSION) return;
+  if (installedVersion >= VERSION) return { skipped: [] };
   const next = [...extensions.skills];
+  const skipped = [];
   for (const bundle of BUNDLES) {
     const index = next.findIndex(existing => existing.name === bundle.name);
     const existing = next[index];
     const upgradeGuide = existing?.bundled === true
       && ORIGINAL_HASHES[bundle.name]?.includes(instructionHash(existing));
     if (!upgradeGuide && (existing || installedVersion >= bundle.introduced)) continue;
-    const skill = parseSkill(await fs.readFile(path.join(root, bundle.name, 'SKILL.md'), 'utf8'));
-    if (skill.name !== bundle.name) throw new Error(`Bundled skill name does not match ${bundle.name}.`);
+    let skill;
+    try {
+      skill = parseSkill(await fs.readFile(path.join(root, bundle.name, 'SKILL.md'), 'utf8'));
+      if (skill.name !== bundle.name) throw new Error(`Bundled skill name does not match ${bundle.name}.`);
+    } catch (error) { skipped.push({ name: bundle.name, reason: error.message }); continue; }
     if (upgradeGuide) next[index] = { ...existing, description: skill.description, content: skill.content, updatedAt: Date.now() };
+    else if (next.length >= LIMITS.skills) skipped.push({ name: bundle.name, reason: `The skill list is full (${LIMITS.skills}).` });
     else next.push({ ...skill, bundled: true, enabled: bundle.enabled !== false });
   }
-  if (next.length > LIMITS.skills) throw new Error('There is not enough room for the starter skills. Remove an unused skill and reopen Little Bot.');
   const previous = extensions.skills;
   const previousVersion = extensions.starterSkillsVersion;
   try {
@@ -91,6 +97,7 @@ async function installBundledSkills(store, root = path.join(__dirname, '..', 're
     else extensions.starterSkillsVersion = previousVersion;
     throw error;
   }
+  return { skipped };
 }
 
 module.exports = { installBundledSkills };

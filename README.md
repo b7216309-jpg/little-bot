@@ -13,7 +13,7 @@
   <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-2b2a24?style=flat-square">
   <img alt="Local first" src="https://img.shields.io/badge/runs-local%20first-65846c?style=flat-square">
   <img alt="Electron 44" src="https://img.shields.io/badge/Electron-44-2b2a24?style=flat-square">
-  <img alt="Version 0.42" src="https://img.shields.io/badge/version-0.42-bc623f?style=flat-square">
+  <img alt="Version 0.43" src="https://img.shields.io/badge/version-0.43-bc623f?style=flat-square">
 </p>
 
 <p align="center"><img src="docs/screenshots/hero.png" alt="Little Bot on the desktop and on a phone, suggesting a break after a long coding session"></p>
@@ -124,7 +124,7 @@ On first launch: check the connection in **Settings**, choose a working folder, 
 
 ```powershell
 npm run check:syntax
-npm test                 # about 170 Node tests, under a minute
+npm test                 # about 190 Node tests, under a minute
 npm run test:electron    # embedded browser and Glass widget
 npm start
 npm run package          # unpacked app, portable ZIP and Setup EXE

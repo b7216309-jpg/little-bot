@@ -49,6 +49,18 @@ function validProtector(value) {
   return value;
 }
 
+// On Windows an antivirus scan or the search indexer can hold state.json for a moment. A save that lands
+// then is retried briefly instead of failing whatever was being saved.
+function renameWithRetry(from, to) {
+  for (let attempt = 0; ; attempt++) {
+    try { return fs.renameSync(from, to); }
+    catch (error) {
+      if (attempt >= 5 || !['EPERM', 'EBUSY', 'EACCES'].includes(error.code)) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20 * (attempt + 1));
+    }
+  }
+}
+
 function protectedEnvelope(data, protector) {
   const normalized = data;
   if (!protector) return normalized;
@@ -347,7 +359,7 @@ class Store {
         this._needsRecoveryCopy = false;
         this.warning = `Could not read the previous app state. The original is preserved at ${recoveryPath}.`;
       }
-      fs.renameSync(temporaryPath, this.filePath);
+      renameWithRetry(temporaryPath, this.filePath);
     } catch (error) {
       try { fs.unlinkSync(temporaryPath); } catch { /* It may already have been renamed. */ }
       throw error;

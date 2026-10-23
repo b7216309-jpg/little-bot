@@ -131,7 +131,9 @@ class DesktopTools {
   }
   prune() {
     try {
-      const files = fs.readdirSync(this.root).filter(name => name.endsWith('.jpg')).sort();
+      // Oldest first by the time in the name: sorting by name alone put every clipboard-* before screen-*.
+      const stamp = name => Number(/-(\d+)\.jpg$/.exec(name)?.[1]) || 0;
+      const files = fs.readdirSync(this.root).filter(name => name.endsWith('.jpg')).sort((left, right) => stamp(left) - stamp(right));
       for (const name of files.slice(0, Math.max(0, files.length - KEEP_CAPTURES))) fs.rmSync(path.join(this.root, name), { force: true });
     } catch { /* Old captures are only housekeeping. */ }
   }

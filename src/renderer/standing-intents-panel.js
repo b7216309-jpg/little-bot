@@ -147,7 +147,8 @@
     dialog.append(form);
     document.body.append(dialog);
 
-    actionType.addEventListener('change', populateTargets);
+    // A new action type starts with no target chosen (passing the event would select "[object Event]").
+    actionType.addEventListener('change', () => populateTargets());
     filterOperator.addEventListener('change', renderFilterValue);
     form.addEventListener('submit', saveIntent);
     dialog.addEventListener('close', () => { editingId = null; error.classList.add('hidden'); error.textContent = ''; });

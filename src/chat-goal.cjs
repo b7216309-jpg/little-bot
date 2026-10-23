@@ -9,6 +9,7 @@ const { parseModelJson, normalizeModelOutput } = require('./model-json.cjs');
 
 const DEFAULT_TURNS = 20, MAX_TURNS = 100, DEFAULT_MINUTES = 90, MAX_MINUTES = 720;
 const { isQuick, isMain } = require('./chats.cjs');
+const { awakeBetween } = require('./awake-clock.cjs');
 const EVAL_TIMEOUT_MS = 10 * 60000, CHECK_TIMEOUT_MS = 5 * 60000, OUTPUT_LIMIT = 100000;
 const STATUSES = ['pursuing', 'paused', 'achieved', 'unmet', 'budget'];
 const COMMANDS = { status: 'status', pause: 'pause', stop: 'pause', resume: 'resume', continue: 'resume', clear: 'clear', cancel: 'clear', off: 'clear', reset: 'clear' };
@@ -36,7 +37,8 @@ function parseGoalCommand(input) {
   const word = COMMANDS[text.toLowerCase()];
   if (word) return { action: word };
   const options = {};
-  text = text.replace(/(^|\s)--check\s+(?:"([^"]*)"|'([^']*)'|`([^`]*)`|(\S+))/i, (_, lead, a, b, c, d) => { options.check = (a ?? b ?? c ?? d ?? '').trim(); return lead; });
+  // An unquoted check runs to the next option or the end: "--check npm test" is "npm test", not "npm".
+  text = text.replace(/(^|\s)--check\s+(?:"([^"]*)"(?=\s|$)|'([^']*)'(?=\s|$)|`([^`]*)`(?=\s|$)|((?:(?!\s--(?:turns?|time)\b)[\s\S])+))/i, (_, lead, a, b, c, d) => { options.check = (a ?? b ?? c ?? d ?? '').trim(); return lead; });
   text = text.replace(/(^|\s)--turns?\s+(\d{1,3})(?=\s|$)/i, (_, lead, n) => { options.maxTurns = Number(n); return lead; });
   text = text.replace(/(^|\s)--time\s+(\d{1,4})\s*(h|hours?|m|mins?|minutes?)?(?=\s|$)/i, (_, lead, n, unit) => { options.maxMinutes = Number(n) * (/^h/i.test(unit || '') ? 60 : 1); return lead; });
   const condition = text.replace(/\s+/g, ' ').trim();
@@ -150,7 +152,8 @@ class ChatGoalRunner {
   // Background work (heartbeat, goals, routines, learning, dreaming) waits while a goal is running.
   holding() { return !this.closed && this.chats.some(chat => chat.goal?.status === 'pursuing'); }
   ownsThread(threadId) { return Boolean(threadId && this.op?.threadId === threadId); }
-  elapsed(goal, now = Date.now()) { return goal.elapsedMs + (goal.status === 'pursuing' && goal.resumedAt ? now - goal.resumedAt : 0); }
+  // Time asleep does not count against the budget.
+  elapsed(goal, now = Date.now()) { return goal.elapsedMs + (goal.status === 'pursuing' && goal.resumedAt ? awakeBetween(goal.resumedAt, now) : 0); }
   target(chatId, quick, session) {
     if (chatId && this.controller.chat(chatId)) return this.controller.chat(chatId);
     // A new saved session has no chat until its first turn.

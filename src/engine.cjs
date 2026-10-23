@@ -156,6 +156,9 @@ class EngineClient extends EventEmitter {
     await this._write({ method, params });
   }
 
+  // False once the engine resolved or cancelled the request itself (an interrupted turn).
+  pending(id) { return this._serverRequests.has(id); }
+
   async respond(id, result) {
     if (!this.ready && this.state !== 'starting') throw this._crashError || new Error('The assistant engine is not running.');
     if (!this._serverRequests.has(id)) throw new Error('This engine request is no longer pending.');

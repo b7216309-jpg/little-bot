@@ -244,12 +244,20 @@ window.LittleBotUsage = (() => {
     $('usage-footnote').textContent = `Counted on this PC from Strata's own numbers as each request finishes${since ? `, since ${since}` : ''}: ${full(summary.lifetime.output)} generated and ${full(summary.lifetime.input)} processed in all.${summary.prefill ? ` Prompt reading averages ${rate(summary.prefill.tokensPerSecond)}.` : ''}${summary.best ? ` Busiest day: ${dateLabel(summary.best.day, { day: 'numeric', month: 'long' })} (${compact(summary.best.output)}).` : ''}`;
   }
 
+  // A range picked while another one is loading is loaded right after it, and only the latest range's
+  // numbers are shown.
+  let again = false;
   async function load(force = false) {
-    if (loading || (!force && Date.now() - lastFetch < 5000)) return;
+    if (loading) { again ||= force; return; }
+    if (!force && Date.now() - lastFetch < 5000) return;
     loading = true; render();
-    try { data = await window.bot.usageSummary({ days: range }); error = ''; }
-    catch (failure) { error = failure?.message || String(failure); }
-    finally { loading = false; lastFetch = Date.now(); render(); }
+    const asked = range;
+    try { const result = await window.bot.usageSummary({ days: asked }); if (asked === range) { data = result; error = ''; } }
+    catch (failure) { if (asked === range) error = failure?.message || String(failure); }
+    finally {
+      loading = false; lastFetch = Date.now();
+      if (again || asked !== range) { again = false; void load(true); } else render();
+    }
   }
 
   function init({ isVisible }) {

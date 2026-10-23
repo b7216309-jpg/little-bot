@@ -558,11 +558,15 @@ class StrataStreamAdapter extends Transform {
     return true;
   }
 
-  _parseTextCall(raw) {
+  // A <tool_call> block is always a call, even with a wrong name (it is repaired into a lesson). A ```json block is
+  // a call only when it names one of this request's tools: an answer's JSON example (a package.json, a list of
+  // people) has a "name" too, and must stay in the answer.
+  _parseTextCall(raw, { fenced = false } = {}) {
+    const known = name => !fenced || this.toolKinds.has(name) || (PATCH_TOOLS.has(name) && this.toolKinds.has('exec_command'));
     const call = callFromJson(raw);
-    if (call) return this._addTextCall(call.name, call.args, call.argumentSource);
+    if (call) return known(call.name) && this._addTextCall(call.name, call.args, call.argumentSource);
     const name = /(?:["']?name["']?|tool_name)\s*:\s*["']([^"']+)["']/i.exec(raw)?.[1]?.trim();
-    if (name) return this._addTextCall(name, raw);
+    if (name && known(name)) return this._addTextCall(name, raw);
     return false;
   }
 
@@ -629,7 +633,9 @@ class StrataStreamAdapter extends Transform {
           return;
         }
         if (final) { this._emitText(this.pendingText); this.pendingText = ''; return; }
-        const safe = Math.max(0, this.pendingText.length - 128);
+        // Never between the two halves of an emoji: a lone surrogate is invalid JSON for the engine.
+        let safe = Math.max(0, this.pendingText.length - 128);
+        if (safe && /[\ud800-\udbff]/.test(this.pendingText[safe - 1])) safe -= 1;
         if (safe) { this._emitText(this.pendingText.slice(0, safe)); this.pendingText = this.pendingText.slice(safe); }
         return;
       }
@@ -688,7 +694,7 @@ class StrataStreamAdapter extends Transform {
       const end = closeIndex + 3;
       const block = this.pendingText.slice(0, end);
       const inner = this.pendingText.slice(opening.length, closeIndex);
-      if (!this._parseTextCall(inner)) this._emitText(block);
+      if (!this._parseTextCall(inner, { fenced: true })) this._emitText(block);
       this.pendingText = this.pendingText.slice(end);
     }
   }

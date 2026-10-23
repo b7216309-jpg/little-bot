@@ -26,7 +26,7 @@ Every automatically extracted memory cites original message IDs. Suggestions sho
 
 Use `memory_save` for immediate explicit remembering, correction, or pinning; `memory_forget` forgets a record by ID. The familiar "Remember that ..." prefix also saves immediately. Other languages and phrasings can use the model's memory tool or automatic extraction.
 
-Editing a memory creates a new version and marks the previous version superseded. Pin changes preserve the record ID. Search normally selects active records; historical versions can be requested explicitly. Stable semantic keys let later extraction update an existing subject rather than accumulate contradictory copies.
+Editing a memory creates a new version and marks the previous version superseded. Pin changes preserve the record ID. Search normally selects active records; historical versions can be requested explicitly. Stable semantic keys let later extraction update an existing subject rather than accumulate contradictory copies. A category such as `user.preference` names no subject, so records filed under one never replace or forget each other. Preferences and procedures are learned only from the user's own messages: text in a page, a file or a command's output asking to be remembered is dropped.
 
 Forget removes the selected durable record and its correction family from retrieval. It stores suppression fingerprints, keys, and source references to prevent the same source being automatically learned again. It does not erase the original conversation transcript. Explicitly saving a new memory is still possible.
 

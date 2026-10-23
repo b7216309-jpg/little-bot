@@ -8,6 +8,7 @@ const MAX_FILES = 2000;
 const MAX_BYTES = 25 * 1024 * 1024;
 const MAX_BACKUP_BYTES = 250 * 1024 * 1024;
 const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
+const INCOMPLETE_SNAPSHOT_MS = 7 * 24 * 3600000;
 const forbidden = name => /^(?:\.git|node_modules|\.ssh|\.aws|\.gnupg|\.env(?:\..*)?|auth\.json|credentials(?:\.json)?|id_rsa|id_ed25519)$/i.test(name);
 const hash = value => createHash('sha256').update(value).digest('hex');
 const inside = (root, target) => { const relative = path.relative(root, target); return relative === '' || (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`)); };
@@ -161,7 +162,13 @@ async function retainLatestSnapshots(backupRoot, goalId, currentRunId) {
   for (const child of await fs.readdir(directory, { withFileTypes: true })) {
     if (!child.isDirectory()) continue;
     const target = snapshotDirectory(backupRoot, goalId, child.name);
-    try { const manifest = JSON.parse(await fs.readFile(path.join(target, 'manifest.json'), 'utf8')); snapshots.push({ id: child.name, at: manifest.createdAt || 0 }); } catch { /* An incomplete snapshot is not silently discarded. */ }
+    try { const manifest = JSON.parse(await fs.readFile(path.join(target, 'manifest.json'), 'utf8')); snapshots.push({ id: child.name, at: manifest.createdAt || 0 }); }
+    catch {
+      // A snapshot cut off by a crash has no manifest and cannot undo anything. It stays a week for a look,
+      // then goes, so it no longer counts against the backup space.
+      if (child.name === currentRunId) continue;
+      try { if (Date.now() - (await fs.stat(target)).mtimeMs > INCOMPLETE_SNAPSHOT_MS) await fs.rm(target, { recursive: true, force: true }); } catch { /* Next time. */ }
+    }
   }
   const retired = [];
   for (const snapshot of snapshots.sort((a, b) => a.id === currentRunId ? -1 : b.id === currentRunId ? 1 : b.at - a.at).slice(3)) {

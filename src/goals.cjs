@@ -8,6 +8,7 @@ const contract = require('./goal-contract.cjs');
 const { connectionBinding, isConnectionSelected, requireSelectedConnection } = require('./connections.cjs');
 const { inActiveHours } = require('./heartbeat.cjs');
 const { questionInput, questionText, pendingQuestion, clarifications } = require('./user-questions.cjs');
+const { awakeBetween } = require('./awake-clock.cjs');
 const {
   normalizeGoalLedger, reconcileGoalLedger, restartGoalLedger, applyGoalLedgerUpdate,
   currentPlan, activeStep,
@@ -31,6 +32,7 @@ function text(value, label, max, required = false) {
   if (typeof value !== 'string' || value.length > max || value.includes('\0') || (required && !value.trim())) throw new Error(`${label} must contain ${required ? '1–' : 'at most '}${max} characters.`);
   return value.trim();
 }
+const clip = (value, max) => typeof value === 'string' ? value.slice(0, max) : value;
 function list(value, label, max, convert) {
   if (value == null) return [];
   if (!Array.isArray(value) || value.length > max) throw new Error(`${label} accepts at most ${max} entries.`);
@@ -221,12 +223,20 @@ class GoalRunner {
   }
   async pause(id) {
     const goal = this.goal(id); goal.status = 'paused'; delete goal.pauseReason;
+    // A step cut short may have done part of its work: the resumed run checks it before going on.
+    if (id === this.activeId) goal.needsRecoveryCheck = true;
     recordGoalPause(goal, 'Paused by you.');
-    this.record(goal, 'paused', 'Paused by you.'); this.changed();
-    this.emit('goal.paused', goal, { reason: 'Paused by you.', pausedAt: Date.now() });
-    if (id === this.activeId) { this.stopReason = 'Paused by you.'; await this.stopRun?.(this.stopReason); await this.execution; }
+    this.record(goal, 'paused', 'Paused by you.');
+    // The run stops even when the save fails (a file locked by an antivirus scan).
+    try { this.changed(); }
+    finally {
+      this.emit('goal.paused', goal, { reason: 'Paused by you.', pausedAt: Date.now() });
+      if (id === this.activeId) { this.stopReason = 'Paused by you.'; await this.stopRun?.(this.stopReason); await this.settled(); }
+    }
     return goal;
   }
+  // Waits for the running step, whatever its outcome: a failed step has already recorded why.
+  async settled() { await this.execution?.catch(() => {}); }
   resume(id) { return this.runNow(id); }
   answer({ id, questionId, answer } = {}) {
     const goal = this.goal(id), question = goal.pendingQuestion;
@@ -255,13 +265,13 @@ class GoalRunner {
   async pauseAll() {
     this.data.paused = true;
     if (this.activeId) {
-      const goal = this.goal(this.activeId); goal.status = 'paused'; goal.pauseReason = 'all';
+      const goal = this.goal(this.activeId); goal.status = 'paused'; goal.pauseReason = 'all'; goal.needsRecoveryCheck = true;
       recordGoalPause(goal, 'Paused with all goals.', { source: 'user' });
       this.record(goal, 'paused', 'Paused with all goals.');
     }
     this.changed();
     if (this.activeId) this.emit('goal.paused', this.goal(this.activeId), { reason: 'All goals are paused.', pausedAt: Date.now() });
-    if (this.activeId) { this.stopReason = 'All goals are paused.'; await this.stopRun?.(this.stopReason); await this.execution; }
+    if (this.activeId) { this.stopReason = 'All goals are paused.'; await this.stopRun?.(this.stopReason); await this.settled(); }
     return this.data;
   }
   // Night shift starts a step now that its schedule would allow later. Unlike the owner's Run, it keeps scheduled
@@ -272,14 +282,17 @@ class GoalRunner {
     if (!(goal.nextRunAt <= Date.now())) goal.nextRunAt = Date.now();
     this.changed(); this.wake(); return goal;
   }
-  async yieldForNightShift(reason = 'Night shift yielded because the owner returned.') {
+  // The running step steps aside (for the owner's message, or night shift ending) and is queued again; one that
+  // may have acted outside this PC waits for review instead.
+  async yieldActive(reason) {
     const id = this.activeId;
     if (!id) return { ok: true };
     this.yieldRequested.add(id); this.stopReason = reason;
     await this.stopRun?.(reason);
-    await this.execution;
+    await this.settled();
     return { ok: true };
   }
+  yieldForNightShift(reason = 'Night shift yielded because the owner returned.') { return this.yieldActive(reason); }
   yieldGoal(goal, reason) {
     const external = goal.permissions.network || goal.permissions.mcpTools.length > 0;
     goal.status = external ? 'blocked' : 'queued';
@@ -359,7 +372,9 @@ class GoalRunner {
               } else this.filePending.set(goal.id, { fingerprint, at: Date.now() });
             } else this.filePending.delete(goal.id);
           } catch (error) { this.block(goal, `File trigger could not be checked: ${clean(error)}`); }
-        } else if (!ready) ready = goal.nextRunAt != null && goal.nextRunAt <= Date.now();
+        }
+        // A file-triggered task also runs when its own next step or a retry falls due, not only on a file change.
+        if (!ready) ready = goal.nextRunAt != null && goal.nextRunAt <= Date.now();
         // File checks await I/O; a pause or shutdown may land while they run.
         if (!ready || this.closing || this.data.paused || goal.status !== 'queued') { this.setWaiting(goal.id, ''); continue; }
         if (!this.canRun()) { this.setWaiting(goal.id, this.waitReason() || 'Little Bot is busy with other work'); continue; }
@@ -372,7 +387,8 @@ class GoalRunner {
         }
         this.setWaiting(goal.id, '');
         this.forceRuns.delete(goal.id); this.execution = this.execute(goal);
-        await this.execution; this.execution = null; break;
+        try { await this.execution; } finally { this.execution = null; }
+        break;
       }
     } finally { this.ticking = false; }
   }
@@ -417,6 +433,8 @@ class GoalRunner {
   // instead of stopping until the user notices. Repeated failures, questions and possible external
   // effects still block for attention.
   retryOrBlock(goal, reason, extra = {}) {
+    // Quitting is not a failure: the run's own cleanup queues it again for the next start, with no alert.
+    if (this.closing) { this.record(goal, 'stopped', clean(reason), { runId: extra.runId || '' }); return goal; }
     const streak = goal.failureStreak || 0;
     if (!contract.ongoing(goal) || this.closing || goal.pendingQuestion || goal.needsEffectReview || streak >= ONGOING_RETRY_MINUTES.length) {
       delete goal.failureStreak;
@@ -424,6 +442,8 @@ class GoalRunner {
     }
     const minutes = ONGOING_RETRY_MINUTES[streak];
     goal.failureStreak = streak + 1;
+    // Each retry gets a fresh activation budget (an over-budget cycle would otherwise block at once); after
+    // the last retry in ONGOING_RETRY_MINUTES the goal blocks.
     goal.status = 'queued'; goal.nextRunAt = Date.now() + minutes * 60000; goal.usage = usageOf();
     goal.nextStep = `Retry after: ${clean(reason).slice(0, 300)}`;
     this.record(goal, 'retry', `${clean(reason)} Retrying in ${minutes} minutes (attempt ${goal.failureStreak + 1}).`, { runId: extra.runId || '' });
@@ -549,10 +569,12 @@ class GoalRunner {
       goal.usage.tokens = before.tokens + Math.floor(number(modelUsage.tokens));
       for (const key of ['inputTokens', 'outputTokens']) if (Number.isFinite(modelUsage[key])) goal.usage[key] = number(before[key]) + Math.floor(number(modelUsage[key]));
       goal.usage.actions = before.actions + verificationActions + Math.floor(number(modelUsage.actions));
-      goal.usage.elapsedMs = before.elapsedMs + Math.max(Date.now() - startedAt, Math.floor(number(modelUsage.elapsedMs)));
+      goal.usage.elapsedMs = before.elapsedMs + Math.max(awakeBetween(startedAt), Math.floor(number(modelUsage.elapsedMs)));
     };
-    goal.status = 'running'; goal.currentAction = ''; delete goal.needsRecoveryCheck; delete goal.continueAfterAnswer; this.record(goal, 'checking', 'Checking saved completion conditions before doing work.', { runId }); this.changed();
+    goal.status = 'running'; goal.currentAction = ''; delete goal.needsRecoveryCheck; delete goal.continueAfterAnswer; this.record(goal, 'checking', 'Checking saved completion conditions before doing work.', { runId });
     try {
+      // Inside the try: a failed save must still reach the finally that releases the runner.
+      this.changed();
       if (contract.isV2(goal)) {
         evidence = await contract.collect(goal, this.store.data);
         goal.runEvidence = evidence;
@@ -589,8 +611,9 @@ class GoalRunner {
         this.changed();
       } });
       for (const key of ['tokens', 'actions', 'elapsedMs', 'inputTokens', 'outputTokens']) if (Number.isFinite(result?.usage?.[key])) modelUsage[key] = Math.max(number(modelUsage[key]), number(result.usage[key])); updateUsage();
-      if (result?.checkpoint) goal.checkpoint = text(result.checkpoint, 'Checkpoint', 4000);
-      if (result?.nextStep != null) goal.nextStep = text(result.nextStep, 'Next step', 2000);
+      // A local model that writes too much keeps its result: the text is shortened, not the run thrown away.
+      if (result?.checkpoint) goal.checkpoint = text(clip(result.checkpoint, 4000), 'Checkpoint', 4000);
+      if (result?.nextStep != null) goal.nextStep = text(clip(result.nextStep, 2000), 'Next step', 2000);
       if (result?.clarification) this.saveQuestion(goal, result.clarification, result.checkpoint, result.nextStep);
       applyGoalLedgerUpdate(goal, result?.ledger, { runId, now: Date.now(), status: result?.status,
         summary: result?.summary, nextStep: goal.nextStep });
@@ -646,7 +669,7 @@ class GoalRunner {
         if (result?.status === 'verify' || !progressed) goal.usage.retries++;
         const reason = this.budgetReason(goal) || (repeatedActions && !(snapshot?.changes > 0) ? 'The goal repeated the same actions three times without verified file progress.' : null) || (goal.usage.retries > goal.limits.maxRetries ? 'The goal stopped after repeated failed verification or no progress.' : null);
         if (reason) this.block(goal, reason, { runId });
-        else { goal.status = 'queued'; goal.nextRunAt = goal.trigger.type === 'files' ? null : Date.now() + (goal.trigger.type === 'interval' ? goal.trigger.intervalMinutes * 60000 : 1000); }
+        else { goal.status = 'queued'; goal.nextRunAt = Date.now() + (goal.trigger.type === 'interval' ? goal.trigger.intervalMinutes * 60000 : 1000); }
       }
     } catch (error) {
       if (goal.pendingQuestion && (goal.permissions.network || goal.permissions.mcpTools.length)) goal.needsEffectReview = true;
@@ -688,7 +711,7 @@ class GoalRunner {
       goal.updatedAt = Date.now(); this.activeId = null; this.stopReason = null; this.changed();
     }
   }
-  async close() { this.closing = true; clearInterval(this.timer); this.timer = null; if (this.activeId) { this.stopReason = 'Little Bot is closing.'; await this.stopRun?.(this.stopReason); await this.execution; } }
+  async close() { this.closing = true; clearInterval(this.timer); this.timer = null; if (this.activeId) { this.stopReason = 'Little Bot is closing.'; await this.stopRun?.(this.stopReason); await this.settled(); } }
 }
 
 module.exports = { GoalRunner, validateGoal, normalizeAutonomy, DEFAULT_LIMITS };

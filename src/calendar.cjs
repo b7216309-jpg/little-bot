@@ -102,6 +102,15 @@ function validateCalendarEvent(input, existing = null, now = Date.now()) {
   if (input.endAt !== undefined) endAt = parseLocalDateTime(input.endAt, { allDay, label: 'end' });
   else if (input.endLocal !== undefined && input.endLocal !== '') endAt = parseLocalDateTime(input.endLocal, { allDay, label: 'end' });
   else if (existing && !scheduleChanged) endAt = existing.endAt;
+  // Moving an event keeps its length; only a new event, or a switch to or from all-day, gets the default.
+  else if (existing && allDay === existing.allDay && existing.endAt > existing.startAt) {
+    if (!allDay) endAt = startAt + (existing.endAt - existing.startAt);
+    else {
+      // Whole local days, so a move across a clock change still ends at midnight.
+      endAt = startAt;
+      for (let day = 0; day < Math.max(1, Math.round((existing.endAt - existing.startAt) / 86400000)); day++) endAt = nextLocalDay(endAt);
+    }
+  }
   else endAt = allDay ? nextLocalDay(startAt) : startAt + 60 * 60 * 1000;
 
   if (!(endAt > startAt)) throw new Error('The calendar event must end after it starts.');

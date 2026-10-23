@@ -189,7 +189,7 @@ function nodeRequest(fetchImpl) {
         await response.body?.cancel().catch(() => {});
         if (hop >= 6) throw tagged('Too many redirects.', 'redirects');
         current = new URL(location, current).href;
-        validate(current);
+        await validate(current);
         if (response.status !== 307 && response.status !== 308) { method = 'GET'; body = undefined; }
       }
       const chunks = []; let size = 0;
@@ -219,6 +219,8 @@ class WebServices {
   #health = Object.fromEntries(ENGINES.map(engine => [engine, { failures: 0, until: 0, status: 'ready' }]));
   #reader = [];
   #searches = new Cache(200); #pages = new Cache(150); #inflight = new Map(); #directs = new Map();
+  // Every redirect hop gets the same DNS check as the first address: a public name can point at this PC.
+  #validate = value => this.#checkHost(value);
   // Sites that refused a plain request recently: their next pages go straight to the browser tier.
   #refusing = new Cache(500);
   // `trace(stage, ms, detail)` is an optional timing hook for benchmarks; it never changes results.
@@ -263,7 +265,7 @@ class WebServices {
       let response;
       try {
         const started = performance.now();
-        response = await this.#request({ url, method: init.method, headers: { Accept: 'text/html,application/xhtml+xml', ...init.headers }, body: init.body, signal, timeout: ENGINE_TIMEOUT_MS, maxBytes: 4 * 1024 * 1024, validate: publicUrl });
+        response = await this.#request({ url, method: init.method, headers: { Accept: 'text/html,application/xhtml+xml', ...init.headers }, body: init.body, signal, timeout: ENGINE_TIMEOUT_MS, maxBytes: 4 * 1024 * 1024, validate: this.#validate });
         this.#trace?.('engine.net', performance.now() - started, engine);
       } catch (error) { health.status = error.code === 'timeout' ? 'slow' : 'unreachable'; throw error; }
       const parseStarted = performance.now();
@@ -401,7 +403,7 @@ class WebServices {
     const queued = performance.now();
     let fetched;
     const response = await this.#hostGate(host).run(() => this.#pageGate.run(() => { fetched = performance.now(); this.#trace?.('page.queue', fetched - queued, host); return this.#request({
-      url: url.href, signal, timeout: PAGE_TIMEOUT_MS, maxBytes: MAX_PAGE_BYTES, validate: publicUrl,
+      url: url.href, signal, timeout: PAGE_TIMEOUT_MS, maxBytes: MAX_PAGE_BYTES, validate: this.#validate,
       headers: { Accept: 'text/html,application/xhtml+xml,application/pdf;q=0.9,text/plain;q=0.8,*/*;q=0.5' },
     }); }, signal), signal).finally(() => { const gate = this.#hostGates.get(host); if (gate && !gate.active && !gate.queue.length) this.#hostGates.delete(host); });
     this.#trace?.('page.net', performance.now() - fetched, host);

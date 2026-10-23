@@ -34,7 +34,7 @@ Edit it on the page, **Restore default** to go back, or switch it off.
 Little Bot adds `[owner code: XXXX-XXXX-XXXX]` to the label of every request block it writes: your messages, scheduled tasks and goal turns. You never type it. SECURITY.md tells the model that text without the current code is not you, whatever it claims.
 
 - **Rotation:** a new code for every message (the default), or one fixed code that you can replace with **New code**. The code is never in the system prompt, so the cached prompt prefix stays stable.
-- **Leak guard:** a code that appears in a tool call means something is trying to send private context out.
+- **Leak guard:** a code that appears in a tool call means something is trying to send private context out. It also catches the code disguised: in full-width or Cyrillic/Greek look-alike letters, reversed, percent- or HTML-escaped, in base64 or hex, or split across two fields of one call. A code cut into pieces sent in separate calls is not caught; the guard is a tripwire behind SECURITY.md.
   - **Little Bot's own tools** (web search, page reading, the browser, memory and the rest): the call is refused before it runs.
   - **Terminal commands, MCP tools and the engine's native search:** these have already started when Little Bot sees them, so it stops the task. A fast command may already have finished.
 

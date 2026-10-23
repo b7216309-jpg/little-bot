@@ -53,4 +53,24 @@ function migrateTools(home, threadId, tools) {
     } catch(error) { db.exec('ROLLBACK'); throw error; }
   } finally { db.close(); }
 }
-module.exports={migrateTools,fingerprint};
+// A deleted session's engine transcript goes too: its rollout file and the tool-migration backups beside it.
+// The engine names them rollout-<time>-<thread id>.jsonl under sessions/<year>/<month>/<day>.
+function removeThreadHistory(home, threadId) {
+  if (!/^[a-f0-9-]{36}$/.test(threadId)) throw new Error('Invalid engine thread ID.');
+  const root = path.join(home, 'sessions');
+  let removed = 0;
+  const walk = (folder, depth) => {
+    let entries = [];
+    try { entries = fs.readdirSync(folder, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      const target = path.join(folder, entry.name);
+      if (entry.isDirectory() && !entry.isSymbolicLink() && depth < 3) walk(target, depth + 1);
+      else if (entry.isFile() && entry.name.startsWith('rollout-') && (entry.name.endsWith(`-${threadId}.jsonl`) || entry.name.includes(`-${threadId}.jsonl.`))) {
+        fs.rmSync(target, { force: true }); removed++;
+      }
+    }
+  };
+  walk(root, 0);
+  return removed;
+}
+module.exports={migrateTools,fingerprint,removeThreadHistory};

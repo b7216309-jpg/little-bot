@@ -293,7 +293,7 @@ class AgentTools {
         return this.browser.call(args, { isActive: () => chat.status === 'running', owner: chat.id });
       }
       if (!this.webServices) throw new Error('Web tools are unavailable.');
-      return this.webServices.call(name, args);
+      return this.webServices.call(name, args, { signal: options.signal });
     }
     const allowed = {
       skill_list: [], skill_read: ['name'],

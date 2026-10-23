@@ -132,6 +132,8 @@ let lastStorageWarning = '';
 let navigationVersion = 0;
 let editingFactId = null;
 let heartbeatDirty = false;
+// Memory search settings the user is editing: a state update must not reset them before they are saved.
+let memorySettingsDirty = false;
 let heartbeatSaving = false;
 let heartbeatManualPending = false;
 let heartbeatUseCurrentWorkspace = false;
@@ -560,8 +562,11 @@ async function deleteSession() {
   if (!chat?.session) return;
   if (!await confirmAction('Delete this session?', `“${chat.title || 'Session'}” and its history will be deleted. Facts Little Bot already learned from it stay in Memory.`, 'Delete')) return;
   if (await attempt(() => window.bot.deleteChat({ chatId: chat.id }), 'Session deleted.')) {
+    void releaseAttachments(attachmentDrafts.get(chat.id) || []).catch(error => notify(error.message || String(error), true));
     chatDrafts.delete(chat.id); attachmentDrafts.delete(chat.id); planModeDrafts.delete(chat.id);
-    selectChat(null, 'main');
+    // The box still shows the deleted session's draft, while the state already points at the conversation:
+    // saving it now would overwrite the conversation's own draft.
+    selectChat(null, 'main', { saveDraft: false });
   }
 }
 
@@ -579,7 +584,9 @@ async function keepQuickSession() {
     selectChat(null, 'session');
     return notify('New saved session: your first message starts it.');
   }
-  if (await attempt(() => window.bot.saveQuickSession({ chatId: chat.id }), 'Saved as a session. Memory works here from now on.')) selectChat(chat.id, 'session');
+  // Saved under the chat's id now: once it is no longer the Quick session, the box would be saved as the next one's draft.
+  saveCurrentDraft();
+  if (await attempt(() => window.bot.saveQuickSession({ chatId: chat.id }), 'Saved as a session. Memory works here from now on.')) selectChat(chat.id, 'session', { saveDraft: false });
 }
 
 function saveCurrentDraft() {
@@ -588,9 +595,9 @@ function saveCurrentDraft() {
 
 // Opens a chat. mode is 'main', 'quick' or 'session' (with id null: a new session). Without a mode, the chat
 // with this id decides; with neither, the chat already open stays.
-function selectChat(id = null, mode = null) {
+function selectChat(id = null, mode = null, { saveDraft = true } = {}) {
   navigationVersion += 1;
-  if (currentView === 'chat') saveCurrentDraft();
+  if (currentView === 'chat' && saveDraft) saveCurrentDraft();
   closeGoalEditor();
   if (goalDrawerOpen) setGoalDrawerOpen(false);
   const target = id ? state?.chats?.find(chat => chat.id === id) : null;
@@ -1753,6 +1760,8 @@ function renderGoalDrawer() {
 }
 async function startDrawerGoal(event) {
   event.preventDefault();
+  // Ctrl+Enter submits the form even while the Start button is disabled.
+  if (goalDrawerPending || $('goal-drawer-start').disabled) return;
   let text;
   try {
     text = LittleBotSlashCommands.goalArguments({ condition: $('goal-drawer-condition').value, check: $('goal-drawer-check').value,
@@ -1793,9 +1802,10 @@ function renderGoalBar() {
 async function executeSlashCommand(parsed) {
   const chat = currentChat();
   const running = chat?.status === 'running' || chat?.status === 'waiting' || chat?.compaction?.status === 'running' || compactionPending.has(chat?.id);
+  // The draft stays: it may be a message that happens to start with a word after "/".
   if (!parsed.known) {
-    clearComposerDraft();
-    notify(`Unknown command /${parsed.name || '?'}. Use /help to see available commands.`, true);
+    if (!parsed.name) { renderSlashMenu(); return true; }
+    notify(`Unknown command /${parsed.name}. Use /help for the commands, or start with a space to send it as a message.`, true);
     return true;
   }
 
@@ -1906,7 +1916,7 @@ async function sendMessage(event) {
   const chat = currentChat();
   const mode = currentPlanMode() ? 'plan' : 'execute';
   const attachmentIds = queuedAttachments().map((attachment) => attachment.id);
-  const slashCommand = text ? LittleBotSlashCommands.parse(text) : null;
+  const slashCommand = text ? LittleBotSlashCommands.parse(submittedDraft) : null;
   if (slashCommand) {
     await executeSlashCommand(slashCommand);
     return;
@@ -2886,7 +2896,7 @@ function renderMemory() {
 function renderMemorySettings() {
   const memory = state.memory || {};
   const embedding = memory.config?.embedding || memory.embedding || {};
-  if (!$('memory-advanced').contains(document.activeElement)) {
+  if (!memorySettingsDirty && !$('memory-advanced').contains(document.activeElement)) {
     $('memory-embedding-provider').value = embedding.provider === 'bundled' ? 'bundled' : embedding.baseUrl ? 'remote' : 'none';
     $('memory-remote-settings').classList.toggle('hidden', $('memory-embedding-provider').value !== 'remote');
     $('memory-embedding-url').value = embedding.baseUrl || '';
@@ -4397,7 +4407,11 @@ $('background-toggle').addEventListener('click', toggleBackground);
 $('quick-end').addEventListener('click', async () => {
   const chat = currentChat();
   if (!chat?.private) return;
-  if (await attempt(() => window.bot.deleteChat({ chatId: chat.id }), 'Quick session ended.')) { chatDrafts.delete('__quick__'); selectChat(null, 'quick'); }
+  if (await attempt(() => window.bot.deleteChat({ chatId: chat.id }), 'Quick session ended.')) {
+    void releaseAttachments(attachmentDrafts.get(chat.id) || []).catch(error => notify(error.message || String(error), true));
+    for (const drafts of [chatDrafts, attachmentDrafts, planModeDrafts]) { drafts.delete(chat.id); drafts.delete('__quick__'); }
+    selectChat(null, 'quick', { saveDraft: false });
+  }
 });
 $('quick-keep').addEventListener('click', keepQuickSession);
 $('nav-automations').addEventListener('click', showAutomations);
@@ -4523,7 +4537,10 @@ $('chat-scroll').addEventListener('scroll', () => {
 $('composer').addEventListener('submit', sendMessage);
 $('attach-button').addEventListener('click', () => addAttachments());
 $('message-input').addEventListener('paste', (event) => {
-  const files = Array.from(event.clipboardData?.files || []);
+  // Cells from Excel or text from Word come with a picture of themselves: the text is what was meant.
+  const plain = event.clipboardData?.getData('text/plain') || '';
+  const pictured = plain.trim() && Array.from(event.clipboardData?.files || []).every(file => file.type.startsWith('image/'));
+  const files = pictured ? [] : Array.from(event.clipboardData?.files || []);
   if (!files.length) {
     // The box stops at 32,000 characters and would silently cut a long paste; attach it whole instead.
     const text = event.clipboardData?.getData('text/plain') || '', input = event.currentTarget;
@@ -4692,12 +4709,14 @@ $('fact-scope').addEventListener('change', renderFactScope);
 $('memory-embedding-provider').addEventListener('change', () => {
   $('memory-remote-settings').classList.toggle('hidden', $('memory-embedding-provider').value !== 'remote');
 });
+$('memory-embedding-form').addEventListener('input', () => { memorySettingsDirty = true; });
+$('memory-embedding-form').addEventListener('change', () => { memorySettingsDirty = true; });
 $('memory-embedding-form').addEventListener('submit', async event => {
   event.preventDefault();
   const provider = $('memory-embedding-provider').value;
   const embedding = provider === 'bundled' ? { provider } : provider === 'none' ? null : { baseUrl: $('memory-embedding-url').value.trim(), model: $('memory-embedding-model').value.trim(), apiKey: $('memory-embedding-key').value };
   if (provider === 'remote' && (!embedding.baseUrl || !embedding.model)) return notify('Enter an embedding server URL and model.', true);
-  await attempt(() => window.bot.configureMemory({ embedding }), 'Memory search settings saved.');
+  if (await attempt(() => window.bot.configureMemory({ embedding }), 'Memory search settings saved.')) { memorySettingsDirty = false; renderMemorySettings(); }
 });
 function formatBytes(bytes) {
   return bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -4950,7 +4969,7 @@ if (!window.bot) {
       card?.scrollIntoView({ block: 'nearest' });
       card?.querySelector('.goal-question-answer')?.focus({ preventScroll: true });
     }
-    else if (event.type === 'memory' && event.message) notify(event.message, Boolean(event.error));
+    else if ((event.type === 'memory' || event.type === 'notice') && event.message) notify(event.message, Boolean(event.error));
     else if (event.type === 'relay') renderRelay(event.relay);
     else if (event.type === 'heartbeat' && (!window.LittleBotWidget || window.LittleBotWidget.isActive())) { inboxFilter = 'all'; inboxSource = 'all'; showFeature('inbox'); }
   });

@@ -471,3 +471,103 @@ test('a silent goal keeps its results out of the chat but still asks its questio
   assert.equal(validateGoal({ name: 'New', objective: 'x', kind: 'ongoing', workspace: process.cwd() }, null, { workspace: process.cwd() }).delivery, 'chat');
   assert.throws(() => validateGoal({ name: 'Bad', objective: 'x', kind: 'ongoing', workspace: process.cwd(), delivery: 'loud' }, null, { workspace: process.cwd() }), /chat or stay silent/);
 });
+
+test('one failed save as a goal starts does not freeze the runner or the chat', async t => {
+  const { runner, g } = await runnerFixture(t, async () => result('progress'));
+  let failures = 1;
+  runner.store.save = () => { if (failures-- > 0) throw Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' }); };
+  await runner.execute(g);
+  assert.equal(runner.activeId, null, 'the runner is free again');
+  runner.execute = async () => { throw new Error('a step that failed outright'); };
+  g.status = 'queued'; g.nextRunAt = 0;
+  await assert.rejects(runner.tick());
+  assert.equal(runner.execution, null);
+  await runner.pause(g.id);
+  assert.equal(g.status, 'paused', 'pausing, which every chat message used to do, still works');
+});
+
+test('a chat message makes the running step step aside and queue again, and a pause asks for a check on resume', async t => {
+  let release;
+  const { runner, g } = await runnerFixture(t, () => new Promise(resolve => { release = resolve; }));
+  const running = runner.execute(g);
+  while (!release) await new Promise(resolve => setImmediate(resolve));
+  const yielding = runner.yieldActive('Stepped aside for your message.');
+  release(result('progress'));
+  await yielding; await running;
+  assert.equal(g.status, 'queued');
+  assert.equal(g.needsRecoveryCheck, true, 'it checks its earlier work when it continues');
+
+  release = null;
+  const again = runner.execute(g);
+  while (!release) await new Promise(resolve => setImmediate(resolve));
+  const pausing = runner.pause(g.id);
+  release(result('progress'));
+  await pausing; await again;
+  assert.equal(g.status, 'paused');
+  assert.equal(g.needsRecoveryCheck, true);
+});
+
+test('a checkpoint over the limit is shortened instead of throwing the result away', async t => {
+  const { runner, g, alerts } = await runnerFixture(t, async () => result('update', { checkpoint: 'c'.repeat(9000), nextStep: 'n'.repeat(5000) }));
+  await runner.execute(g);
+  assert.equal(g.checkpoint.length, 4000);
+  assert.equal(g.nextStep.length <= 2000, true);
+  assert.notEqual(g.status, 'blocked');
+  assert.deepEqual(alerts, []);
+});
+
+test('quitting during a step queues it for the next start without a blocked alert', async t => {
+  let release;
+  const { runner, g, alerts } = await runnerFixture(t, () => new Promise(resolve => { release = resolve; }));
+  const running = runner.execute(g);
+  while (!release) await new Promise(resolve => setImmediate(resolve));
+  const closing = runner.close();
+  release(result('failed', { summary: 'Interrupted' }));
+  await closing; await running;
+  assert.deepEqual(alerts, []);
+  assert.equal(g.status, 'queued');
+});
+
+test('a standing intent never restarts a paused goal, one awaiting effect review, or anything while Background is off', async () => {
+  const { EventRuntime } = require('../src/event-runtime.cjs');
+  const g = { id: 'g1', authorized: true, status: 'paused' };
+  const store = { data: { automations: [], calendar: { events: [] }, autonomy: { paused: false, goals: [g] }, standingIntents: { intents: [] } }, save() {} };
+  let runs = 0;
+  const runtime = new EventRuntime({ store, scheduler: {}, heartbeat: {}, goals: { goal: () => g, runNow: () => { runs++; } }, setIntervalFn: () => ({ unref() {} }), clearIntervalFn() {} });
+  const records = [];
+  runtime.intents = { get: () => ({ id: 'i1', enabled: true, priority: 1, action: { type: 'goal.run', goalId: 'g1' } }), record: (_id, entry) => records.push(entry) };
+  const fire = () => runtime._runIntentAction({ payload: { intentId: 'i1' } });
+  await fire();
+  Object.assign(g, { status: 'blocked', needsEffectReview: true }); await fire();
+  Object.assign(g, { status: 'blocked', needsEffectReview: false }); store.data.autonomy.paused = true; await fire();
+  assert.equal(runs, 0);
+  assert.deepEqual(records.map(entry => entry.status), ['skipped', 'skipped', 'skipped']);
+  store.data.autonomy.paused = false; await fire();
+  assert.equal(runs, 1, 'a blocked goal with nothing to review can still be started');
+});
+
+test('time asleep does not count against a time budget', () => {
+  const clock = require('../src/awake-clock.cjs');
+  clock.reset();
+  clock.suspended(1000); clock.resumed(7201000);
+  assert.equal(clock.awakeBetween(0, 7300000), 100000);
+  assert.equal(clock.awakeBetween(8000000, 8001000), 1000);
+  clock.reset();
+});
+
+test('moving a calendar event keeps its length', () => {
+  const { validateCalendarEvent } = require('../src/calendar.cjs');
+  const workshop = validateCalendarEvent({ title: 'Workshop', startLocal: '2026-11-03T09:00', endLocal: '2026-11-03T12:00' });
+  const moved = validateCalendarEvent({ startLocal: '2026-11-05T14:00' }, workshop);
+  assert.equal(moved.endAt - moved.startAt, 3 * 3600000);
+  const trip = validateCalendarEvent({ title: 'Trip', allDay: true, startLocal: '2026-10-20', endLocal: '2026-10-23' });
+  const later = validateCalendarEvent({ startLocal: '2026-10-24' }, trip);
+  assert.equal(new Date(later.endAt).getDate(), 27, 'three whole days, even across the clock change');
+  assert.equal(new Date(later.endAt).getHours(), 0);
+});
+
+test('/goal --check without quotes takes the whole command up to the next option', () => {
+  const { parseGoalCommand } = require('../src/chat-goal.cjs');
+  assert.deepEqual(parseGoalCommand('tests pass --check npm test --turns 5'), { action: 'set', condition: 'tests pass', options: { check: 'npm test', maxTurns: 5 } });
+  assert.equal(parseGoalCommand('done --check node -e "process.exit(1)"').options.check, 'node -e "process.exit(1)"');
+});

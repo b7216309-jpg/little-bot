@@ -1,6 +1,6 @@
 const { EventEmitter } = require('node:events');
 const { randomUUID } = require('node:crypto');
-const { migrateTools, fingerprint } = require('./tool-migration.cjs');
+const { migrateTools, fingerprint, removeThreadHistory } = require('./tool-migration.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
 const { defaultMemory, automaticRemember, captureEpisode, buildMemoryContext } = require('./memory.cjs');
@@ -259,6 +259,8 @@ class Controller extends EventEmitter {
     this.webServices = null;
     this.eventRuntime = null;
     this.agentToolCalls = new Map();
+    // One abort per running turn, so Stop also cancels the app tools still working (web reads, searches).
+    this.toolAborts = new Map();
     this.pendingQuestions = new Map();
     this.questionRequests = new Map();
     this.goalExecutor = new GoalExecutor(this);
@@ -266,12 +268,18 @@ class Controller extends EventEmitter {
     this.chatGoal = new ChatGoalRunner(this);
     this.providerUsage = new ProviderUsage({ connection: () => this.connection, onChange: () => this.changed() });
     this.store.data.memory ||= defaultMemory();
-    client.on('notification', (method, params) => this.notification(method, params));
+    // A malformed engine message is logged, not thrown into the engine's output reader.
+    client.on('notification', (method, params) => {
+      try { this.notification(method, params); }
+      catch (error) { this.onError('engine-notification', error, { method }); }
+    });
     client.on('request', request => {
       this.serverRequest(request).catch(error => {
         this.onError('engine-server-request', error, { method: request.method });
         const chat = this.byThread(request.params?.threadId);
-        if (chat) this.finish(chat, cleanError(error));
+        // A request that outlived its turn (Stop, then a new message) must not end the turn running now.
+        const turnId = request.params?.turnId;
+        if (chat && (!turnId || turnId === this.turns.get(chat.id))) this.finish(chat, cleanError(error));
       });
     });
     client.on('crash', error => this.crashed(error));
@@ -1281,6 +1289,7 @@ class Controller extends EventEmitter {
         status: error ? 'failed' : 'completed', finishedAt, ...(error ? { error: cleanError(error) } : {}) },
     });
     this.turns.delete(chat.id);
+    this.abortTools(chat.id);
     for (const request of this.questionRequests.values()) if (request.chatId === chat.id) request.cancelled = true;
     for (const [key, approval] of this.approvals) if (approval.chatId === chat.id) {
       if (approval.dynamicTool === 'ask_user') this.settleQuestion(approval, { answer: null, cancelled: true });
@@ -1328,7 +1337,21 @@ class Controller extends EventEmitter {
       try { await this.client.request('turn/interrupt', { threadId: chat.threadId, turnId }); }
       catch (error) { chat.interruptSent = false; throw error; }
     }
+    this.abortTools(chatId);
     this.persistNow();
+  }
+  toolSignal(chatId, turnId) {
+    let entry = this.toolAborts.get(chatId);
+    if (!entry || entry.turnId !== turnId) {
+      entry?.controller.abort();
+      entry = { turnId, controller: new AbortController() };
+      this.toolAborts.set(chatId, entry);
+    }
+    return entry.controller.signal;
+  }
+  abortTools(chatId) {
+    this.toolAborts.get(chatId)?.controller.abort();
+    this.toolAborts.delete(chatId);
   }
   async challengeIndependentCheck(payload = {}) {
     if (this.memoryConsolidator) await this.memoryConsolidator.pauseForUser();
@@ -1345,8 +1368,12 @@ class Controller extends EventEmitter {
     this.resumed.delete(chat.threadId); this.contextUsed.delete(chat.id);
     this.store.data.chats = this.store.data.chats.filter(item => item !== chat);
     if (isSession(chat)) {
-      // Its searchable history goes with it; knowledge already learned from it stays in Memory.
+      // Its searchable history goes with it, and so does the engine's own transcript of it; knowledge
+      // already learned from it stays in Memory.
       try { this.store.memoryService?.forgetSession(chat.id); } catch (error) { this.onError('session-forget', error, { chatId: chat.id }); }
+      if (chat.threadId && this.client.homeDir) {
+        try { removeThreadHistory(this.client.homeDir, chat.threadId); } catch (error) { this.onError('session-transcript', error, { chatId: chat.id }); }
+      }
       this.persistNow();
     }
     this.changed();
@@ -1670,7 +1697,7 @@ class Controller extends EventEmitter {
       let result = this.agentToolCalls.get(key);
       if (!result) {
         result = Promise.resolve().then(() => params.tool === 'ask_user'
-          ? this.askUser(chat, params, id, key) : this.agentTools.call(params.tool, params.arguments, { chat }))
+          ? this.askUser(chat, params, id, key) : this.agentTools.call(params.tool, params.arguments, { chat, signal: this.toolSignal(chat.id, params.turnId) }))
           .then(value => {
             this.rememberToolOutcome(chat, params.turnId, { tool: params.tool, args: params.arguments }, true);
             const images = (value?.[TOOL_IMAGES] || []).map(imageUrl => ({ type: 'inputImage', imageUrl }));
@@ -1690,10 +1717,13 @@ class Controller extends EventEmitter {
             return { success: false, contentItems: [{ type: 'inputText', text: message }] };
           });
         this.agentToolCalls.set(key, result);
-        if (this.agentToolCalls.size > 500) this.agentToolCalls.delete(this.agentToolCalls.keys().next().value);
+        // Results can carry screenshots, so only the recent ones stay for a repeated request.
+        if (this.agentToolCalls.size > 100) this.agentToolCalls.delete(this.agentToolCalls.keys().next().value);
       }
       try {
         const value = await result;
+        // After Stop the engine has already let go of this request: a late result has nowhere to go.
+        if (this.client.pending?.(id) === false) return;
         if (!questionRequest || (!questionRequest.cancelled && !this.closing && this.runtime.status !== 'error')) await this.client.respond(id, value);
       } finally {
         if (questionRequest) this.questionRequests.delete(id);

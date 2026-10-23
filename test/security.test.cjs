@@ -263,6 +263,23 @@ test('a trimmed base prompt replaces the engine one, and chats move to a new thr
   assert.equal(starts().at(-1).params.baseInstructions, trimmed);
 });
 
+test('the leak guard sees through disguised owner codes', () => {
+  const codes = ['AB2C-DE3F-GH4J'];
+  const disguised = {
+    fullwidth: 'ＡＢ２Ｃ－ＤＥ３Ｆ－ＧＨ４Ｊ',
+    lookalikes: 'АВ2С-DЕ3F-GН4J',
+    base64: Buffer.from('AB2C-DE3F-GH4J').toString('base64'),
+    hex: Buffer.from('AB2CDE3FGH4J').toString('hex'),
+    reversed: 'J4HG-F3ED-C2BA',
+    percent: [...'AB2CDE3FGH4J'].map(char => `%${char.charCodeAt(0).toString(16)}`).join(''),
+    entities: [...'AB2CDE3FGH4J'].map(char => `&#${char.charCodeAt(0)};`).join(''),
+  };
+  for (const [name, value] of Object.entries(disguised)) assert.equal(security.carriesCode({ query: value }, codes), true, name);
+  assert.equal(security.carriesCode({ first: 'AB2C-DE', second: '3F-GH4J' }, codes), true, 'split across two fields');
+  assert.equal(security.carriesCode({ cmd: 'Get-FileHash report.pdf; echo 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08' }, codes), false);
+  assert.equal(security.carriesCode({ query: 'weather in Lisbon' }, codes), false);
+});
+
 const personalDetails = require('../src/personal-details.cjs');
 
 test('personal details are found in USER.md and caught however they are written', () => {

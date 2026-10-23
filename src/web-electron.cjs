@@ -1,8 +1,34 @@
 'use strict';
 
+const net = require('node:net');
+const { publicUrl, publicAddress } = require('./web-services.cjs');
+
 // Electron transport for the built-in web tools. Requests go through Chromium's network stack (its TLS, HTTP/2,
 // decompression and cookie jar), in a partition of their own: never the user's signed-in browser profile.
 const PARTITION = 'persist:little-bot-web';
+const HOST_TTL_MS = 60000;
+
+// True when a request may leave this partition: page addresses, scripts, frames and sockets must all land
+// on a public address, so a page or a redirect cannot reach this PC or the home network.
+async function publicTarget(session, verdicts, value) {
+  let url;
+  try { url = new URL(value); } catch { return false; }
+  if (['data:', 'blob:', 'about:'].includes(url.protocol)) return true;
+  if (!['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol)) return false;
+  try { publicUrl(`${url.protocol.replace(/^ws/, 'http')}//${url.host}/`); } catch { return false; }
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+  if (net.isIP(host)) return true;
+  const known = verdicts.get(host);
+  if (known && known.until > Date.now()) return known.allowed;
+  let allowed = false;
+  try {
+    const { endpoints } = await session.resolveHost(host);
+    allowed = endpoints.length > 0 && endpoints.every(endpoint => publicAddress(endpoint.address));
+  } catch { allowed = false; }
+  verdicts.set(host, { allowed, until: Date.now() + HOST_TTL_MS });
+  if (verdicts.size > 500) verdicts.delete(verdicts.keys().next().value);
+  return allowed;
+}
 
 function webSession(electron, partition = PARTITION) {
   const session = electron.session.fromPartition(partition);
@@ -10,31 +36,30 @@ function webSession(electron, partition = PARTITION) {
   session.setPermissionCheckHandler(() => false);
   session.on('will-download', event => event.preventDefault());
   session.setUserAgent(session.getUserAgent().replace(/ (?:Electron|[\w-]*little[\w-]*bot[\w-]*)\/\S+/gi, ''), 'en-US,en,fr');
+  const verdicts = new Map();
+  session.webRequest.onBeforeRequest((details, callback) => {
+    publicTarget(session, verdicts, details.url).then(allowed => callback({ cancel: !allowed }), () => callback({ cancel: true }));
+  });
   return session;
 }
 
-// fetch-like GET/POST that validates every redirect hop before following it and stops reading at maxBytes.
-function requester(electron, session) {
-  return ({ url, method = 'GET', headers = {}, body, signal, timeout = 15000, maxBytes = 4 * 1024 * 1024, validate = () => {} }) => new Promise((resolve, reject) => {
-    let settled = false, finalUrl = url, hops = 0, timer;
+// One request without following redirects: resolves with the response, or with the redirect for the caller
+// to check before it asks for the next address. Stops reading at maxBytes.
+function requestOnce(electron, session, { url, method, headers, body, signal, timeout, maxBytes }) {
+  return new Promise((resolve, reject) => {
+    let settled = false, timer;
     const request = electron.net.request({ method, url, session, redirect: 'manual', useSessionCookies: true });
     const finish = (error, value) => {
       if (settled) return;
       settled = true; clearTimeout(timer); signal?.removeEventListener('abort', abort);
-      if (error) { try { request.abort(); } catch { /* Already closed. */ } reject(error); } else resolve(value);
+      if (error || value.redirect) { try { request.abort(); } catch { /* Already closed. */ } }
+      if (error) reject(error); else resolve(value);
     };
     const abort = () => finish(Object.assign(new Error('The web request was cancelled.'), { code: 'aborted' }));
     timer = setTimeout(() => finish(Object.assign(new Error('The web request timed out.'), { code: 'timeout' })), timeout);
     signal?.addEventListener('abort', abort, { once: true });
     if (signal?.aborted) return abort();
-    request.on('redirect', (_status, _method, location) => {
-      try {
-        if (++hops > 6) throw Object.assign(new Error('Too many redirects.'), { code: 'redirects' });
-        validate(location);
-        finalUrl = location;
-        request.followRedirect();
-      } catch (error) { finish(error); }
-    });
+    request.on('redirect', (status, nextMethod, location) => finish(null, { redirect: location, status, method: nextMethod }));
     request.on('response', response => {
       const chunks = []; let size = 0;
       const header = name => { const value = response.headers[name.toLowerCase()]; return Array.isArray(value) ? value.join(', ') : value ?? null; };
@@ -43,7 +68,7 @@ function requester(electron, session) {
         if (size > maxBytes) return finish(Object.assign(new Error(`The response exceeded ${Math.round(maxBytes / 1048576)} MiB.`), { code: 'size' }));
         chunks.push(chunk);
       });
-      response.on('end', () => finish(null, { status: response.statusCode, url: finalUrl, headers: { get: header }, body: Buffer.concat(chunks) }));
+      response.on('end', () => finish(null, { status: response.statusCode, headers: { get: header }, body: Buffer.concat(chunks) }));
       response.on('error', error => finish(error));
     });
     request.on('error', error => finish(Object.assign(new Error(String(error?.message || error).replace(/^net::/, '')), { code: 'network' })));
@@ -51,6 +76,25 @@ function requester(electron, session) {
     if (body !== undefined) request.write(body);
     request.end();
   });
+}
+
+// fetch-like GET/POST that checks every redirect hop (DNS included, so a public name pointing at this PC is
+// refused) before following it.
+function requester(electron, session) {
+  return async ({ url, method = 'GET', headers = {}, body, signal, timeout = 15000, maxBytes = 4 * 1024 * 1024, validate = () => {} }) => {
+    const deadline = Date.now() + timeout;
+    let current = url;
+    for (let hops = 0; ; hops++) {
+      const left = deadline - Date.now();
+      if (left <= 0) throw Object.assign(new Error('The web request timed out.'), { code: 'timeout' });
+      const result = await requestOnce(electron, session, { url: current, method, headers, body, signal, timeout: left, maxBytes });
+      if (!result.redirect) return { ...result, url: current };
+      if (hops >= 6) throw Object.assign(new Error('Too many redirects.'), { code: 'redirects' });
+      current = new URL(result.redirect, current).href;
+      await validate(current);
+      if (result.method && result.method !== method) { method = result.method; if (method === 'GET') body = undefined; }
+    }
+  };
 }
 
 // Loads a page in a hidden, sandboxed window so client-rendered sites produce their text, then returns its DOM.
@@ -112,4 +156,4 @@ function electronWeb(electron, { partition } = {}) {
   return { request: requester(electron, session), render: renderer(electron, session), resolve };
 }
 
-module.exports = { electronWeb, PARTITION };
+module.exports = { electronWeb, publicTarget, PARTITION };

@@ -150,13 +150,42 @@ class OwnerCodes {
   forget(chatId) { this.byChat.delete(chatId); }
 }
 
-// True when a value carries one of the codes, also with the dashes or case changed.
+// Cyrillic and Greek letters that look like the Latin ones a code uses.
+const LOOKALIKES = Object.fromEntries([...'АAВBСCЕEНHІIЈJКKМMОOРPЅSТTХXУYаaсcеeіiјjоoрpѕsхxуyΑAΒBΕEΖZΗHΙIΚKΜMΝNΟOΡPΤTΥYΧXοoνv']
+  .reduce((pairs, char, index, chars) => index % 2 ? pairs : [...pairs, [char, chars[index + 1]]], []));
+const squash = text => String(text || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+const codePoint = value => { try { return String.fromCodePoint(value); } catch { return ''; } };
+
+// Every string in a value, in order: a code split across two fields reads as one.
+function leaves(value, out = [], depth = 0) {
+  if (typeof value === 'string') out.push(value);
+  else if (value && typeof value === 'object' && depth < 20) for (const item of Array.isArray(value) ? value : Object.values(value)) leaves(item, out, depth + 1);
+  return out;
+}
+
+// The forms a code can be hidden in: per-character escapes, full-width or look-alike letters, reversed,
+// base64 or hex. Each comes back squashed to capital letters and digits.
+function readings(text) {
+  const decoded = text.replace(/%([0-9a-f]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/&#x([0-9a-f]{1,6});?/gi, (_, hex) => codePoint(parseInt(hex, 16)))
+    .replace(/&#(\d{1,7});?/g, (_, digits) => codePoint(Number(digits)));
+  const folded = decoded.normalize('NFKC').replace(/[^\x00-\x7f]/g, char => LOOKALIKES[char] || char);
+  const plain = squash(folded);
+  const forms = [plain, [...plain].reverse().join('')];
+  for (const run of folded.match(/[A-Za-z0-9+/_-]{16,}={0,2}/g) || []) forms.push(squash(Buffer.from(run.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('latin1')));
+  for (const run of folded.match(/(?:[0-9a-f]{2}){8,}/gi) || []) forms.push(squash(Buffer.from(run, 'hex').toString('latin1')));
+  return forms;
+}
+
+// True when a value carries one of the codes, also with the dashes or case changed, disguised as above,
+// or split across its fields. A code cut into pieces sent in separate calls is not caught: this is a
+// tripwire behind SECURITY.md, not the only defence.
 function carriesCode(value, codes) {
   if (!codes?.length || value === undefined || value === null) return false;
   let text;
-  try { text = typeof value === 'string' ? value : JSON.stringify(value); } catch { return false; }
-  const squashed = String(text || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  return codes.some(code => squashed.includes(code.replace(/-/g, '')));
+  try { text = typeof value === 'string' ? value : `${JSON.stringify(value)}\n${leaves(value).join('')}`; } catch { return false; }
+  const forms = readings(String(text || ''));
+  return codes.some(code => forms.some(form => form.includes(code.replace(/-/g, ''))));
 }
 
 const stampLabel = (label, code) => code ? `${label} [owner code: ${code}]` : label;

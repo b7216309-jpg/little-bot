@@ -10,6 +10,7 @@ const contract = require('./goal-contract.cjs');
 const { parseModelJson, normalizeModelOutput } = require('./model-json.cjs');
 const { timeContext } = require('./local-time.cjs');
 const { SHELL_CONDUCT } = require('./shell-conduct.cjs');
+const { awakeBetween } = require('./awake-clock.cjs');
 // A token, minute or action limit of 0 means the goal has no limit for it.
 const cap = value => value > 0 ? value : Infinity;
 
@@ -54,7 +55,7 @@ class GoalExecutor {
     const operation = this.active;
     return operation ? { status: operation.cancelReason || operation.clarification ? 'stopping' : 'running', goalId: operation.goal.id, startedAt: operation.startedAt, usage: this.usage(operation) } : { status: 'idle' };
   }
-  usage(operation) { return { tokens: operation.tokens, ...operation.tokenDetails, elapsedMs: Date.now() - operation.startedAt, actions: operation.actionIds.size }; }
+  usage(operation) { return { tokens: operation.tokens, ...operation.tokenDetails, elapsedMs: awakeBetween(operation.startedAt), actions: operation.actionIds.size }; }
   progress(operation) {
     if (this.active !== operation) return;
     try {

@@ -1,6 +1,9 @@
 'use strict';
 
+const net = require('node:net');
+const dns = require('node:dns').promises;
 const { randomUUID, createHash } = require('node:crypto');
+const { publicUrl, publicAddress } = require('./web-services.cjs');
 
 // Pages the user or the agent asked to watch. Checked only while the app is open, one at a time,
 // public http(s) addresses only. The first check records a baseline; later changes are reported.
@@ -11,18 +14,38 @@ const TICK_MS = 10 * 60000;
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const clip = (value, max) => typeof value === 'string' ? value.slice(0, max) : '';
 
+// The same public-address rule as the web tools: no IP of this PC or the home network, no dotless or .lan names.
 function safeUrl(value) {
   let url;
   try { url = new URL(String(value || '').trim()); } catch { throw new Error('Use a full http or https address.'); }
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Only http and https pages can be watched.');
-  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host === '::1' || host === '0.0.0.0'
-    || /^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host) || /^169\.254\./.test(host)
-    || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || /^f[cd][0-9a-f]{2}:/i.test(host)) {
-    throw new Error('Local and private network addresses cannot be watched.');
-  }
   if (url.username || url.password) throw new Error('Addresses with credentials cannot be watched.');
+  try { publicUrl(url.href); } catch { throw new Error('Local and private network addresses cannot be watched.'); }
   return url.toString();
+}
+
+// A public name can still point at this PC: every address is looked up before it is fetched.
+async function checkAddress(value, lookup) {
+  const host = new URL(value).hostname.replace(/^\[|\]$/g, '');
+  if (net.isIP(host)) return;
+  let addresses;
+  try { addresses = await lookup(host, { all: true, verbatim: true }); } catch { throw new Error(`The site ${host} could not be found (DNS).`); }
+  if (!addresses?.length || addresses.some(item => !publicAddress(item.address))) throw new Error('Local and private network addresses cannot be watched.');
+}
+
+// Reads at most maxBytes of a response body, whatever its Content-Length says.
+async function boundedText(response, maxBytes) {
+  const reader = response.body?.getReader?.();
+  if (!reader) return String(await response.text()).slice(0, maxBytes);
+  const chunks = []; let size = 0;
+  try {
+    while (size < maxBytes) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      chunks.push(Buffer.from(value)); size += value.byteLength;
+    }
+  } finally { await reader.cancel().catch(() => {}); }
+  return Buffer.concat(chunks).subarray(0, maxBytes).toString('utf8');
 }
 
 function pageText(html) {
@@ -56,8 +79,8 @@ function normalizeWatches(value) {
 }
 
 class WebWatcher {
-  constructor({ store, onChange = () => {}, onChanged = () => {}, fetchImpl = fetch, now = Date.now }) {
-    this.store = store; this.onChange = onChange; this.onChanged = onChanged; this.fetch = fetchImpl; this.now = now;
+  constructor({ store, onChange = () => {}, onChanged = () => {}, fetchImpl = fetch, lookupImpl = dns.lookup, now = Date.now }) {
+    this.store = store; this.onChange = onChange; this.onChanged = onChanged; this.fetch = fetchImpl; this.lookup = lookupImpl; this.now = now;
     this.timer = null; this.checking = false;
     store.data.webWatches = normalizeWatches(store.data.webWatches);
   }
@@ -93,6 +116,7 @@ class WebWatcher {
       // Follow redirects by hand so every hop passes the same public-address check.
       let address = item.url, response;
       for (let hop = 0; ; hop++) {
+        await checkAddress(address, this.lookup);
         response = await this.fetch(address, { redirect: 'manual', signal: AbortSignal.timeout(20000), headers: { 'user-agent': 'LittleBot-WebWatch/1.0' } });
         const location = response.status >= 300 && response.status < 400 ? response.headers?.get?.('location') : null;
         if (!location) break;
@@ -102,7 +126,7 @@ class WebWatcher {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const length = Number(response.headers?.get?.('content-length'));
       if (length > MAX_BYTES) throw new Error('Page is too large to watch.');
-      const text = pageText((await response.text()).slice(0, MAX_BYTES)).slice(0, 200000);
+      const text = pageText(await boundedText(response, MAX_BYTES)).slice(0, 200000);
       const hash = createHash('sha256').update(text).digest('hex');
       const live = this.watches.find(entry => entry.id === item.id);
       if (!live) return null;
