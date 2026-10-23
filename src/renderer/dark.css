@@ -454,3 +454,36 @@ html[data-theme=dark] .goal-status.chat-goal-achieved{color:#a2ad97;background:#
 html[data-theme=dark] .goal-status.chat-goal-unmet,html[data-theme=dark] .goal-status.chat-goal-budget{color:#b17860;background:#2c2623}
 html[data-theme=dark] .settings-jump button{color:#969e8f}
 html[data-theme=dark] .setting-field{color:#94a288}
+html[data-theme=dark] .cad-modes button[aria-checked=true]{background:#2c3026;color:#93aa97}
+html[data-theme=dark] .cad-mark{background:#4284a5;color:#1a1a1a}
+html[data-theme=dark] .cad-mark.problem{background:#c9574b}
+html[data-theme=dark] .cad-mark.warning{background:#ce9b59}
+html[data-theme=dark] .cad-mark.info{background:#6e8fb2}
+html[data-theme=dark] .cad-mark.measure{background:#c07e64}
+html[data-theme=dark] .cad-views{background:rgba(33,32,26,0.902)}
+html[data-theme=dark] .cad-views button[aria-pressed=true]{background:#2c3026;color:#93aa97}
+html[data-theme=dark] .cad-size{background:rgba(33,32,26,0.902)}
+html[data-theme=dark] .cad-readout{background:rgba(33,32,26,0.941)}
+html[data-theme=dark] .cad-building{color:#93aa97;background:#272b21;border:1px solid #373d30}
+html[data-theme=dark] .cad-error{color:#a14134;background:#28211f;border:1px solid #3f3431}
+html[data-theme=dark] .cad-empty .icon{color:#5b624e}
+html[data-theme=dark] .cad-count.error{background:#28211f;color:#b94c3d}
+html[data-theme=dark] .cad-count.warning{background:#2b2822;color:#ab772e}
+html[data-theme=dark] .cad-params input[type=range]{background:#3e4133}
+html[data-theme=dark] .cad-params input[type=range]::-webkit-slider-thumb{background:#7c8a6c;border:2px solid #21201a}
+html[data-theme=dark] .cad-param-changed label{color:#93aa97}
+html[data-theme=dark] .cad-check-dot{background:#6e8fb2}
+html[data-theme=dark] .cad-check.error .cad-check-dot{background:#c9574b}
+html[data-theme=dark] .cad-check.warning .cad-check-dot{background:#ce9b59}
+html[data-theme=dark] .cad-ok{color:#93aa97}
+html[data-theme=dark] .cad-gutter{color:#696e61}
+html[data-theme=dark] .cad-gutter .bad{color:#1a1a1a;background:#c9574b}
+html[data-theme=dark] .cad-gutter .hit{color:#1a1a1a;background:#c07e64}
+html[data-theme=dark] .cad-versions li.current{background:#272b21}
+html[data-theme=dark] .cad-chip{border:1px solid #49513f;background:#272b21}
+html[data-theme=dark] .cad-chip .cad-chip-n{background:#4284a5;color:#1a1a1a}
+html[data-theme=dark] .cad-chip.measure .cad-chip-n{background:#c07e64}
+html[data-theme=dark] .cad-chip.problem .cad-chip-n{background:#c9574b}
+html[data-theme=dark] .cad-chip input{border-left:1px solid #49513f}
+html[data-theme=dark] .cad-chip button:hover{background:#35392d}
+html[data-theme=dark] .message-cad span{color:#93aa97;background:#272b21;border:1px solid #373d30}

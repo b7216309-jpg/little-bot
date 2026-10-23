@@ -60,6 +60,9 @@ const icons = {
   globe: ['M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0', 'M3 12h18', 'M12 3a14 14 0 0 1 0 18', 'M12 3a14 14 0 0 0 0 18'],
   sun: ['M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0', 'M12 2v2', 'M12 20v2', 'M4.9 4.9l1.4 1.4', 'M17.7 17.7l1.4 1.4', 'M2 12h2', 'M20 12h2', 'M4.9 19.1l1.4-1.4', 'M17.7 6.3l1.4-1.4'],
   box: ['M3 7l9-4 9 4v10l-9 4-9-4Z', 'M3 7l9 4 9-4', 'M12 11v10'],
+  cube: ['M12 2 3 7v10l9 5 9-5V7Z', 'M3 7l9 5 9-5', 'M12 12v10'],
+  ruler: ['M3 17 17 3l4 4L7 21Z', 'M7 13l2 2', 'M10 10l2 2', 'M13 7l2 2'],
+  cursor: ['M5 3l14 7-6 2-2 6Z'],
 };
 
 function fillIcon(node, name) {
@@ -388,6 +391,7 @@ function render() {
   renderAgentInspector();
   renderGoalDrawer();
   renderBrowserPanel();
+  window.LittleBotCad?.render(state);
   renderApprovals();
   updateComposer();
   window.LittleBotWidget?.render(state);
@@ -1070,6 +1074,14 @@ function conversationMessage(chat, message, index) {
       content.replaceChildren();
       if (variant === 'user') content.textContent = message.text || '';
       else renderMessageText(content, message.text || '');
+      // What the user pointed at in the CAD panel with this message.
+      node.querySelector(':scope > .message-cad')?.remove();
+      if (variant === 'user' && message.cad?.length) {
+        const marks = element('div', 'message-cad');
+        marks.title = 'Pointed at in the CAD model';
+        for (const label of message.cad) marks.append(element('span', '', label));
+        content.after(marks);
+      }
     }
     if (!retained || previous.fingerprint[5] !== fingerprint[5]) {
       node.querySelector(':scope > .attachment-list')?.remove();
@@ -1291,7 +1303,7 @@ function renderConversation() {
 function updateComposer() {
   const chat = currentChat();
   const running = chat?.status === 'running' || chat?.status === 'waiting' || chat?.compaction?.status === 'running' || compactionPending.has(chat?.id);
-  const canSend = Boolean(state && isConnected() && isReady() && !running && !sending && !thinkingSaving && !attachmentImportPending && ($('message-input').value.trim() || queuedAttachments().length));
+  const canSend = Boolean(state && isConnected() && isReady() && !running && !sending && !thinkingSaving && !attachmentImportPending && ($('message-input').value.trim() || queuedAttachments().length || window.LittleBotCad?.selection().length));
   $('send-button').disabled = !canSend;
   renderGoalBar();
   $('send-button').classList.toggle('hidden', Boolean(running));
@@ -1916,12 +1928,14 @@ async function sendMessage(event) {
   const chat = currentChat();
   const mode = currentPlanMode() ? 'plan' : 'execute';
   const attachmentIds = queuedAttachments().map((attachment) => attachment.id);
+  // What the user pointed at in the CAD panel goes with this message.
+  const cadItems = window.LittleBotCad?.selection() || [];
   const slashCommand = text ? LittleBotSlashCommands.parse(submittedDraft) : null;
   if (slashCommand) {
     await executeSlashCommand(slashCommand);
     return;
   }
-  if ((!text && !attachmentIds.length) || sending || thinkingSaving || attachmentImportPending || !isConnected() || !isReady() || chat?.status === 'running' || chat?.status === 'waiting' || chat?.compaction?.status === 'running' || compactionPending.has(chat?.id)) return;
+  if ((!text && !attachmentIds.length && !cadItems.length) || sending || thinkingSaving || attachmentImportPending || !isConnected() || !isReady() || chat?.status === 'running' || chat?.status === 'waiting' || chat?.compaction?.status === 'running' || compactionPending.has(chat?.id)) return;
   const originChatId = selectedChatId;
   const originDraftKey = originChatId || newDraftKey();
   const originMode = chatMode, originSession = sessionId;
@@ -1930,8 +1944,9 @@ async function sendMessage(event) {
   sending = true;
   updateComposer();
   try {
-    const result = await window.bot.send({ chatId: originChatId || undefined, text, attachmentIds, mode, ...(originMode === 'quick' ? { quick: true } : originMode === 'session' ? { session: true } : {}) });
+    const result = await window.bot.send({ chatId: originChatId || undefined, text, attachmentIds, mode, ...(cadItems.length ? { cad: { items: cadItems } } : {}), ...(originMode === 'quick' ? { quick: true } : originMode === 'session' ? { session: true } : {}) });
     if (chatDrafts.get(originDraftKey) === submittedDraft) chatDrafts.delete(originDraftKey);
+    if (cadItems.length) window.LittleBotCad?.clearSelection();
     const remainingAttachments = (attachmentDrafts.get(originDraftKey) || []).filter((attachment) => !attachmentIds.includes(attachment.id));
     if (remainingAttachments.length) attachmentDrafts.set(originDraftKey, remainingAttachments);
     else attachmentDrafts.delete(originDraftKey);
@@ -4023,6 +4038,17 @@ function renderExtensionTools() {
     heading.append(element('span', 'extension-tag', 'Built in'));
     fragment.append(card);
   }
+  // Optional parts of Little Bot that stay out of every prompt until switched on.
+  fragment.append(element('p', 'extension-group-label', 'Built-in plugins'));
+  {
+    const enabled = Boolean(state.cad?.enabled);
+    const { card, heading, copy } = extensionCard('CAD workshop', 'Design small parts with Little Bot: a 3D view where you point at faces, pin notes and measure, settings to try sizes, checks for 3D printing, and STL, 3MF, STEP, SVG and DXF export. Uses OpenCascade on this PC.', 'cube');
+    heading.append(extensionToggle('Enable the CAD workshop', enabled, 'cad', (next) => mutateExtension('cad', () => window.bot.cadEnable({ enabled: next }), next ? 'CAD workshop on. Open it with the CAD button.' : 'CAD workshop off.')));
+    const meta = element('div', 'extension-card-meta');
+    meta.append(element('span', '', enabled ? 'On · the cad tool is offered in conversations' : 'Off · no tool, panel or engine'), element('span', 'extension-tag', 'Built in'));
+    copy.append(meta);
+    fragment.append(card);
+  }
   // Little Bot's own tools, so it is clear what the assistant can do without any extension.
   fragment.append(element('p', 'extension-group-label', 'Little Bot abilities'));
   const abilities = element('div', 'ability-grid');
@@ -4514,6 +4540,8 @@ $('inspector-context-refresh').addEventListener('click', () => {
   loadContextUsed(chat, true);
 });
 $('open-agent-browser').addEventListener('click', () => state?.browser?.panel ? browserPanelAction('hide') : browserAction('open'));
+document.addEventListener('cad-selection', () => updateComposer());
+document.addEventListener('cad-ready', () => { if (state) window.LittleBotCad.render(state); });
 $('browser-hide').addEventListener('click', () => browserPanelAction('hide'));
 $('browser-back').addEventListener('click', () => browserPanelAction({ action: 'back' }));
 $('browser-forward').addEventListener('click', () => browserPanelAction({ action: 'forward' }));

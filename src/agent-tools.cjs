@@ -105,7 +105,7 @@ function correctedArgs(schema, input) {
 function distance(a, b) { const row = Array.from({ length: b.length + 1 }, (_, i) => i); for (let i = 1; i <= a.length; i++) { let prev = row[0]; row[0] = i; for (let j = 1; j <= b.length; j++) { const old = row[j]; row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = old; } } return row[b.length]; }
 
 class AgentTools {
-  constructor({ management, store, manageGoal, manageSchedule, manageCalendar, manageFollowup, manageWatch, manageIntention, proposeLaunch, phoneAction, browser, webServices, windowsUi, desktop, sendAttachment, controller, onLesson }) { this.desktop = desktop; this.manageIntention = manageIntention; this.phoneAction = phoneAction; this.management = management; this.store = store; this.manageGoal = manageGoal; this.manageSchedule = manageSchedule; this.manageCalendar = manageCalendar; this.manageFollowup = manageFollowup; this.manageWatch = manageWatch; this.proposeLaunch = proposeLaunch; this.browser = browser; this.webServices = webServices; this.windowsUi = windowsUi; this.sendAttachment = sendAttachment; this.onLesson = onLesson || ((modelId, key, text) => controller?.recordLesson(modelId, key, text)); }
+  constructor({ management, store, manageGoal, manageSchedule, manageCalendar, manageFollowup, manageWatch, manageIntention, proposeLaunch, phoneAction, browser, webServices, windowsUi, desktop, cad, sendAttachment, controller, onLesson }) { this.desktop = desktop; this.cad = cad; this.manageIntention = manageIntention; this.phoneAction = phoneAction; this.management = management; this.store = store; this.manageGoal = manageGoal; this.manageSchedule = manageSchedule; this.manageCalendar = manageCalendar; this.manageFollowup = manageFollowup; this.manageWatch = manageWatch; this.proposeLaunch = proposeLaunch; this.browser = browser; this.webServices = webServices; this.windowsUi = windowsUi; this.sendAttachment = sendAttachment; this.onLesson = onLesson || ((modelId, key, text) => controller?.recordLesson(modelId, key, text)); }
   // The engine rejects a thread whose dynamic tools mix the canonical {type:'function'} form with the
   // legacy form, so every source (app management, browser, services) is normalized here.
   specs(options = {}) {
@@ -128,7 +128,7 @@ class AgentTools {
     });
     const readTools = [...skills, ...recallSpecs(), calendarList, gamesList];
     if (readOnly) return readTools;
-    return [...readTools, ...(this.management?.specs() || []), questionSpec(), ...(this.browser?.specs() || []), ...(this.webServices?.specs() || []), ...(this.windowsUi?.specs() || []), ...(this.desktop?.specs() || []),
+    return [...readTools, ...(this.management?.specs() || []), questionSpec(), ...(this.browser?.specs() || []), ...(this.webServices?.specs() || []), ...(this.windowsUi?.specs() || []), ...(this.desktop?.specs() || []), ...(this.cad?.specs() || []),
       functionSpec('memory_save', 'Save a durable fact, preference, decision, procedure, or issue. Use when asked to remember something. Set id to correct a record; choose global for personal facts or workspace for project knowledge.', {
         id: text(200), text: text(20000), type: { type: 'string', enum: ['fact', 'preference', 'decision', 'procedure', 'discovery', 'issue'] },
         scope: { type: 'string', enum: ['global', 'workspace'] }, key: text(300), pinned: { type: 'boolean' },
@@ -281,6 +281,8 @@ class AgentTools {
       if (!this.windowsUi || !chat || chat.internal || chat.automationId || chat.status !== 'running') throw new Error('Controlling Windows apps needs an active user conversation.');
       return this.windowsUi.tool(args, { chat, owner: chat.id, isActive: () => chat.status === 'running' });
     }
+    // The CAD workshop checks for itself that it is on and that this is the user's own running conversation.
+    if (this.cad?.owns(name)) return this.cad.call(args, { chat });
     if (this.desktop?.owns(name)) {
       // The screen and clipboard are looked at only for the user's own running conversation, never by background work.
       if (!chat || (this.desktop.observes(name) && (chat.internal || chat.automationId || chat.status !== 'running'))) throw new Error('The screen and clipboard need an active user conversation.');

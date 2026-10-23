@@ -1,7 +1,7 @@
 {
   "name": "little-bot",
   "productName": "Little Bot",
-  "version": "0.45.1",
+  "version": "0.46.0",
   "private": true,
   "description": "A focused local Windows assistant for chat, files, commands, and scheduled tasks.",
   "main": "src/main.cjs",
@@ -9,7 +9,7 @@
     "start": "electron .",
     "check:syntax": "node scripts/check-syntax.cjs",
     "test": "node --test test/*.test.cjs",
-    "test:electron": "electron test/embedded-browser-electron.cjs && electron test/widget-window-electron.cjs",
+    "test:electron": "electron test/embedded-browser-electron.cjs && electron test/widget-window-electron.cjs && electron test/cad-kernel-electron.cjs",
     "ci": "npm run check:syntax && npm test && npm run test:electron",
     "package": "node scripts/package.cjs",
     "package:portable": "node scripts/package.cjs --portable-only",
@@ -21,10 +21,14 @@
   "dependencies": {
     "@huggingface/tokenizers": "0.2.0",
     "@mozilla/readability": "0.6.0",
+    "acorn": "8.19.0",
     "linkedom": "0.18.13",
     "mammoth": "1.12.3",
     "onnxruntime-node": "1.30.0",
     "qrcode-generator": "2.0.4",
+    "replicad": "1.1.0",
+    "replicad-opencascadejs": "1.1.0",
+    "three": "0.186.1",
     "turndown": "7.2.4",
     "turndown-plugin-gfm": "1.0.2",
     "unpdf": "1.8.1"

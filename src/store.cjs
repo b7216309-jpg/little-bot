@@ -39,6 +39,22 @@ const scheduleDays = value => {
   return days.length ? days : [0, 1, 2, 3, 4, 5, 6];
 };
 
+// The CAD workshop's open part and its check limits.
+function normalizeCad(value) {
+  if (!isObject(value)) return {};
+  const result = {};
+  if (typeof value.current === 'string' && value.current.length < 1000) result.current = value.current;
+  if (isObject(value.limits)) {
+    const limits = {};
+    for (const [key, low, high] of [['minWall', 0.1, 20], ['minHole', 0.1, 50], ['overhangAngle', 10, 80]]) {
+      if (Number.isFinite(value.limits[key]) && value.limits[key] >= low && value.limits[key] <= high) limits[key] = value.limits[key];
+    }
+    if (typeof value.limits.overhang === 'boolean') limits.overhang = value.limits.overhang;
+    result.limits = limits;
+  }
+  return result;
+}
+
 const PROTECTED_STATE_VERSION = 1;
 
 function validProtector(value) {
@@ -126,6 +142,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
     calendar: normalizeCalendar(data.calendar),
     feedbackLog: normalizeFeedbackLog(data.feedbackLog),
     webWatches: normalizeWatches(data.webWatches),
+    cad: normalizeCad(data.cad),
     usage: normalizeUsage(data.usage),
     heartbeat: normalizeHeartbeat(data.heartbeat, { ...settings, workspace: string(settings.workspace, defaultWorkspace) }, Date.now(), recovering),
     settings: {
@@ -137,6 +154,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
       independentCheckMode: normalizeIndependentCheckMode(settings.independentCheckMode),
       activityAwareness: settings.activityAwareness === true,
       nightShiftEnabled: settings.nightShiftEnabled === true,
+      cadEnabled: settings.cadEnabled === true,
       localSampling: normalizeSampling(settings.localSampling),
       ...(typeof settings.systemPrompt === 'string' ? { systemPrompt: settings.systemPrompt.slice(0, 100000) } : {}),
       security: normalizeSecurity(settings.security),
@@ -182,6 +200,8 @@ function persistedData(data, defaultWorkspace, recovering = false) {
           const answer = normalizeAnswer(message.answer);
           if (answer) entry.answer = answer;
           if (typeof message.watchId === 'string') entry.watchId = message.watchId.slice(0, 100);
+          // Labels of what the user pointed at in the CAD panel with this message.
+          if (Array.isArray(message.cad)) { const cad = message.cad.filter(label => typeof label === 'string').slice(0, 12).map(label => label.slice(0, 80)); if (cad.length) entry.cad = cad; }
           const independentCheck = normalizeIndependentCheckRecord(message.independentCheck);
           if (independentCheck) {
             if (recovering && independentCheck.status === 'running') {

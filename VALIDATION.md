@@ -1,3 +1,37 @@
+# Version 0.46.0 verification
+
+0.46.0 adds the CAD workshop, an optional built-in plugin for designing small parts ([system guide](docs/system-guide/20-cad.md)).
+
+## Changed
+- **CAD workshop**, off until switched on in Extensions › Tools:
+  - A part is a replicad script in the working folder (`cad/<name>.cad.js`), built by OpenCascade (WebAssembly).
+  - The engine runs in a hidden, sandboxed page with its own session, serving only the app's CAD files.
+  - The panel beside the conversation shows the part in 3D and has Settings (sliders), Checks, Script and Versions.
+  - Clicking selects faces and edges, drops pins with notes, or measures. What was pointed at goes with the next message as numbered text plus a picture with the same numbers.
+  - Checks: separate pieces, thin walls, small holes and overhangs.
+  - Exports: STEP, STL, 3MF, and SVG or DXF of the top view.
+- **The model's `cad` tool** (guide, read, write, set, view, inspect, measure, export, open, revert) is offered only while the workshop is on, only in the user's own conversation, and not in Plan mode. Each build returns the size, the checks and a picture.
+- **A thread reloads when its tool list changes**, so switching an optional tool on or off reaches an open conversation.
+- **Docs:** the system guide check found a link to the removed `engine.cjs`, five deleted files still in the source map, and 32 files never mapped; all are fixed.
+
+## Checked
+- **Engine test in Electron** ([cad-kernel-electron.cjs](test/cad-kernel-electron.cjs)):
+  - The engine is ready in 0.3 s.
+  - A filleted bracket's 12 faces each trace to the script line that made them, and the volume matches the formula.
+  - The checks catch a loose piece, a 0.8 mm hole, 0.6 mm walls, and the underside of a T as one overhang entry.
+  - All five exports are valid (STEP header, SVG in mm, DXF polylines, a 3MF zip), and a picture shows a pin at the right place in all four views.
+  - Syntax errors and OpenCascade failures name their line.
+  - `fetch` and `require` are refused, and an endless script is stopped while the engine comes back.
+  - Every example in the guide builds one solid.
+- **Workshop tests** with a stand-in engine: versions, revert, sliders, errors, the tool's gating and the message context.
+- **In the app**, through the real IPC:
+  - The switch, the panel, a build, a face click (it highlights script line 5) and a pin with a note, in light and dark.
+- **With the real model** (Strata 0.2.2, Qwen 3.8 Flash Next IQ3_S), in a throwaway profile:
+  - Asked for a pipe bracket, it read the guide and built a 50 × 30.8 × 23.2 mm part over three versions in 13 minutes and 11 tool calls. The part had a 4 mm plate, two countersunk 4.5 mm holes and a clip wrapping about 203°, plus sliders. The model exported STL and STEP itself.
+  - Pointed at with a click and the note "round the edges of this plate, 2 mm", it rounded the plate rim in 4 minutes as version 4 with a new slider. It noted that the mark was on the clip's bore while the note said plate, and explained why it clamped the radius to 1.8 mm.
+  - It explained that the overhang notes were bed-level roundovers. The overhang check now leaves out the first 0.6 mm above the bed and reports one combined line.
+- **Full suite:** syntax, the Node tests and the three Electron tests.
+
 # Version 0.45.1 verification
 
 0.45.1 fills the gaps found in the new engine after 0.45.0 shipped.

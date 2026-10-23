@@ -12,7 +12,8 @@
   <link rel="stylesheet" href="./goal-ledger.css">
   <link rel="stylesheet" href="./standing-intents.css">
   <link rel="stylesheet" href="./panels.css">
-  <link rel="stylesheet" href="./dark.css">
+  <link rel="stylesheet" href="./cad.css">
+<link rel="stylesheet" href="./dark.css">
   <link rel="stylesheet" href="./widget-mode.css">
   <link rel="stylesheet" href="./usage.css">
   <script src="./widget-mode.js" defer></script>
@@ -28,6 +29,7 @@
   <script src="./usage-panel.js" defer></script>
   <script src="./app.js" defer></script>
   <script src="./standing-intents-panel.js" defer></script>
+<script type="module" src="./cad-panel.js"></script>
 </head>
 <body>
   <div id="widget-pill" aria-label="Little Bot compact widget">
@@ -87,7 +89,7 @@
       </header>
       <header class="topbar">
         <div class="topbar-left"><span id="page-label" class="page-label">Conversation</span><span class="topbar-divider"></span><span id="runtime-status" class="runtime-status"><span class="status-dot starting"></span><span>Starting engine</span></span></div>
-        <div class="topbar-actions"><button id="quick-keep" class="workspace-button hidden" type="button" title="Keep this Quick session as a saved session, with its history"><span class="icon" data-icon="bookmark"></span><span>Keep as session</span></button><button id="quick-end" class="workspace-button hidden" type="button" title="End this Quick session; it is not saved"><span class="icon" data-icon="x"></span><span>End session</span></button><button id="session-rename" class="workspace-button hidden" type="button" title="Rename this session"><span class="icon" data-icon="edit"></span><span>Rename</span></button><button id="session-delete" class="workspace-button hidden" type="button" title="Delete this session and its history"><span class="icon" data-icon="trash"></span><span>Delete</span></button><button id="enter-widget" class="workspace-button" type="button" title="Glass widget mode · Ctrl+Shift+M"><span class="icon" data-icon="compact"></span><span>Widget</span></button><button id="agent-inspector-toggle" class="workspace-button inspector-toggle" type="button" aria-pressed="false" title="Show agent activity"><span class="icon" data-icon="info"></span><span>Activity</span></button><button id="open-agent-browser" class="workspace-button agent-browser-button" type="button" title="Open the agent’s browser"><span class="icon" data-icon="browser"></span><span>Browser</span></button><button id="choose-workspace" class="workspace-button" title="Choose a workspace"><span class="icon" data-icon="folder"></span><span id="workspace-label">Choose workspace</span><span class="icon small" data-icon="chevron-down"></span></button></div>
+        <div class="topbar-actions"><button id="quick-keep" class="workspace-button hidden" type="button" title="Keep this Quick session as a saved session, with its history"><span class="icon" data-icon="bookmark"></span><span>Keep as session</span></button><button id="quick-end" class="workspace-button hidden" type="button" title="End this Quick session; it is not saved"><span class="icon" data-icon="x"></span><span>End session</span></button><button id="session-rename" class="workspace-button hidden" type="button" title="Rename this session"><span class="icon" data-icon="edit"></span><span>Rename</span></button><button id="session-delete" class="workspace-button hidden" type="button" title="Delete this session and its history"><span class="icon" data-icon="trash"></span><span>Delete</span></button><button id="enter-widget" class="workspace-button" type="button" title="Glass widget mode · Ctrl+Shift+M"><span class="icon" data-icon="compact"></span><span>Widget</span></button><button id="agent-inspector-toggle" class="workspace-button inspector-toggle" type="button" aria-pressed="false" title="Show agent activity"><span class="icon" data-icon="info"></span><span>Activity</span></button><button id="open-agent-browser" class="workspace-button agent-browser-button" type="button" title="Open the agent’s browser"><span class="icon" data-icon="browser"></span><span>Browser</span></button><button id="open-cad" class="workspace-button agent-browser-button hidden" type="button" aria-pressed="false" title="Show the CAD workshop"><span class="icon" data-icon="cube"></span><span>CAD</span></button><button id="choose-workspace" class="workspace-button" title="Choose a workspace"><span class="icon" data-icon="folder"></span><span id="workspace-label">Choose workspace</span><span class="icon small" data-icon="chevron-down"></span></button></div>
       </header>
       <section id="chat-view" class="chat-view"><div class="attachment-drop-overlay" aria-hidden="true"><span class="icon" data-icon="paperclip"></span><span>Drop files here</span></div>
         <aside id="agent-inspector" class="agent-inspector hidden" aria-label="Agent activity">
@@ -155,7 +157,7 @@
             <button id="goal-bar-toggle" class="button text-button" type="button"></button>
             <button id="goal-bar-clear" class="icon-button" type="button" aria-label="Clear the goal" title="Clear the goal"><span class="icon" data-icon="x"></span></button>
           </section>
-          <form id="composer" class="composer"><div id="attachment-queue" class="hidden" aria-label="Attached files"></div><p id="attachment-import-status" class="attachment-import-status hidden" role="status"></p>
+          <form id="composer" class="composer"><div id="cad-selection" class="cad-selection hidden" aria-label="What you pointed at in the CAD model"></div><div id="attachment-queue" class="hidden" aria-label="Attached files"></div><p id="attachment-import-status" class="attachment-import-status hidden" role="status"></p>
             <label for="message-input" class="sr-only">Message Little Bot</label>
             <textarea id="message-input" rows="2" placeholder="Message Little Bot…  ·  / for commands" maxlength="32000" role="combobox" aria-autocomplete="list" aria-controls="slash-menu" aria-expanded="false"></textarea>
             <div class="composer-toolbar">
@@ -409,6 +411,49 @@
       </div>
       <div id="browser-activity" class="browser-activity hidden" role="status"><span class="status-dot running"></span><span>Little Bot is browsing</span></div>
       <div id="browser-viewport" class="browser-viewport"><div id="browser-empty" class="browser-empty"><span class="icon" data-icon="browser"></span><h2>Built-in browser</h2><p>Ask Little Bot to look something up, or type an address above. You can sign in to sites here; they stay signed in.</p></div></div>
+    </aside>
+    <aside id="cad-panel" class="cad-panel hidden" aria-label="CAD workshop">
+      <div class="cad-bar">
+        <div class="cad-part-wrap">
+          <button id="cad-part" class="cad-part" type="button" aria-expanded="false" aria-controls="cad-part-menu" title="Open or start a part"><span class="icon" data-icon="cube"></span><span id="cad-part-name">No part yet</span><span id="cad-version" class="cad-version"></span><span class="icon small" data-icon="chevron-down"></span></button>
+          <form id="cad-part-menu" class="cad-menu hidden"><label for="cad-part-input">Open or start a part</label><input id="cad-part-input" type="text" maxlength="60" spellcheck="false" autocomplete="off" placeholder="Part name, e.g. pipe bracket"><div class="cad-menu-actions"><button id="cad-show-folder" class="button text-button" type="button">Show folder</button><button class="button primary" type="submit">Open</button></div><p id="cad-part-error" class="inline-error hidden" role="alert"></p></form>
+        </div>
+        <div class="cad-modes" role="radiogroup" aria-label="What a click does">
+          <button type="button" role="radio" data-cad-mode="select" aria-checked="true" title="Select faces and edges (Shift adds)"><span class="icon" data-icon="cursor"></span><span>Select</span></button>
+          <button type="button" role="radio" data-cad-mode="pin" aria-checked="false" title="Drop a numbered pin with a note"><span class="icon" data-icon="pin"></span><span>Pin</span></button>
+          <button type="button" role="radio" data-cad-mode="measure" aria-checked="false" title="Measure between two clicks"><span class="icon" data-icon="ruler"></span><span>Measure</span></button>
+        </div>
+        <div class="cad-bar-end">
+          <div class="cad-part-wrap"><button id="cad-export" class="icon-button" type="button" aria-expanded="false" aria-controls="cad-export-menu" title="Export" aria-label="Export"><span class="icon" data-icon="import"></span></button>
+            <div id="cad-export-menu" class="cad-menu cad-export-menu hidden" role="menu"><button type="button" role="menuitem" data-cad-export="stl">STL<span>3D printing</span></button><button type="button" role="menuitem" data-cad-export="3mf">3MF<span>3D printing</span></button><button type="button" role="menuitem" data-cad-export="step">STEP<span>Other CAD programs</span></button><button type="button" role="menuitem" data-cad-export="svg">SVG<span>Laser cutting, top view</span></button><button type="button" role="menuitem" data-cad-export="dxf">DXF<span>Laser cutting, top view</span></button></div>
+          </div>
+          <button id="cad-hide" class="icon-button" type="button" aria-label="Hide the CAD workshop" title="Hide the CAD workshop"><span class="icon" data-icon="x"></span></button>
+        </div>
+      </div>
+      <div id="cad-stage" class="cad-stage">
+        <canvas id="cad-canvas" aria-label="3D view of the part. Drag to turn, right-drag to move, wheel to zoom."></canvas>
+        <div id="cad-marks" class="cad-marks" aria-hidden="true"></div>
+        <div class="cad-views" role="group" aria-label="View"><button type="button" data-cad-view="iso">Iso</button><button type="button" data-cad-view="front">Front</button><button type="button" data-cad-view="top">Top</button><button type="button" data-cad-view="right">Right</button><button id="cad-ghost" type="button" aria-pressed="false" title="Show the previous version faintly">Compare</button></div>
+        <div id="cad-size" class="cad-size"></div>
+        <div id="cad-readout" class="cad-readout hidden" role="status"></div>
+        <div id="cad-building" class="cad-building hidden" role="status"><span class="status-dot running"></span><span>Building…</span></div>
+        <div id="cad-error" class="cad-error hidden" role="alert"></div>
+        <div id="cad-empty" class="cad-empty"><span class="icon" data-icon="cube"></span><h2>CAD workshop</h2><p>Describe a part to Little Bot, or open one by name above. Click the model to point at faces and edges, drop pins with notes, or measure; they go with your next message.</p></div>
+      </div>
+      <div class="cad-tabs" role="tablist" aria-label="Part details">
+        <button type="button" role="tab" data-cad-tab="settings" aria-selected="true">Settings</button>
+        <button type="button" role="tab" data-cad-tab="checks" aria-selected="false">Checks <span id="cad-check-count" class="cad-count"></span></button>
+        <button type="button" role="tab" data-cad-tab="script" aria-selected="false">Script</button>
+        <button type="button" role="tab" data-cad-tab="versions" aria-selected="false">Versions</button>
+      </div>
+      <div class="cad-drawer">
+        <section data-cad-panel="settings" role="tabpanel" aria-label="Settings"><div id="cad-params" class="cad-params"></div></section>
+        <section data-cad-panel="checks" role="tabpanel" aria-label="Checks" class="hidden"><div id="cad-checks" class="cad-checks"></div>
+          <details class="cad-limits"><summary>Check limits</summary><div class="cad-limit-grid"><label>Thinnest wall <input id="cad-min-wall" type="number" min="0.1" max="20" step="0.1"> mm</label><label>Smallest hole <input id="cad-min-hole" type="number" min="0.1" max="50" step="0.1"> mm</label><label class="cad-limit-switch"><input id="cad-overhang" type="checkbox"> Flag overhangs steeper than <input id="cad-overhang-angle" type="number" min="10" max="80" step="5">°</label></div></details>
+        </section>
+        <section data-cad-panel="script" role="tabpanel" aria-label="Script" class="hidden"><div class="cad-script"><pre id="cad-gutter" class="cad-gutter" aria-hidden="true"></pre><textarea id="cad-code" spellcheck="false" autocomplete="off" aria-label="Part script"></textarea></div><div class="cad-script-actions"><span id="cad-script-status" class="field-hint"></span><button id="cad-build" class="button primary" type="button" title="Build this script (Ctrl+Enter)">Build</button></div></section>
+        <section data-cad-panel="versions" role="tabpanel" aria-label="Versions" class="hidden"><ol id="cad-versions" class="cad-versions"></ol></section>
+      </div>
     </aside>
   </div>
   <dialog id="settings-dialog" class="dialog settings-dialog" aria-labelledby="settings-title">
