@@ -27,6 +27,11 @@ let retryTimer = null;
 let busy = false;
 let pending = [];             // attachments uploaded to the PC, waiting to be sent: {id, name, kind, thumbnail}
 let uploading = 0;
+// Each chat keeps its own unsent text and files: switching tabs never moves a draft to another chat.
+const drafts = new Map();      // draftKey -> { text, pending }
+const answerDrafts = new Map(); // goal question id -> typed answer, kept across re-renders
+let pendingRoute = null;       // a chat to open once the PC's snapshot lists it (a notification, Keep)
+const slash = window.LittleBotSlashCommands || null;
 
 // Line icons in the desktop app's style (24px grid, rounded 1.8 strokes, currentColor). Built as DOM, never HTML.
 const ICONS = {
@@ -40,6 +45,8 @@ const ICONS = {
   file: [['path', { d: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z' }], ['path', { d: 'M14 3v5h5' }]],
   tools: [['path', { d: 'M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z' }]],
   thinking: [['path', { d: 'M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1 2V17h5.2v-1.2c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z' }], ['path', { d: 'M9.8 20.5h4.4' }]],
+  list: [['path', { d: 'M9 6h11M9 12h11M9 18h11' }], ['path', { d: 'm3.5 6 1.2 1.2L7 5M3.5 12l1.2 1.2L7 11M3.5 18l1.2 1.2L7 17' }]],
+  download: [['path', { d: 'M12 4v11' }], ['path', { d: 'm7 10 5 5 5-5' }], ['path', { d: 'M5 20h14' }]],
 };
 function svgIcon(name) {
   const ns = 'http://www.w3.org/2000/svg';
@@ -214,8 +221,28 @@ function handle(event) {
   } else if (event.type === 'messages') {
     applyMessages(event.upsert, null, null, null, event.quick === true, typeof event.session === 'string' ? event.session : null);
   }
+  if (pendingRoute && snap && !openRoute(pendingRoute)) { if (Date.now() > pendingRoute.until) pendingRoute = null; }
   render();
 }
+
+// Routes: "#session=<id>", "#quick" and "#goals", from a notification or Keep. Returns false while the
+// snapshot does not list that chat yet.
+function parseRoute(hash) {
+  const session = /^#session=([^&]+)$/.exec(hash || '');
+  if (session) return { view: 'session', id: decodeURIComponent(session[1]), until: Date.now() + 15000 };
+  if (hash === '#quick') return { view: 'quick', until: Date.now() + 15000 };
+  if (hash === '#goals') return { view: 'goals', until: Date.now() + 15000 };
+  return null;
+}
+function openRoute(route) {
+  if (!route || !snap) return false;
+  if (route.view === 'session' && !(snap.sessions || []).some(item => item.id === route.id)) return false;
+  pendingRoute = null;
+  if (route.view === 'goals') { renderGoals(); if (!$('goals-sheet').open) $('goals-sheet').showModal(); }
+  else setView(route.view, route.id || null);
+  return true;
+}
+function routeTo(route) { if (route && !openRoute(route)) pendingRoute = { until: Date.now() + 15000, ...route }; }
 function reportPresence() {
   if (!clientId || !token) return;
   api('presence', { clientId, visible: document.visibilityState === 'visible' }).catch(() => {});
@@ -283,6 +310,62 @@ function renderText(parent, text) {
   appendBlocks(parent, source.slice(last));
 }
 
+// A file in a message: tapping a picture shows it full size, tapping any other file downloads it.
+async function openFile(file) {
+  const link = await attempt(() => api('fileLink', { id: file.id }));
+  if (!link) return;
+  if (link.kind === 'image') { $('viewer-image').src = link.url; $('viewer-image').alt = link.name || ''; $('viewer').showModal(); return; }
+  if (native?.openFile) { native.openFile(new URL(link.url, location.origin).href, link.name || 'file'); return; }
+  const anchor = el('a'); anchor.href = link.url; anchor.download = link.name || 'file';
+  document.body.append(anchor); anchor.click(); anchor.remove();
+  toast(`Downloading ${link.name || 'the file'}`);
+}
+function fileNode(file) {
+  const button = el('button', file.thumbnail ? 'thumb' : 'file'); button.type = 'button';
+  if (file.thumbnail) { const img = el('img'); img.src = file.thumbnail; img.alt = file.name; button.append(img); }
+  else button.append(svgIcon('file'), document.createTextNode(file.name), svgIcon('download'));
+  button.setAttribute('aria-label', file.thumbnail ? `Show ${file.name}` : `Download ${file.name}`);
+  if (file.id) button.onclick = () => openFile(file); else button.disabled = true;
+  return button;
+}
+// A background goal's question, answered here like on the desktop's goal card.
+function goalAnswerForm(goal) {
+  const question = goal.question;
+  const form = el('form', 'goal-answer');
+  const key = `${goal.id}:${question.id}`;
+  const send = async value => {
+    const answer = String(value || '').trim();
+    if (!answer) return;
+    for (const item of form.querySelectorAll('button,input')) item.disabled = true;
+    const ok = await attempt(() => api('goalAnswer', { id: goal.id, questionId: question.id, answer }));
+    if (ok) { answerDrafts.delete(key); toast('Answer sent'); }
+    else for (const item of form.querySelectorAll('button,input')) item.disabled = false;
+  };
+  if (question.options?.length) {
+    const row = el('div', 'row');
+    for (const option of question.options) { const chip = el('button', 'chip', option); chip.type = 'button'; chip.onclick = () => send(option); row.append(chip); }
+    form.append(row);
+  }
+  const line = el('div', 'answer-row');
+  const input = el('input'); input.placeholder = 'Your answer'; input.maxLength = 2000; input.dataset.answerKey = key;
+  input.value = answerDrafts.get(key) || '';
+  input.addEventListener('input', () => answerDrafts.set(key, input.value));
+  const submit = el('button', 'primary', 'Send'); submit.type = 'submit';
+  line.append(input, submit);
+  form.append(line);
+  form.onsubmit = event => { event.preventDefault(); send(input.value); };
+  return form;
+}
+// Re-rendering replaces the nodes: an answer being typed keeps its focus and caret.
+function keepAnswerFocus(build) {
+  const active = document.activeElement, key = active?.dataset?.answerKey;
+  const caret = key ? [active.selectionStart, active.selectionEnd] : null;
+  build();
+  if (!key) return;
+  const again = document.querySelector(`[data-answer-key="${CSS.escape(key)}"]`);
+  if (again && again !== active) { again.focus({ preventScroll: true }); try { again.setSelectionRange(...caret); } catch { /* Not a text field. */ } }
+}
+
 function messageNode(message) {
   const node = el('div', `msg ${message.role}`);
   if (message.proactive) node.classList.add('proactive');
@@ -292,10 +375,7 @@ function messageNode(message) {
   node.append(el('span', 'label', message.label));
   if (message.attachments?.length) {
     const thumbs = el('div', 'thumbs');
-    for (const file of message.attachments) {
-      if (file.thumbnail) { const img = el('img'); img.src = file.thumbnail; img.alt = file.name; thumbs.append(img); }
-      else { const chip = el('span', 'file'); chip.append(svgIcon('file'), document.createTextNode(file.name)); thumbs.append(chip); }
-    }
+    for (const file of message.attachments) thumbs.append(fileNode(file));
     node.append(thumbs);
   }
   if (message.text || !message.attachments?.length) {
@@ -320,6 +400,8 @@ function messageNode(message) {
     }
     node.append(bar);
   }
+  const goal = message.goalQuestionId ? (snap?.goals || []).find(item => item.id === message.goalId && item.question?.id === message.goalQuestionId) : null;
+  if (goal) node.append(goalAnswerForm(goal));
   return node;
 }
 function toolsNode(group) {
@@ -341,8 +423,18 @@ function nearBottom() {
   const chat = $('chat');
   return chat.scrollHeight - chat.scrollTop - chat.clientHeight < 120;
 }
+const draftKey = (name = view, id = sessionId) => name === 'session' ? `session:${id || 'new'}` : name;
+function saveDraft() { drafts.set(draftKey(), { text: $('input').value, pending }); }
+function loadDraft() {
+  const draft = drafts.get(draftKey()) || { text: '', pending: [] };
+  $('input').value = draft.text; pending = draft.pending;
+  renderPending(); sizeInput();
+}
 function setView(next, id = null) {
+  saveDraft();
   view = next; sessionId = next === 'session' ? id : null;
+  loadDraft();
+  closeSlashMenu();
   const tab = view === 'session' ? 'sessions' : view;
   for (const [name, node] of [['main', $('tab-main')], ['quick', $('tab-quick')], ['sessions', $('tab-sessions')]]) {
     node.classList.toggle('active', tab === name); node.setAttribute('aria-pressed', String(tab === name));
@@ -405,6 +497,8 @@ function render() {
   $('composer').classList.toggle('hidden', view === 'sessions' || !token);
   renderGoalStrip(view === 'sessions' ? null : active);
   $('quick-end').disabled = !snap?.quick;
+  $('quick-keep').disabled = busy;
+  $('goals-button').classList.toggle('badge', (snap?.goals || []).some(goal => goal.question));
   const running = chatStatus === 'running' || chatStatus === 'waiting';
   if (connected) {
     if (!snap?.ready) setStatus(snap?.runtimeError || 'PC connected · engine not ready', 'offline');
@@ -433,19 +527,41 @@ function render() {
     : view === 'session' ? 'A new saved session. Its first message creates it; the main conversation stays as it is.' : 'Say hi to Little Bot.'));
   // Keep open tool groups open across re-renders.
   const open = new Set([...$('messages').querySelectorAll('details[open]')].map((_, index) => index));
-  $('messages').replaceChildren(...items);
+  keepAnswerFocus(() => $('messages').replaceChildren(...items));
   [...$('messages').querySelectorAll('details')].forEach((node, index) => { if (open.has(index)) node.open = true; });
   renderApprovals();
   $('send').classList.toggle('hidden', running);
   $('stop').classList.toggle('hidden', !running);
   $('send').disabled = busy || uploading > 0 || !connected || !snap?.ready || (!$('input').value.trim() && !pending.length);
   if (stick) $('chat').scrollTop = $('chat').scrollHeight;
-  if ($('goals-sheet').open) renderGoals();
+  if ($('goals-sheet').open) keepAnswerFocus(renderGoals);
   if ($('menu-sheet').open) renderBackground();
 }
 
+const activeChatId = () => view === 'main' ? snap?.chat?.id : view === 'quick' ? snap?.quick?.id : view === 'session' ? sessionId : null;
+function chatName(chatId) {
+  if (chatId === snap?.chat?.id) return 'the conversation';
+  if (chatId === snap?.quick?.id) return 'Quick';
+  const session = (snap?.sessions || []).find(item => item.id === chatId);
+  return session ? `“${session.title}”` : 'another chat';
+}
+const chatRoute = chatId => chatId === snap?.quick?.id ? { view: 'quick' } : (snap?.sessions || []).some(item => item.id === chatId) ? { view: 'session', id: chatId } : { view: 'main' };
+// A chat's questions and approvals show in that chat only; elsewhere they are one line with a way there.
+function renderElsewhere(here) {
+  const others = (snap?.approvals || []).filter(approval => approval.chatId !== here);
+  $('elsewhere').replaceChildren(...others.map(approval => {
+    const row = el('div', 'elsewhere-row');
+    row.append(el('span', '', `${approval.ask ? 'Little Bot asks something' : 'Little Bot needs your approval'} in ${chatName(approval.chatId)}`));
+    const go = el('button', 'chip', 'Open'); go.type = 'button';
+    go.onclick = () => routeTo(chatRoute(approval.chatId));
+    row.append(go);
+    return row;
+  }));
+}
 function renderApprovals() {
-  const cards = (snap?.approvals || []).map(approval => {
+  const here = activeChatId();
+  renderElsewhere(here);
+  const cards = (snap?.approvals || []).filter(approval => approval.chatId === here).map(approval => {
     const card = el('div', 'card');
     if (approval.ask) {
       card.append(el('h3', '', 'Little Bot asks'), el('p', '', approval.question));
@@ -502,18 +618,119 @@ function sizeInput() {
   input.style.height = 'auto';
   input.style.height = `${Math.min(input.scrollHeight + 2, window.innerHeight * 0.4)}px`;
 }
-$('input').addEventListener('input', () => { sizeInput(); render(); });
+$('input').addEventListener('input', () => { sizeInput(); renderSlashMenu(); render(); });
 $('composer').addEventListener('submit', async event => {
   event.preventDefault();
   const text = $('input').value.trim();
   if ((!text && !pending.length) || busy || uploading) return;
-  busy = true; render();
-  const sentFrom = view, sentTo = sessionId;
+  busy = true; closeSlashMenu(); render();
+  const sentFrom = view, sentTo = sessionId, sentKey = draftKey();
   const ok = await attempt(() => api('send', { text, attachmentIds: pending.map(item => item.id), ...target() }));
   busy = false;
   // The first message of a new session created it: keep showing that session.
   if (ok?.chatId && sentFrom === 'session' && !sentTo && view === 'session' && !sessionId) sessionId = ok.chatId;
-  if (ok) { $('input').value = ''; pending = []; renderPending(); sizeInput(); $('chat').scrollTop = $('chat').scrollHeight; }
+  if (ok) {
+    // Clear the box only if the phone still shows the chat it was sent to; the sent draft goes either way.
+    const here = draftKey() === sentKey || (sentFrom === 'session' && !sentTo && view === 'session' && sessionId === ok.chatId);
+    drafts.delete(sentKey);
+    if (here) { $('input').value = ''; pending = []; renderPending(); sizeInput(); $('chat').scrollTop = $('chat').scrollHeight; }
+  }
+  render();
+});
+
+// The "/" menu: the phone's commands, and after "/skill " the enabled skills (the same matching as the desktop).
+function phoneCommands() {
+  return [
+    { name: 'skill', hint: 'Use one of your skills' },
+    { name: 'goal', hint: 'Keep this chat working until a check passes' },
+    ...(view === 'quick' ? [{ name: 'keep', hint: 'Keep this Quick session as a saved session' }] : []),
+  ];
+}
+function closeSlashMenu() { $('slash-menu').classList.add('hidden'); $('slash-menu').replaceChildren(); }
+function slashItem(title, hint, pick) {
+  const button = el('button', 'slash-item'); button.type = 'button'; button.setAttribute('role', 'option');
+  button.append(el('strong', '', title), el('span', '', hint));
+  button.onclick = pick;
+  return button;
+}
+function renderSlashMenu() {
+  const value = $('input').value;
+  const skills = slash?.skillMatches(value, snap?.skills || []);
+  const typed = /^\/([a-z]*)$/i.exec(value)?.[1]?.toLowerCase();
+  let items = [];
+  if (skills) {
+    items = skills.slice(0, 30).map(skill => slashItem(skill.name, skill.description || '', () => {
+      $('input').value = `$${skill.name} `; closeSlashMenu(); sizeInput(); $('input').focus(); render();
+    }));
+    if (!items.length) items = [el('p', 'hint slash-empty', (snap?.skills || []).length ? 'No enabled skill matches.' : 'No skills are turned on. Turn them on in Extensions on your PC.')];
+  } else if (typed !== undefined && slash) {
+    items = phoneCommands().filter(command => command.name.startsWith(typed)).map(command => slashItem(`/${command.name}`, command.hint, () => {
+      if (command.name === 'skill') { $('input').value = '/skill '; renderSlashMenu(); $('input').focus(); return; }
+      $('input').value = ''; closeSlashMenu(); sizeInput(); render();
+      if (command.name === 'goal') openGoalForm();
+      else keepQuick();
+    }));
+  }
+  $('slash-menu').replaceChildren(...items);
+  $('slash-menu').classList.toggle('hidden', !items.length);
+}
+
+// Keep: the Quick session becomes a saved session, as on the desktop. Before its first message there is
+// nothing to keep, so the draft moves to a new saved session instead.
+async function keepQuick() {
+  const started = quickOrder.some(id => messages.get(id)?.role === 'user');
+  saveDraft();
+  const draft = drafts.get('quick') || { text: '', pending: [] };
+  if (!snap?.quick || !started) {
+    drafts.delete('quick'); drafts.set('session:new', draft);
+    $('input').value = ''; pending = [];
+    setView('session', null);
+    toast('New saved session: your first message starts it.');
+    return;
+  }
+  $('quick-keep').disabled = true;
+  const ok = await attempt(() => api('keepQuick', {}));
+  $('quick-keep').disabled = false;
+  if (!ok?.chatId) return;
+  drafts.delete('quick'); drafts.set(`session:${ok.chatId}`, draft);
+  if (view === 'quick') { $('input').value = ''; pending = []; }
+  toast('Kept as a saved session. Memory works there from now on.');
+  routeTo({ view: 'session', id: ok.chatId, until: Date.now() + 15000 });
+}
+$('quick-keep').addEventListener('click', keepQuick);
+
+// The goal form: the same /goal the desktop's drawer sends, built by the shared goalArguments.
+function openGoalForm() {
+  if (!slash) return toast('Reload the page to set a goal.', true);
+  const goal = activeChat()?.goal;
+  const live = goal && ['pursuing', 'paused'].includes(goal.status);
+  $('goal-form-note').textContent = live ? `This chat already works toward “${goal.condition}”. A new goal replaces it.` : '';
+  $('goal-form-note').classList.toggle('hidden', !live);
+  $('goal-form-error').classList.add('hidden');
+  $('goal-form-sheet').showModal();
+  $('goal-condition').focus();
+}
+$('goal-open').addEventListener('click', openGoalForm);
+$('goal-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  let args;
+  try {
+    args = slash.goalArguments({ condition: $('goal-condition').value, check: $('goal-check').value,
+      turns: Number.parseInt($('goal-turns').value, 10), minutes: Number.parseInt($('goal-minutes').value, 10) });
+  } catch (error) {
+    $('goal-form-error').textContent = error.message; $('goal-form-error').classList.remove('hidden');
+    return;
+  }
+  $('goal-form-error').classList.add('hidden');
+  $('goal-start').disabled = true;
+  const sentFrom = view, sentTo = sessionId;
+  const ok = await attempt(() => api('send', { text: `/goal ${args}`, ...target() }));
+  $('goal-start').disabled = false;
+  if (!ok) return;
+  if (ok.chatId && sentFrom === 'session' && !sentTo && view === 'session' && !sessionId) sessionId = ok.chatId;
+  for (const id of ['goal-condition', 'goal-check', 'goal-turns', 'goal-minutes']) $(id).value = '';
+  $('goal-form-sheet').close();
+  toast('Goal started');
   render();
 });
 // Attachments: photos are shrunk on the phone before upload (the PC resizes images again anyway).
@@ -526,7 +743,7 @@ function renderPending() {
     else { const icon = el('span', 'file-icon'); icon.append(svgIcon('file')); chip.append(icon); }
     chip.append(el('span', 'file-name', item.name));
     const remove = el('button', 'file-remove'); remove.append(svgIcon('x')); remove.type = 'button'; remove.setAttribute('aria-label', `Remove ${item.name}`);
-    remove.onclick = () => { pending = pending.filter(entry => entry !== item); renderPending(); render(); };
+    remove.onclick = () => { const index = pending.indexOf(item); if (index >= 0) pending.splice(index, 1); renderPending(); render(); };
     chip.append(remove);
     return chip;
   }), ...(uploading ? [el('div', 'chip-file uploading', `Uploading ${uploading}…`)] : []));
@@ -552,13 +769,15 @@ async function shrinkImage(file) {
   } catch { return file; }
 }
 async function uploadFiles(files) {
-  for (const original of [...files].slice(0, 8 - pending.length)) {
+  // The files belong to the chat they were picked in, even if the phone switches tabs while they upload.
+  const list = pending;
+  for (const original of [...files].slice(0, 8 - list.length)) {
     uploading++; renderPending(); render();
     try {
       const file = await shrinkImage(original);
       if (file.size > 20 * 1024 * 1024) throw new Error(`${original.name} is over 20 MB.`);
       const { attachment } = await api('attach', { name: file.name || 'Photo.jpg', data: await readAsBase64(file) });
-      pending.push(attachment);
+      list.push(attachment);
     } catch (error) { toast(error.message || 'Upload failed.', true); }
     finally { uploading--; renderPending(); render(); }
   }
@@ -612,8 +831,13 @@ function renderGoals() {
   const list = goals.map(goal => {
     const node = el('div', 'goal');
     const top = el('div', 'goal-top');
-    top.append(el('strong', '', goal.name), el('span', `pill ${goal.status}`, GOAL_LABELS[goal.status] || goal.status));
+    top.append(el('strong', '', goal.name), el('span', `pill ${goal.question ? 'asking' : goal.status}`, goal.question ? 'Asks you' : GOAL_LABELS[goal.status] || goal.status));
     node.append(top);
+    if (goal.question) {
+      // A goal waiting on a question continues once it is answered; no other button is needed.
+      node.append(el('p', 'goal-question', goal.question.question), goalAnswerForm(goal));
+      return node;
+    }
     const detail = goal.status === 'queued' && goal.nextRunAt ? `Next run ${when(goal.nextRunAt)}` : goal.nextStep;
     if (detail) node.append(el('p', '', detail));
     const row = el('div', 'row');
@@ -622,14 +846,16 @@ function renderGoals() {
       button.onclick = async () => { button.disabled = true; if (await attempt(() => api('goal', { id: goal.id, action }))) toast(`${label}: ${goal.name}`); button.disabled = false; };
       row.append(button);
     };
-    if (goal.status !== 'running') add('Run now', 'run');
-    if (goal.status === 'paused' || goal.status === 'blocked') add('Resume', 'resume');
-    else if (goal.status !== 'completed') add('Pause', 'pause');
+    // One button per thing to do: Resume and Run now start the same step.
+    if (goal.status === 'running') add('Pause', 'pause');
+    else if (goal.status === 'queued') { add('Run now', 'run'); add('Pause', 'pause'); }
+    else if (goal.status === 'paused' || goal.status === 'blocked') add('Resume', 'resume');
+    else add(goal.status === 'completed' || goal.status === 'failed' ? 'Run again' : 'Run now', 'run');
     node.append(row);
     return node;
   });
   if (snap?.autonomyPaused) list.unshift(el('p', 'hint', 'All autonomous work is paused on the PC.'));
-  $('goal-list').replaceChildren(...(list.length ? list : [el('p', 'hint', 'No goals yet. Create one with /goal on your PC.')]));
+  $('goal-list').replaceChildren(...(list.length ? list : [el('p', 'hint', 'No background goals yet. Create them in Goals on your PC. To keep one chat working toward something, use the goal button next to the message box.')]));
 }
 $('goals-button').addEventListener('click', () => { renderGoals(); $('goals-sheet').showModal(); });
 
@@ -741,7 +967,17 @@ document.addEventListener('visibilitychange', () => {
   else if (token && (!connected || (hiddenSince && Date.now() - hiddenSince > 15000) || Date.now() - lastStreamByte > 30000)) restartStream();
   reportPresence();
 });
-window.addEventListener('hashchange', () => { if (location.hash.startsWith('#pair=')) { streamAbort?.abort(); streamAbort = null; connected = false; boot(); } });
+window.addEventListener('hashchange', () => {
+  if (location.hash.startsWith('#pair=')) { streamAbort?.abort(); streamAbort = null; connected = false; boot(); return; }
+  const route = parseRoute(location.hash);
+  if (route && token) { history.replaceState(null, '', '/'); routeTo(route); }
+});
+// A tapped notification, when the app is already open: the service worker says which chat to show.
+navigator.serviceWorker?.addEventListener('message', event => {
+  if (event.data?.type !== 'open' || !token) return;
+  try { routeTo(parseRoute(new URL(event.data.url, location.origin).hash)); } catch { /* Not a route. */ }
+});
+$('viewer').addEventListener('close', () => $('viewer-image').removeAttribute('src'));
 // A network change (Wi-Fi to mobile data) can leave the old stream hanging: always start a fresh one.
 window.addEventListener('online', () => restartStream());
 
@@ -749,6 +985,9 @@ function boot() {
   const pair = /^#pair=([A-Za-z0-9_-]{8,64})$/.exec(location.hash);
   if (pair) { startPairing(pair[1]); return; }
   if (!token) { unpaired(); return; }
+  // Opened from a notification: show its chat once the PC's snapshot arrives.
+  const route = parseRoute(location.hash);
+  if (route) { pendingRoute = route; history.replaceState(null, '', '/'); }
   showScreen('chat');
   $('mic').classList.toggle('hidden', !native?.dictate);
   if (native?.takeShared) takeShared(native.takeShared());

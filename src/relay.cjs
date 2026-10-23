@@ -11,6 +11,7 @@ const qrcode = require('qrcode-generator');
 const view = require('./relay-view.cjs');
 const webPush = require('./web-push.cjs');
 const phoneContext = require('./phone-context.cjs');
+const slashCommands = require('./renderer/slash-commands.js');
 
 const DEFAULT_PORT = 8787;
 const MAX_DEVICES = 5;
@@ -20,10 +21,15 @@ const MAX_UPLOAD_BODY = 28 * 1024 * 1024; // a 20 MB attachment, base64-encoded
 const PHONE_ACTIONS = ['alarm', 'timer', 'ring', 'navigate'];
 const PING_MS = 25000;
 const PUSH_SUBJECT = 'https://github.com/b7216309-jpg/little-bot';
+// A link to one attachment, for an <img> or a download that cannot carry the token header.
+const FILE_TICKET_MS = 2 * 60 * 1000;
+const INLINE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
 const STATIC = {
   '/': ['index.html', 'text/html; charset=utf-8'], '/index.html': ['index.html', 'text/html; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'], '/app.css': ['app.css', 'text/css; charset=utf-8'],
   '/sw.js': ['sw.js', 'text/javascript; charset=utf-8'], '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json'],
+  // The desktop's command helpers (skill matching, /goal arguments), shared so both build the same commands.
+  '/slash-commands.js': [path.join('..', 'renderer', 'slash-commands.js'), 'text/javascript; charset=utf-8'],
 };
 // The Wink app icon, built by scripts/build-icons.cjs.
 const ICONS = { '/icon-192.png': 'little-bot-192.png', '/icon-512.png': 'little-bot.png', '/icon-maskable.png': 'little-bot-maskable.png' };
@@ -56,8 +62,9 @@ function runTailscale(args, timeout = 8000) {
 }
 
 class Relay {
-  constructor({ file, protector, handlers, getState, isDesktopFocused = () => false, onError = () => {}, webRoot = path.join(__dirname, 'relay-web'), iconRoot = path.join(__dirname, '..', 'resources', 'icons'), apkFile = path.join(__dirname, '..', 'resources', 'android', 'little-bot.apk'), tailscale = runTailscale, push = webPush.send, host = '0.0.0.0', port = null }) {
-    Object.assign(this, { file, protector, handlers, getState, isDesktopFocused, onError, webRoot, iconRoot, apkFile, tailscale, push, host, portOverride: port });
+  constructor({ file, protector, handlers, getState, isDesktopFocused = () => false, onError = () => {}, webRoot = path.join(__dirname, 'relay-web'), iconRoot = path.join(__dirname, '..', 'resources', 'icons'), apkFile = path.join(__dirname, '..', 'resources', 'android', 'little-bot.apk'), tailscale = runTailscale, push = webPush.send, readAttachment = null, host = '0.0.0.0', port = null }) {
+    Object.assign(this, { file, protector, handlers, getState, isDesktopFocused, onError, webRoot, iconRoot, apkFile, tailscale, push, readAttachment, host, portOverride: port });
+    this.fileTickets = new Map();
     this.phone = new Map(); // deviceId -> latest shared context, memory only
     this.server = null; this.clients = new Map(); this.pairing = null; this.error = ''; this.https = '';
     this.lastSnapshot = null; this.sent = new Map(); this.failures = new Map(); this.seenSaveAt = 0;
@@ -268,7 +275,7 @@ class Relay {
     let changed = false;
     for (const device of targets) for (const note of notes.slice(0, 3)) {
       try {
-        const result = await this.push(device.push, { ...note, url: '/' }, { keys: this.config.vapid, subject: PUSH_SUBJECT });
+        const result = await this.push(device.push, { ...note, url: note.url || '/' }, { keys: this.config.vapid, subject: PUSH_SUBJECT });
         if (result.gone) { delete device.push; changed = true; break; }
       } catch (error) { this.onError('relay-push', error); break; }
     }
@@ -325,6 +332,7 @@ class Relay {
       return fs.createReadStream(this.apkFile).pipe(response);
     }
     if (!url.pathname.startsWith('/api/')) return this.json(response, 404, { error: 'Not found.' });
+    if (url.pathname === '/api/file' && request.method === 'GET') return this.serveAttachment(response, url.searchParams.get('ticket'));
     try {
       // Only pairing is rate limited, per address. A phone token is 256 random bits, so a forgotten or revoked
       // phone retrying is no attack; counting it would lock out every phone behind Tailscale, where all
@@ -353,6 +361,20 @@ class Relay {
     response.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': type, 'Cache-Control': 'no-cache',
       ...(name === 'sw.js' ? { 'Service-Worker-Allowed': '/' } : {}) });
     response.end(content);
+  }
+  // A file the phone was shown, through a short-lived ticket from fileLink. Images open in the page; anything
+  // else downloads, so a file can never run as a page on this origin, where the phone's token lives.
+  async serveAttachment(response, ticket) {
+    const entry = typeof ticket === 'string' ? this.fileTickets.get(ticket) : null;
+    if (!entry || entry.expiresAt < Date.now()) return this.json(response, 404, { error: 'This link expired. Tap the file again.' });
+    let file;
+    try { file = await this.readAttachment(entry.id); } catch { return this.json(response, 404, { error: 'This file is no longer on the PC.' }); }
+    const inline = INLINE_TYPES.includes(file.mime);
+    const name = String(file.name || 'file').replace(/[\u0000-\u001f"\\]/g, '_');
+    response.writeHead(200, { ...SECURITY_HEADERS, 'Content-Security-Policy': "default-src 'none'; img-src 'self'; sandbox",
+      'Content-Type': inline ? file.mime : 'application/octet-stream', 'Cache-Control': 'private, no-store', 'Content-Length': file.buffer.length,
+      'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename="${name.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(name)}` });
+    response.end(file.buffer);
   }
   pair(input, request) {
     const pairing = this.pairing;
@@ -406,6 +428,13 @@ class Relay {
         if (text.length > 32000) throw new Error('This message is over the 32,000-character limit. Send it from the PC, where long text becomes an attachment.');
         // /goal on the phone works like on the desktop (see ChatGoalRunner).
         const newSession = input.newSession === true && !sessionId;
+        // /skill name message is $name message, which the PC reads when it sends the turn.
+        if (/^\/skill(\s|$)/i.test(text)) {
+          const invocation = slashCommands.skillInvocation(text.replace(/^\/skill/i, ''));
+          if (!invocation) throw new Error('Pick a skill after /skill.');
+          if (!(snap.skills || []).some(skill => skill.name === invocation.name)) throw new Error(`No enabled skill is named ${invocation.name}. Turn it on in Extensions on the PC.`);
+          return this.action('send', { ...input, text: `$${invocation.name} ${invocation.message}`.trim() }, device);
+        }
         if (/^\/goal(\s|$)/i.test(text)) {
           const result = await this.handlers.chatGoal({ quick: input.quick === true, session: newSession, chatId: sessionId || (input.quick === true ? snap.quick?.id : newSession ? undefined : chatId), text: text.replace(/^\/goal/i, '').trim() });
           return { ok: true, ...(result?.chatId ? { chatId: result.chatId } : {}) };
@@ -418,6 +447,30 @@ class Relay {
         else if (sessionId || newSession) result = await this.handlers.send({ session: true, ...(sessionId ? { chatId: sessionId } : {}), text, ...files });
         else result = await this.handlers.send({ ...(chatId ? { chatId } : {}), text, ...files });
         return { ok: true, ...(result?.chatId ? { chatId: result.chatId } : {}) };
+      }
+      // The Quick session becomes a saved session, as with Keep on the desktop.
+      case 'keepQuick': {
+        if (!snap.quick) throw new Error('There is no Quick session to keep.');
+        await this.handlers.saveQuickSession({ chatId: snap.quick.id });
+        return { ok: true, chatId: snap.quick.id };
+      }
+      case 'goalAnswer': {
+        const goal = snap.goals.find(item => item.id === input.id);
+        if (!goal?.question || goal.question.id !== input.questionId) throw new Error('This question is no longer waiting for an answer.');
+        const answer = String(input.answer || '').trim();
+        if (!answer || answer.length > 2000) throw new Error('Write an answer of up to 2,000 characters.');
+        await this.handlers.answerGoal({ id: goal.id, questionId: goal.question.id, answer });
+        return { ok: true };
+      }
+      case 'fileLink': {
+        if (!this.readAttachment) throw new Error('Files cannot be opened from the phone.');
+        const visible = [...snap.messages, ...snap.quickMessages, ...Object.values(snap.sessionMessages || {}).flat()].flatMap(message => message.attachments || []);
+        const file = visible.find(item => item.id && item.id === input.id);
+        if (!file) throw new Error('This file is not in a chat this phone can see.');
+        const ticket = crypto.randomBytes(24).toString('base64url');
+        this.fileTickets.set(ticket, { id: file.id, expiresAt: Date.now() + FILE_TICKET_MS });
+        for (const [key, entry] of this.fileTickets) if (entry.expiresAt < Date.now() || this.fileTickets.size > 50) this.fileTickets.delete(key);
+        return { url: `/api/file?ticket=${ticket}`, name: file.name, kind: file.kind };
       }
       case 'attach': {
         // A photo or file from the phone, imported exactly like a desktop attachment (images are resized there).

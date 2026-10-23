@@ -1,6 +1,7 @@
 'use strict';
 // What a paired phone may see: the conversation, the Quick session, the saved sessions, their pending questions,
-// and goal status. Settings, profile, keys, memory and extension details never leave the PC.
+// goal status and questions, and the names of enabled skills (for the /skill picker). Settings, profile, keys,
+// memory and other extension details never leave the PC.
 const { PROACTIVE_KINDS } = require('./proactive-chat.cjs');
 const { isMain, isQuick, isSession } = require('./chats.cjs');
 
@@ -9,6 +10,8 @@ const MAX_MESSAGES = 200;
 const MAX_SESSIONS = 20;
 const MAX_SESSION_MESSAGES = 80;
 const MAX_TEXT = 20000;
+const MAX_SKILLS = 100;
+const ATTACHMENT_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const cut = (value, max) => String(value ?? '').slice(0, max);
 
 function messageLabel(message) {
@@ -39,7 +42,12 @@ function slimMessage(message) {
   if (message.role === 'assistant' && (message.kind === 'reasoning' || ['commentary', 'analysis'].includes(message.phase))) { entry.thinking = true; entry.label = 'Thinking'; }
   if (Array.isArray(message.actions) && message.actions.length) entry.actions = message.actions.map(({ id, label }) => ({ id, label }));
   if (message.answer?.choice) entry.answer = { choice: message.answer.choice };
+  // A goal's question in the chat gets an answer form on the phone, as on the desktop.
+  if (typeof message.goalId === 'string') entry.goalId = cut(message.goalId, 128);
+  if (typeof message.goalQuestionId === 'string') entry.goalQuestionId = cut(message.goalQuestionId, 100);
+  // The id lets the phone ask for the file itself (see Relay fileLink); it reads nothing else.
   if (Array.isArray(message.attachments) && message.attachments.length) entry.attachments = message.attachments.map(item => ({
+    ...(typeof item.id === 'string' && ATTACHMENT_ID.test(item.id) ? { id: item.id } : {}), kind: item.kind === 'image' ? 'image' : 'file',
     name: cut(item.name, 200), size: Number.isFinite(item.size) ? item.size : undefined,
     ...(typeof item.thumbnail === 'string' && /^data:image\/(png|jpeg|webp|gif);base64,/.test(item.thumbnail) && item.thumbnail.length < 200000 ? { thumbnail: item.thumbnail } : {}),
   }));
@@ -82,8 +90,12 @@ function snapshot(state, { allowApprovals = false } = {}) {
     approvals: (state.approvals || []).filter(item => ownChat.has(item.chatId)).map(item => ({ ...slimApproval(item), chatId: item.chatId })),
     allowApprovals,
     goals: (state.autonomy?.goals || []).map(goal => ({ id: goal.id, name: cut(goal.name, 120), status: goal.status,
-      nextRunAt: Number.isFinite(goal.nextRunAt) ? goal.nextRunAt : null, nextStep: cut(goal.nextStep, 300) })),
+      nextRunAt: Number.isFinite(goal.nextRunAt) ? goal.nextRunAt : null, nextStep: cut(goal.nextStep, 300),
+      ...(goal.pendingQuestion?.id ? { question: { id: cut(goal.pendingQuestion.id, 100), question: cut(goal.pendingQuestion.question, 2000),
+        options: (goal.pendingQuestion.options || []).map(option => cut(option, 200)).slice(0, 3) } } : {}) })),
     autonomyPaused: Boolean(state.autonomy?.paused),
+    skills: (state.extensions?.skills || []).filter(skill => skill.enabled !== false && typeof skill.name === 'string').slice(0, MAX_SKILLS)
+      .map(skill => ({ name: cut(skill.name, 64), description: cut(skill.description, 200) })),
   };
 }
 
@@ -93,27 +105,29 @@ const excerpt = text => { const value = String(text || '').replace(/\s+/g, ' ').
 function notifications(previous, next) {
   if (!previous) return [];
   const result = [];
+  // Where tapping a notification opens the phone app: the chat it is about.
+  const chatUrl = chatId => chatId && chatId === next.quick?.id ? '/#quick' : chatId && (next.sessions || []).some(item => item.id === chatId) ? `/#session=${encodeURIComponent(chatId)}` : '/';
   const known = new Set(previous.messages.map(message => message.id));
   for (const message of next.messages) {
     if (known.has(message.id) || !message.proactive || message.thinking) continue;
-    result.push({ title: message.label, body: excerpt(message.text) || 'New message', tag: `message-${message.id}`, kind: message.kind || '',
+    result.push({ title: message.label, body: excerpt(message.text) || 'New message', tag: `message-${message.id}`, kind: message.kind || '', url: '/',
       messageId: message.id, ...(message.actions && !message.answer ? { actions: message.actions.filter(item => ['do', 'later', 'no'].includes(item.id)) } : {}) });
   }
   const before = new Set(previous.approvals.map(item => item.requestId));
   for (const approval of next.approvals) {
     if (before.has(approval.requestId)) continue;
     result.push(approval.ask
-      ? { title: 'Little Bot has a question', body: excerpt(approval.question), tag: `approval-${approval.requestId}`, requestId: approval.requestId, options: (approval.options || []).slice(0, 3) }
-      : { title: 'Little Bot needs your approval', body: excerpt(approval.title), tag: `approval-${approval.requestId}` });
+      ? { title: 'Little Bot has a question', body: excerpt(approval.question), tag: `approval-${approval.requestId}`, url: chatUrl(approval.chatId), requestId: approval.requestId, options: (approval.options || []).slice(0, 3) }
+      : { title: 'Little Bot needs your approval', body: excerpt(approval.title), tag: `approval-${approval.requestId}`, url: chatUrl(approval.chatId) });
   }
-  const replied = (before, after, list, title, tag) => {
+  const replied = (before, after, list, title, tag, url) => {
     if (before?.status !== 'running' || after?.status !== 'idle' || after?.goal?.status === 'pursuing') return;
     const latest = [...list].reverse().find(message => message.role === 'user' || (message.role === 'assistant' && !message.proactive && !message.thinking && message.kind !== 'question'));
-    if (latest?.role === 'assistant') result.push({ title, body: excerpt(latest.text) || 'Your reply is ready.', tag });
+    if (latest?.role === 'assistant') result.push({ title, body: excerpt(latest.text) || 'Your reply is ready.', tag, url });
   };
-  replied(previous.chat, next.chat, next.messages, 'Little Bot replied', 'reply');
+  replied(previous.chat, next.chat, next.messages, 'Little Bot replied', 'reply', '/');
   for (const session of next.sessions || []) {
-    replied((previous.sessions || []).find(item => item.id === session.id), session, next.sessionMessages?.[session.id] || [], `Little Bot replied · ${session.title}`, `reply-${session.id}`);
+    replied((previous.sessions || []).find(item => item.id === session.id), session, next.sessionMessages?.[session.id] || [], `Little Bot replied · ${session.title}`, `reply-${session.id}`, chatUrl(session.id));
   }
   return result;
 }
