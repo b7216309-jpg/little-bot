@@ -40,7 +40,7 @@ async function fakeStrata(t, script) {
   return { url: `http://127.0.0.1:${server.address().port}/v1`, requests };
 }
 
-async function setup(t, script, { approve = 'accept', tools = {} } = {}) {
+async function setup(t, script, { approve = 'accept', tools = {}, elicit } = {}) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-engine-'));
   const strata = await fakeStrata(t, script);
   const engine = new Engine({ homeDir: home, cwd: home });
@@ -56,6 +56,8 @@ async function setup(t, script, { approve = 'accept', tools = {} } = {}) {
     } else if (/requestApproval$/.test(request.method)) {
       const decision = typeof approve === 'function' ? approve(request) : approve;
       if (decision !== 'wait') engine.respond(request.id, { decision });
+    } else if (request.method === 'mcpServer/elicitation/request') {
+      engine.respond(request.id, elicit ? elicit(request.params) : { action: 'decline' });
     }
   });
   await engine.start();
@@ -102,7 +104,8 @@ test('a turn streams reasoning and the answer, records usage and is saved for th
 test('commands wait for approval, run in PowerShell, and a declined one never runs', async t => {
   const marker = path.join(os.tmpdir(), `lb-engine-declined-${process.pid}.txt`);
   const { events, asks, thread, run, strata } = await setup(t, [
-    { content: 'Checking.', calls: [{ name: 'exec_command', arguments: { cmd: 'Write-Output "ran $(1+1)"; exit 3' } }] },
+    // A loaded machine can take over 10 s to start PowerShell; wait for the exit so the result is the same anywhere.
+    { content: 'Checking.', calls: [{ name: 'exec_command', arguments: { cmd: 'Write-Output "ran $(1+1)"; exit 3', yield_time_ms: 120000 } }] },
     { calls: [{ name: 'exec_command', arguments: { cmd: `Set-Content -Path '${marker}' -Value x` } }] },
     { content: 'Done.' },
   ], { approve: request => request.params.command.includes('Set-Content') ? 'decline' : 'accept' });
@@ -113,6 +116,7 @@ test('commands wait for approval, run in PowerShell, and a declined one never ru
   assert.ok(started >= 0 && events.findIndex(event => event.method === 'item/completed' && event.item.type === 'commandExecution') > started);
   const toolResults = strata.requests[1].messages.filter(message => message.role === 'tool');
   assert.match(toolResults[0].content, /^Exit code: 3\nWall time: [\d.]+ s\nOutput:\nran 2/);
+  assert.ok(events.some(event => event.method === 'item/commandExecution/outputDelta' && event.delta.includes('ran 2')), 'output reaches the timeline while the command runs');
   assert.match(strata.requests[2].messages.filter(message => message.role === 'tool')[1].content, /declined and did not run/);
   assert.equal(fs.existsSync(marker), false);
   const commentary = events.find(event => event.method === 'item/completed' && event.item.type === 'agentMessage').item;
@@ -154,7 +158,7 @@ test('app tools go to the app, and their images reach the model as a user messag
 
 test('Plan mode reads but refuses anything that could change files', async t => {
   const { home, asks, strata, thread, run } = await setup(t, [
-    { calls: [{ name: 'exec_command', arguments: { cmd: 'Get-ChildItem -Name' } }, { name: 'exec_command', arguments: { cmd: 'Remove-Item -Recurse .' } }] },
+    { calls: [{ name: 'exec_command', arguments: { cmd: 'Get-ChildItem -Name', yield_time_ms: 120000 } }, { name: 'exec_command', arguments: { cmd: 'Remove-Item -Recurse .' } }] },
     { content: 'Plan ready.' },
   ]);
   fs.writeFileSync(path.join(home, 'keep.txt'), 'x');
@@ -220,7 +224,7 @@ test('a context overflow compacts the conversation and retries; a manual compact
 test('a steer message reaches the model before its next step', async t => {
   let release;
   const { engine, strata, thread, run } = await setup(t, [
-    { calls: [{ name: 'exec_command', arguments: { cmd: 'Write-Output step' } }] },
+    { calls: [{ name: 'exec_command', arguments: { cmd: 'Write-Output step', yield_time_ms: 120000 } }] },
     { content: 'Adjusted.' },
   ], { approve: request => { release = () => engine.respond(request.id, { decision: 'accept' }); return 'wait'; } });
   const threadId = await thread();
@@ -262,6 +266,34 @@ rl.on('line', line => {
   assert.deepEqual(status.map(row => [row.name, row.runtimeStatus, Object.keys(row.tools)]), [['notes', 'connected', ['echo']], ['off', 'disabled', []]]);
   assert.deepEqual(await engine.request('mcpServer/tool/call', { threadId, server: 'notes', tool: 'echo', arguments: { text: 'direct' } }), { content: [{ type: 'text', text: 'echo: direct' }] });
   await assert.rejects(engine.request('mcpServer/tool/call', { threadId, server: 'notes', tool: 'hidden', arguments: {} }), /not enabled/);
+});
+
+test("an MCP server's form during a call reaches the app, and the answer goes back to the server", async t => {
+  const server = path.join(os.tmpdir(), `lb-fake-mcp-form-${process.pid}.cjs`);
+  fs.writeFileSync(server, `
+const rl = require('readline').createInterface({ input: process.stdin });
+const send = message => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\\n');
+let call = null, canAsk = false;
+rl.on('line', line => {
+  const message = JSON.parse(line);
+  if (message.method === 'initialize') { canAsk = !!message.params.capabilities?.elicitation; send({ id: message.id, result: { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake' } } }); }
+  else if (message.method === 'tools/list') send({ id: message.id, result: { tools: [{ name: 'ask', description: 'Ask the user', inputSchema: { type: 'object', properties: {} } }] } });
+  else if (message.method === 'tools/call') {
+    if (!canAsk) return send({ id: message.id, result: { content: [{ type: 'text', text: 'cannot ask' }] } });
+    call = message.id;
+    send({ id: 'form-1', method: 'elicitation/create', params: { message: 'Pick a color', requestedSchema: { type: 'object', properties: { color: { type: 'string' } }, required: ['color'] } } });
+  } else if (message.id === 'form-1') send({ id: call, result: { content: [{ type: 'text', text: 'answer: ' + JSON.stringify(message.result) }] } });
+});`);
+  t.after(() => fs.rmSync(server, { force: true }));
+  const forms = [];
+  const { strata, thread, run, config } = await setup(t, [
+    { calls: [{ name: 'mcp__survey__ask', arguments: {} }] },
+    { content: 'Blue it is.' },
+  ], { elicit: params => { forms.push(params); return { action: 'accept', content: { color: 'blue' } }; } });
+  const threadId = await thread({ config: { ...config, mcp_servers: { survey: { enabled: true, command: process.execPath, args: [server] } } } });
+  await run(threadId, 'Ask me');
+  assert.deepEqual([forms[0].threadId, forms[0].serverName, forms[0].mode, forms[0].message], [threadId, 'survey', 'form', 'Pick a color']);
+  assert.equal(strata.requests[1].messages.at(-1).content, 'answer: {"action":"accept","content":{"color":"blue"}}');
 });
 
 test('a stopped turn cancels the app request it was waiting on', async t => {

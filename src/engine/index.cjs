@@ -71,6 +71,11 @@ function messageChars(messages) {
   return total;
 }
 
+// What a command prints reaches the timeline while it runs; the model gets the whole output when it returns.
+function liveOutput(thread, turn, call) {
+  return delta => thread.notify('item/commandExecution/outputDelta', { turnId: turn.id, itemId: call.id, delta });
+}
+
 function commandOutput(result) {
   const wall = `${(result.wallMs / 1000).toFixed(1)} s`;
   if (result.sessionId) return `Process still running (session_id ${result.sessionId}, ${wall} so far). Use write_stdin with this session_id to read more output or send input.\nOutput so far:\n${result.output}`;
@@ -117,16 +122,20 @@ class Thread {
     }
     if (!this.mcpTools) {
       this.mcpTools = new Map();
-      for (const [server, config] of Object.entries(this.servers)) {
-        if (!object(config) || config.enabled === false) continue;
+      const servers = Object.entries(this.servers).filter(([, config]) => object(config) && config.enabled !== false);
+      // Servers start together; their tools are added in the configured order so the tool block stays the same.
+      const listed = await Promise.all(servers.map(async ([server, config]) => {
         try {
           const connection = await this.engine.mcp.connect(server, config, this.cwd);
-          for (const tool of filterTools(await connection.listTools(), config)) {
-            const name = toolName(server, tool.name);
-            if (!this.mcpTools.has(name)) this.mcpTools.set(name, { server, tool: tool.name, config, spec: { type: 'function', function: { name, description: text(tool.description).slice(0, 2000), parameters: object(tool.inputSchema) ? tool.inputSchema : { type: 'object', properties: {} } } } });
-          }
-        } catch (error) { this.engine.diagnose(`MCP server ${server}: ${error.message}`); }
-      }
+          return filterTools(await connection.listTools(), config);
+        } catch (error) { this.engine.diagnose(`MCP server ${server}: ${error.message}`); return []; }
+      }));
+      servers.forEach(([server, config], index) => {
+        for (const tool of listed[index]) {
+          const name = toolName(server, tool.name);
+          if (!this.mcpTools.has(name)) this.mcpTools.set(name, { server, tool: tool.name, config, spec: { type: 'function', function: { name, description: text(tool.description).slice(0, 2000), parameters: object(tool.inputSchema) ? tool.inputSchema : { type: 'object', properties: {} } } } });
+        }
+      });
     }
     for (const entry of this.mcpTools.values()) tools.push(entry.spec);
     return tools;
@@ -586,7 +595,7 @@ class Engine extends EventEmitter {
     if (!(await this.approve(thread, turn, 'item/commandExecution/requestApproval', { itemId: call.id, command, cwd, reason: null }))) {
       return finish('declined', 'The command was declined and did not run.');
     }
-    const result = await thread.shells.exec({ command, cwd, yieldMs: Number(args.yield_time_ms), maxChars: (Number(args.max_output_tokens) || 8000) * CHARS_PER_TOKEN, signal: turn.abort.signal });
+    const result = await thread.shells.exec({ command, cwd, yieldMs: Number(args.yield_time_ms), maxChars: (Number(args.max_output_tokens) || 8000) * CHARS_PER_TOKEN, signal: turn.abort.signal, onOutput: liveOutput(thread, turn, call) });
     if (result.stopped) throw turn.abort.signal.reason || new TurnStopped();
     const output = commandOutput(result);
     return finish(result.sessionId || result.exitCode === 0 ? 'completed' : 'failed', output, { exitCode: result.exitCode, durationMs: result.wallMs });
@@ -603,7 +612,7 @@ class Engine extends EventEmitter {
       return finish('declined', 'The input was declined and was not sent.');
     }
     let result;
-    try { result = await thread.shells.write({ sessionId, chars, yieldMs: args.yield_time_ms === undefined ? undefined : Number(args.yield_time_ms), maxChars: (Number(args.max_output_tokens) || 8000) * CHARS_PER_TOKEN, signal: turn.abort.signal }); }
+    try { result = await thread.shells.write({ sessionId, chars, yieldMs: args.yield_time_ms === undefined ? undefined : Number(args.yield_time_ms), maxChars: (Number(args.max_output_tokens) || 8000) * CHARS_PER_TOKEN, signal: turn.abort.signal, onOutput: liveOutput(thread, turn, call) }); }
     catch (error) { return finish('failed', error.message); }
     if (result.stopped) throw turn.abort.signal.reason || new TurnStopped();
     return finish('completed', commandOutput(result));
@@ -639,7 +648,8 @@ class Engine extends EventEmitter {
     }
     try {
       const connection = await this.mcp.connect(entry.server, entry.config, thread.cwd);
-      const result = await connection.callTool(entry.tool, args, { signal: turn.abort.signal });
+      const elicit = params => this.elicit(thread, turn, entry.server, params);
+      const result = await connection.callTool(entry.tool, args, { signal: turn.abort.signal, elicit });
       const content = Array.isArray(result?.content) ? result.content : [];
       const output = content.filter(part => part?.type === 'text').map(part => text(part.text)).join('\n')
         || (result?.structuredContent ? JSON.stringify(result.structuredContent) : '');
@@ -649,6 +659,14 @@ class Engine extends EventEmitter {
       if (turn.abort.signal.aborted) throw turn.abort.signal.reason;
       return finish('failed', { error: error.message }, { text: `The MCP tool failed: ${error.message}` });
     }
+  }
+
+  // A form an MCP server asks for during a call goes to the app, which shows it to the user or declines it.
+  async elicit(thread, turn, server, params) {
+    const response = await this.ask('mcpServer/elicitation/request', { threadId: thread.id, turnId: turn.id, serverName: server,
+      mode: params.mode || 'form', message: text(params.message), requestedSchema: params.requestedSchema, url: params.url, elicitationId: params.elicitationId }, turn.abort.signal);
+    const action = ['accept', 'decline', 'cancel'].includes(response?.action) ? response.action : 'decline';
+    return action === 'accept' && object(response.content) ? { action, content: response.content } : { action };
   }
 
   // ------------------------------------------------------------------------------------------- compaction

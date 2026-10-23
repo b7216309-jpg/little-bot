@@ -13,7 +13,7 @@
   <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-2b2a24?style=flat-square">
   <img alt="Local first" src="https://img.shields.io/badge/runs-local%20first-65846c?style=flat-square">
   <img alt="Electron 44" src="https://img.shields.io/badge/Electron-44-2b2a24?style=flat-square">
-  <img alt="Version 0.45.0" src="https://img.shields.io/badge/version-0.45.0-bc623f?style=flat-square">
+  <img alt="Version 0.45.1" src="https://img.shields.io/badge/version-0.45.1-bc623f?style=flat-square">
 </p>
 
 <p align="center"><img src="docs/screenshots/hero.png" alt="Little Bot on the desktop and on a phone, suggesting a break after a long coding session"></p>
@@ -72,7 +72,7 @@ Most assistants wait for you to type. Little Bot keeps one continuous conversati
 
 ## Runs on your machine
 
-- **Local model first.** Any OpenAI-compatible local server works; Little Bot is tuned for [Strata](integrations/strata/README.md) with Qwen models, including reasoning levels and sampling controls (temperature, top-p, top-k, max tokens, seed). [Codex](CONNECTIONS.md) (ChatGPT sign-in or an OpenAI API key) is optional. There is no silent cloud fallback.
+- **Local model first.** Any OpenAI-compatible local server works; Little Bot is tuned for [Strata](integrations/strata/README.md) with Qwen models, including reasoning levels and sampling controls (temperature, top-p, top-k, max tokens, seed). It needs no account or cloud service ([Connections](CONNECTIONS.md)), and there is no cloud fallback.
 - **Your data stays local.** Conversations, the dream diary and intentions are encrypted with Windows DPAPI. Memory is a local SQLite database, backed up daily with one-click restore. The phone relay only answers paired devices, ideally over Tailscale HTTPS. Web search sends queries only to DuckDuckGo, Bing and Yahoo, and page addresses to the sites themselves (a public reader is the last resort for pages that refuse the rest).
 - **One lane at a time.** Your conversation always comes first; the heartbeat, goals, routines, memory learning and dreaming share a single background lane and step aside when you write.
 

@@ -99,7 +99,7 @@ class ProviderUsage {
       if (usage) turn.usage = usage;
       return this.settleLocal(turn);
     }
-    if (['item/agentMessage/delta', 'item/plan/delta', 'item/reasoning/textDelta', 'item/reasoning/summaryTextDelta'].includes(method)) {
+    if (['item/agentMessage/delta', 'item/reasoning/textDelta'].includes(method)) {
       if (!turn.firstOutputAt) turn.firstOutputAt = this.now();
       return false;
     }

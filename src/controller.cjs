@@ -1467,25 +1467,20 @@ class Controller extends EventEmitter {
     if (!message) { message = { id, role, text: '', kind, status: 'running', createdAt: Date.now(), workspace: chat.workspace, model: chat.model, connection: chat.connection, ...(chat.automationId ? { automationId: chat.automationId, automationName: chat.automationName } : {}) }; chat.messages.push(message); }
     return message;
   }
-  reasoningDelta(chat, params, raw) {
-    const index = raw ? params.contentIndex : params.summaryIndex;
+  reasoningDelta(chat, params) {
+    const index = params.contentIndex;
     if (typeof params.itemId !== 'string' || !params.itemId || typeof params.delta !== 'string'
       || !Number.isSafeInteger(index) || index < 0 || index > 255) return false;
     const message = this.message(chat, params.itemId, 'assistant', 'reasoning');
     if (message.kind !== 'reasoning' || message.status !== 'running') return false;
     message.phase = 'analysis';
     let parts = this.reasoningParts.get(message);
-    if (!parts) { parts = { raw: new Map(), summary: new Map(), size: 0 }; this.reasoningParts.set(message, parts); }
-    // Raw text and summaries can describe the same reasoning. Once raw content
-    // arrives, display only that stream instead of duplicating both versions.
-    if (!raw && parts.raw.size) return false;
-    if (raw && parts.summary.size) { parts.summary.clear(); parts.size = 0; }
-    const target = raw ? parts.raw : parts.summary;
+    if (!parts) { parts = { raw: new Map(), size: 0 }; this.reasoningParts.set(message, parts); }
     const delta = params.delta.slice(0, Math.max(0, REASONING_LIMIT - parts.size));
     if (!delta) return false;
-    target.set(index, (target.get(index) || '') + delta);
+    parts.raw.set(index, (parts.raw.get(index) || '') + delta);
     parts.size += delta.length;
-    message.text = bounded([...target].sort(([left], [right]) => left - right).map(([, text]) => text).join('\n\n'), REASONING_LIMIT);
+    message.text = bounded([...parts.raw].sort(([left], [right]) => left - right).map(([, text]) => text).join('\n\n'), REASONING_LIMIT);
     return true;
   }
   notification(method, params = {}) {
@@ -1541,7 +1536,7 @@ class Controller extends EventEmitter {
       if (this.compactions.usage(chat, params.tokenUsage)) this.changed(!chat.internal);
       return;
     }
-    if (manual && ['item/agentMessage/delta', 'item/plan/delta', 'item/commandExecution/outputDelta'].includes(method)) return;
+    if (manual && ['item/agentMessage/delta', 'item/commandExecution/outputDelta'].includes(method)) return;
     let streamedMessage = null;
     let createdByDelta = false;
     if (method === 'turn/started') {
@@ -1561,17 +1556,14 @@ class Controller extends EventEmitter {
         else this.finish(chat, error);
       }
       return;
-    } else if (method === 'item/reasoning/textDelta' || method === 'item/reasoning/summaryTextDelta') {
+    } else if (method === 'item/reasoning/textDelta') {
       createdByDelta = !chat.messages.some(message => message.id === params.itemId);
-      if (!this.reasoningDelta(chat, params, method === 'item/reasoning/textDelta')) return;
+      if (!this.reasoningDelta(chat, params)) return;
       streamedMessage = chat.messages.find(message => message.id === params.itemId);
-    } else if (method === 'item/reasoning/summaryPartAdded') {
-      // summaryIndex on each delta provides the authoritative part boundary.
-      return;
-    } else if (method === 'item/agentMessage/delta' || method === 'item/plan/delta') {
+    } else if (method === 'item/agentMessage/delta') {
       if (chat.status === 'idle' || typeof params.itemId !== 'string' || !params.itemId || typeof params.delta !== 'string' || !params.delta) return;
       createdByDelta = !chat.messages.some(message => message.id === params.itemId);
-      const message = this.message(chat, params.itemId, 'assistant', method.includes('/plan/') ? 'plan' : undefined);
+      const message = this.message(chat, params.itemId, 'assistant');
       if (message.status !== 'running') return;
       message.text = bounded(message.text + (params.delta || ''));
       streamedMessage = message;
@@ -1606,18 +1598,16 @@ class Controller extends EventEmitter {
         if (message.kind !== 'reasoning') return;
         const completed = method === 'item/completed';
         if (message.status !== 'running') return;
-        const raw = reasoningText(item.content), summary = reasoningText(item.summary);
-        const streamedRaw = this.reasoningParts.get(message)?.raw.size > 0;
+        const raw = reasoningText(item.content);
         if (raw.trim()) message.text = raw;
-        else if (!streamedRaw && summary.trim()) message.text = summary;
         message.phase = 'analysis';
         message.status = completed ? 'completed' : 'running';
         if (completed) {
           this.reasoningParts.delete(message);
           if (!message.text.trim()) chat.messages = chat.messages.filter(entry => entry !== message);
         }
-      } else if (item.type === 'agentMessage' || item.type === 'plan') {
-        const message = this.message(chat, item.id, 'assistant', item.type === 'plan' ? 'plan' : undefined);
+      } else if (item.type === 'agentMessage') {
+        const message = this.message(chat, item.id, 'assistant');
         if (item.text) message.text = bounded(item.text);
         if (typeof item.phase === 'string') message.phase = item.phase;
         message.status = method === 'item/completed' ? 'completed' : 'running';
@@ -1637,9 +1627,6 @@ class Controller extends EventEmitter {
           const visible = (item.changes || []).filter(change => !chat.agendaPath || path.resolve(chat.workspace, String(change.path || '')).toLowerCase() !== chat.agendaPath.toLowerCase());
           if (item.status === 'completed' && visible.length) chat.wroteFiles = true;
         }
-      } else if (item.type === 'webSearch') {
-        const message = this.message(chat, item.id, 'tool', 'search');
-        message.text = bounded(item.query || 'Web search'); message.status = method === 'item/completed' ? 'completed' : 'running';
       } else if (item.type === 'mcpToolCall') {
         const message = this.message(chat, item.id, 'tool', 'mcp');
         const result = (item.result?.content || []).filter(part => part.type === 'text').map(part => part.text || '').join('\n');
@@ -1677,10 +1664,6 @@ class Controller extends EventEmitter {
     const heartbeatRead = chat.internal && method === 'item/tool/call' && (['skill_list', 'skill_read', 'memory_search', 'session_read', 'calendar_list', 'games_list'].includes(params.tool)
       || (chat.wild && WILD_HEARTBEAT_TOOLS.has(params.tool)));
     if (chat.mode === 'plan') {
-      if (method === 'item/permissions/requestApproval') {
-        await this.client.respond(id, { permissions: {}, scope: 'turn' });
-        return;
-      }
       if (['item/commandExecution/requestApproval', 'item/fileChange/requestApproval', 'item/mcpToolCall/requestApproval'].includes(method)) {
         await this.client.respond(id, { decision: 'decline' });
         return;
@@ -1696,9 +1679,7 @@ class Controller extends EventEmitter {
     }
     if ((chat.internal && !heartbeatRead) || this.manualCompactions.has(chat.id)) {
       // Hidden work and compaction cannot turn tool requests into foreground prompts.
-      if (method === 'item/permissions/requestApproval') await this.client.respond(id, { permissions: {}, scope: 'turn' });
-      else if (['item/tool/requestUserInput', 'tool/requestUserInput'].includes(method)) await this.client.respond(id, { answers: {} });
-      else if (method === 'mcpServer/elicitation/request') await this.client.respond(id, { action: 'decline', content: null });
+      if (method === 'mcpServer/elicitation/request') await this.client.respond(id, { action: 'decline', content: null });
       else if (['item/commandExecution/requestApproval', 'item/fileChange/requestApproval', 'item/mcpToolCall/requestApproval'].includes(method)) await this.client.respond(id, { decision: 'decline' });
       else await this.client.reject(id, 'This tool is unavailable during this operation.');
       return;
@@ -1762,9 +1743,6 @@ class Controller extends EventEmitter {
       'item/commandExecution/requestApproval': 'command',
       'item/fileChange/requestApproval': 'file',
       'item/mcpToolCall/requestApproval': 'mcpCall',
-      'item/permissions/requestApproval': 'permissions',
-      'item/tool/requestUserInput': 'question',
-      'tool/requestUserInput': 'question',
       'mcpServer/elicitation/request': 'mcp',
     };
     const kind = kinds[method];
@@ -1780,28 +1758,18 @@ class Controller extends EventEmitter {
       await this.client.respond(id, { decision: 'accept' });
       return;
     }
-    if (kind === 'permissions') {
-      await this.client.respond(id, { permissions: params.permissions || {}, scope: 'turn' });
+    // What is left is a form an MCP server asks the user to fill.
+    let form;
+    try { form = mcpQuestions(params); }
+    catch (error) {
+      await this.client.respond(id, { action: 'decline', content: null });
+      this.emit('event', { type: 'memory', error: true, message: cleanError(error) });
       return;
     }
-    let form = {};
-    if (kind === 'mcp') {
-      try { form = mcpQuestions(params); }
-      catch (error) {
-        await this.client.respond(id, { action: 'decline', content: null });
-        this.emit('event', { type: 'memory', error: true, message: cleanError(error) });
-        return;
-      }
-    }
     const requestId = randomUUID();
-    const existing = chat.messages.find(message => message.id === params.itemId);
-    const detail = kind === 'command' ? [params.command, params.cwd && `Folder: ${params.cwd}`, params.reason].filter(Boolean).join('\n\n') :
-      kind === 'permissions' ? `${params.reason || 'Additional access requested'}\n\n${JSON.stringify(params.permissions, null, 2)}` :
-      kind === 'file' ? [params.reason, params.grantRoot && `Extra write access: ${params.grantRoot}`, existing?.text].filter(Boolean).join('\n\n') :
-      kind === 'mcp' ? `${params.serverName}\n\n${params.message || 'The MCP server requests a response.'}` : '';
-    this.approvals.set(requestId, { requestId, rpcId: id, method, params, chatId: chat.id, kind,
-      title: { command: 'Allow this command?', file: 'Allow these file changes?', permissions: 'Allow additional access for this turn?', question: 'Your input is needed', mcp: 'MCP server request' }[kind],
-      detail: bounded(detail, 40000), questions: kind === 'question' ? params.questions : form.questions, ...(form.url ? { url: form.url } : {}) });
+    const detail = `${params.serverName}\n\n${params.message || 'The MCP server requests a response.'}`;
+    this.approvals.set(requestId, { requestId, rpcId: id, method, params, chatId: chat.id, kind, title: 'MCP server request',
+      detail: bounded(detail, 40000), questions: form.questions, ...(form.url ? { url: form.url } : {}) });
     chat.status = 'waiting'; this.persistNow(); this.changed();
   }
   askUser(chat, params, rpcId, callKey) {
@@ -1856,18 +1824,6 @@ class Controller extends EventEmitter {
     let response;
     if (approval.kind === 'mcp') {
       response = { action: decision === 'accept' ? 'accept' : 'decline', content: decision === 'accept' ? mcpContent(approval.params, answers) : null };
-    } else if (approval.kind === 'question') {
-      const validated = {};
-      if (decision === 'accept') for (const question of approval.params.questions || []) {
-        const values = answers?.[question.id]?.answers;
-        if (!Array.isArray(values) || !values.length || values.some(value => typeof value !== 'string' || value.length > 8000)) {
-          throw new Error('Answer each question before continuing.');
-        }
-        validated[question.id] = { answers: values };
-      }
-      response = { answers: validated };
-    } else if (approval.kind === 'permissions') {
-      response = { permissions: decision === 'accept' ? approval.params.permissions : {}, scope: 'turn' };
     } else response = { decision };
     await this.client.respond(approval.rpcId, response);
     this.approvals.delete(requestId);
