@@ -447,7 +447,7 @@ class GoalExecutor {
         }
       }
     }
-    else if (['item/commandExecution/requestApproval', 'item/fileChange/requestApproval'].includes(method)) await this.client.respond(id, { decision: 'decline' });
+    else if (['item/commandExecution/requestApproval', 'item/fileChange/requestApproval', 'item/mcpToolCall/requestApproval'].includes(method)) await this.client.respond(id, { decision: 'decline' });
     else await this.client.reject(id, 'This request is unavailable to an autonomous goal.');
     return true;
   }

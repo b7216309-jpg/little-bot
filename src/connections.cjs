@@ -2,9 +2,6 @@
 
 const DEFAULT_LOCAL_BASE_URL = 'http://127.0.0.1:8080/v1';
 const DEFAULT_LOCAL_MODEL = 'Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q4_K_M';
-const LOCAL_PROVIDER = 'little_bot_local';
-// Large local prompts can spend several minutes in prefill before the first token.
-const LOCAL_STREAM_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
 function localBaseUrl(value = DEFAULT_LOCAL_BASE_URL) {
   let url;
@@ -137,18 +134,9 @@ async function probeLocal(settings) {
     ...(Array.isArray(found.inputModalities) ? { inputModalities: found.inputModalities } : {}), error: null,
   } };
 }
-function providerConfig(settings, connection, localEndpoint) {
-  return {
-    model_provider: LOCAL_PROVIDER,
-    [`model_providers.${LOCAL_PROVIDER}`]: { name: 'Local Qwen', base_url: localEndpoint || localBaseUrl(settings.localBaseUrl), wire_api: 'responses',
-      requires_openai_auth: false, supports_websockets: false, request_max_retries: 0, stream_max_retries: 0, stream_idle_timeout_ms: LOCAL_STREAM_IDLE_TIMEOUT_MS },
-    model_context_window: connection?.contextWindow || 32768,
-    model_supports_reasoning_summaries: false,
-    // llama.cpp accepts images in user input, but not in function-call output.
-    // Incoming attachments already supply their pixels as native localImage parts.
-    'features.view_image': false,
-    web_search: 'disabled',
-  };
+// What every engine thread needs to reach the model: the server and the size of its context.
+function providerConfig(settings, connection) {
+  return { local_base_url: localBaseUrl(settings.localBaseUrl), model_context_window: connection?.contextWindow || 32768 };
 }
 
-module.exports = { LOCAL_STREAM_IDLE_TIMEOUT_MS, DEFAULT_LOCAL_BASE_URL, DEFAULT_LOCAL_MODEL, LOCAL_PROVIDER, localBaseUrl, localModel, normalizeConnectionSettings, connectionBinding, isConnectionSelected, requireSelectedConnection, normalizeModelCapabilities, modelSupportsVision, probeLocal, providerConfig };
+module.exports = { DEFAULT_LOCAL_BASE_URL, DEFAULT_LOCAL_MODEL, localBaseUrl, localModel, normalizeConnectionSettings, connectionBinding, isConnectionSelected, requireSelectedConnection, normalizeModelCapabilities, modelSupportsVision, probeLocal, providerConfig };

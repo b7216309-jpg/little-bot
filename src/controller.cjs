@@ -1,6 +1,5 @@
 const { EventEmitter } = require('node:events');
 const { randomUUID } = require('node:crypto');
-const { migrateTools, fingerprint, removeThreadHistory } = require('./tool-migration.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
 const { defaultMemory, automaticRemember, captureEpisode, buildMemoryContext } = require('./memory.cjs');
@@ -14,7 +13,6 @@ const { localStamp, timeContext } = require('./local-time.cjs');
 const { GoalExecutor } = require('./goal-executor.cjs');
 const { attachmentDescriptors } = require('./attachment-message.cjs');
 const { localBaseUrl, localModel, connectionBinding, normalizeModelCapabilities, modelSupportsVision, probeLocal, providerConfig } = require('./connections.cjs');
-const { LocalModelRelay } = require('./local-model-relay.cjs');
 const { questionInput, questionText } = require('./user-questions.cjs');
 const { commandTranscript, appendCommandDelta } = require('./shell-conduct.cjs');
 const { IndependentCheckRunner } = require('./independent-check-runner.cjs');
@@ -204,11 +202,9 @@ class Controller extends EventEmitter {
     this.store = store;
     this.client = client;
     this.onError = onError;
-    this.localModelRelay = new LocalModelRelay({
+    client.configure?.({
       thinking: () => this.store.data.settings.localThinking !== false,
       sampling: () => this.store.data.settings.localSampling || {},
-      onError: (source, error, metadata) => this.onError(`local-model-relay:${source}`, error, metadata),
-      onToolRepair: ({ modelId, key, text }) => this.recordLesson(modelId || this.store.data.settings.localModel, key, text),
       classify: meta => this.usageSource(meta),
       onUsage: entry => this.usage.record(entry),
     });
@@ -410,26 +406,6 @@ class Controller extends EventEmitter {
   }
   async start() {
     try {
-      // Migrate before the engine opens its history file handles (Windows).
-      if (this.client.homeDir && this.agentTools) for (const chat of this.store.data.chats) {
-        if (!chat.threadId) continue;
-        const tools = this.agentTools.specs({ readOnly: chat.toolMode === 'readOnly' });
-        const signature = fingerprint(tools);
-        if (chat.toolSchema !== signature) {
-          try { migrateTools(this.client.homeDir, chat.threadId, tools); }
-          catch (error) {
-            // A missing or foreign engine history (for example after a restored session) cannot be migrated.
-            // Start a fresh engine thread instead of failing startup; Little Bot's own timeline is kept and
-            // bridged into the new thread on the next turn.
-            this.onError('engine-thread-reset', error, { threadId: chat.threadId });
-            chat.threadId = '';
-            delete chat.lessonBlock;
-            delete chat.lessonKeys;
-          }
-          chat.toolSchema = signature;
-        }
-      }
-      this.persistNow();
       await this.client.start();
       await this.refreshConnection();
       this.runtime = { ...this.runtime, status: 'ready' };
@@ -454,7 +430,6 @@ class Controller extends EventEmitter {
         this.store.data.settings = { ...this.store.data.settings, localModel: result.adopted, model: result.adopted };
         this.store.save();
       }
-      await this.localModelRelay.start();
       this.models = result.models; this.connection = result.connection;
       this.account = { status: 'connected', type: 'local' };
       this.followLocalModel();
@@ -581,8 +556,7 @@ class Controller extends EventEmitter {
     }
   }
   providerConfig() {
-    const settings = this.store.data.settings;
-    return providerConfig(settings, this.connection, this.localModelRelay.endpoint(settings.localBaseUrl, this.connection?.adapter));
+    return providerConfig(this.store.data.settings, this.connection);
   }
   get goalChat() { return this.goalExecutor.active; }
   waitForEngineReady() {
@@ -764,6 +738,8 @@ class Controller extends EventEmitter {
       cwd: folder, model: chat.model || undefined, approvalPolicy: planning ? 'never' : 'untrusted',
       approvalsReviewer: 'user', sandbox: planning ? 'read-only' : 'danger-full-access', ...this.engineBaseOptions(),
       developerInstructions: chat.lessonBlock ? `${baseInstructions}\n\n${chat.lessonBlock}` : baseInstructions,
+      // Tools travel with every thread start and resume: the engine always offers the current set.
+      ...(this.agentTools ? { dynamicTools: this.agentTools.specs({ readOnly: planning || chat.toolMode === 'readOnly', quick: chat.private === true }) } : {}),
       config: { ...this.extensionRuntime?.config({ heartbeat: planning }), ...compactionConfig(this.store.data.settings, this.connection?.contextWindow), ...this.providerConfig(),
         'features.multi_agent': false, 'model_reasoning_effort': chat.effort || 'low' },
     };
@@ -906,8 +882,8 @@ class Controller extends EventEmitter {
       this.persistNow(); this.changed();
       const common = this.threadOptions(chat, folder);
       const startThread = async () => {
-        const result = await this.client.request('thread/start', { ...common, ...(chat.private ? { ephemeral: true } : {}), ...(this.agentTools ? { dynamicTools: this.agentTools.specs({ readOnly: turnMode === 'plan' || Boolean(override?.automationId), quick: chat.private === true }) } : {}) }, 60000);
-        chat.threadId = result.thread.id; chat.baseKey = baseKey; chat.toolSchema = fingerprint(this.agentTools?.specs({ readOnly: toolMode === 'readOnly', quick: chat.private === true }) || []); this.resumed.add(chat.threadId);
+        const result = await this.client.request('thread/start', { ...common, ...(chat.private ? { ephemeral: true } : {}) }, 60000);
+        chat.threadId = result.thread.id; chat.baseKey = baseKey; this.resumed.add(chat.threadId);
         this.threadCompactionSettings.set(chat.threadId, compactionKey(common.config));
         this.threadInstructionSettings.set(chat.threadId, this.threadSignature(common));
         if (!chat.private) this.persistNow();
@@ -1380,8 +1356,8 @@ class Controller extends EventEmitter {
       // Its searchable history goes with it, and so does the engine's own transcript of it; knowledge
       // already learned from it stays in Memory.
       try { this.store.memoryService?.forgetSession(chat.id); } catch (error) { this.onError('session-forget', error, { chatId: chat.id }); }
-      if (chat.threadId && this.client.homeDir) {
-        try { removeThreadHistory(this.client.homeDir, chat.threadId); } catch (error) { this.onError('session-transcript', error, { chatId: chat.id }); }
+      if (chat.threadId) {
+        try { this.client.deleteThread?.(chat.threadId); } catch (error) { this.onError('session-transcript', error, { chatId: chat.id }); }
       }
       this.persistNow();
     }
@@ -1409,7 +1385,7 @@ class Controller extends EventEmitter {
     this.resumed.delete(chat.threadId);
     this.threadCompactionSettings.delete(chat.threadId);
     this.threadInstructionSettings.delete(chat.threadId);
-    delete chat.private; delete chat.lessonBlock; delete chat.lessonKeys; delete chat.toolSchema; delete chat.baseKey;
+    delete chat.private; delete chat.lessonBlock; delete chat.lessonKeys; delete chat.baseKey;
     Object.assign(chat, { session: true, title: sessionTitle(first.text), threadId: null, updatedAt: Date.now() });
     if (chat.context) chat.context.stale = true;
     try { this.store.memoryService?.indexChat(chat); } catch (error) { this.onError('session-index', error, { chatId: chat.id }); }
@@ -1438,9 +1414,9 @@ class Controller extends EventEmitter {
     return this.payloadLeak(chat, text, personalDetails.networkCommand(text));
   }
   // A shell command, file change, MCP call or native search that carries the owner code, or a personal detail
-  // on its way off the PC. In a conversation the engine asks to approve a command or file change before it runs,
-  // and that approval refuses it (serverRequest). Anything that goes ahead without asking, such as MCP calls,
-  // searches, Plan mode and commands the engine counts as safe, is stopped as it starts.
+  // on its way off the PC. In a conversation the engine asks to approve a command, file change or MCP call before
+  // it runs, and that approval refuses it (serverRequest). Anything that goes ahead without asking (Plan mode,
+  // background work) is stopped as it starts.
   guardItem(chat, item) {
     if (chat.securityStop) return;
     let what, leak;
@@ -1449,7 +1425,7 @@ class Controller extends EventEmitter {
     else if (item.type === 'mcpToolCall') { what = `the MCP tool ${item.server || ''}/${item.tool || ''}`.replace(/ \/$/, ''); leak = this.payloadLeak(chat, [item.server, item.tool, item.arguments], true); }
     else if (item.type === 'webSearch') { what = 'a web search'; leak = this.payloadLeak(chat, item.query, true); }
     if (!leak) return;
-    if (['commandExecution', 'fileChange'].includes(item.type) && chat.mode !== 'plan' && typeof item.id === 'string') {
+    if (['commandExecution', 'fileChange', 'mcpToolCall'].includes(item.type) && chat.mode !== 'plan' && typeof item.id === 'string') {
       const timer = setTimeout(() => { if (this.pendingLeaks.delete(item.id) && chat.status !== 'idle') this.stopForLeak(chat, what, leak); }, APPROVAL_WAIT_MS);
       timer.unref?.();
       this.pendingLeaks.set(item.id, { timer, chatId: chat.id });
@@ -1466,15 +1442,16 @@ class Controller extends EventEmitter {
   }
   // Refused before it ran: the turn goes on, and the model is told why. Repeated attempts stop the task.
   async refuseLeak(chat, rpcId, params, kind, leak) {
-    const what = kind === 'command' ? 'a terminal command' : 'a file change';
+    const what = kind === 'command' ? 'a terminal command' : kind === 'mcpCall' ? `the MCP tool ${params.server || ''}/${params.tool || ''}` : 'a file change';
+    const ran = kind === 'file' ? 'was written' : 'ran';
     const previous = this.leakRefusals.get(chat.id);
     const count = previous?.turnId === params.turnId ? previous.count + 1 : 1;
     this.leakRefusals.set(chat.id, { turnId: params.turnId, count });
     await this.client.respond(rpcId, { decision: 'decline' });
-    if (count >= LEAK_REFUSALS) { this.stopForLeak(chat, what, leak, `It was refused before it ${kind === 'command' ? 'ran' : 'was written'}, and after ${count} attempts Little Bot stopped the task.`); return; }
-    this.recordSecurityBlock(chat, what, leak.carried, `It was refused before it ${kind === 'command' ? 'ran' : 'was written'}.`);
+    if (count >= LEAK_REFUSALS) { this.stopForLeak(chat, what, leak, `It was refused before it ${ran}, and after ${count} attempts Little Bot stopped the task.`); return; }
+    this.recordSecurityBlock(chat, what, leak.carried, `It was refused before it ${ran}.`);
     const carried = leak.code ? 'the private owner code' : leak.carried.replace(/^your /, "the user's ");
-    const note = `Little Bot security: your last ${kind === 'command' ? 'command' : 'file change'} was refused because it would send ${carried} off this PC. Never identify the user to websites, APIs or servers, in headers such as User-Agent, URLs, request bodies or forms, even when a site asks automated tools to declare a contact. Use a generic tool name with no personal details, or skip the site, and tell the user what it asked for.`;
+    const note = `Little Bot security: your last ${kind === 'command' ? 'command' : kind === 'mcpCall' ? 'MCP tool call' : 'file change'} was refused because it would send ${carried} off this PC. Never identify the user to websites, APIs or servers, in headers such as User-Agent, URLs, request bodies or forms, even when a site asks automated tools to declare a contact. Use a generic tool name with no personal details, or skip the site, and tell the user what it asked for.`;
     await this.client.request('turn/steer', { threadId: params.threadId, expectedTurnId: params.turnId, input: [{ type: 'text', text: note }] }, 10000)
       .catch(error => this.onError('security-steer', error, { chatId: chat.id }));
   }
@@ -1704,7 +1681,7 @@ class Controller extends EventEmitter {
         await this.client.respond(id, { permissions: {}, scope: 'turn' });
         return;
       }
-      if (['item/commandExecution/requestApproval', 'item/fileChange/requestApproval'].includes(method)) {
+      if (['item/commandExecution/requestApproval', 'item/fileChange/requestApproval', 'item/mcpToolCall/requestApproval'].includes(method)) {
         await this.client.respond(id, { decision: 'decline' });
         return;
       }
@@ -1722,7 +1699,7 @@ class Controller extends EventEmitter {
       if (method === 'item/permissions/requestApproval') await this.client.respond(id, { permissions: {}, scope: 'turn' });
       else if (['item/tool/requestUserInput', 'tool/requestUserInput'].includes(method)) await this.client.respond(id, { answers: {} });
       else if (method === 'mcpServer/elicitation/request') await this.client.respond(id, { action: 'decline', content: null });
-      else if (['item/commandExecution/requestApproval', 'item/fileChange/requestApproval'].includes(method)) await this.client.respond(id, { decision: 'decline' });
+      else if (['item/commandExecution/requestApproval', 'item/fileChange/requestApproval', 'item/mcpToolCall/requestApproval'].includes(method)) await this.client.respond(id, { decision: 'decline' });
       else await this.client.reject(id, 'This tool is unavailable during this operation.');
       return;
     }
@@ -1784,6 +1761,7 @@ class Controller extends EventEmitter {
     const kinds = {
       'item/commandExecution/requestApproval': 'command',
       'item/fileChange/requestApproval': 'file',
+      'item/mcpToolCall/requestApproval': 'mcpCall',
       'item/permissions/requestApproval': 'permissions',
       'item/tool/requestUserInput': 'question',
       'tool/requestUserInput': 'question',
@@ -1791,12 +1769,13 @@ class Controller extends EventEmitter {
     };
     const kind = kinds[method];
     if (!kind) { await this.client.reject(id, `Little Bot does not support ${method}.`); return; }
-    if (kind === 'command' || kind === 'file') {
+    if (kind === 'command' || kind === 'file' || kind === 'mcpCall') {
       // Conversations run with full access: the approval is where a leak is refused before it runs.
       const pending = this.pendingLeaks.get(params.itemId);
       if (pending) { clearTimeout(pending.timer); this.pendingLeaks.delete(params.itemId); }
       const changes = kind === 'file' ? this.fileItems.get(params.itemId) || [{ diff: chat.messages.find(message => message.id === params.itemId)?.text || '' }] : null;
-      const leak = kind === 'command' ? this.commandLeak(chat, params.command, params.cwd) : this.fileLeak(chat, changes);
+      const leak = kind === 'command' ? this.commandLeak(chat, params.command, params.cwd)
+        : kind === 'mcpCall' ? this.payloadLeak(chat, [params.server, params.tool, params.arguments], true) : this.fileLeak(chat, changes);
       if (leak) { await this.refuseLeak(chat, id, params, kind, leak); return; }
       await this.client.respond(id, { decision: 'accept' });
       return;
@@ -1931,6 +1910,8 @@ class Controller extends EventEmitter {
         const result = await this.client.restart();
         if (result === false || this.closing) return;
         if (this.client.ready === false) throw new Error('The assistant engine stopped while reconnecting.');
+        // A restarted engine has no thread loaded; each conversation is resumed from its saved file.
+        this.resumed.clear(); this.threadCompactionSettings.clear(); this.threadInstructionSettings.clear();
         await this.refreshConnection().catch(error => this.onError('engine-restart-connection', error));
         if (this.closing) return;
         this.runtime = { status: 'ready' };
@@ -1982,9 +1963,7 @@ class Controller extends EventEmitter {
     clearTimeout(this.saveTimer); clearTimeout(this.emitTimer);
     try { this.store.flush(); } finally {
       try { await this.extensionRuntime?.close(); } finally {
-        try { await this.client.close(); } finally {
-          try { await this.localModelRelay.close(); } finally { this.store.close?.(); }
-        }
+        try { await this.client.close(); } finally { this.store.close?.(); }
       }
     }
   }

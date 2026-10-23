@@ -7,10 +7,7 @@ const { SHELL_CONDUCT } = require('./shell-conduct.cjs');
 
 // Fixed texts Little Bot sends with each request. The user can replace any of them
 // on the Security page; null restores the default.
-// engineBase replaces the bundled engine's own base prompt, sent before everything
-// else. The default is Little Bot's trimmed version of it (BASE.md); the engine's
-// original, recorded from engine 0.157.1 with a local model, is kept for reference
-// in ENGINE-BASE.md.
+// engineBase is the engine's base prompt, sent before everything else (BASE.md).
 const PROMPT_LIMIT = 20000;
 const LIMITS = { quickNote: PROMPT_LIMIT, shellConduct: PROMPT_LIMIT, engineBase: 60000 };
 const DEFAULTS = Object.freeze({

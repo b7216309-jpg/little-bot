@@ -13,7 +13,7 @@
   <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-2b2a24?style=flat-square">
   <img alt="Local first" src="https://img.shields.io/badge/runs-local%20first-65846c?style=flat-square">
   <img alt="Electron 44" src="https://img.shields.io/badge/Electron-44-2b2a24?style=flat-square">
-  <img alt="Version 0.44.3" src="https://img.shields.io/badge/version-0.44.3-bc623f?style=flat-square">
+  <img alt="Version 0.45.0" src="https://img.shields.io/badge/version-0.45.0-bc623f?style=flat-square">
 </p>
 
 <p align="center"><img src="docs/screenshots/hero.png" alt="Little Bot on the desktop and on a phone, suggesting a break after a long coding session"></p>
@@ -82,7 +82,7 @@ flowchart LR
   phone(["Phone page<br>and Android app"]) -->|Tailscale| relay["Phone relay"]
   relay --> core["Controller"]
   app --> core
-  core --> engine["Assistant engine<br>(pinned app-server)"]
+  core --> engine["Little Bot engine<br>(own agent loop)"]
   engine --> model[("Local model<br>Strata / Qwen")]
   core --> memory[("Memory<br>SQLite + embeddings")]
   events["Moments: back at the PC,<br>game started, got home"] --> lane
@@ -132,7 +132,7 @@ npm run package          # unpacked app, portable ZIP and Setup EXE
 
 The README screenshots are generated from the real interface with fictional demo data, with no model or personal profile involved: `npx electron scripts/readme-screenshots.cjs`.
 
-Plain JavaScript and Electron with a strict renderer (no Node access, context isolation, sandbox). Pinned: Electron 44.4.5, the assistant engine (`@openai/codex` 0.157.1 app-server), ONNX Runtime 1.30.0, Mammoth 1.12.3, unpdf 1.8.1. Embedding models are fetched and verified at build time, then bundled, so the installed app downloads nothing.
+Plain JavaScript and Electron with a strict renderer (no Node access, context isolation, sandbox). The agent engine is Little Bot's own ([src/engine](src/engine/index.cjs)): it streams the local model, runs commands, applies patches and calls MCP servers. Pinned: Electron 44.4.5, ONNX Runtime 1.30.0, Mammoth 1.12.3, unpdf 1.8.1. Embedding models are fetched and verified at build time, then bundled, so the installed app downloads nothing.
 
 ## Status
 

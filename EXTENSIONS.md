@@ -94,4 +94,4 @@ Supported manifests contain descriptive metadata and skills/MCP declarations. Ho
 
 Removing a plugin removes its app records, not its original files. Imports reject duplicate names, traversal, escaping links, and oversized packages. Limits are 20 plugins, 100 skills, 30 MCP servers, and 20 instruction skills per plugin.
 
-Native protocol references: [engine app-server](https://learn.chatgpt.com/docs/app-server), [MCP configuration](https://learn.chatgpt.com/docs/extend/mcp), and [plugin packaging](https://developers.openai.com/plugins/build/plugins).
+Protocol references: [Model Context Protocol](https://modelcontextprotocol.io/specification) (Little Bot's [engine](docs/system-guide/19-engine.md) is the MCP client) and [plugin packaging](https://developers.openai.com/plugins/build/plugins).

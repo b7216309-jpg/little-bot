@@ -42,17 +42,17 @@ A different enqueue failure remains: call adds the job before saving and does no
 
 ## Terminal and file actions
 
-Foreground Execute uses the engine's native tools with full local access. [shell-conduct.cjs](../../src/shell-conduct.cjs) supplies Windows command guidance and keeps command-output transcripts coherent. The guidance includes writing text files as UTF-8: Windows PowerShell 5.1 otherwise writes ANSI (Set-Content) or UTF-16 (Out-File, >), and accents and dashes come out corrupted. Browser, web, goal file writes and MCP calls are separately owned; not every operation is a shell command.
+Foreground Execute uses the [engine](19-engine.md)'s exec_command, write_stdin and patch heredoc with full local access; each command is approved by the app before it runs. [shell-conduct.cjs](../../src/shell-conduct.cjs) supplies Windows command guidance and keeps command-output transcripts coherent. The guidance includes writing text files as UTF-8: Windows PowerShell 5.1 otherwise writes ANSI (Set-Content) or UTF-16 (Out-File, >), and accents and dashes come out corrupted. Browser, web, goal file writes and MCP calls are separately owned; not every operation is a shell command.
 
-Tool results sent back to the local model are capped at 25,000 characters by the controller; oversized AgentTools results keep their beginning and end with a trim note. Browser page output has its own head-and-tail cap.
+Tool results are capped at 25,000 characters by the controller, and the engine sends at most 12,000 characters of any tool result to the model, keeping its beginning and end. Browser page output has its own head-and-tail cap.
 
 Goal terminal use depends on its saved shell permission and budgets; completion commands are host-verified through the executor. Plan mode and heartbeat use different execution policies. Native terminal capability does not mean every desired application integration has a typed tool.
 
-## Existing thread tool migration
+## Tool changes
 
-The pinned engine persists dynamic tools when a thread is created. [tool-migration.cjs](../../src/tool-migration.cjs) updates the saved registry before engine startup and keeps a rollout-header backup. It validates thread identity and resolves engine history under its data directory, including relocated histories. [verify-tool-migration.cjs](../../scripts/verify-tool-migration.cjs) is the developer check for that migration.
+The engine sends the current tool list with every request, including after a resume, so a changed or removed tool never lingers in an existing conversation.
 
 ## Verification
 
-[migration](../../test/tool-migration.test.cjs).
+[engine](../../test/engine.test.cjs).
 

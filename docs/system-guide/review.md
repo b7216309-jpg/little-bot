@@ -91,7 +91,7 @@ All source modules are assigned to a guide in the [source map](source-map.md). T
 | Engine transport and resume | Engine/controller tests | Offline engine/provider, R3 uncertain turn ownership |
 | Shared conversation and automation origins | Single-session + Electron fixtures | Legitimate thread rotation; R6 definition attribution |
 | Streaming, reasoning and tool activity | Controller/UI fixtures | Provider disconnect/cutoff; reasoning capability depends on model |
-| Plan/Execute | Plan/full-access tests | Different sandbox/tool set; do not expect writes in Plan |
+| Plan/Execute | Plan/full-access tests | Plan runs only reading commands with a smaller tool set; do not expect writes in Plan |
 | Context inspector and compaction | Context/compaction tests | Inspector is process-local; model compaction needs connection |
 | Memory records, history and sources | SQLite/recall/Electron tests | Memory toggle, scope, missing sources and selection quality |
 | CPU embeddings | Real local encoder test + verified assets | English-focused encoder; CPU latency and fallback to lexical search |

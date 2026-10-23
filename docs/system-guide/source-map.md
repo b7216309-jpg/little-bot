@@ -8,7 +8,12 @@ Guide: [01-runtime-storage.md](01-runtime-storage.md)
 
 | Source / resource | Responsibility |
 | --- | --- |
-| [src/engine.cjs](../../src/engine.cjs) | Production application module |
+| [src/engine/index.cjs](../../src/engine/index.cjs) | Little Bot engine: threads, turns, approvals, compaction and saved conversations |
+| [src/engine/model.cjs](../../src/engine/model.cjs) | Streams Chat Completions from the local model server |
+| [src/engine/shell.cjs](../../src/engine/shell.cjs) | PowerShell commands and sessions for exec_command and write_stdin |
+| [src/engine/patch.cjs](../../src/engine/patch.cjs) | Applies the model's patch heredoc |
+| [src/engine/mcp.cjs](../../src/engine/mcp.cjs) | MCP client: stdio, Streamable HTTP and OAuth sign-in |
+| [src/engine/tools.cjs](../../src/engine/tools.cjs) | The engine's own tool specs and Plan mode's read-only command check |
 | [src/main.cjs](../../src/main.cjs) | Production application module |
 | [src/preload.cjs](../../src/preload.cjs) | Production application module |
 | [src/profiles.cjs](../../src/profiles.cjs) | Production application module |
@@ -36,15 +41,12 @@ Guide: [03-models-strata.md](03-models-strata.md)
 | [integrations/strata/README.md](../../integrations/strata/README.md) | External Strata patch / build instructions / verification |
 | [integrations/strata/ssd-conversation-cache-0.1.33.patch](../../integrations/strata/ssd-conversation-cache-0.1.33.patch) | Temporary SSD storage for Strata 0.1.33 automatic conversation parking |
 | [integrations/strata/ssd-conversation-cache-0.1.44.1.patch](../../integrations/strata/ssd-conversation-cache-0.1.44.1.patch) | Temporary SSD storage for Strata 0.1.44.1 conversation parking, with the stream-limit fix |
-| [integrations/strata/verify-conversation-cache.cjs](../../integrations/strata/verify-conversation-cache.cjs) | Conversation-cache and cancellation verification through the Responses relay |
+| [integrations/strata/verify-conversation-cache.cjs](../../integrations/strata/verify-conversation-cache.cjs) | Conversation-cache and cancellation verification through the engine's Strata client |
 | [integrations/strata/verify-strata-cancel.py](../../integrations/strata/verify-strata-cancel.py) | External Strata patch / build instructions / verification |
 | [integrations/strata/verify-strata-needles.py](../../integrations/strata/verify-strata-needles.py) | External Strata patch / build instructions / verification |
 | [integrations/strata/verify-strata-slots.py](../../integrations/strata/verify-strata-slots.py) | External Strata patch / build instructions / verification |
 | [src/connections.cjs](../../src/connections.cjs) | Production application module |
 | [src/local-generation.cjs](../../src/local-generation.cjs) | Production application module |
-| [src/local-model-relay.cjs](../../src/local-model-relay.cjs) | Production application module |
-| [src/responses-namespace-compat.cjs](../../src/responses-namespace-compat.cjs) | Production application module |
-| [src/strata-responses-adapter.cjs](../../src/strata-responses-adapter.cjs) | Production application module |
 
 ## memory
 
@@ -134,11 +136,9 @@ Guide: [10-agent-tools-terminal.md](10-agent-tools-terminal.md)
 
 | Source / resource | Responsibility |
 | --- | --- |
-| [scripts/verify-tool-migration.cjs](../../scripts/verify-tool-migration.cjs) | Preparation, build, install or developer verification |
 | [src/agent-tools.cjs](../../src/agent-tools.cjs) | Production application module |
 | [src/app-management.cjs](../../src/app-management.cjs) | Production application module |
 | [src/shell-conduct.cjs](../../src/shell-conduct.cjs) | Production application module |
-| [src/tool-migration.cjs](../../src/tool-migration.cjs) | Production application module |
 
 ## browser web
 

@@ -10,7 +10,7 @@ The normal Windows user-data folder is `%APPDATA%/Little Bot`. Its `data` direct
 | --- | --- |
 | `state.json` | Store: settings, public timeline, goals, schedules, calendar, heartbeat, extension metadata |
 | `memory.sqlite` | MemoryService: records, sources, projects, indexed history, vectors and learning jobs |
-| `engine/` | Bundled engine configuration, authentication and native session history |
+| `engine/` | The engine's saved conversations (`threads/`, encrypted) and MCP sign-ins (`mcp-auth.json`, encrypted) |
 | `attachments/` | Imported copies, image derivatives and extracted text |
 | `goal-backups/` | Workspace file snapshots and manifests |
 | `profile/` | USER.md and SOUL.md |
@@ -33,7 +33,7 @@ On restart, transient chat execution is reset and interrupted goals are normaliz
 
 ## What can prevent operation
 
-An unavailable user-data folder, unavailable Windows decryption, unreadable encrypted state or a missing engine executable can block startup. An unavailable workspace blocks a turn even when the model is connected. Disk failures can leave memory and disk disagreeing in some mutation paths: see R1 and R2 in the [review](review.md). Settings and extension updates have their own rollback paths; do not assume all editors do.
+An unavailable user-data folder, unavailable Windows decryption, unreadable encrypted state can block startup. An unavailable workspace blocks a turn even when the model is connected. Disk failures can leave memory and disk disagreeing in some mutation paths: see R1 and R2 in the [review](review.md). Settings and extension updates have their own rollback paths; do not assume all editors do.
 
 Moving only state.json does not migrate native engine sessions, memory, attachment copies or profile files. Copying protected data between Windows accounts also does not ensure it can be decrypted.
 

@@ -26,7 +26,7 @@ It stops when the condition is met, judged impossible (it needs the user), the b
 
 ## Plan, Execute and stopping
 
-Execute uses native full-access execution. Plan uses the engine's read-only sandbox and a reduced dynamic-tool set. Scheduled prompts carry their own origin labels and restore the previous conversation mode afterward.
+Execute uses native full-access execution. Plan runs only commands that read and refuses patches, with a reduced dynamic-tool set. Scheduled prompts carry their own origin labels and restore the previous conversation mode afterward.
 
 Stop requires an established turn ID; during early preparation it can ask the user to retry. Normal completion rejects late events belonging to completed turns. Local turn-start acknowledgements and turn watchdogs allow up to ten minutes for long prompt prefill before reporting a timeout.
 

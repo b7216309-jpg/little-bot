@@ -4,7 +4,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { Store } = require('./store.cjs');
 const { Scheduler, validateAutomation } = require('./scheduler.cjs');
-const { EngineClient } = require('./engine.cjs');
+const { Engine } = require('./engine/index.cjs');
 const { Controller, cleanError } = require('./controller.cjs');
 const { saveFact, deleteFact, clearEpisodes } = require('./memory.cjs');
 const { MemoryConsolidator } = require('./memory-consolidator.cjs');
@@ -119,27 +119,14 @@ app.whenReady().then(async () => {
   const engineHome = path.join(stateDir, 'engine');
   const defaultWorkspace = path.join(app.getPath('userData'), 'Workspace');
   fs.mkdirSync(engineHome, { recursive: true }); fs.mkdirSync(defaultWorkspace, { recursive: true });
-  const configPath = path.join(engineHome, 'config.toml');
-  if (!fs.existsSync(configPath)) fs.writeFileSync(configPath, [
-    'model_reasoning_effort = "low"',
-    'approval_policy = "on-request"',
-    'sandbox_mode = "workspace-write"',
-    'web_search = "disabled"',
-    '[sandbox_workspace_write]',
-    'network_access = false',
-    '[windows]',
-    'sandbox = "unelevated"',
-    '[analytics]',
-    'enabled = false',
-    '',
-  ].join('\n'));
   let restoreResult = null;
   try { restoreResult = backups.applyPendingRestore(stateDir); } catch (error) { logDiagnostic('backup-restore', error); }
   const store = new Store({ filePath: path.join(stateDir, 'state.json'), defaultWorkspace, protector: stateProtector() });
   if (store.locked) throw new Error(store.warning || 'Encrypted app state could not be opened.');
   const backupNow = (force = false) => backups.createBackup({ stateDir, memoryService: store.memoryService, force });
   const dailyBackup = () => { try { backupNow(); } catch (error) { logDiagnostic('backup', error); } };
-  const client = new EngineClient({ homeDir: engineHome, cwd: defaultWorkspace });
+  // Little Bot's own engine; its saved conversations are encrypted like the rest of the state.
+  const client = new Engine({ homeDir: engineHome, cwd: defaultWorkspace, protector: stateProtector() });
   controller = new Controller({ store, client, onError: logDiagnostic });
   controller.memoryConsolidator = new MemoryConsolidator(controller);
   controller.systemIdleSeconds = () => powerMonitor.getSystemIdleTime();

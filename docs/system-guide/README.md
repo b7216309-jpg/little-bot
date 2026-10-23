@@ -8,7 +8,7 @@ Start with the [second functional review](review.md) for confirmed problems and 
 | --- | --- |
 | Startup, data, encryption, recovery | [Runtime and storage](01-runtime-storage.md) |
 | Continuous conversation, streaming, context and compaction | [Chat and context](02-chat-context.md) |
-| Connections, reasoning, local relay and Strata caches | [Models and Strata](03-models-strata.md) |
+| Connections, reasoning and Strata caches | [Models and Strata](03-models-strata.md) |
 | Durable memory, search, automatic learning and CPU embeddings | [Memory](04-memory.md) |
 | Tasks, ongoing reviews, budgets, coaching and chat integration | [Goals](05-goals.md) |
 | Plans, evidence, verification, file snapshots and restore | [Goal ledger and files](06-goal-ledger-files.md) |
@@ -24,6 +24,7 @@ Start with the [second functional review](review.md) for confirmed problems and 
 | Renderer, panels, stream updates and slash commands | [Interface](16-interface.md) |
 | Error logs, tests, installation and packaging | [Diagnostics and distribution](17-diagnostics-distribution.md) |
 | Phone app, pairing, live sync and notifications | [Phone relay](18-phone-relay.md) |
+| Agent loop, commands, patches, MCP client, compaction and history | [Engine](19-engine.md) |
 
 Each guide gives the call path, data ownership, conditions that prevent operation, and relevant tests. The [reproduction instructions](review/README.md) explain how to repeat the new failure probes without touching personal data.
 
@@ -34,10 +35,9 @@ flowchart TD
   UI[Electron renderer / panels] --> IPC[Preload bridge / main IPC]
   IPC --> C[Controller]
   IPC --> R[Goals / scheduler / heartbeat]
-  C --> E[Bundled assistant engine]
-  E --> P[Selected model / local relay]
-  P --> S[Strata / external provider]
-  E --> T[Native terminal / file tools / MCP]
+  C --> E[Little Bot engine]
+  E --> S[Strata / local model server]
+  E --> T[Terminal / file patches / MCP]
   E --> D[Dynamic Little Bot tools]
   D --> IPC
   C --> M[SQLite memory / CPU embedding worker]

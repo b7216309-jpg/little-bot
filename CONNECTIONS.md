@@ -2,9 +2,9 @@
 
 Little Bot runs on a local model only. It starts with **Local Qwen** at `http://127.0.0.1:8080/v1`. Start the existing Qwen launcher, open Settings, and choose **Check connection**. The model ID and server address can be changed there. Only loopback addresses are accepted.
 
-Local inference uses the installed llama.cpp server's native Responses API. The bundled assistant engine supplies tools, sandboxing, approval handling, streaming, and compaction. No account or cloud service is involved, and a failed local connection never falls back to one. Nothing starts, stops, downloads, or replaces the user's model server.
+Little Bot's engine sends standard Chat Completions requests to the local server and supplies tools, approvals, streaming and compaction itself. No account or cloud service is involved, and a failed local connection never falls back to one. Nothing starts, stops, downloads, or replaces the user's model server.
 
-Strata is supported without changing that native llama.cpp path. When the selected server identifies itself as Strata in `/props`, or has Strata's legacy `/health` shape and no llama.cpp `/props`, Little Bot marks only that connection for an in-process Responses-to-Chat-Completions adapter. The engine still speaks the Responses API to Little Bot; the relay translates that Strata connection to `/v1/chat/completions` and translates Strata's streamed text, reasoning, and tool calls back to Responses events. Other local servers continue through the existing native Responses relay unchanged.
+When the selected server identifies itself as Strata in `/props`, or has Strata's `/health` shape, Little Bot marks the connection as Strata: it reads the context size and vision support from `/health` and offers Strata's reasoning levels. Strata parses the model's tool calls and streams reasoning separately; other servers that do the same work unchanged.
 
 For a detected Strata connection, the composer replaces the legacy local Thinking On/Off switch with **None / Low / Medium / High** reasoning levels. None disables thinking; Low, Medium, and High enable thinking and pass that effort through to Strata. The existing On/Off control remains unchanged for non-Strata local models.
 
