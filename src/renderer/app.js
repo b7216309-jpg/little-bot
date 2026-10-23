@@ -2149,8 +2149,8 @@ function renderSecurity() {
   extraInput.disabled = securitySaving;
   $('save-security-details').disabled = securitySaving || extraInput.value === extraText;
   $('security-details-found').textContent = details.found.length
-    ? details.found.map(item => `${item.kind === 'email' ? 'Email' : 'Phone'}: ${item.value}`).join(' · ')
-    : 'No email or phone number. Add them to USER.md, or list them below.';
+    ? details.found.map(item => `${{ email: 'Email', phone: 'Phone', name: 'Name' }[item.kind] || 'Detail'}: ${item.value}`).join(' · ')
+    : 'No email, phone number or full name. Add them to USER.md, or list them below.';
   const guard = state.securityGuard || { blocked: 0, last: null };
   $('security-guard-status').textContent = !security.enabled ? 'SECURITY.md is off, so messages are not stamped.'
     : !owner.enabled ? 'Messages are not stamped.'

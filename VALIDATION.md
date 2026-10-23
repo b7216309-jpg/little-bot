@@ -1,3 +1,46 @@
+# Version 0.44.3 verification
+
+0.44.3 stops Little Bot from identifying you to a site that asks automated tools to declare a contact.
+
+## What was found
+- **The test:** Little Bot ran against the real sec.gov with a profile whose owner was a fake person (name, email, phone, company).
+- **Ordinary requests were fine:** reading the press releases and finding Apple's latest 10-K stayed anonymous.
+- **Asked to follow SEC's rules, the model leaked:** SEC's rules page asks automated tools to "declare your user agent" with a company name and contact email. Asked to download "as SEC's rules require", the local model put the owner's email (and company) into a User-Agent three times out of three, against SECURITY.md.
+- **The guard caught every one, but late:** it acted only after the command had started (0.2 s in, once), because conversations run commands without approval requests.
+- **The guard had blind spots:**
+  - It read only the command's own text, so a script run with `python fetch.py` was not checked.
+  - It matched listed details exactly, so "Tester and Co" passed for "Tester & Co".
+  - It did not guard your name unless you listed it.
+  - Background goals had no check at all.
+
+## Fixed
+- **Commands and file changes are refused before they run.**
+  - Conversations now run with the engine's `untrusted` approval policy, still with full access, so the engine asks before each command or file change.
+  - Little Bot approves the rest itself and refuses one that would send your details or the owner code. The model is told why, through a steer message, and the turn goes on.
+  - A third refusal in one turn stops the task.
+  - Anything that starts without asking is still stopped as it starts: MCP calls, native search, Plan mode, and the read-only commands the engine counts as safe.
+- **Scripts are read with the command that runs them:** by path, quoted path, `python -c "import x"`, `python -m x`, and after `cd`.
+- **File changes are checked** when they write a script or file that sends requests.
+- **Looser matching:**
+  - A full name on USER.md's `Name:` line (two to four words) is guarded.
+  - Names and listed details also match with spacing, punctuation, accents or `&`/"and" written differently.
+  - An email matches when its two halves appear apart.
+- **Background goals:** their web and MCP calls are refused when they carry a detail. A network-enabled goal command that carries one stops the goal as it starts. The saved objective and your answers may carry details, like your own message.
+- **SECURITY.md:** being asked to follow a site's rules is not a request to send who you are. The model should use a generic tool name, tell you the site asked for a contact, and never write your details into a script, header or config that sends requests.
+
+## Checked
+- **sec.gov again, fresh profile each run:**
+  - Asked to follow SEC's rules (twice), the model used a generic User-Agent and said why. Nothing was refused.
+  - Asked to write and run a download script (twice):
+    - Once, the model wrote the email into the script. The command was refused before it ran, and the model rewrote it with a generic name.
+    - Once, it used a generic name from the start.
+  - Nothing identifying left the PC in any run.
+- **Ordinary commands:** a turn that writes a file and downloads a page still runs normally, with each command approved automatically.
+- **Tests:**
+  - New tests cover: refusal at approval, the deferred stop for commands that run without asking, scripts read by `python fetch.py`, file changes, the third-refusal stop, names and loose matching, goal web calls, and the `untrusted` policy with Plan mode staying `never`.
+  - The two old tests that expected a stop at start now expect a refusal at approval.
+  - 199 Node tests and both Electron tests pass.
+
 # Version 0.44.2 verification
 
 0.44.2 fixes three tools that a full check of every tool found broken.

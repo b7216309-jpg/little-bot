@@ -36,7 +36,8 @@ Little Bot adds `[owner code: XXXX-XXXX-XXXX]` to the label of every request blo
 - **Rotation:** a new code for every message (the default), or one fixed code that you can replace with **New code**. The code is never in the system prompt, so the cached prompt prefix stays stable.
 - **Leak guard:** a code that appears in a tool call means something is trying to send private context out. It also catches the code disguised: in full-width or Cyrillic/Greek look-alike letters, reversed, percent- or HTML-escaped, in base64 or hex, or split across two fields of one call. A code cut into pieces sent in separate calls is not caught; the guard is a tripwire behind SECURITY.md.
   - **Little Bot's own tools** (web search, page reading, the browser, memory and the rest): the call is refused before it runs.
-  - **Terminal commands, MCP tools and the engine's native search:** these have already started when Little Bot sees them, so it stops the task. A fast command may already have finished.
+  - **Terminal commands and file changes:** in a conversation the engine asks Little Bot to approve each one before it runs. Little Bot approves the rest itself, and refuses one that carries the code; the model is told why and the turn goes on. A third refusal in one turn stops the task.
+  - **MCP tools, the engine's native search, Plan mode and the read-only commands the engine runs without asking:** these have already started when Little Bot sees them, so it stops the task.
 
   Each catch appears in the chat as a **Security guard** message and on a counter beside **Security** in the sidebar. The guard checks the last 24 codes of each chat, with dashes, spacing and case ignored.
 
@@ -49,17 +50,27 @@ Some websites and APIs ask agents to identify the person they work for, for exam
 - **What is guarded:**
   - Email addresses found in USER.md.
   - Phone numbers found in USER.md: a number that starts with `+`, or sits on a line that says phone, tel, mobile, WhatsApp and similar words. Dates, timestamps and IDs are not taken for phone numbers.
+  - A full name on a `Name:`, `Full name:`, `Preferred name:` or `Nom :` line of USER.md, of two to four words. A lone first name is not guarded, so ordinary searches are not blocked; list it under **Also guard** if you want it.
   - Anything you list under **Also guard**, one per line (at least 4 characters): your full name, address, usernames, account IDs.
 
   The page shows what it found in USER.md.
 - **What is checked:**
   - Calls to tools that can reach the internet: web search, page reading, the browser, web watches, MCP tools, and any tool not known to be local. A call that carries a detail is refused.
-  - Terminal commands that can send data out (`curl`, `wget`, `Invoke-WebRequest`, `ssh`, a URL and the like), MCP calls and the engine's native search. These have already started when Little Bot sees them, so it stops the task.
-- **How it matches:** case is ignored, percent-encoding is undone (`%40` for `@`), and a phone number matches however it is spaced or whichever country code it is written with (the last nine digits).
+  - Terminal commands that can send data out (`curl`, `wget`, `Invoke-WebRequest`, `ssh`, Python's `requests` or `urllib`, a URL and the like), read together with the scripts they run. `python fetch.py`, `python -c "import fetch"`, `node tools/send.js` and `cd tools; node send.js` are checked with the script's own text, so a header written into a script is caught when the script runs.
+  - File changes that write a script or file that sends requests.
+  - In a conversation, commands and file changes are checked when the engine asks to approve them, before they run: a leaking one is refused, the model is told why, and a third refusal in one turn stops the task. MCP calls, the engine's native search and the read-only commands it runs without asking have already started when Little Bot sees them, so it stops the task.
+  - Background goals: their web and MCP calls are refused before they run. A command of a goal with network access that carries a detail stops the goal as it starts.
+- **How it matches:** case is ignored, percent-encoding is undone (`%40` for `@`), and a phone number matches however it is spaced or whichever country code it is written with (the last nine digits). A name or a listed detail of 6 or more letters and digits also matches with its spacing, punctuation, accents or `&` written differently ("Tester and Co" for "Tester & Co"). An email address also matches when its two halves appear apart ("sam.doe at example.com").
 - **When a detail may go out:** when you wrote it in your own message for that request. "Sign me up at news.test with sam@example.com" lets that address go out during that request only. Otherwise the model is told to ask you to include it, or to type it yourself in the browser panel.
 - **What is never blocked:** local tools (memory, files, calendar, goals, routines, questions to you, your own phone) and local commands such as `git config user.email`.
 
-Each catch appears as a **Security guard** message, like an owner code leak. Switch the guard off with **Guard my details**. It covers the conversation, saved sessions and the Quick session; Heartbeat and goal runs rely on SECURITY.md and their own permissions. Encodings other than percent-encoding (base64, for example) are not decoded.
+Each catch appears as a **Security guard** message, like an owner code leak. Switch the guard off with **Guard my details**. It covers the conversation, saved sessions, the Quick session and background goals. A goal's saved objective and your answers to its questions may carry a detail, like your own message. Heartbeat relies on SECURITY.md and its own permissions.
+
+Limits: encodings other than percent-encoding (base64, for example) are not decoded. A detail the model first writes into a data file that is not itself a sending script, and a script then reads it from there, is not followed. Text typed into another app with the Windows app tool is treated as local.
+
+### Sites that ask agents to declare a contact
+
+Some sites' rules tell automated tools to declare a contact. SEC EDGAR, for example, asks for a User-Agent such as `Sample Company Name AdminContact@<sample company domain>.com`. SECURITY.md tells the model that being asked to follow a site's rules is not a request to send who you are. It should use the tools as they are, or a generic tool name, and tell you the site asked. If you want your contact sent, put it in your message.
 
 ## Prompts added to Quick session messages
 
