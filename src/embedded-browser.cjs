@@ -187,8 +187,8 @@ class EmbeddedBrowser {
     try { const { object: node } = await this._cdp('DOM.resolveNode', { backendNodeId }); return { objectId: node.objectId, backendNodeId }; }
     catch { throw new Error(`@${key} is no longer on the page. Take a fresh snapshot.`); }
   }
-  async _call(objectId, fn, args = []) {
-    const { result, exceptionDetails } = await this._cdp('Runtime.callFunctionOn', { objectId, functionDeclaration: fn, arguments: args.map(value => ({ value })), returnByValue: true, awaitPromise: true });
+  async _call(objectId, fn, args = [], { userGesture = false } = {}) {
+    const { result, exceptionDetails } = await this._cdp('Runtime.callFunctionOn', { objectId, functionDeclaration: fn, arguments: args.map(value => ({ value })), returnByValue: true, awaitPromise: true, ...(userGesture ? { userGesture: true } : {}) });
     if (exceptionDetails) throw new Error(scrub(exceptionDetails.exception?.description || exceptionDetails.text || 'The page rejected that action.').split('\n')[0]);
     return result?.value;
   }
@@ -216,7 +216,8 @@ class EmbeddedBrowser {
         }
       } catch { /* Fall back to a DOM click below. */ }
     }
-    await this._call(objectId, 'function () { this.scrollIntoView({ block: "center" }); this.click(); }');
+    // As a user gesture: a click without one marks the page it leaves as skippable, so Back would find nothing to go back to.
+    await this._call(objectId, 'function () { this.scrollIntoView({ block: "center" }); this.click(); }', [], { userGesture: true });
   }
   async _snapshot() {
     const { nodes } = await this._cdp('Accessibility.getFullAXTree');

@@ -8,7 +8,7 @@ const OPERATIONS={
   heartbeat_manage:{get:null,update:'saveHeartbeat',run:'runHeartbeat',stop:'stopHeartbeat',read:'readHeartbeat',feedback:'heartbeatFeedback'},
   standing_intent_manage:{list:null,save:'saveStandingIntent',delete:'deleteStandingIntent',enable:'toggleStandingIntent'},
   profile_manage:{get:null,save:'saveProfile'},
-  settings_manage:{get:null,save:'saveSettings',connection:'saveConnection',check_connection:'refreshConnection',usage:'refreshProviderUsage',workspace:'setWorkspacePath'},
+  settings_manage:{get:null,save:'saveSettings',connection:'saveConnection',check_connection:'refreshConnection',workspace:'setWorkspacePath'},
   memory_manage:{status:null,toggle:'saveMemory',configure:'configureMemory',link_project:'linkMemoryProject',source:'getMemorySource',clear_episodes:'clearEpisodes',retry_learning:'retryMemoryLearning',discard_learning:'discardMemoryLearning'},
   attachment_manage:{status:'attachmentStorage',cleanup:'cleanupAttachments',delete:'deleteAttachment'},
   automation_control:{list:null,save:'saveAutomation',run:'runAutomation',delete:'deleteAutomation'},

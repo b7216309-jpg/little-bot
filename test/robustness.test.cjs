@@ -100,6 +100,27 @@ test('a new clipboard capture survives the pruning of old screenshots', t => {
   assert.equal(fs.existsSync(path.join(root, 'screen-1000.jpg')), false, 'the oldest one goes instead');
 });
 
+test('a calendar list that ends on a date covers that whole day', () => {
+  const { listCalendarEvents } = require('../src/calendar.cjs');
+  const at = (day, hour) => new Date(2026, 9, day, hour).getTime();
+  const event = (id, title, day, hour) => ({ id, title, startAt: at(day, hour), endAt: at(day, hour + 1), allDay: false, location: '', notes: '', createdAt: 1, updatedAt: 1 });
+  const calendar = { events: [event('a', 'Dentist', 24, 15), event('b', 'Market', 25, 9)] };
+  const titles = range => listCalendarEvents(calendar, range).map(item => item.title);
+  assert.deepEqual(titles({ fromLocal: '2026-10-24', toLocal: '2026-10-24' }), ['Dentist'], 'one date at both ends lists that day');
+  assert.deepEqual(titles({ fromLocal: '2026-10-24', toLocal: '2026-10-25' }), ['Dentist', 'Market']);
+  assert.deepEqual(titles({ fromLocal: '2026-10-24T00:00', toLocal: '2026-10-24T15:00' }), [], 'a time is still an exact end');
+  assert.throws(() => titles({ fromLocal: '2026-10-25', toLocal: '2026-10-24' }), /after its start/);
+});
+
+test('every app action offered to the model has a handler in the app', () => {
+  const { OPERATIONS } = require('../src/app-management.cjs');
+  const main = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.cjs'), 'utf8');
+  const registered = new Set([...main.matchAll(/register\('([A-Za-z]+)'/g)].map(match => match[1]));
+  const missing = Object.entries(OPERATIONS).flatMap(([tool, actions]) => Object.entries(actions)
+    .filter(([, handler]) => handler && !registered.has(handler)).map(([action, handler]) => `${tool} ${action} (${handler})`));
+  assert.deepEqual(missing, []);
+});
+
 test('web search and page reads reach the web tools through the agent tools, with the turn\'s Stop signal', async () => {
   const { AgentTools } = require('../src/agent-tools.cjs');
   const calls = [];
