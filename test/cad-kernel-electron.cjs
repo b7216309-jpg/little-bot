@@ -121,7 +121,7 @@ function main() {
   step('sandbox checked');
   // Every example in the guide the model reads builds one solid, and what the guide says about them holds.
   const guide = fs.readFileSync(path.join(__dirname, '..', 'resources', 'cad', 'GUIDE.md'), 'utf8');
-  const examples = [...guide.matchAll(/```js\n([\s\S]*?)```/g)].map(match => match[1]);
+  const examples = [...guide.matchAll(/```js\r?\n([\s\S]*?)```/g)].map(match => match[1]);
   assert.ok(examples.length >= 6, 'the guide has its examples');
   const built = [];
   for (const code of examples) {
