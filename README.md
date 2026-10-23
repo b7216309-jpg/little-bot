@@ -13,7 +13,7 @@
   <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-2b2a24?style=flat-square">
   <img alt="Local first" src="https://img.shields.io/badge/runs-local%20first-65846c?style=flat-square">
   <img alt="Electron 44" src="https://img.shields.io/badge/Electron-44-2b2a24?style=flat-square">
-  <img alt="Version 0.44.2" src="https://img.shields.io/badge/version-0.44.2-bc623f?style=flat-square">
+  <img alt="Version 0.44.3" src="https://img.shields.io/badge/version-0.44.3-bc623f?style=flat-square">
 </p>
 
 <p align="center"><img src="docs/screenshots/hero.png" alt="Little Bot on the desktop and on a phone, suggesting a break after a long coding session"></p>
