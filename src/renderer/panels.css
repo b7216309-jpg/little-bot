@@ -143,3 +143,32 @@
   .settings-jump button{width:auto;white-space:nowrap}
   .setting-row{flex-wrap:wrap}
 }
+
+/* A narrow main column (a small window, or the browser panel open beside it). The top bar's buttons drop
+   their labels, then the workspace name, instead of wrapping or sliding under the browser's address bar;
+   the composer's options wrap to a second line instead of running under the send button. */
+.topbar{container-type:inline-size;overflow:hidden}
+.topbar-actions .workspace-button{flex-shrink:0;white-space:nowrap}
+/* The workspace name is the one label that shrinks, with an ellipsis. */
+.topbar-actions #choose-workspace{flex-shrink:1;min-width:34px}
+@container (max-width:980px){
+  .topbar-actions .workspace-button:not(#choose-workspace)>span:not(.icon){display:none}
+  .topbar-actions #choose-workspace{max-width:170px}
+}
+@container (max-width:600px){
+  .topbar-left{gap:8px}
+  .topbar-divider,.runtime-status>span:not(.status-dot){display:none}
+  .topbar-actions{gap:4px}
+  .topbar-actions .workspace-button{padding:7px}
+  .topbar-actions #choose-workspace .small{display:none}
+}
+@container (max-width:440px){
+  .topbar-actions #choose-workspace #workspace-label{display:none}
+}
+.composer{container-type:inline-size}
+.composer-toolbar{align-items:flex-end}
+.composer-options{flex:1 1 auto;flex-wrap:wrap;row-gap:2px}
+@container (max-width:520px){
+  .composer-options #model-select{max-width:130px}
+  .composer-options #effort-select{max-width:100px}
+}

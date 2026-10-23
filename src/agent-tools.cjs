@@ -241,7 +241,7 @@ class AgentTools {
       throw new Error(`${message} Corrected example: ${name}(${example}).`);
     }
   }
-  async _dispatch(name, args, { chat } = {}) {
+  async _dispatch(name, args, { chat, signal } = {}) {
     if (!object(args) || JSON.stringify(args).length > 50000) throw new Error('Tool arguments must be a bounded object.');
     if (chat?.private && this.quickBlocked(name)) throw new Error('This tool is off in the Quick session.');
     if (this.management?.specs().some(tool => tool.name === name)) return this.management.call(name,args,{chat});
@@ -293,7 +293,7 @@ class AgentTools {
         return this.browser.call(args, { isActive: () => chat.status === 'running', owner: chat.id });
       }
       if (!this.webServices) throw new Error('Web tools are unavailable.');
-      return this.webServices.call(name, args, { signal: options.signal });
+      return this.webServices.call(name, args, { signal });
     }
     const allowed = {
       skill_list: [], skill_read: ['name'],
