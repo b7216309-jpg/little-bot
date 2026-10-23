@@ -99,3 +99,19 @@ test('a new clipboard capture survives the pruning of old screenshots', t => {
   assert.equal(fs.existsSync(path.join(root, 'clipboard-5000.jpg')), true);
   assert.equal(fs.existsSync(path.join(root, 'screen-1000.jpg')), false, 'the oldest one goes instead');
 });
+
+test('web search and page reads reach the web tools through the agent tools, with the turn\'s Stop signal', async () => {
+  const { AgentTools } = require('../src/agent-tools.cjs');
+  const calls = [];
+  const webServices = { specs: () => [
+    { type: 'function', name: 'web_search_service', description: 'Search', inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: [], additionalProperties: false } },
+    { type: 'function', name: 'web_scrape', description: 'Read', inputSchema: { type: 'object', properties: { url: { type: 'string' } }, required: [], additionalProperties: false } },
+  ], call: async (name, args, options) => { calls.push({ name, args, signal: options?.signal }); return { ok: true }; } };
+  const tools = new AgentTools({ store: { data: { settings: {}, extensions: { skills: [] } } }, webServices });
+  const chat = { id: 'c1', status: 'running', messages: [] };
+  const controller = new AbortController();
+  assert.deepEqual(await tools.call('web_scrape', { url: 'https://example.com/' }, { chat, signal: controller.signal }), { ok: true });
+  assert.deepEqual(await tools.call('web_search_service', { query: 'heat pump' }, { chat }), { ok: true });
+  assert.equal(calls[0].signal, controller.signal);
+  assert.deepEqual(calls.map(call => call.name), ['web_scrape', 'web_search_service']);
+});

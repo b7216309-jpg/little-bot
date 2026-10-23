@@ -1,3 +1,19 @@
+# Version 0.44.1 verification
+
+0.44.1 fixes two problems found right after 0.44.0.
+
+## Fixed
+- **Web search and page reading were broken since 0.43.0.** Making Stop cancel web reads added a line that read `options.signal` where only `chat` had been taken from the options. Every `web_search_service` and `web_scrape` call failed with "options is not defined", whatever the query or address. Unit tests called the web tools directly, so none went through the path that broke.
+- **Narrow windows.** With a small window, or the browser panel open beside the chat, the top bar's buttons wrapped their labels onto two or three lines and the workspace button slid under the browser's address bar. The composer's model and effort pickers also ran under the send button and hid Plan and Goal.
+  - The top bar now drops its button labels first (each keeps its tooltip), then the status text and the workspace name, which shrinks with "…" before it goes.
+  - The composer's options wrap onto a second line.
+  - Both use container queries on the column's own width, so they also respond when the browser panel opens.
+
+## Checked
+- **Web tools:** a new test sends `web_scrape` and `web_search_service` through the agent tools with a Stop signal. It fails on 0.44.0 with "options is not defined" and passes now.
+- **Layout:** the app was rendered with demo data at 960, 1150 and 1400 px wide, with and without the browser panel, in the conversation and the Quick session. Nothing wraps or overlaps at any of those sizes.
+- **Full suite:** all Node tests pass, and the dark theme rebuilds unchanged.
+
 # Version 0.44.0 verification
 
 0.44.0 catches the phone app up with the desktop and fixes its bugs. The web phone app had not changed since 0.33.0. The Android app loads it from the PC, so it gets these changes without a new APK.

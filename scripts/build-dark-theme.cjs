@@ -53,14 +53,14 @@ function darken(token) {
   return alpha < 1 ? `rgba(${r},${g},${b},${+alpha.toFixed(3)})` : `#${[r, g, b].map(value => value.toString(16).padStart(2, '0')).join('')}`;
 }
 
-// Minimal CSS walker for the app's own stylesheets (flat rules plus @media / @supports blocks).
+// Minimal CSS walker for the app's own stylesheets (flat rules plus @media / @supports / @container blocks).
 function walk(css, emit, prefix = '') {
   let index = 0;
   while (index < css.length) {
     const open = css.indexOf('{', index);
     if (open < 0) break;
     const head = css.slice(index, open).trim();
-    if (head.startsWith('@media') || head.startsWith('@supports')) {
+    if (head.startsWith('@media') || head.startsWith('@supports') || head.startsWith('@container')) {
       let depth = 1, cursor = open + 1;
       while (cursor < css.length && depth) { if (css[cursor] === '{') depth++; else if (css[cursor] === '}') depth--; cursor++; }
       const inner = [];
