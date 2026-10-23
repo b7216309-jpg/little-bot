@@ -36,8 +36,8 @@ Little Bot adds `[owner code: XXXX-XXXX-XXXX]` to the label of every request blo
 - **Rotation:** a new code for every message (the default), or one fixed code that you can replace with **New code**. The code is never in the system prompt, so the cached prompt prefix stays stable.
 - **Leak guard:** a code that appears in a tool call means something is trying to send private context out. It also catches the code disguised: in full-width or Cyrillic/Greek look-alike letters, reversed, percent- or HTML-escaped, in base64 or hex, or split across two fields of one call. A code cut into pieces sent in separate calls is not caught; the guard is a tripwire behind SECURITY.md.
   - **Little Bot's own tools** (web search, page reading, the browser, memory and the rest): the call is refused before it runs.
-  - **Terminal commands and file changes:** in a conversation the engine asks Little Bot to approve each one before it runs. Little Bot approves the rest itself, and refuses one that carries the code; the model is told why and the turn goes on. A third refusal in one turn stops the task.
-  - **MCP tools, the engine's native search, Plan mode and the read-only commands the engine runs without asking:** these have already started when Little Bot sees them, so it stops the task.
+  - **Terminal commands, file changes and MCP tools:** in a conversation the engine asks Little Bot to approve each one before it runs. Little Bot approves the rest itself, and refuses one that carries the code; the model is told why and the turn goes on. A third refusal in one turn stops the task.
+  - **Anything that runs without asking** (Plan mode reads, background work): it is stopped as it starts.
 
   Each catch appears in the chat as a **Security guard** message and on a counter beside **Security** in the sidebar. The guard checks the last 24 codes of each chat, with dashes, spacing and case ignored.
 
@@ -58,7 +58,7 @@ Some websites and APIs ask agents to identify the person they work for, for exam
   - Calls to tools that can reach the internet: web search, page reading, the browser, web watches, MCP tools, and any tool not known to be local. A call that carries a detail is refused.
   - Terminal commands that can send data out (`curl`, `wget`, `Invoke-WebRequest`, `ssh`, Python's `requests` or `urllib`, a URL and the like), read together with the scripts they run. `python fetch.py`, `python -c "import fetch"`, `node tools/send.js` and `cd tools; node send.js` are checked with the script's own text, so a header written into a script is caught when the script runs.
   - File changes that write a script or file that sends requests.
-  - In a conversation, commands and file changes are checked when the engine asks to approve them, before they run: a leaking one is refused, the model is told why, and a third refusal in one turn stops the task. MCP calls, the engine's native search and the read-only commands it runs without asking have already started when Little Bot sees them, so it stops the task.
+  - In a conversation, commands, file changes and MCP calls are checked when the engine asks to approve them, before they run: a leaking one is refused, the model is told why, and a third refusal in one turn stops the task.
   - Background goals: their web and MCP calls are refused before they run. A command of a goal with network access that carries a detail stops the goal as it starts.
 - **How it matches:** case is ignored, percent-encoding is undone (`%40` for `@`), and a phone number matches however it is spaced or whichever country code it is written with (the last nine digits). A name or a listed detail of 6 or more letters and digits also matches with its spacing, punctuation, accents or `&` written differently ("Tester and Co" for "Tester & Co"). An email address also matches when its two halves appear apart ("sam.doe at example.com").
 - **When a detail may go out:** when you wrote it in your own message for that request. "Sign me up at news.test with sam@example.com" lets that address go out during that request only. Otherwise the model is told to ask you to include it, or to type it yourself in the browser panel.
@@ -81,18 +81,18 @@ Two fixed texts precede your request in every Quick session message. Both are ed
 
 ## Base prompt
 
-The bundled engine (`@openai/codex` 0.157.1) has its own base prompt that goes first in every request: about 17,000 characters beginning "You are a coding agent running in the Codex CLI". Little Bot replaces it with `resources/prompts/BASE.md`, 3,184 characters (about 800 tokens instead of 4,200):
+The engine sends a base prompt first in every request: `resources/prompts/BASE.md`, 3,184 characters (about 800 tokens). It was trimmed from the Codex CLI's 17,000-character prompt, which Little Bot used before it had its own engine:
 
 - **Kept:**
   - "Please keep going until the query is completely resolved…", the part that gets long tasks finished.
   - The coding guidelines and validating the work.
   - Ambition vs. precision, short progress updates and the shell guidelines.
 - **Dropped:** the Codex CLI identity, the AGENTS.md spec, preamble examples and the answer-formatting rules. Little Bot's own prompts cover tone and style.
-- **Corrected:** file edits are shown as the `apply_patch` heredoc sent through `exec_command`, the form Little Bot uses. The engine's version describes a separate tool that does not exist here.
+- **Corrected:** file edits are shown as the `apply_patch` heredoc sent through `exec_command`, the form the engine takes.
 
-The engine's original is kept in `resources/prompts/ENGINE-BASE.md` for reference. On the page you can edit the base prompt, empty it (no base prompt is sent), or **Restore default** to get the trimmed version back.
+On the page you can edit the base prompt, empty it (no base prompt is sent), or **Restore default** to get the trimmed version back.
 
-The engine fixes a thread's base prompt when the thread starts and ignores changes on resume. So each chat records which base prompt its thread has. After a change, an existing chat moves to a new engine thread on its next message, carrying its last 24 messages. Older detail in a long conversation does not come along. New chats, the Quick session, Heartbeat runs and goal steps use the new prompt straight away.
+Little Bot fixes a thread's base prompt when the thread starts, so the model's prompt cache keeps matching. So each chat records which base prompt its thread has. After a change, an existing chat moves to a new engine thread on its next message, carrying its last 24 messages. Older detail in a long conversation does not come along. New chats, the Quick session, Heartbeat runs and goal steps use the new prompt straight away.
 
 ## Where it lives
 

@@ -1,5 +1,7 @@
 # Strata conversation cache for Little Bot
 
+The installed server at the time of Little Bot 0.45.0 is Strata 0.2.2 (engine 0.1.47) with the SSD conversation-cache patch rebuilt for it (`C:\Strata\update-v0.2.2\ssd-conversation-cache-0.2.2.patch`, kept outside this repository). The versioned patches below are the earlier ones.
+
 Little Bot sends standard Chat Completions requests with complete histories. Strata automatically matches compatible token/image prefixes; no custom `strata_cache_slot` is sent. Official releases since 0.1.30 support RAM parking. The local **0.1.44.1** engine adds SSD storage through [ssd-conversation-cache-0.1.44.1.patch](ssd-conversation-cache-0.1.44.1.patch), built on the release's shared snapshot code; [the 0.1.33 patch](ssd-conversation-cache-0.1.33.patch) is the original. The old PR #175 slot protocol remains retired.
 
 Strata 0.1.40 and later answer `tool_choice: "none"` by leaving the tools out of the prompt. Little Bot 0.27.1 and later no longer send it, so compaction keeps its cached prefix; earlier versions lose it on these engines.
@@ -51,7 +53,7 @@ From the Little Bot checkout, use a **separate** ready test server on port 8081.
 node integrations/strata/verify-conversation-cache.cjs http://127.0.0.1:8081/v1 12000 --background-records 1200 --cancel
 ```
 
-The live script sends A/B/A full histories through the actual Responses relay, checks distant-record answers and provider-reported cache reuse, then interrupts a third conversation and checks both parked histories again. Use 1,200 to 12,000 records; the default is 1,200. `--background-records` permits a smaller background history while retaining the long foreground chat. Live timings and hardware are recorded in [VALIDATION.md](../../VALIDATION.md). GPU byte comparisons establish snapshot correctness for their fixtures, not universal token-for-token model output parity. Vision rotation, HIP and multi-GPU parking have not been live-validated.
+The live script sends A/B/A full histories through the engine's own Strata client, checks distant-record answers and provider-reported cache reuse, then interrupts a third conversation and checks both parked histories again. Use 1,200 to 12,000 records; the default is 1,200. `--background-records` permits a smaller background history while retaining the long foreground chat. Live timings and hardware are recorded in [VALIDATION.md](../../VALIDATION.md). GPU byte comparisons establish snapshot correctness for their fixtures, not universal token-for-token model output parity. Vision rotation, HIP and multi-GPU parking have not been live-validated.
 
 ## Historical PR #175 SSD slots
 

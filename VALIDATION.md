@@ -1,3 +1,47 @@
+# Version 0.45.0 verification
+
+0.45.0 replaces the Codex CLI app-server with Little Bot's own engine ([src/engine](src/engine/index.cjs), [system guide](docs/system-guide/19-engine.md)).
+
+## Changed
+- **The engine is Little Bot's own.** It streams Chat Completions from the local server, runs commands in Windows PowerShell, applies the model's patch heredoc and calls MCP servers (stdio and Streamable HTTP, with OAuth sign-in), all in the main process. It keeps the same requests and events the app already used, so the controller, goals, heartbeat, memory learning and Independent Check are unchanged.
+- **Removed:**
+  - `@openai/codex` 0.157.1 (426 MB) and Codex's `config.toml`.
+  - The Responses relay and Strata adapter (`local-model-relay.cjs`, `strata-responses-adapter.cjs`, `responses-namespace-compat.cjs`) and the transcript patcher (`tool-migration.cjs`).
+  - On first start, Codex's old files in `data/engine`.
+- **Every action is approved before it runs.** In a conversation, each command, file change and MCP call goes to the app first. MCP calls used to be checked only after they started.
+- **No sandbox.** Plan mode runs only commands that read, and refuses changes, input to sessions and patches before they run. Background work follows its saved permissions.
+- **Fewer tools for the model.** It gets `exec_command` and `write_stdin`, Little Bot's own tools and MCP tools. Codex's `request_user_input` and its second goal system are gone.
+- **Conversations are saved encrypted** in `data/engine/threads`, as the rest of the state is. Codex wrote them as plain text. A conversation whose old Codex history is gone continues from its visible timeline.
+- **Compaction is the engine's own:**
+  - The model writes a summary with the conversation's own tool block, so Strata's cache still matches.
+  - The summary replaces older messages, and the current request stays.
+  - A context overflow compacts once and retries.
+- **Tool results** sent to the model are capped at 12,000 characters, keeping the beginning and end. Images from tools follow as one user message.
+
+## Checked
+- **Engine tests** run against a fake Strata:
+  - Streaming and usage, approvals and a declined command, a patch, and app tools with images.
+  - Plan mode's read-only rules, Stop during a command, overflow and manual compaction, and steering.
+  - MCP over stdio, a cancelled app request, and removal of Codex's files.
+- **The whole app against a scripted model:**
+  - A command, an app tool and a patch in the conversation; a command carrying the owner's email refused before it ran.
+  - Plan mode, the Quick session, and compaction followed by a turn.
+  - A heartbeat, and the conversation saved encrypted.
+- **With the real model** (Strata 0.2.2, Qwen 3.8 Flash Next IQ3_S):
+  - All 107 tool calls of the tool check, and turns that read a page, add and list calendar events, write and print a file, and search the web.
+  - A conversation reused 87% of its prompt from Strata's cache on the second turn and about 99% between steps.
+  - Plan mode kept the file it was asked to delete. A manual compaction took 10 s with 99% cache reuse, and the model remembered the file list afterwards.
+  - Background work:
+    - Independent Check checked an answer, and memory learning saved the stated preference.
+    - A heartbeat ran a command and reported.
+    - `/goal` with a check command was achieved in one turn.
+    - A background goal with shell and write permission wrote its file, passed its check and completed in 30 s.
+- **sec.gov with a fake identity:**
+  - Asked to follow SEC's rules, the model used a generic User-Agent.
+  - Asked for a download script, once a file change carrying the email and once a command carrying it were refused before they ran; the model then used a generic name.
+  - No file kept the identity.
+- **Full suite:** syntax, the Node tests and both Electron tests.
+
 # Version 0.44.3 verification
 
 0.44.3 stops Little Bot from identifying you to a site that asks automated tools to declare a contact.

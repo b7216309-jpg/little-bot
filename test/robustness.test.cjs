@@ -51,16 +51,17 @@ test('Stop cancels the app tools still running, and their late result cannot end
   assert.deepEqual(errors, []);
 });
 
-test('deleting a session removes its engine transcript and nothing else', t => {
-  const { removeThreadHistory } = require('../src/tool-migration.cjs');
+test('deleting a session removes its engine conversation and nothing else', async t => {
+  const { Engine } = require('../src/engine/index.cjs');
   const home = folder(t, 'engine-home');
-  const day = path.join(home, 'sessions', '2026', '10', '22');
-  fs.mkdirSync(day, { recursive: true });
-  const gone = '01a0f9c6-0467-7b51-a3de-4c84bbf834ca', kept = '01a0fd58-3248-79c3-a4b3-8dd07745fc0c';
-  for (const name of [`rollout-2026-10-22T01-21-39-${gone}.jsonl`, `rollout-2026-10-22T01-21-39-${gone}.jsonl.tools-7771714736a0.bak`, `rollout-2026-10-22T18-00-10-${kept}.jsonl`]) fs.writeFileSync(path.join(day, name), '{}\n');
-  assert.equal(removeThreadHistory(home, gone), 2);
-  assert.deepEqual(fs.readdirSync(day), [`rollout-2026-10-22T18-00-10-${kept}.jsonl`]);
-  assert.throws(() => removeThreadHistory(home, '../../x'), /Invalid/);
+  const engine = new Engine({ homeDir: home, cwd: home });
+  await engine.start();
+  t.after(() => engine.close());
+  await engine.store.save('thread_gone', { id: 'thread_gone', history: [{ role: 'user', content: 'hi' }] });
+  await engine.store.save('thread_kept', { id: 'thread_kept', history: [{ role: 'user', content: 'hello' }] });
+  engine.deleteThread('thread_gone');
+  assert.deepEqual(fs.readdirSync(path.join(home, 'threads')), ['thread_kept.thread']);
+  assert.throws(() => engine.deleteThread('../../x'), /Invalid/);
 });
 
 test('an attachment name cleaned once comes back unchanged', () => {

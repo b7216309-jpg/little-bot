@@ -3,7 +3,7 @@
 // Explicitly target a separate server: these requests replace parked histories.
 const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
-const { LocalModelRelay } = require('../../src/local-model-relay.cjs');
+const { streamChat } = require('../../src/engine/model.cjs');
 
 async function main() {
   const target = new URL(process.argv[2] || '');
@@ -22,38 +22,22 @@ async function main() {
   assert.equal(health.status, 200, 'Test engine must be ready.');
   const models = await (await fetch(new URL('/v1/models', target))).json();
   const model = models.data[0].id;
-  const relay = new LocalModelRelay({ thinking: () => false });
-  await relay.start();
-  try {
-    const endpoint = relay.endpoint(target.href, 'strata');
-    const nonce = randomUUID();
-    const history = (letter, count = records) => {
-      const rows = Array.from({ length: count }, (_, n) => `Record ${n}: value ${letter}${String(n).padStart(4, '0')}.`);
-      return [
-        { type: 'message', role: 'user', content: `${nonce} Document ${letter}\n${rows.join('\n')}\nReturn only the values for records 1 and ${count - 2}, separated by a space.` },
-      ];
-    };
-    const a = history('A'), b = history('B', backgroundRecords);
-    const request = async (label, input) => {
-      const started = Date.now();
-      const response = await fetch(`${endpoint}/responses`, {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ model, input, temperature: 0, top_k: 1, max_output_tokens: 48 }),
-        signal: AbortSignal.timeout(600000),
-      });
-      assert.equal(response.status, 200);
-      const events = (await response.text()).split(/\r?\n/).filter(line => line.startsWith('data: '))
-        .map(line => JSON.parse(line.slice(6)));
-      assert.ok(!events.some(event => event.type === 'response.failed'), 'Generation must complete.');
-      const completed = events.find(event => event.type === 'response.completed');
-      assert.ok(completed, 'Responses completion event required.');
-      const text = events.filter(event => event.type === 'response.output_text.delta').map(event => event.delta).join('');
-      const usage = completed.response.usage;
-      const result = { label, text, prompt: usage.input_tokens,
-        cached: usage.input_tokens_details.cached_tokens, milliseconds: Date.now() - started };
-      console.log(JSON.stringify(result));
-      return result;
-    };
+  const nonce = randomUUID();
+  const history = (letter, count = records) => {
+    const rows = Array.from({ length: count }, (_, n) => `Record ${n}: value ${letter}${String(n).padStart(4, '0')}.`);
+    return [{ role: 'user', content: `${nonce} Document ${letter}\n${rows.join('\n')}\nReturn only the values for records 1 and ${count - 2}, separated by a space.` }];
+  };
+  const a = history('A'), b = history('B', backgroundRecords);
+  const body = messages => ({ model, messages, temperature: 0, top_k: 1, max_completion_tokens: 48, chat_template_kwargs: { enable_thinking: false } });
+  const request = async (label, messages) => {
+    const started = Date.now();
+    const answer = await streamChat({ baseUrl: target.href, body: body(messages), signal: AbortSignal.timeout(600000) });
+    const result = { label, text: answer.content, prompt: answer.usage.prompt_tokens,
+      cached: answer.usage.prompt_tokens_details?.cached_tokens || 0, milliseconds: Date.now() - started };
+    console.log(JSON.stringify(result));
+    return result;
+  };
+  {
     const cold = await request('A cold', a);
     const other = await request('B cold', b);
     const restored = await request('A restored', a);
@@ -70,15 +54,10 @@ async function main() {
       const cancellation = new AbortController();
       const timer = setTimeout(() => cancellation.abort(), 2000);
       try {
-        const response = await fetch(`${endpoint}/responses`, {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ model, input: history('C', backgroundRecords), temperature: 0, top_k: 1, max_output_tokens: 128 }),
-          signal: cancellation.signal,
-        });
-        await response.text();
+        await streamChat({ baseUrl: target.href, body: body(history('C', backgroundRecords)), signal: cancellation.signal });
         assert.fail('The deliberately interrupted request must abort.');
       } catch (error) {
-        assert.equal(error.name, 'AbortError');
+        assert.equal(error.code, 'aborted');
       } finally { clearTimeout(timer); }
       const afterB = await request('B after cancellation', b);
       const afterA = await request('A after cancellation', a);
@@ -87,9 +66,7 @@ async function main() {
       assert.ok(afterB.cached >= other.prompt * 0.95 && afterA.cached >= cold.prompt * 0.95,
         'Both parked conversations must survive interrupted prefill.');
     }
-    console.log('PASS: conversation parking through the Little Bot Responses relay.');
-  } finally {
-    await relay.close();
+    console.log('PASS: conversation parking through the Little Bot engine.');
   }
 }
 

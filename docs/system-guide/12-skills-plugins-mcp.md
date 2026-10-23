@@ -16,7 +16,7 @@ Existing thread dynamic-tool schemas need the [migration mechanism](10-agent-too
 
 ## MCP
 
-[ExtensionRuntime](../../src/extension-runtime.cjs) turns managed server records into native engine configuration, discovers tools/auth status and performs OAuth flows when supported. stdio servers need an available command and declared environment-variable names; HTTP servers need a working endpoint and optional configured bearer-token environment variable.
+[ExtensionRuntime](../../src/extension-runtime.cjs) turns managed server records into the engine's MCP configuration, discovers tools/auth status and starts OAuth sign-in for HTTP servers ([engine MCP client](19-engine.md)). stdio servers need an available command and declared environment-variable names; HTTP servers need a working endpoint and optional configured bearer-token environment variable.
 
 Inventory is paginated, up to 100 pages/10,000 rows; invalid cursors fail explicitly. Disabling a tool changes saved configuration, not just its display. Goal MCP access uses saved server/tool grants and a goal-specific broker. Heartbeat verifies MCP is disabled rather than inheriting ambient enabled servers.
 

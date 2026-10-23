@@ -86,7 +86,6 @@ for (const subscribed of [true, false]) test(`compaction switches IQ2_XS to IQ3_
   Object.assign(store.data.settings, { connection: 'local', localBaseUrl: baseUrl, model: 'qwen3.8-flash-next-iq2_xs', localModel: 'qwen3.8-flash-next-iq3_s', effort: 'high' });
   controller.models = [{ id: store.data.settings.localModel }];
   controller.connection = { adapter: 'strata', contextWindow: 262144 };
-  await controller.localModelRelay.start();
   if (!subscribed) controller.resumed.clear();
   const threadId = chat.threadId, transcript = structuredClone(chat.messages);
   const before = client.calls.length;
