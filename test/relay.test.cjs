@@ -110,7 +110,7 @@ test('notifications fire for proactive messages, questions, approvals and finish
   assert.deepEqual(view.notifications(before, before), []);
   const proactive = appState();
   proactive.chats[0].messages.push({ id: 'p1', role: 'assistant', kind: 'heartbeat', heartbeatTopic: 'games', text: 'Want to play Hades tonight?', modelSeen: false });
-  assert.deepEqual(view.notifications(before, view.snapshot(proactive)), [{ title: 'Little Bot · on its own · games', body: 'Want to play Hades tonight?', tag: 'message-p1', kind: 'heartbeat', messageId: 'p1' }]);
+  assert.deepEqual(view.notifications(before, view.snapshot(proactive)), [{ title: 'Little Bot · on its own · games', body: 'Want to play Hades tonight?', tag: 'message-p1', kind: 'heartbeat', url: '/', messageId: 'p1' }]);
 
   const asking = appState({ approvals: [{ requestId: 'r1', chatId: 'chat-1', kind: 'question', dynamicTool: 'ask_user', title: 'Little Bot has a question', questions: [{ question: 'Which day?', options: [{ label: 'Monday' }] }] }] });
   const asked = view.snapshot(asking);
@@ -121,19 +121,19 @@ test('notifications fire for proactive messages, questions, approvals and finish
   const running = appState(); running.chats[0].status = 'running';
   running.chats[0].messages.push({ id: 'u2', role: 'user', text: 'plan my evening' }, { id: 'a2', role: 'assistant', text: 'Working…', status: 'running' });
   const done = structuredClone(running); done.chats[0].status = 'idle'; done.chats[0].messages[3] = { id: 'a2', role: 'assistant', text: 'Here is your evening.' };
-  assert.deepEqual(view.notifications(view.snapshot(running), view.snapshot(done)), [{ title: 'Little Bot replied', body: 'Here is your evening.', tag: 'reply' }]);
+  assert.deepEqual(view.notifications(view.snapshot(running), view.snapshot(done)), [{ title: 'Little Bot replied', body: 'Here is your evening.', tag: 'reply', url: '/' }]);
   const stopped = structuredClone(running); stopped.chats[0].status = 'idle'; stopped.chats[0].messages.pop();
   assert.deepEqual(view.notifications(view.snapshot(running), view.snapshot(stopped)), [], 'no reply after the last message');
 });
 
-async function startRelay(t, { state = appState(), handlers = {}, pushes = [] } = {}) {
+async function startRelay(t, { state = appState(), handlers = {}, pushes = [], options = {} } = {}) {
   const dir = tempDir(t);
   const calls = [];
   const current = { state };
   const relay = new Relay({ file: path.join(dir, 'relay.json'), protector, getState: () => current.state,
     handlers: new Proxy({}, { get: (_t, name) => async payload => { calls.push([name, payload]); return handlers[name]?.(payload); } }),
     tailscale: async () => ({ ok: false, stdout: '', stderr: 'not found' }),
-    push: async (subscription, payload) => { pushes.push(payload); return { status: 201, gone: false }; } });
+    push: async (subscription, payload) => { pushes.push(payload); return { status: 201, gone: false }; }, ...options });
   relay.config.port = await freePort();
   await relay.setEnabled(true);
   t.after(() => relay.stop());
@@ -799,4 +799,72 @@ test('an HTTP 400 from the model server reaches the engine with its message, and
   const failed = raw.split(/\r?\n\r?\n/).filter(block => block.startsWith('data: ')).map(block => JSON.parse(block.slice(6))).find(event => event.type === 'response.failed');
   assert.equal(failed.response.error.code, 'context_length_exceeded');
   assert.match(failed.response.error.message, /HTTP 400: the request exceeds the available context size/);
+});
+
+test('the phone gets goal questions, file ids, enabled skill names and links to the right chat, and nothing more', () => {
+  const state = appState({
+    extensions: { skills: [{ name: 'trip-planner', description: 'Plan a trip', content: 'SECRET SKILL BODY', enabled: true }, { name: 'off-skill', description: 'Disabled', content: 'x', enabled: false }] },
+    chats: [
+      { id: 'chat-1', status: 'idle', messages: [{ id: 'q', role: 'assistant', kind: 'goal', goalId: 'g1', goalQuestionId: 'gq1', text: 'Which pots get sun?' },
+        { id: 'f', role: 'assistant', text: 'Here it is', attachments: [{ id: 'att_1', kind: 'file', name: 'plan.pdf', size: 10, path: 'C:\private\plan.pdf' }] }] },
+      { id: 'quick-1', private: true, status: 'idle', messages: [] },
+      { id: 's1', session: true, title: 'Lisbon', status: 'running', updatedAt: 2, messages: [{ id: 's1u', role: 'user', text: 'plan it' }] },
+    ],
+    approvals: [{ requestId: 'r1', chatId: 's1', kind: 'question', dynamicTool: 'ask_user', questions: [{ question: 'How many days?', options: [] }] }],
+  });
+  state.autonomy.goals[0].pendingQuestion = { id: 'gq1', question: 'Which pots get sun?', options: ['Balcony'], createdAt: 1 };
+  const snap = view.snapshot(state);
+  assert.deepEqual(snap.skills, [{ name: 'trip-planner', description: 'Plan a trip' }]);
+  assert.equal(JSON.stringify(snap).includes('SECRET SKILL BODY'), false);
+  assert.equal(JSON.stringify(snap).includes('C:\\private'), false);
+  assert.deepEqual(snap.goals[0].question, { id: 'gq1', question: 'Which pots get sun?', options: ['Balcony'] });
+  assert.deepEqual([snap.messages[0].goalId, snap.messages[0].goalQuestionId], ['g1', 'gq1']);
+  assert.deepEqual(snap.messages[1].attachments, [{ id: 'att_1', kind: 'file', name: 'plan.pdf', size: 10 }]);
+  const notes = view.notifications(view.snapshot(appState()), snap);
+  assert.equal(notes.find(note => note.tag === 'approval-r1').url, '/#session=s1');
+  const done = structuredClone(state); done.chats[2].status = 'idle'; done.chats[2].messages.push({ id: 's1a', role: 'assistant', text: 'Day 1…' });
+  assert.equal(view.notifications(snap, view.snapshot(done)).find(note => note.tag === 'reply-s1').url, '/#session=s1');
+});
+
+test('the phone keeps a Quick session, answers goal questions, uses /skill and opens files through short links', async t => {
+  const state = appState({
+    extensions: { skills: [{ name: 'trip-planner', description: 'Plan a trip', content: 'x', enabled: true }] },
+    chats: [
+      { id: 'chat-1', status: 'idle', messages: [{ id: 'img', role: 'assistant', text: 'A photo', attachments: [{ id: 'att_img', kind: 'image', name: 'photo.png' }] },
+        { id: 'doc', role: 'assistant', text: 'A page', attachments: [{ id: 'att_html', kind: 'file', name: 'page.html' }] }] },
+      { id: 'quick-1', private: true, status: 'idle', messages: [{ id: 'qu', role: 'user', text: 'hi' }] },
+    ],
+  });
+  state.autonomy.goals[0].pendingQuestion = { id: 'gq1', question: 'Which day?', options: [], createdAt: 1 };
+  const files = { att_img: { buffer: Buffer.from('PNG'), mime: 'image/png', name: 'photo.png' }, att_html: { buffer: Buffer.from('<script>steal()</script>'), mime: 'text/html', name: 'page.html' } };
+  const { relay, base, calls } = await startRelay(t, { state, options: { readAttachment: async id => { if (!files[id]) throw new Error('missing'); return files[id]; } } });
+  const token = await pair(relay, base);
+  const post = (name, body) => fetch(`${base}/api/${name}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
+
+  assert.equal((await (await post('keepQuick', {})).json()).chatId, 'quick-1');
+  assert.deepEqual(calls.at(-1), ['saveQuickSession', { chatId: 'quick-1' }]);
+
+  assert.equal((await post('goalAnswer', { id: 'g1', questionId: 'old', answer: 'Monday' })).status, 400);
+  assert.equal((await post('goalAnswer', { id: 'g1', questionId: 'gq1', answer: ' Monday ' })).status, 200);
+  assert.deepEqual(calls.at(-1), ['answerGoal', { id: 'g1', questionId: 'gq1', answer: 'Monday' }]);
+
+  assert.equal((await post('send', { text: '/skill Trip-Planner three days in Lisbon' })).status, 200);
+  assert.deepEqual(calls.at(-1), ['send', { chatId: 'chat-1', text: '$trip-planner three days in Lisbon' }]);
+  const unknown = await post('send', { text: '/skill nope hello' });
+  assert.equal(unknown.status, 400);
+  assert.match((await unknown.json()).error, /No enabled skill/);
+
+  const picture = await (await post('fileLink', { id: 'att_img' })).json();
+  assert.equal(picture.kind, 'image');
+  const shown = await fetch(`${base}${picture.url}`);
+  assert.equal(shown.status, 200, 'the link works without the token header');
+  assert.equal(shown.headers.get('content-type'), 'image/png');
+  assert.match(shown.headers.get('content-disposition'), /^inline/);
+  const page = await fetch(`${base}${(await (await post('fileLink', { id: 'att_html' })).json()).url}`);
+  assert.equal(page.headers.get('content-type'), 'application/octet-stream', 'a page never runs on the phone origin');
+  assert.match(page.headers.get('content-disposition'), /^attachment; filename="page.html"/);
+  assert.match(page.headers.get('content-security-policy'), /sandbox/);
+  assert.equal((await post('fileLink', { id: 'att_secret' })).status, 400, 'only files of messages the phone was shown');
+  assert.equal((await fetch(`${base}/api/file?ticket=forged`)).status, 404);
+  assert.equal((await fetch(`${base}/slash-commands.js`)).status, 200);
 });

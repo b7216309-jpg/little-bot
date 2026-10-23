@@ -389,6 +389,8 @@ app.whenReady().then(async () => {
     // Test instances use their own port so a paired phone never reaches them (and never sees itself unpaired).
     ...(/^\d{4,5}$/.test(process.env.LITTLE_BOT_RELAY_PORT || '') ? { port: Number(process.env.LITTLE_BOT_RELAY_PORT) } : {}),
     getState: () => controller.state(), isDesktopFocused: () => Boolean(desktopWindows?.isFocused()),
+    // Only files of messages a phone was shown are read (see Relay fileLink).
+    readAttachment: id => controller.attachments.read(id),
     handlers: new Proxy({}, { get: (_target, name) => payload => appHandlers.get(name)(payload) }) });
   const relayChanged = () => desktopWindows?.broadcast({ type: 'relay', relay: relay.publicState() });
   relay.onClients = relayChanged;

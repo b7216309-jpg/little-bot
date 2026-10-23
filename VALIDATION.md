@@ -1,3 +1,35 @@
+# Version 0.44.0 verification
+
+0.44.0 catches the phone app up with the desktop and fixes its bugs. The web phone app had not changed since 0.33.0. The Android app loads it from the PC, so it gets these changes without a new APK.
+
+## Fixed
+- **Drafts:** the three tabs shared one message box and one list of files, so a draft started in Quick went to the conversation after a tab switch. Each chat now keeps its own draft and files; files still uploading stay with the chat they were picked in.
+- **Questions:** a question from one chat showed on every tab. It now shows in its own chat; elsewhere there is one line saying where it is, with **Open**.
+- **Goal questions:** a background goal's question could not be answered from the phone, so the goal waited until you were at the PC. It now has an answer form in the chat and in the goals sheet.
+- **`/skill`:** it reached the model as plain text. The relay now turns `/skill name message` into `$name message` and refuses a skill that is off.
+- **Notifications:** tapping one always opened the conversation. It now opens the session or Quick chat it is about.
+- **Goals sheet:** it said to create goals with `/goal` (a chat goal), and blocked goals showed both Run now and Resume. It is now **Background goals**, with one action per goal and the right hint.
+
+## Added
+- **Keep** in the Quick bar, as on the desktop.
+- **`/` menu** with `/skill` (the enabled skills, same matching as the desktop), `/goal` and `/keep`.
+- **Goal form** from the goal button beside the message box: condition, optional check command, turns and minutes. It sends the same `/goal` as the desktop drawer.
+- **Files:** tapping a picture shows it full size; tapping another file downloads it, through a 2-minute link that only works for files the phone was shown. Only pictures open in the page; everything else downloads under a sandbox policy.
+
+## Checked
+- **Tests:** 193 of 193 Node tests pass. Two new relay tests cover:
+  - What the phone sees: skill names without their instructions, goal questions, file ids without paths, and notification links.
+  - Keep, goal answers, `/skill`, file links (images inline, a page downloaded under a sandbox policy, files the phone was not shown refused, forged links refused) and serving `slash-commands.js`.
+- **Electron tests:** pass.
+- **Demo run:** a relay with made-up data, used at phone size in a browser.
+  - Per-tab drafts, the question line and **Open**, Keep before the first message, and the `/` menu with skill matching all worked.
+  - The goal form sent `/goal … --check "…"` to the open session.
+  - A goal question was answered, the full-size picture viewer opened, and `#goals` and `#session=` links worked.
+
+## Not covered
+- Downloading a non-picture file was checked through its response headers, not on a real phone.
+- In the Android app, downloads depend on the app's WebView, which this repository does not contain.
+
 # Version 0.43.0 verification
 
 0.43.0 fixes what a first full audit of the app found. Four reviewers read the whole code base, one area each: interface, core and model plumbing, goals and schedules, and security, web, phone relay and memory. Each finding was checked against the code before it was fixed. One was dropped: a goal retry resetting its budget is by design and tested, so GOALS.md now says so.

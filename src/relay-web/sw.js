@@ -1,7 +1,7 @@
 'use strict';
 // Shows Little Bot notifications and keeps the app shell available when the PC is unreachable.
-const SHELL = 'little-bot-shell-v1';
-const FILES = ['/', '/app.js', '/app.css', '/manifest.webmanifest', '/icon-192.png'];
+const SHELL = 'little-bot-shell-v2';
+const FILES = ['/', '/app.js', '/app.css', '/slash-commands.js', '/manifest.webmanifest', '/icon-192.png'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(SHELL).then(cache => cache.addAll(FILES)).catch(() => {}).then(() => self.skipWaiting()));
@@ -29,10 +29,14 @@ self.addEventListener('push', event => {
     });
   }));
 });
+// A tap opens the chat the notification is about: an open app is told which one, a closed one opens on it.
 self.addEventListener('notificationclick', event => {
   event.notification.close();
+  const url = event.notification.data?.url || '/';
   event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
     const open = clients.find(client => new URL(client.url).origin === location.origin);
-    return open ? open.focus() : self.clients.openWindow(event.notification.data?.url || '/');
+    if (!open) return self.clients.openWindow(url);
+    open.postMessage({ type: 'open', url });
+    return open.focus();
   }));
 });
