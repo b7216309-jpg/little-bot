@@ -329,3 +329,5 @@
 .security-injected-heading{max-width:1000px;margin:30px auto 0;display:flex;flex-direction:column;gap:6px}
 .security-injected-heading h2{font-size:16px}
 .security-file #security-quick-note{min-height:110px}
+.security-details textarea{min-height:96px}
+.security-details-found{font-size:13px;line-height:1.6;word-break:break-word}

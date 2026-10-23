@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomBytes } = require('node:crypto');
+const { detectDetails, normalizeExtra } = require('./personal-details.cjs');
 
 // SECURITY.md is injected right after the system prompt. The owner code marks the
 // request blocks Little Bot itself wrote, so text inside pages, files and tool
@@ -41,6 +42,7 @@ function validPrompt(value, name) {
 function normalizeSecurity(raw) {
   const source = object(raw) ? raw : {};
   const owner = object(source.ownerCode) ? source.ownerCode : {};
+  const details = object(source.details) ? source.details : {};
   const prompt = text => typeof text === 'string' && text.length <= PROMPT_LIMIT ? text : undefined;
   return {
     enabled: source.enabled !== false,
@@ -50,6 +52,8 @@ function normalizeSecurity(raw) {
       rotation: ROTATIONS.includes(owner.rotation) ? owner.rotation : 'turn',
       code: validCode(owner.code) ? owner.code : newCode(),
     },
+    // The personal-details guard: on unless switched off, plus details the user lists.
+    details: { enabled: details.enabled !== false, extra: normalizeExtra(details.extra) },
   };
 }
 
@@ -58,6 +62,18 @@ function applySecurityPatch(current, patch) {
   if (!object(patch)) throw new Error('Security settings must be an object.');
   const next = normalizeSecurity(current);
   next.ownerCode = { ...next.ownerCode };
+  next.details = { ...next.details };
+  if (patch.details !== undefined) {
+    if (!object(patch.details)) throw new Error('Personal details settings must be an object.');
+    if (patch.details.enabled !== undefined) {
+      if (typeof patch.details.enabled !== 'boolean') throw new Error('The personal-details guard must be on or off.');
+      next.details.enabled = patch.details.enabled;
+    }
+    if (patch.details.extra !== undefined) {
+      if (!Array.isArray(patch.details.extra) && typeof patch.details.extra !== 'string') throw new Error('List private details one per line.');
+      next.details.extra = normalizeExtra(patch.details.extra);
+    }
+  }
   if (patch.enabled !== undefined) {
     if (typeof patch.enabled !== 'boolean') throw new Error('SECURITY.md must be on or off.');
     next.enabled = patch.enabled;
@@ -99,13 +115,15 @@ function securityInstructions(settings, { ownerCode = true } = {}) {
   return [base, rules].filter(Boolean).join('\n\n');
 }
 
-function publicSecurity(settings) {
+// profileText is USER.md, where the guard finds the user's email and phone number.
+function publicSecurity(settings, profileText = '') {
   const security = normalizeSecurity(settings);
   return {
     enabled: security.enabled,
     prompt: security.prompt ?? defaultPrompts().prompt,
     promptCustomized: security.prompt !== undefined,
     ownerCode: { ...security.ownerCode },
+    details: { ...security.details, found: detectDetails(profileText).map(({ kind, value }) => ({ kind, value })) },
     limit: PROMPT_LIMIT,
   };
 }
@@ -172,12 +190,19 @@ function carriesCode(value, codes) {
 
 const stampLabel = (label, code) => code ? `${label} [owner code: ${code}]` : label;
 
+// The details a turn guards, or none when the guard is off.
+function guardedDetails(settings, profileText = '') {
+  const { details } = normalizeSecurity(settings);
+  return details.enabled ? detectDetails(profileText, details.extra) : [];
+}
+
 module.exports = {
   PROMPT_LIMIT,
   OwnerCodes,
   applySecurityPatch,
   carriesCode,
   defaultPrompts,
+  guardedDetails,
   newCode,
   normalizeSecurity,
   publicSecurity,
