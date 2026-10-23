@@ -266,6 +266,15 @@
           <div id="security-owner-fixed" class="security-owner-fixed hidden"><code id="security-owner-code">····-····-····</code><button id="security-owner-regenerate" class="button secondary" type="button">New code</button></div>
           <p id="security-guard-status" class="field-hint" role="status">No leaks caught.</p>
         </section>
+        <section class="feature-card security-owner-code security-details" aria-labelledby="security-details-title">
+          <div class="card-heading"><h2 id="security-details-title">Personal details</h2><label class="feature-toggle"><span>Guard my details</span><span class="switch"><input id="security-details-enabled" type="checkbox" checked aria-label="Guard my personal details"><span class="switch-track"></span></span></label></div>
+          <p class="field-hint">Some websites and APIs ask agents to identify the person they work for. Little Bot refuses any call to the web, the browser or an MCP server that carries one of these details, and stops a network command that does, unless you wrote the detail in your own message. Local tools such as memory, files and the calendar are not affected.</p>
+          <p class="field-label">Found in USER.md</p>
+          <p id="security-details-found" class="security-details-found">None</p>
+          <label class="field-label" for="security-details-extra">Also guard · one per line</label>
+          <textarea id="security-details-extra" rows="4" spellcheck="false" placeholder="Your full name, address, usernames or account IDs"></textarea>
+          <div class="settings-actions"><button id="save-security-details" class="button primary" type="button" disabled>Save</button><span id="security-details-saved" class="settings-save-status" role="status"></span></div>
+        </section>
         <div class="security-injected-heading"><h2>Prompts Little Bot adds in the Quick session</h2><p class="field-hint">Little Bot adds these to every Quick session message, before your request. Leave one empty to stop sending it.</p></div>
         <section class="profile-file security-file" aria-labelledby="security-quick-note-title">
           <div class="profile-file-heading"><span class="profile-file-icon"><span class="icon" data-icon="sparkles"></span></span><div><h2 id="security-quick-note-title">Quick session note</h2><code>Quick session only</code></div><span id="security-quick-note-dirty" class="draft-label hidden">Edited</span></div>
