@@ -403,14 +403,6 @@ class GoalExecutor {
     this.controller.changed();
     return { waitingForUser: true, message: 'Your question was saved. This goal step is ending; resume only after the user answers.' };
   }
-  nativeClarification(params) {
-    const questions = params.questions;
-    if (!Array.isArray(questions) || !questions.length || questions.length > 3) throw new Error('Use ask_user with one concise question.');
-    const rows = questions.map(question => questionInput({ question: question?.question,
-      options: (question?.options || []).map(option => typeof option === 'string' ? option : option?.label) }));
-    if (rows.length === 1) return rows[0];
-    return questionInput({ question: rows.map((row, index) => `${index + 1}. ${row.question}${row.options.length ? `\nSuggested answers: ${row.options.join('; ')}` : ''}`).join('\n\n') });
-  }
   async serverRequest(request) {
     const operation = this.active;
     if (!operation || ![operation.threadId, operation.brokerThreadId].filter(Boolean).includes(request.params?.threadId)) return false;
@@ -426,27 +418,7 @@ class GoalExecutor {
           operation.questionAcknowledged = true; this.interrupt(operation).catch(() => {});
         } else if (!operation.clarification && operation.actionIds.size >= operation.remaining.actions) this.stop('Goal reached its action budget.').catch(() => {});
       }
-    } else if (method === 'item/permissions/requestApproval') await this.client.respond(id, { permissions: {}, scope: 'turn' });
-    else if (method === 'mcpServer/elicitation/request') await this.client.respond(id, { action: 'decline', content: null });
-    else if (['item/tool/requestUserInput', 'tool/requestUserInput'].includes(method)) {
-      if (params.threadId !== operation.threadId || operation.terminal || (params.turnId && params.turnId !== operation.turnId)) await this.client.respond(id, { answers: {} });
-      else {
-        const requestKey = `native:${id}`;
-        try {
-          const pending = this.requestClarification(operation, this.nativeClarification(params), requestKey);
-          operation.calls.set(requestKey, pending); await pending;
-        }
-        catch (error) {
-          if (!operation.clarification) { await this.client.reject(id, safe(error.message)); return true; }
-        }
-        try { await this.client.respond(id, { answers: {} }); }
-        finally {
-          if (operation.clarification && operation.questionRequestKey === requestKey) {
-            operation.questionAcknowledged = true; this.interrupt(operation).catch(() => {});
-          }
-        }
-      }
-    }
+    } else if (method === 'mcpServer/elicitation/request') await this.client.respond(id, { action: 'decline', content: null });
     else if (['item/commandExecution/requestApproval', 'item/fileChange/requestApproval', 'item/mcpToolCall/requestApproval'].includes(method)) await this.client.respond(id, { decision: 'decline' });
     else await this.client.reject(id, 'This request is unavailable to an autonomous goal.');
     return true;

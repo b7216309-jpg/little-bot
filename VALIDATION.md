@@ -1,3 +1,19 @@
+# Version 0.45.1 verification
+
+0.45.1 fills the gaps found in the new engine after 0.45.0 shipped.
+
+## Changed
+- **Live command output.** What a command prints shows in the timeline while it runs, as it did with Codex. The model still gets the whole output when the command returns.
+- **MCP forms.** A server that asks the user to fill a form during a call (elicitation) now reaches the existing form in a conversation; before, the engine refused it. Background work and Plan mode decline it. Time spent on the form does not count toward the call's timeout.
+- **MCP startup.** A thread's servers start together, with 30 s each by default (was 8 s), since `npx` and `uvx` can download a server on its first start.
+- **Removed:** handlers for events and requests only Codex sent (permission requests, its question tool, plan items, reasoning summaries, web search items), and the goal runner's adapter for Codex's question tool.
+- **Docs:** the README no longer offers a Codex connection, and the Usage page no longer mentions Codex's request headers.
+
+## Checked
+- **Main's CI after 0.45.0 failed** on four engine tests: the runner was loaded, PowerShell took over 10 s to start, and the commands came back still running (the PR's own run had passed). Commands that should finish now wait up to 2 minutes in the tests, and the MCP test no longer hits the old 8 s startup limit.
+- **New engine tests:** a command's output arrives while it runs, and an MCP server's form reaches the app, with the answer going back to the server.
+- **Full suite:** syntax, 198 Node tests and both Electron tests.
+
 # Version 0.45.0 verification
 
 0.45.0 replaces the Codex CLI app-server with Little Bot's own engine ([src/engine](src/engine/index.cjs), [system guide](docs/system-guide/19-engine.md)).

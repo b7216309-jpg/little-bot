@@ -65,10 +65,12 @@ class ShellSessions {
   }
 
   _session(child) {
-    const session = { id: this.nextId++, child, unread: '', exited: false, exitCode: null, startedAt: Date.now() };
+    const session = { id: this.nextId++, child, unread: '', exited: false, exitCode: null, startedAt: Date.now(), onOutput: null };
     const append = chunk => {
       session.unread += chunk;
       if (session.unread.length > BUFFER_CHARS) session.unread = session.unread.slice(-BUFFER_CHARS);
+      // Live output for the timeline; CLIXML is left to the decoded result.
+      if (session.onOutput && !/#< CLIXML|<\/?Objs|<S S=/.test(chunk)) session.onOutput(chunk);
     };
     child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
     child.stdout.on('data', append); child.stderr.on('data', append);
@@ -81,8 +83,9 @@ class ShellSessions {
   }
 
   // Waits until the session exits, the wait ends or the turn stops, then returns what it printed since last read.
-  async _collect(session, { yieldMs, maxChars, signal }) {
+  async _collect(session, { yieldMs, maxChars, signal, onOutput }) {
     const wait = Math.min(MAX_YIELD_MS, Math.max(250, Number.isFinite(yieldMs) ? yieldMs : DEFAULT_YIELD_MS));
+    session.onOutput = onOutput || null;
     let stopped = Boolean(signal?.aborted), timer, onAbort;
     if (!stopped) await new Promise(resolve => {
       timer = setTimeout(resolve, wait);
@@ -91,6 +94,7 @@ class ShellSessions {
       session.closed.then(resolve);
     });
     clearTimeout(timer);
+    session.onOutput = null;
     if (onAbort) signal?.removeEventListener('abort', onAbort);
     if (stopped && !session.exited) {
       await killTree(session.child);
@@ -104,7 +108,7 @@ class ShellSessions {
     return { sessionId: session.exited ? null : session.id, exitCode: session.exited ? session.exitCode : null, output: text, truncated, wallMs, stopped };
   }
 
-  async exec({ command, cwd, yieldMs, maxChars, signal }) {
+  async exec({ command, cwd, yieldMs, maxChars, signal, onOutput }) {
     if (typeof command !== 'string' || !command.trim()) throw new Error('Give the command to run.');
     if (this.sessions.size >= MAX_SESSIONS) {
       const oldest = this.sessions.values().next().value;
@@ -112,17 +116,17 @@ class ShellSessions {
     }
     const session = this._session(launch(command, cwd));
     this.sessions.set(session.id, session);
-    return this._collect(session, { yieldMs, maxChars, signal });
+    return this._collect(session, { yieldMs, maxChars, signal, onOutput });
   }
 
-  async write({ sessionId, chars = '', yieldMs, maxChars, signal }) {
+  async write({ sessionId, chars = '', yieldMs, maxChars, signal, onOutput }) {
     const session = this.sessions.get(Number(sessionId));
     if (!session) throw new Error(`No running session ${sessionId}. It finished or was stopped; run the command again.`);
     if (chars) {
       if (!session.child.stdin.writable) throw new Error('This session no longer accepts input.');
       session.child.stdin.write(chars);
     }
-    return this._collect(session, { yieldMs: yieldMs ?? (chars ? 2000 : DEFAULT_YIELD_MS), maxChars, signal });
+    return this._collect(session, { yieldMs: yieldMs ?? (chars ? 2000 : DEFAULT_YIELD_MS), maxChars, signal, onOutput });
   }
 
   async kill(sessionId) {

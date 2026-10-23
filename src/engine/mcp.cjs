@@ -2,7 +2,7 @@
 
 // A small MCP client: local servers over stdio (one JSON message per line) and remote servers over Streamable HTTP,
 // with OAuth sign-in (discovery, dynamic client registration, PKCE, loopback redirect, refresh). Only tools are
-// used: list, call and the list-changed notification.
+// used: list, call, the list-changed notification, and the forms a server asks the user to fill during a call.
 
 const { spawn } = require('node:child_process');
 const crypto = require('node:crypto');
@@ -151,6 +151,7 @@ class McpConnection {
     this.error = null;
     this.pending = new Map();
     this.nextId = 1;
+    this.elicitors = [];
   }
   async start() {
     const config = this.config;
@@ -163,8 +164,9 @@ class McpConnection {
     }
     this.transport.on('message', message => this._receive(message));
     this.transport.on('close', error => this._closed(error));
-    const timeout = Math.max(8, Number(config.startup_timeout_sec) || 0) * 1000;
-    const result = await this.request('initialize', { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: CLIENT_INFO }, timeout);
+    // npx and uvx can spend a while downloading a server on its first start.
+    const timeout = (Number(config.startup_timeout_sec) > 0 ? Number(config.startup_timeout_sec) : 30) * 1000;
+    const result = await this.request('initialize', { protocolVersion: PROTOCOL_VERSION, capabilities: { elicitation: {} }, clientInfo: CLIENT_INFO }, timeout);
     if (this.transport instanceof HttpTransport) this.transport.protocolVersion = result?.protocolVersion || PROTOCOL_VERSION;
     await this.notify('notifications/initialized');
     this.status = 'connected';
@@ -173,7 +175,8 @@ class McpConnection {
   _receive(message) {
     if (!object(message)) return;
     if (message.method && message.id !== undefined) {
-      // Requests from the server: answer pings and roots; sampling and elicitation are not offered.
+      if (message.method === 'elicitation/create') { this._elicit(message); return; }
+      // Other requests from the server: answer pings and roots; sampling is not offered.
       const result = message.method === 'ping' ? {} : message.method === 'roots/list' ? { roots: [] } : null;
       this.transport.send(result ? { jsonrpc: '2.0', id: message.id, result } : { jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'Not supported by Little Bot.' } }).catch(() => {});
       return;
@@ -187,6 +190,19 @@ class McpConnection {
     if (message.error) pending.reject(new Error(message.error.message || 'The MCP server returned an error.'));
     else pending.resolve(message.result);
   }
+  // A form goes to whoever is waiting on this server's latest tool call; with no call waiting it is declined.
+  // Time spent on the form does not count toward the call's timeout.
+  async _elicit(message) {
+    const elicit = this.elicitors.at(-1);
+    let result = { action: 'decline' };
+    if (elicit) {
+      for (const pending of this.pending.values()) clearTimeout(pending.timer);
+      try { result = await elicit(object(message.params) ? message.params : {}); }
+      catch { result = { action: 'cancel' }; }
+      finally { for (const pending of this.pending.values()) pending.arm(); }
+    }
+    this.transport.send({ jsonrpc: '2.0', id: message.id, result }).catch(() => {});
+  }
   _closed(error) {
     this.status = this.status === 'authenticationRequired' ? this.status : 'failed';
     this.error = error?.message || 'The MCP server closed.';
@@ -196,13 +212,18 @@ class McpConnection {
   request(method, params, timeoutMs = 60000, signal) {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
+      const entry = { resolve, reject, timer: null };
       const fail = error => {
         if (!this.pending.has(id)) return;
-        this.pending.delete(id); clearTimeout(timer); reject(error);
+        this.pending.delete(id); clearTimeout(entry.timer); reject(error);
       };
-      const timer = setTimeout(() => fail(new Error(`The MCP server did not answer ${method} in ${Math.round(timeoutMs / 1000)} s.`)), timeoutMs);
-      timer.unref?.();
-      this.pending.set(id, { resolve, reject, timer });
+      entry.arm = () => {
+        clearTimeout(entry.timer);
+        entry.timer = setTimeout(() => fail(new Error(`The MCP server did not answer ${method} in ${Math.round(timeoutMs / 1000)} s.`)), timeoutMs);
+        entry.timer.unref?.();
+      };
+      entry.arm();
+      this.pending.set(id, entry);
       signal?.addEventListener('abort', () => {
         fail(new Error('Stopped.'));
         this.notify('notifications/cancelled', { requestId: id, reason: 'Stopped by the user.' }).catch(() => {});
@@ -229,9 +250,11 @@ class McpConnection {
     this.tools = tools;
     return tools;
   }
-  callTool(name, args, { signal, timeoutMs } = {}) {
+  async callTool(name, args, { signal, timeoutMs, elicit } = {}) {
     const timeout = (Number(this.config.tool_timeout_sec) || 60) * 1000;
-    return this.request('tools/call', { name, arguments: object(args) ? args : {} }, timeoutMs || timeout, signal);
+    if (elicit) this.elicitors.push(elicit);
+    try { return await this.request('tools/call', { name, arguments: object(args) ? args : {} }, timeoutMs || timeout, signal); }
+    finally { if (elicit) this.elicitors.splice(this.elicitors.indexOf(elicit), 1); }
   }
   async close() {
     this.status = 'failed';
