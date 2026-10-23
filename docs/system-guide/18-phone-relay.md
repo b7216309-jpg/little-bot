@@ -14,9 +14,9 @@ The [relay](../../src/relay.cjs) is an optional local web server (port 8787 by d
 
 ## Pairing and security
 
-- Settings › Pair a phone shows a QR code holding `http(s)://<pc>:<port>/#pair=<code>`. The code works once, expires after 10 minutes, and is destroyed after 5 wrong attempts.
+- Settings › Pair a phone shows a QR code holding `http(s)://<pc>:<port>/#pair=<code>`. The code works once and expires after 10 minutes. Wrong guesses do not cancel it (72 random bits cannot be guessed, and cancelling would let anyone on the network cancel the owner's pairing).
 - Pairing gives the phone its own random 256-bit token. Only its SHA-256 hash is stored, in the base `data/relay.json` (shared by all profiles, so the phone follows the running one), which is encrypted with Windows secure storage like the conversation. Up to 5 phones can be paired, and each can be removed from Settings (or unpairs itself from its menu).
-- Every API call needs the token. Twenty failed attempts from one address lock it out for 10 minutes. Request bodies are capped at 64 KB, and the web app is served with a strict Content-Security-Policy and no CORS headers.
+- Every API call needs the token. Twenty wrong pairing codes from one address lock pairing out for 10 minutes. A missing or revoked phone token only gets a 401: tokens are 256 random bits, and counting them would lock every phone out behind Tailscale, where all clients share 127.0.0.1. A request body that has not arrived after 60 seconds is cut off. Request bodies are capped at 64 KB, and the web app is served with a strict Content-Security-Policy and no CORS headers.
 - Answering `ask_user` questions from the phone is always allowed. Approving other actions (commands, file changes) is a separate opt-in that is off by default; requests that need a form (MCP) must be answered on the PC.
 - The server listens on all interfaces so a phone on the same Wi-Fi can reach it. Windows asks once whether to allow Little Bot on private networks. Plain Wi-Fi traffic is not encrypted; use Tailscale for encryption and for access away from home.
 

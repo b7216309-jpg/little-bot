@@ -26,7 +26,17 @@ class Profiles {
   }
   read() {
     let saved = {};
-    try { saved = JSON.parse(fs.readFileSync(this.file, 'utf8')); } catch { /* No registry yet: only the main profile exists. */ }
+    try { saved = JSON.parse(fs.readFileSync(this.file, 'utf8')); }
+    catch (error) {
+      // No registry yet: only the main profile exists. A damaged one must not hide profiles (the next save
+      // would drop them for good), so the profile folders are listed instead and the damaged file is kept.
+      if (error.code !== 'ENOENT') {
+        try { fs.copyFileSync(this.file, `${this.file}.corrupt-${Date.now()}`); } catch { /* Best effort. */ }
+        let folders = [];
+        try { folders = fs.readdirSync(path.join(this.base, 'Profiles'), { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name); } catch { /* No other profiles. */ }
+        saved = { active: MAIN_ID, profiles: [{ id: MAIN_ID, name: 'Little Bot' }, ...folders.map(id => ({ id, name: 'Recovered profile' }))] };
+      }
+    }
     const profiles = [];
     for (const item of Array.isArray(saved?.profiles) ? saved.profiles : []) {
       if (typeof item?.id !== 'string' || !/^[a-z0-9]{1,40}$/.test(item.id) || profiles.some(profile => profile.id === item.id)) continue;

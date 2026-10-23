@@ -94,3 +94,16 @@ test('each personality fits SOUL.md and its prompt keeps the app rules', t => {
   assert.match(files.user, /About the user/, 'USER.md still starts from the default');
   assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'Profiles', created.id, 'data', 'state.json'), 'utf8')).settings.systemPrompt, 'MOCHI PROMPT');
 });
+
+test('a damaged profiles.json keeps every profile folder listed and is preserved', t => {
+  const root = base(t);
+  const first = new Profiles({ base: root });
+  const nova = first.create({ name: 'Nova' });
+  const work = first.create({ name: 'Work' });
+  fs.writeFileSync(path.join(root, 'profiles.json'), '{"profiles": [{"id": "main"');
+  const reopened = new Profiles({ base: root });
+  assert.deepEqual(reopened.data.profiles.map(profile => profile.id).sort(), [MAIN_ID, nova.id, work.id].sort());
+  reopened.rename(nova.id, 'Nova again');
+  assert.deepEqual(new Profiles({ base: root }).data.profiles.map(profile => profile.id).sort(), [MAIN_ID, nova.id, work.id].sort(), 'the next save keeps them');
+  assert.equal(fs.readdirSync(root).some(name => name.startsWith('profiles.json.corrupt-')), true);
+});

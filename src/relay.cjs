@@ -15,7 +15,6 @@ const phoneContext = require('./phone-context.cjs');
 const DEFAULT_PORT = 8787;
 const MAX_DEVICES = 5;
 const PAIR_MS = 10 * 60 * 1000;
-const PAIR_ATTEMPTS = 5;
 const MAX_BODY = 64 * 1024;
 const MAX_UPLOAD_BODY = 28 * 1024 * 1024; // a 20 MB attachment, base64-encoded
 const PHONE_ACTIONS = ['alarm', 'timer', 'ring', 'navigate'];
@@ -68,7 +67,11 @@ class Relay {
   load() {
     let data = {};
     try { if (fs.existsSync(this.file)) data = JSON.parse(this.protector.decryptString(Buffer.from(fs.readFileSync(this.file, 'utf8'), 'base64'))); }
-    catch (error) { this.onError('relay-load', error); }
+    catch (error) {
+      // The next save starts the relay settings over; the unreadable file is kept beside it first.
+      this.onError('relay-load', error);
+      try { fs.copyFileSync(this.file, `${this.file}.unreadable-${Date.now()}`); } catch { /* Best effort. */ }
+    }
     const devices = (Array.isArray(data.devices) ? data.devices : []).filter(item => item && typeof item.id === 'string' && typeof item.tokenHash === 'string').slice(0, MAX_DEVICES)
       .map(item => ({ id: item.id, name: cleanName(item.name), tokenHash: item.tokenHash, createdAt: Number(item.createdAt) || Date.now(),
         lastSeenAt: Number(item.lastSeenAt) || 0, ...(item.push?.endpoint ? { push: item.push } : {}) }));
@@ -145,7 +148,7 @@ class Relay {
     if (!base) throw new Error('This PC has no network address a phone can reach.');
     const url = `${base}/#pair=${code}`;
     const qr = qrcode(0, 'M'); qr.addData(url); qr.make();
-    this.pairing = { code, url, expiresAt: Date.now() + PAIR_MS, attempts: 0,
+    this.pairing = { code, url, expiresAt: Date.now() + PAIR_MS,
       qr: `data:image/svg+xml;base64,${Buffer.from(qr.createSvgTag({ cellSize: 6, margin: 3, scalable: true })).toString('base64')}` };
     return this.publicState();
   }
@@ -279,7 +282,12 @@ class Relay {
   }
   async body(request, max = MAX_BODY) {
     let size = 0; const chunks = [];
-    for await (const chunk of request) { size += chunk.length; if (size > max) throw Object.assign(new Error('Too large.'), { status: 413 }); chunks.push(chunk); }
+    // Event streams keep their connection open, so the server has no request timeout: a body that trickles
+    // in is cut off here instead of holding a connection forever.
+    const timer = setTimeout(() => request.destroy(Object.assign(new Error('The request body took too long.'), { status: 408 })), 60000);
+    try {
+      for await (const chunk of request) { size += chunk.length; if (size > max) throw Object.assign(new Error('Too large.'), { status: 413 }); chunks.push(chunk); }
+    } finally { clearTimeout(timer); }
     try { const value = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
     catch { throw Object.assign(new Error('Send JSON.'), { status: 400 }); }
   }
@@ -317,11 +325,16 @@ class Relay {
       return fs.createReadStream(this.apkFile).pipe(response);
     }
     if (!url.pathname.startsWith('/api/')) return this.json(response, 404, { error: 'Not found.' });
-    if (this.limited(request)) return this.json(response, 429, { error: 'Too many failed attempts. Wait ten minutes.' });
     try {
-      if (url.pathname === '/api/pair' && request.method === 'POST') return this.json(response, 200, this.pair(await this.body(request), request));
+      // Only pairing is rate limited, per address. A phone token is 256 random bits, so a forgotten or revoked
+      // phone retrying is no attack; counting it would lock out every phone behind Tailscale, where all
+      // clients share 127.0.0.1.
+      if (url.pathname === '/api/pair' && request.method === 'POST') {
+        if (this.limited(request)) return this.json(response, 429, { error: 'Too many failed attempts. Wait ten minutes.' });
+        return this.json(response, 200, this.pair(await this.body(request), request));
+      }
       const device = this.device(request);
-      if (!device) { this.failed(request); return this.json(response, 401, { error: 'This phone is not paired. Pair it again from Little Bot settings.' }); }
+      if (!device) return this.json(response, 401, { error: 'This phone is not paired. Pair it again from Little Bot settings.' });
       if (url.pathname === '/api/events' && request.method === 'GET') return this.stream(request, response, device, url.searchParams.get('background') === '1');
       if (url.pathname === '/api/state' && request.method === 'GET') return this.json(response, 200, this.snapshot());
       if (url.pathname === '/api/push-key' && request.method === 'GET') return this.json(response, 200, { key: webPush.vapidPublicKey(this.config.vapid) });
@@ -346,8 +359,9 @@ class Relay {
     if (!pairing || pairing.expiresAt < Date.now()) { this.failed(request); throw Object.assign(new Error('This pairing code expired. Show a new one in Little Bot settings.'), { status: 403 }); }
     const given = Buffer.from(String(input.code || '')), expected = Buffer.from(pairing.code);
     if (given.length !== expected.length || !crypto.timingSafeEqual(given, expected)) {
+      // The code stays valid: its 72 random bits cannot be guessed, and cancelling it on wrong tries would let
+      // anyone on the network cancel the owner's pairing.
       this.failed(request);
-      if (++pairing.attempts >= PAIR_ATTEMPTS) this.pairing = null;
       throw Object.assign(new Error('Wrong pairing code.'), { status: 403 });
     }
     if (this.config.devices.length >= MAX_DEVICES) throw new Error(`Up to ${MAX_DEVICES} phones can be paired.`);

@@ -1,6 +1,82 @@
+# Version 0.42.0 verification
+
+0.42.0 fixes what a first full audit of the app found. Four reviewers read the whole code base, one area each: interface, core and model plumbing, goals and schedules, and security, web, phone relay and memory. Each finding was checked against the code before it was fixed. One was dropped: a goal retry resetting its budget is by design and tested, so GOALS.md now says so.
+
+## Fixed
+
+**Security**
+- **Web tools:** a redirect to a public name that points at this PC or the home network (`localtest.me`, a rebinding domain) was followed, because redirect targets were checked by name only. Every hop is now looked up before it is followed. The web partition also refuses every request a rendered page makes (scripts, frames, sockets) to a local or private address.
+- **Page watches:** they used a looser address check of their own that let through `http://router/`, Tailscale `100.x`, IPv6 forms of 127.0.0.1 and `.lan` names, and they never looked names up. They now share the web tools' rule, look up every hop, and read at most 2 MiB whatever the server claims.
+- **Leak guard:** it now also catches the owner code in full-width or look-alike letters, reversed, escaped, in base64 or hex, or split across two fields of one call.
+- **Memory:** a preference or procedure is learned only from the user's own messages. Text in a page, a file or a command's output asking to be remembered is dropped.
+- **Night shift:** calendar notes it prepares for are framed as data, not instructions.
+- **Standing intents:** an event no longer restarts a goal you paused or one waiting for its effect review, and nothing starts while Background is off.
+
+**Lost work**
+- A ` ```json ` example with a `"name"` field, such as a package.json, vanished from the answer and became a failing tool call. A fenced block is now a call only when it names one of the request's tools.
+- Stopping a turn while a slow tool ran, then sending a new message, let the late result end the new turn. The engine's own release of the request is now respected, and Stop also cancels running web searches and reads.
+- One failed save as a goal started (a file held by an antivirus scan) froze the goal runner, and with it every chat message, until restart. Saves now retry briefly, and a failed one can no longer leave the runner stuck.
+- A chat message used to pause the running goal for good. It now steps aside and continues afterwards, checking its earlier work first.
+- An unreadable `state.json` made startup delete every attachment file. Pruning now waits until the state loads whole.
+- Restoring a backup skipped the normal quit path, so memories still in the database journal were missing from both the restore and its safety copy. The quit path now runs, and the journal is kept in the safety copy.
+- An unreadable `profiles.json` hid the other profiles, and the next save dropped them. The profile folders are listed instead, and the damaged file is kept.
+- A message starting with `/` that was not a command, such as `/etc/hosts is wrong`, was deleted. It is now sent, and an unknown command keeps its draft.
+- Deleting a saved session overwrote the main conversation's unsent draft. Keeping a Quick session moved the text being typed into the next Quick session.
+- A goal checkpoint over 4,000 characters threw the whole result away; it is shortened now.
+
+**Startup and background work**
+- If the very first engine start failed and the restart succeeded, the scheduler, heartbeat, goals, night shift, phone relay, page watches and daily backups stayed off until relaunch. They now start whenever the engine becomes ready, and one failing service no longer keeps the others off.
+- One unreadable starter skill, or a full skill list, stopped every starter skill installing, and the error was never shown. Each skill now installs on its own, and anything skipped is logged and shown.
+- A state that cannot be decrypted, or any other startup failure, now says why in a dialog instead of exiting silently.
+- The quit sequence runs every step even if one fails, and gives up after 20 seconds instead of leaving an invisible process.
+- A second copy of the app no longer starts opening the same files before it hands over.
+
+**Goals, schedules and phone**
+- `/goal ... --check npm test` checked only `npm`. An unquoted check now runs to the next option.
+- Night shift stopped chaining a goal after about ten of its runs.
+- Quitting during a goal step raised a false "blocked" alert.
+- A file-triggered task's next step and retries ran only on the next file change.
+- Time budgets for `/goal` and goal steps no longer count time the PC slept.
+- Moving a calendar event's start reset its length to one hour.
+- Behind Tailscale HTTPS, one stale phone token locked every phone out for ten minutes, and anyone on the network could cancel a pairing code with five wrong guesses. Only pairing is rate limited now, and wrong guesses do not cancel the code.
+- A deleted session's engine transcript is deleted with it.
+
+**Smaller**
+- The model server's own error message now reaches the engine for HTTP 4xx, and a context overflow is reported as one.
+- An emoji is no longer split between streamed chunks.
+- Attachment names of 160 or more characters work.
+- A clipboard capture is no longer pruned the moment it is saved.
+- Pages that differ only by port are no longer one cache entry.
+- Memory search keeps parsed vectors between searches: about 40 ms instead of 380 ms over 4,000 records. Search queries now go before background indexing, and a failed model load is retried.
+- Interface:
+  - In widget mode, Esc closes the `/` menu or goal drawer without collapsing the widget.
+  - Changing a standing intent's action type no longer selects "[object Event]" as its target.
+  - Memory search settings being edited survive state updates.
+  - Usage range buttons work while the chart is loading.
+  - Pasting cells from Excel or text from Word pastes the text.
+  - Files in a deleted session's draft are released.
+
+## Checked
+
+- **Tests:** 188 of 188 Node tests pass. The new ones cover:
+  - Web: DNS-checked redirects, page watches, the partition filter.
+  - Model adapter: JSON examples, emoji splits, HTTP 400 messages.
+  - Controller: late tool results and Stop.
+  - Data: transcripts, attachment names, restore journals, capture pruning, profiles, starter skills.
+  - Goals: the save freeze, stepping aside, long checkpoints, quitting, standing intents, sleep time, calendar moves, `/goal --check`.
+  - Leak guard: disguised codes.
+  - Interface: slash parsing.
+- **Electron tests:** pass. A separate Electron run confirmed that public pages, redirects and rendering still work, and that direct requests and rendered pages to 127.0.0.1 are refused.
+
+## Not covered
+
+- **Draft fixes** (session delete, Keep, Quick end): checked by reading the code, not in a running app.
+- **Leak guard:** a code cut into pieces sent in separate calls is still not caught.
+- **Engine transcripts:** retired threads of the main conversation are kept.
+
 # Version 0.41.0 verification
 
-0.41.0 adds `/skill`, so a skill can be used without typing `. Typing `/skill ` lists the enabled skills with their descriptions and narrows as you type. Picking one puts `$name` in front of the message, and `/skill name message` sends the message with that skill. With no skill on, the menu offers to open Extensions → Skills. `$name` still works.
+0.41.0 adds `/skill`, so a skill can be used without typing `$`. Typing `/skill ` lists the enabled skills with their descriptions and narrows as you type. Picking one puts `$name` in front of the message, and `/skill name message` sends the message with that skill. With no skill on, the menu offers to open Extensions → Skills. `$name` still works.
 
 Checked by `test/slash-commands.test.cjs` (skill matching by name and description, closing once the message starts, reading the name and message; 167 of 167 Node tests pass) and by rendering the list, a narrowed list, a picked skill and the no-skills hint in Electron with demo data.
 

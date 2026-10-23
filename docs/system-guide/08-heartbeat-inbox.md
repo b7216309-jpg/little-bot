@@ -53,7 +53,7 @@ The engine thread never contains these messages. The next user message therefore
 - `activity.long_session` fires after three hours, and `user.returned` after 90 minutes idle.
 - These events pull a Wild heartbeat forward, with the reason.
 
-**Web watches** ([web-watch.cjs](../../src/web-watch.cjs)) are pages that the user, the chat model or a Wild heartbeat register with `web_watch`. Each is checked every 6–168 hours while the app is open.
+**Web watches** ([web-watch.cjs](../../src/web-watch.cjs)) are pages that the user, the chat model or a Wild heartbeat register with `web_watch`. Each is checked every 6–168 hours while the app is open. Watches follow the web tools' address rule: no local, private, Tailscale or dotless names, and every address (redirects included) is looked up before it is fetched.
 - Only public http(s) addresses are allowed. Redirects are followed by hand, and every hop is rechecked.
 - The first check is a baseline. A later change posts a "web watch" message with the new text.
 

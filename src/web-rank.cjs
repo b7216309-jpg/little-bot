@@ -38,7 +38,8 @@ function normalizeUrl(value) {
     url.hostname = url.hostname.toLowerCase().replace(/^www\d?\./, '');
     for (const name of [...url.searchParams.keys()]) if (TRACKING.test(name)) url.searchParams.delete(name);
     const pathname = url.pathname.replace(/\/(?:index\.html?)?$/i, '') || '/';
-    return `${url.hostname}${pathname}${url.search}`;
+    // http and https of one page are one result; another port is another site.
+    return `${url.hostname}${url.port ? `:${url.port}` : ''}${pathname}${url.search}`;
   } catch { return null; }
 }
 const hostOf = value => { try { return new URL(value).hostname.toLowerCase().replace(/^www\d?\./, ''); } catch { return ''; } };

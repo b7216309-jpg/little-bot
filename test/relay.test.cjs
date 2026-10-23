@@ -175,7 +175,11 @@ test('pairing gives a phone its own token; wrong codes and missing tokens are re
   assert.equal((await fetch(`${base}/api/state`)).status, 401);
   relay.startPairing();
   for (let i = 0; i < 5; i++) assert.equal((await fetch(`${base}/api/pair`, { method: 'POST', body: JSON.stringify({ code: 'wrong-code-123' }) })).status, 403);
-  assert.equal(relay.pairing, null, 'five wrong codes burn the pairing code');
+  assert.notEqual(relay.pairing, null, 'someone else guessing cannot cancel the owner’s code');
+  for (let i = 0; i < 30; i++) assert.equal((await fetch(`${base}/api/state`, { headers: { Authorization: `Bearer ${'x'.repeat(43)}` } })).status, 401);
+  for (let i = 0; i < 15; i++) await fetch(`${base}/api/pair`, { method: 'POST', body: JSON.stringify({ code: 'wrong-code-123' }) });
+  assert.equal((await fetch(`${base}/api/pair`, { method: 'POST', body: JSON.stringify({ code: 'wrong-code-123' }) })).status, 429, 'twenty wrong codes from one address wait ten minutes');
+  relay.failures.clear();
   const token = await pair(relay, base);
   const state = await fetch(`${base}/api/state`, { headers: { Authorization: `Bearer ${token}` } });
   assert.equal(state.status, 200);
@@ -768,4 +772,31 @@ test('a stray closing think tag before the answer moves the draft into reasoning
   assert.match(stray.find(item => item.type === 'reasoning').content[0].text, /codename\.You gave me SAFFRON-7/);
   const plain = await output([chatChunk({ content: 'No tags here.' }), chatChunk({}, 'stop')]);
   assert.equal(plain.find(item => item.type === 'message').content[0].text, 'No tags here.');
+});
+
+test('a JSON example in an answer stays in the answer, and an emoji is never split between deltas', async () => {
+  const tools = new Map([['exec_command', { type: 'function' }], ['lookup', { type: 'function' }]]);
+  const example = 'Here is a package.json:\n```json\n{\n  "name": "my-app",\n  "version": "1.0.0"\n}\n```\nHope that helps.';
+  const repairs = [];
+  const { events } = await collectAdapter([chatChunk({ content: example }, 'stop')], { toolKinds: tools, onToolRepair: repair => repairs.push(repair) });
+  const output = events.find(event => event.type === 'response.completed').response.output;
+  assert.equal(output.some(item => item.type === 'function_call'), false);
+  assert.equal(output.find(item => item.type === 'message').content[0].text, example);
+  assert.deepEqual(repairs, [], 'no bogus lesson either');
+
+  const emoji = await collectAdapter([chatChunk({ content: 'x'.repeat(10) + '😀' }), chatChunk({ content: 'y'.repeat(127) }), chatChunk({ content: 'tail' }, 'stop')]);
+  const deltas = emoji.events.filter(event => event.type === 'response.output_text.delta').map(event => event.delta);
+  assert.equal(deltas.some(delta => /[\ud800-\udbff]$/.test(delta) || /^[\udc00-\udfff]/.test(delta)), false);
+  assert.equal(deltas.join(''), 'x'.repeat(10) + '😀' + 'y'.repeat(127) + 'tail');
+});
+
+test('an HTTP 400 from the model server reaches the engine with its message, and an overflow is named as one', async t => {
+  const mock = await startStrataMock(t, async ({ response }) => {
+    response.writeHead(400, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ error: { code: 400, message: 'the request exceeds the available context size, try increasing it', type: 'exceed_context_size_error' } }));
+  });
+  const raw = await (await fetch(`${mock.endpoint}/responses`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(localRequest([responseInput('hi')])) })).text();
+  const failed = raw.split(/\r?\n\r?\n/).filter(block => block.startsWith('data: ')).map(block => JSON.parse(block.slice(6))).find(event => event.type === 'response.failed');
+  assert.equal(failed.response.error.code, 'context_length_exceeded');
+  assert.match(failed.response.error.message, /HTTP 400: the request exceeds the available context size/);
 });

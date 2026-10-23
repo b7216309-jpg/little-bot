@@ -186,3 +186,34 @@ test('a cancelled call stops queued work', async () => {
   await assert.rejects(pending, /cancelled/);
   web.close();
 });
+
+test('a redirect to a public name that points at this PC is refused, in the web tools and the page watcher', async () => {
+  const lookupImpl = async host => [{ address: host === 'localtest.me' ? '127.0.0.1' : '93.184.215.14', family: 4 }];
+  const fetchImpl = async url => url.startsWith('https://public.example/')
+    ? new Response(null, { status: 302, headers: { location: 'http://localtest.me:8080/admin' } })
+    : new Response('<html><body><p>secret admin page</p></body></html>', { status: 200, headers: { 'content-type': 'text/html' } });
+  const web = new WebServices({ fetchImpl, lookupImpl, workers: 1 });
+  try { await assert.rejects(web.call('web_scrape', { url: 'https://public.example/r' }), /local or private network/); }
+  finally { web.close(); }
+
+  const { WebWatcher, safeUrl } = require('../src/web-watch.cjs');
+  for (const address of ['http://[::ffff:127.0.0.1]/', 'http://100.64.0.1/', 'http://router/', 'http://printer.lan/', 'http://0.1.2.3/']) assert.throws(() => safeUrl(address), /Local and private/, address);
+  const store = { data: { webWatches: [] }, save() {} };
+  const watcher = new WebWatcher({ store, fetchImpl, lookupImpl });
+  watcher.add({ url: 'https://public.example/page' });
+  const result = await watcher.check(store.data.webWatches[0]);
+  assert.match(result.error, /Local and private/);
+  assert.equal(store.data.webWatches[0].hash, '', 'nothing from the private page is kept');
+});
+
+test('the browser partition lets requests through only to public addresses', async () => {
+  const { publicTarget } = require('../src/web-electron.cjs');
+  const session = { resolveHost: async host => ({ endpoints: [{ address: host === 'rebind.example' ? '192.168.1.1' : '93.184.215.14' }] }) };
+  const verdicts = new Map();
+  const allowed = url => publicTarget(session, verdicts, url);
+  assert.equal(await allowed('https://example.com/app.js'), true);
+  assert.equal(await allowed('wss://example.com/socket'), true);
+  assert.equal(await allowed('data:text/plain,hi'), true);
+  for (const url of ['http://127.0.0.1:8080/v1/models', 'http://[::1]/', 'https://rebind.example/', 'http://router/', 'file:///C:/Windows/win.ini', 'ws://localhost:3000/']) assert.equal(await allowed(url), false, url);
+  assert.equal(normalizeUrl('https://a.com:8443/x') === normalizeUrl('https://a.com/x'), false, 'another port is another page');
+});

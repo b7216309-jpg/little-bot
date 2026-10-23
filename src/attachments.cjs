@@ -20,7 +20,8 @@ const inside = (root, target) => { const relative = path.relative(root, target);
 const protectedName = value => /^(?:\.git|node_modules|\.ssh|\.aws|\.gnupg|\.env(?:\..*)?|auth\.json|credentials(?:\..*)?|secrets?(?:\..*)?|.*vault.*|service-keys(?:\..*)?|id_rsa|id_ed25519)$/i.test(value);
 
 function safeName(value) {
-  const name = path.basename(String(value || 'attachment').replace(/\\/g, '/')).replace(/[<>:"/\\|?*\x00-\x1f\x7f]/g, '_').replace(/[ .]+$/g, '').slice(0, 160);
+  // Trailing spaces and dots go after the cut too, so a name cleaned once comes back unchanged.
+  const name = path.basename(String(value || 'attachment').replace(/\\/g, '/')).replace(/[<>:"/\\|?*\x00-\x1f\x7f]/g, '_').replace(/[ .]+$/g, '').slice(0, 160).replace(/[ .]+$/g, '');
   return !name || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name) ? `attachment${path.extname(name)}` : name;
 }
 
@@ -426,4 +427,4 @@ if (!isMainThread && workerData?.task === 'extract-attachment') {
   extractDocument(workerData).then(result => parentPort.postMessage(result), error => parentPort.postMessage({ text: '', note: /password|encrypted/i.test(error?.message || '') ? 'This document is password-protected. Attach an unlocked copy.' : 'This document could not be read. The original file is still attached.' }));
 }
 
-module.exports = { Attachments, MAX_FILES, MAX_FILE_BYTES, MAX_TURN_BYTES, MAX_STORE_BYTES, MAX_TEXT_CHARS };
+module.exports = { Attachments, safeName, MAX_FILES, MAX_FILE_BYTES, MAX_TURN_BYTES, MAX_STORE_BYTES, MAX_TEXT_CHARS };

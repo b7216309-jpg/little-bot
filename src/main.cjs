@@ -45,13 +45,16 @@ const { randomUUID } = require('node:crypto');
 const companion = require('./companion.cjs');
 const { advanceMissedSchedules, missedCount } = require('./missed-schedules.cjs');
 const { mainChat } = require('./chats.cjs');
+const awakeClock = require('./awake-clock.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'little-bot-attachment', privileges: { standard: true, secure: true, supportFetchAPI: false } }]);
 
 app.setName('Little Bot');
 if (process.env.LITTLE_BOT_DATA_DIR) app.setPath('userData', path.resolve(process.env.LITTLE_BOT_DATA_DIR));
 const launchTime = performance.now();
-if (!app.requestSingleInstanceLock()) app.quit();
+// A second copy only hands over to the first: it must not open the same state, memory and engine files.
+const primaryInstance = app.requestSingleInstanceLock();
+if (!primaryInstance) app.exit(0);
 // The lock stays on the base folder, so one profile runs at a time; each profile then gets its own folder.
 const profiles = new Profiles({ base: app.getPath('userData') });
 app.setPath('userData', profiles.root(profiles.data.active));
@@ -110,6 +113,7 @@ async function runAutomation(automation) {
 }
 
 app.whenReady().then(async () => {
+  if (!primaryInstance) return;
   const stateDir = path.join(app.getPath('userData'), 'data');
   errorLog = new ErrorLog({ root: path.join(stateDir, 'logs'), appVersion: require('../package.json').version });
   const engineHome = path.join(stateDir, 'engine');
@@ -144,8 +148,9 @@ app.whenReady().then(async () => {
   controller.webServices = new WebServices(electronWeb(require('electron')));
   const attachmentReferences = () => store.data.chats.flatMap(chat => chat.messages.flatMap(message => (message.attachments || []).map(item => item.id)));
   controller.attachments = new Attachments({ root: path.join(stateDir, 'attachments'), nativeImage, references: attachmentReferences });
-  // Drafts are not restored across app launches. Keep every saved timeline file.
-  await controller.attachments.prune();
+  // Drafts are not restored across app launches. Keep every saved timeline file. When the saved state could
+  // not be read whole, its chats may come back from the preserved copy: keep every file until then.
+  if (!store.warning) await controller.attachments.prune();
   controller.attachmentStorage = await controller.attachments.storage();
   protocol.handle('little-bot-attachment', async request => {
     try {
@@ -160,7 +165,15 @@ app.whenReady().then(async () => {
   });
   controller.profileFiles = new ProfileFiles({ root: path.join(stateDir, 'profile') });
   controller.profiles = profiles;
-  try { await installBundledSkills(store); } catch (error) { controller.runtime.skillSetupError = cleanError(error); }
+  // Shown once the window is up: a starter skill that could not be installed is otherwise invisible.
+  let skillSetupMessage = '';
+  try {
+    const { skipped } = await installBundledSkills(store);
+    if (skipped.length) {
+      logDiagnostic('starter-skills', new Error(skipped.map(item => `${item.name}: ${item.reason}`).join('; ')));
+      skillSetupMessage = `${skipped.length} starter skill${skipped.length === 1 ? '' : 's'} could not be installed (${skipped.map(item => item.name).join(', ')}): ${skipped[0].reason}`;
+    }
+  } catch (error) { logDiagnostic('starter-skills', error); skillSetupMessage = `The starter skills could not be installed: ${cleanError(error)}`; }
   const extensionFiles = new ExtensionFiles({ root: path.join(stateDir, 'extensions'), store });
   const extensionRuntime = new ExtensionRuntime({ store, client, onChange: () => controller.changed() });
   controller.extensionRuntime = extensionRuntime;
@@ -239,6 +252,8 @@ app.whenReady().then(async () => {
     onChange: () => controller.changed(),
   });
   controller.nightShift = nightShift;
+  powerMonitor.on('suspend', () => awakeClock.suspended());
+  powerMonitor.on('resume', () => awakeClock.resumed());
   powerMonitor.on('lock-screen', () => nightShift.setLocked(true));
   powerMonitor.on('unlock-screen', () => nightShift.setLocked(false));
   eventRuntime = new EventRuntime({ store, scheduler, heartbeat, goals, controller,
@@ -552,7 +567,8 @@ app.whenReady().then(async () => {
     controller.userSendPending++;
     try {
       await nightShift?.ownerReturned('message');
-      if (goals.activeId) await goals.pause(goals.activeId);
+      // The running goal step steps aside for the message and is queued again for when the chat is free.
+      if (goals.activeId) await goals.yieldActive('Stepped aside for your message; it continues when the conversation is free.');
       await controller.waitForUserLane();
       await controller.waitForExtensions();
       if (internal?.queueUntilIdle) {
@@ -711,7 +727,8 @@ app.whenReady().then(async () => {
   register('restoreBackup', ({ id } = {}) => {
     backups.requestRestore(stateDir, id);
     // The files are swapped on the next start, before the Store opens them.
-    setTimeout(() => { app.relaunch(); quitting = true; app.quit(); }, 200);
+    // The normal quit path flushes the state and checkpoints memory before the files are swapped.
+    setTimeout(() => { app.relaunch(); app.quit(); }, 200);
     return { restarting: true };
   });
   register('retryMemoryLearning', ({ id } = {}) => {
@@ -863,24 +880,36 @@ app.whenReady().then(async () => {
   await window.loadFile(rendererFile);
   await desktopWindows.setMode({ mode: desktopWindows.preferences.mode });
   const startup = controller.start();
-  startup.then(() => {
+  // Background work starts once the engine is ready: after the first start, or after the automatic restart
+  // that follows a failed one. One service failing to start does not keep the others off.
+  startup.catch(() => controller.waitForEngineReady()).then(() => {
+    if (quitting || controller.closing) return;
     controller.runtime.startupMs = Math.round(performance.now() - launchTime);
+    const begin = (name, start) => { try { start(); } catch (error) { logDiagnostic(`start:${name}`, error); } };
     const main = mainChat(store.data);
     if (main?.status === 'idle' && flushProactive(main)) controller.changed(true);
-    controller.changed(); eventRuntime.start(); scheduler.start(); heartbeat.start(); goals.start(); nightShift.start();
-    if (store.data.settings.activityAwareness === true) activity.start();
-    webWatcher.start();
+    controller.changed();
+    begin('events', () => eventRuntime.start()); begin('scheduler', () => scheduler.start()); begin('heartbeat', () => heartbeat.start());
+    begin('goals', () => goals.start()); begin('night-shift', () => nightShift.start());
+    if (store.data.settings.activityAwareness === true) begin('activity', () => activity.start());
+    begin('web-watch', () => webWatcher.start());
     relay.start().then(relayChanged).catch(error => logDiagnostic('relay-start', error));
     setTimeout(dailyBackup, 60000).unref?.();
     setInterval(dailyBackup, 6 * 3600000).unref?.();
+    if (skillSetupMessage) controller.emit('event', { type: 'notice', error: true, message: skillSetupMessage });
     if (restoreResult?.restored) controller.emit('event', { type: 'memory', message: `Restored the ${restoreResult.restored} backup. Your previous data was kept as ${restoreResult.safety}.` });
     else if (restoreResult?.error) controller.emit('event', { type: 'memory', error: true, message: restoreResult.error });
     else if (store.memoryWasMissing) {
       logDiagnostic('memory', new Error('The memory database was missing at startup and was recreated.'));
       controller.emit('event', { type: 'memory', error: true, message: 'The memory database was missing and has been recreated, so learned memories are gone. If that was not intended, restore a backup from Memory → Search settings → Backups.' });
     }
-  }).catch(() => {});
-}).catch(error => { logDiagnostic('main:startup', error); console.error(cleanError(error)); app.exit(1); });
+  }).catch(error => logDiagnostic('main:services', error));
+}).catch(error => {
+  logDiagnostic('main:startup', error); console.error(cleanError(error));
+  // Without a window the user would see nothing at all: say why before closing.
+  try { dialog.showErrorBox('Little Bot could not start', cleanError(error)); } catch { /* Shown only when possible. */ }
+  app.exit(1);
+});
 app.on('second-instance', () => { desktopWindows?.show().catch(error => logDiagnostic('display-show', error)); });
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', event => {
@@ -888,5 +917,12 @@ app.on('before-quit', event => {
   event.preventDefault(); quitting = true; scheduler?.stop(); heartbeat?.stop(); eventRuntime?.stop(); activity?.stop(); webWatcher?.stop(); relay?.stop().catch(() => {});
   desktopWindows?.close();
   controller?.webServices?.close();
-  Promise.resolve(nightShift?.close()).then(() => Promise.allSettled([goals?.close(), controller?.browser?.close({ shutdown: true })])).then(() => controller?.close()).catch(error => console.error(cleanError(error))).finally(() => app.quit());
+  // Each step runs even if the one before failed, so the state is always flushed; a hang cannot keep an
+  // invisible process holding the single-instance lock.
+  const settle = step => Promise.resolve().then(step).catch(error => logDiagnostic('quit', error));
+  const shutdown = settle(() => nightShift?.close())
+    .then(() => Promise.allSettled([settle(() => goals?.close()), settle(() => controller?.browser?.close({ shutdown: true }))]))
+    .then(() => settle(() => controller?.close()));
+  const limit = new Promise(resolve => setTimeout(resolve, 20000).unref?.());
+  Promise.race([shutdown, limit]).finally(() => app.quit());
 });

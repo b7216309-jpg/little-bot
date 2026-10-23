@@ -235,6 +235,12 @@ class EventRuntime {
       if (action.type === 'goal.run') {
         const goal = this.goals.goal(action.goalId);
         if (!goal.authorized) throw new Error('Run this goal once from Goals before a standing intent can start it.');
+        // An event never overrides the owner: not the Background switch, not their own pause, and not the
+        // review of what an interrupted goal may already have done outside this PC.
+        const held = this.store.data.autonomy?.paused ? 'Background work is paused.'
+          : goal.status === 'paused' ? 'The target goal is paused; resume it from Goals.'
+            : goal.needsEffectReview ? 'The target goal is waiting for you to review what it may already have done.' : '';
+        if (held) { this.intents.record(id, { status: 'skipped', event, error: held }); return; }
         const awaitingReview = goal.status === 'queued' && ongoing(goal) && goal.review?.lastResult
           && !this.goals.forceRuns?.has(goal.id) && !goal.needsRecoveryCheck && !goal.continueAfterAnswer
           && this.goals.activeId !== goal.id && !this.pendingGoals.has(goal.id);

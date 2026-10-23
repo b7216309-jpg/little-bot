@@ -59,7 +59,9 @@ class ActivityMonitor {
         try { this.sample(JSON.parse(text)); } catch { /* Ignore a malformed sample. */ }
       }
     });
-    this.child.on?.('exit', () => { this.child = null; });
+    // Only this probe's own exit clears it: after stop() and start(), the old one exiting must not clear the new one.
+    const child = this.child;
+    child.on?.('exit', () => { if (this.child === child) this.child = null; });
   }
 
   stop() {

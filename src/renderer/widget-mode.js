@@ -102,7 +102,8 @@ window.LittleBotWidget = (() => {
     document.addEventListener('keydown', event => {
       if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'm') {
         event.preventDefault(); void change(widget ? 'full' : 'widget');
-      } else if (widget && event.key === 'Escape' && !document.querySelector('dialog[open]')) {
+      // An Escape that already closed a menu or drawer (it calls preventDefault) does not also collapse the widget.
+      } else if (widget && event.key === 'Escape' && !event.defaultPrevented && !document.querySelector('dialog[open]')) {
         if (!$('widget-menu').hidden) closeMenu();
         else if (!display.collapsed) void controls({ collapsed: true });
       }

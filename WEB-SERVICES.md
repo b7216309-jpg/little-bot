@@ -41,7 +41,7 @@ Each page is tried in three tiers, stopping at the first that gives enough text:
 Safety and limits:
 
 - Only `http` and `https` URLs without credentials. Local and private names (`localhost`, `.local`, `.internal`, `.lan`, `.home`, `.test`, `.invalid`, dotless hosts) and private, loopback, link-local, carrier-grade NAT and reserved IPv4 and IPv6 addresses are rejected. Hostnames are resolved first, through Chromium's own resolver (whose cached answer the connection then reuses), and refused if any address is private (DNS lookups time out after 20 s). A page already in the cache, or being read, is served before any lookup.
-- Every redirect hop is checked the same way before it is followed (at most 6 hops).
+- Every redirect hop is checked the same way before it is followed, DNS included (at most 6 hops). The partition refuses any other request, from a rendered page's scripts for example, to a local or private address.
 - Concurrency: 48 page fetches at once, 4 per host, 10 per engine; extra calls wait in a cancellable queue. Concurrent reads of the same page share one download, whether they come from search passages or `web_scrape`. A site that refused a plain request (HTTP 401/403 or a bot-check page; 429 and 503 are treated as momentary) goes straight to the browser tier for 30 minutes, with one direct try at the end if every other tier fails.
 - Pages are cached for 6 hours (150 pages, up to 400,000 characters each). A failed read is remembered for 5 minutes.
 - A failed read says which tiers were tried ("direct: HTTP 403; browser: blocked by a bot check; ...") and suggests the browser tool.

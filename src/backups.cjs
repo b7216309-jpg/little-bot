@@ -83,13 +83,16 @@ function applyPendingRestore(stateDir, nowMs = Date.now()) {
   }
   const safety = path.join(rootOf(stateDir), `before-restore-${nowMs}`);
   fs.mkdirSync(safety, { recursive: true });
-  for (const file of DATA_FILES) {
+  // The memory journal holds whatever was not checkpointed into memory.sqlite yet (after a crash, say):
+  // the safety copy keeps it beside the database, where SQLite reads it back.
+  const safetyFiles = [...DATA_FILES, 'memory.sqlite-wal', 'memory.sqlite-shm'];
+  for (const file of safetyFiles) {
     const current = path.join(stateDir, file);
     if (fs.existsSync(current)) fs.copyFileSync(current, path.join(safety, file));
   }
-  fs.writeFileSync(path.join(safety, 'manifest.json'), JSON.stringify({ createdAt: nowMs, files: DATA_FILES }, null, 2));
+  fs.writeFileSync(path.join(safety, 'manifest.json'), JSON.stringify({ createdAt: nowMs, files: safetyFiles.filter(file => fs.existsSync(path.join(safety, file))) }, null, 2));
   for (const suffix of ['-wal', '-shm']) fs.rmSync(path.join(stateDir, `memory.sqlite${suffix}`), { force: true });
-  for (const file of DATA_FILES) {
+  for (const file of safetyFiles) {
     const saved = path.join(source, file);
     if (fs.existsSync(saved)) fs.copyFileSync(saved, path.join(stateDir, file));
   }

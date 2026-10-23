@@ -8,7 +8,8 @@ const manifest = require('../resources/embeddings/manifest.json');
 const root = path.join(__dirname, '../resources/embeddings', manifest.directory);
 let loading;
 async function load() {
-  if (!loading) loading = (async () => {
+  if (loading) return loading;
+  loading = (async () => {
     const { Tokenizer } = await import('@huggingface/tokenizers');
     const tokenizer = new Tokenizer(JSON.parse(fs.readFileSync(path.join(root, 'tokenizer.json'))), JSON.parse(fs.readFileSync(path.join(root, 'tokenizer_config.json'))));
     const session = await ort.InferenceSession.create(path.join(root, 'model.onnx'), {
@@ -17,12 +18,15 @@ async function load() {
     });
     return { tokenizer, session };
   })();
+  // A failed load (a file locked during an update, say) is tried again on the next request, not cached.
+  loading.catch(() => { loading = null; });
   return loading;
 }
 async function embed(texts, query) {
   const { tokenizer, session } = await load();
   const result = [];
   for (const text of texts) {
+    if (!query) await queriesFirst();
     // Preserve long records by encoding every token window, rather than silently
     // truncating them at the model's sentence limit. Retrieval instructions
     // belong on queries only, never on indexed passages.
@@ -46,10 +50,24 @@ async function embed(texts, query) {
   }
   return result;
 }
-let queue = Promise.resolve();
-parentPort.on('message', ({ id, texts, query }) => {
-  queue = queue.then(async () => {
-    try { parentPort.postMessage({ id, vectors: await embed(texts, query) }); }
-    catch (error) { parentPort.postMessage({ id, error: error.message }); }
-  });
-});
+const waiting = [];
+let working = false;
+async function run({ id, texts, query }) {
+  try { parentPort.postMessage({ id, vectors: await embed(texts, query) }); }
+  catch (error) { parentPort.postMessage({ id, error: error.message }); }
+}
+// A search query (the owner waiting on an answer) goes first, even between the texts of an indexing batch.
+async function queriesFirst() {
+  for (let index = waiting.findIndex(item => item.query); index >= 0; index = waiting.findIndex(item => item.query)) await run(waiting.splice(index, 1)[0]);
+}
+async function drain() {
+  if (working) return;
+  working = true;
+  try {
+    while (waiting.length) {
+      await queriesFirst();
+      if (waiting.length) await run(waiting.shift());
+    }
+  } finally { working = false; }
+}
+parentPort.on('message', message => { waiting.push(message); void drain(); });

@@ -42,3 +42,13 @@ test('the goal drawer fields become /goal arguments the goal parser reads back e
   assert.throws(() => slash.goalArguments({ condition: 'Done --time 5m' }), /Leave --check/);
   assert.throws(() => slash.goalArguments({ condition: 'x', check: `"'\`` }), /quote/);
 });
+
+test('a message that only starts with a slash is sent as a message, not taken for a command', () => {
+  assert.equal(slash.parse('/etc/hosts has the wrong entry, why?'), null);
+  assert.equal(slash.parse('//comment'), null);
+  assert.equal(slash.parse(' /goal looks like a command'), null, 'a leading space sends it as written');
+  assert.equal(slash.parse('/usr/bin/python is missing'), null);
+  assert.deepEqual(slash.parse('/shrug hello'), { known: false, name: 'shrug', args: 'hello', command: null });
+  assert.equal(slash.parse('/').known, false);
+  assert.equal(slash.parse('/goal tests pass').name, 'goal');
+});
