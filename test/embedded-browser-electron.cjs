@@ -18,6 +18,7 @@ const page = `<!doctype html><html><head><title>Fixture form</title></head><body
 <output>Waiting</output>
 <form action="/second"><input name="q" aria-label="Query"></form>
 <a href="/second" target="_blank">Open second</a>
+<a href="/second/plain">Plain link</a>
 <div style="height:3000px"></div><p>Bottom text</p>
 </body></html>`;
 
@@ -45,7 +46,15 @@ app.whenReady().then(async () => {
     assert.equal(browser.attached, true, 'A real page is laid over the panel.');
     assert.equal(browser.getState().title, 'Fixture form');
 
+    // A link clicked while the window is inactive (a DOM click) still leaves the page to go back to.
     let snapshot = JSON.parse((await call({ action: 'snapshot' })).content);
+    await call({ action: 'click', ref: ref(snapshot.refs, 'link', 'Plain link') });
+    for (let index = 0; index < 50 && !/\/second\/plain$/.test(browser.getState().url); index++) await new Promise(resolve => setTimeout(resolve, 50));
+    assert.match(browser.getState().url, /\/second\/plain$/);
+    await call({ action: 'back' });
+    assert.equal(browser.getState().title, 'Fixture form');
+
+    snapshot = JSON.parse((await call({ action: 'snapshot' })).content);
     assert.match(snapshot.snapshot, /heading "Agent browser ready"/);
     const name = ref(snapshot.refs, 'textbox', 'Name');
     const greet = ref(snapshot.refs, 'button', 'Greet');

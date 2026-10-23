@@ -150,8 +150,12 @@ function listCalendarEvents(calendar, input = {}, now = Date.now()) {
   })();
   const fromAt = input.fromLocal === undefined || input.fromLocal === '' ? startOfToday
     : parseLocalDateTime(input.fromLocal, { allDay: /^\d{4}-\d{2}-\d{2}$/.test(input.fromLocal), label: 'range start' });
+  // A date alone as the end means through that day, so the same date at both ends lists that one day.
+  const endDate = input.toLocal !== undefined && input.toLocal !== '' && /^\d{4}-\d{2}-\d{2}$/.test(input.toLocal)
+    ? new Date(parseLocalDateTime(input.toLocal, { allDay: true, label: 'range end' })) : null;
   const toAt = input.toLocal === undefined || input.toLocal === '' ? new Date(new Date(fromAt).getFullYear(), new Date(fromAt).getMonth() + 3, new Date(fromAt).getDate()).getTime()
-    : parseLocalDateTime(input.toLocal, { allDay: /^\d{4}-\d{2}-\d{2}$/.test(input.toLocal), label: 'range end' });
+    : endDate ? new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate() + 1).getTime()
+      : parseLocalDateTime(input.toLocal, { label: 'range end' });
   if (toAt <= fromAt) throw new Error('Calendar range end must be after its start.');
   const limit = input.limit === undefined ? 50 : input.limit;
   if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new Error('Calendar list limit must be from 1 to 200.');

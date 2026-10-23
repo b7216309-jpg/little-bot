@@ -1,3 +1,24 @@
+# Version 0.44.2 verification
+
+0.44.2 fixes three tools that a full check of every tool found broken.
+
+## Fixed
+- **`settings_manage usage` always failed.** The model was still offered this action, but its handler went away when Little Bot became local-only in 0.32.0, so the call always answered "This app action is unavailable". The action is gone.
+- **Browser Back after a click.** When Little Bot's window was not focused, the agent clicks links through the page (a DOM click) instead of with the mouse. Without a user gesture, Chromium marks the page left behind as one Back skips, so `back` answered "There is no page to go back to". The DOM click now runs as a user gesture.
+- **Listing one day of the calendar.** Asked for tomorrow's events, the model sent the same date as the start and end of the range. The calendar refused with "range end must be after its start", and the corrected example in the error repeated the same call. An end given as a date alone now includes that whole day. The tool schemas say so.
+
+## Checked
+- **Every tool, in the app:**
+  - A harness started Little Bot in a throwaway profile and called each of its 36 tools through the app's own wiring. Each was also called with arguments it should refuse.
+  - The harness then sent five real requests through the local model: read a page, add and list a calendar event, search the web, and write and print a file.
+  - All tools now work. Not covered: writing to the clipboard (it held formatted content, so it was not overwritten; reading worked), phone actions with a paired phone, follow-ups with Wild heartbeat, and `ask_user`.
+- **Regression tests:**
+  - Every app action offered to the model must have a handler registered in the app.
+  - A calendar list ending on a date covers that day.
+  - In the browser Electron test, a plain link clicked in an inactive window can be gone back from.
+  - Each of these fails on 0.44.1 and passes now.
+- **Full suite:** 196 Node tests and both Electron tests pass.
+
 # Version 0.44.1 verification
 
 0.44.1 fixes two problems found right after 0.44.0.

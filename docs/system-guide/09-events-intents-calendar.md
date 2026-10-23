@@ -16,7 +16,7 @@ Stopping the runtime clears queued events. Pending actions are not replayed afte
 
 Dates entered by UI/tools use the PC's local timezone. Calendar approach thresholds are 24 hours, one hour and 15 minutes. Startup baselines thresholds already passed rather than replaying historical reminders. A new or updated event also baselines already-passed thresholds: creating an event ten minutes before its start does not retroactively emit its 15-minute approach event, although calendar.created still emits.
 
-calendar_list is available to active tasks, including goals and heartbeat. calendar_manage supplies direct-chat create/update/delete; the UI uses corresponding IPC handlers. The list tool is bounded to 200 entries per request. The goal's initial eight-event excerpt does not remove the ability to query additional events.
+calendar_list is available to active tasks, including goals and heartbeat. calendar_manage supplies direct-chat create/update/delete; the UI uses corresponding IPC handlers. The list tool is bounded to 200 entries per request. An end given as a date alone includes that whole day, so the same date at both ends lists one day. The goal's initial eight-event excerpt does not remove the ability to query additional events.
 
 ## What can prevent operation
 

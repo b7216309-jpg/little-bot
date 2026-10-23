@@ -120,7 +120,7 @@ class AgentTools {
     ];
     const calendarList = functionSpec('calendar_list', 'List Little Bot local calendar events in the PC’s local time. Read-only. This calendar is stored only in Little Bot and is not synced to an external provider.', {
       fromLocal: { type: 'string', minLength: 10, maxLength: 16 },
-      toLocal: { type: 'string', minLength: 10, maxLength: 16 },
+      toLocal: { type: 'string', minLength: 10, maxLength: 16, description: 'A date alone includes that whole day.' },
       limit: { type: 'integer', minimum: 1, maximum: 200 },
     });
     const gamesList = functionSpec('games_list', 'List games installed in the local Steam library with last-played date and playtime hours, most recent first. Read-only and local. Use it to ground leisure suggestions in games the user actually has.', {
@@ -179,7 +179,7 @@ class AgentTools {
         location: { type: 'string', maxLength: 300 },
         notes: { type: 'string', maxLength: 4000 },
         fromLocal: { type: 'string', minLength: 10, maxLength: 16 },
-        toLocal: { type: 'string', minLength: 10, maxLength: 16 },
+        toLocal: { type: 'string', minLength: 10, maxLength: 16, description: 'A date alone includes that whole day.' },
         limit: { type: 'integer', minimum: 1, maximum: 200 },
       }, ['action']),
     ];
