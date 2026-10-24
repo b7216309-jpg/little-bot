@@ -332,6 +332,7 @@ class Controller extends EventEmitter {
       profiles: this.profiles ? { ...this.profiles.state(), presets: listPresets() } : null,
       browser: this.browser?.getState() || null,
       cad: this.cad?.state() || null,
+      draughts: this.draughts?.state() || null,
       webServices: this.webServices?.getState() || null,
       extensionRuntime: this.extensionRuntime?.state || { status: 'ready', servers: [] },
       models: this.models.map(({ id, displayName, inputModalities, vision }) => ({
@@ -527,6 +528,14 @@ class Controller extends EventEmitter {
     if (typeof enabled !== 'boolean') throw new Error('The CAD workshop is on or off.');
     this.store.data.settings = { ...this.store.data.settings, cadEnabled: enabled };
     if (!enabled && this.cad) { this.cad.panel = false; this.cad.close(); }
+    this.store.save(); this.changed();
+    return this.state();
+  }
+  // Draughts is another one: off, no panel and no tool.
+  setDraughtsEnabled(enabled) {
+    if (typeof enabled !== 'boolean') throw new Error('Draughts is on or off.');
+    this.store.data.settings = { ...this.store.data.settings, draughtsEnabled: enabled };
+    if (!enabled && this.draughts) { this.draughts.panel = false; this.draughts.close(); }
     this.store.save(); this.changed();
     return this.state();
   }
@@ -791,7 +800,7 @@ class Controller extends EventEmitter {
     }
   }
   // internal.goalTurn comes only from ChatGoalRunner: the opening or a continuation turn of a /goal.
-  async send({ chatId, text = '', attachmentIds = [], mode, quick, session, cad } = {}, override = null, internal = {}) {
+  async send({ chatId, text = '', attachmentIds = [], mode, quick, session, cad, draughts } = {}, override = null, internal = {}) {
     const goalTurn = override ? null : internal?.goalTurn || null;
     if (this.memoryConsolidator) await this.memoryConsolidator.pauseForUser();
     // The user's own message always wins over a pending goal check.
@@ -817,7 +826,13 @@ class Controller extends EventEmitter {
     const kind = override ? 'main' : target ? chatKind(target) : quick === true ? 'quick' : session === true ? 'session' : 'main';
     const turnPrivate = kind === 'quick';
     const cadItems = !override && cad?.items?.length && this.cad?.enabled ? cad : null;
-    if (typeof text !== 'string' || (!text.trim() && !attachmentIds.length && !cadItems)) throw new Error('Write a message or attach a file.');
+    // A move on the draughts board, squares pointed at there, or a nudge to play. The move is checked now and
+    // played once the message is accepted; the game belongs to the main conversation or to this session.
+    const draughtsKey = !override && this.draughts?.enabled ? (kind === 'session' ? target?.id || null : kind === 'main' ? 'main' : null) : null;
+    const draughtsInput = !override && this.draughts?.enabled && (draughts?.played || draughts?.points?.length || draughts?.resume) ? draughts : null;
+    if (draughtsInput && !draughtsKey) throw new Error('Play draughts in the main conversation or in a saved session that has started.');
+    const playedMove = draughtsInput?.played ? this.draughts.checkUserMove(draughtsKey, String(draughtsInput.played)) : null;
+    if (typeof text !== 'string' || (!text.trim() && !attachmentIds.length && !cadItems && !draughtsInput)) throw new Error('Write a message or attach a file.');
     if (text.length > 32000) throw new Error(`This message is ${text.length.toLocaleString('en-US')} characters; the limit is 32,000. Attach long text as a file instead.`);
     text = text.trim();
     const selectedSkills = skillContext(this.store.data.extensions, text);
@@ -873,7 +888,9 @@ class Controller extends EventEmitter {
     const userMessage = { id: randomUUID(), role: 'user', text, createdAt: Date.now(), workspace: folder, model: chat.model, connection: chat.connection, ...(override?.automationId ? { automationId: override.automationId, automationName: override.name || 'Scheduled task', kind: 'automation' } : {}),
       ...(goalTurn ? { kind: goalTurn.kind === 'start' ? 'goal-set' : 'goal-step', chatGoalId: chat.goal?.id } : {}) };
     if (goalTurn?.kind === 'start' && chat.goal) chat.goal.startMessageId = userMessage.id;
+    if (playedMove) userMessage.draughts = playedMove;
     let memoryContext = '';
+    let draughtsContext = null;
     let inputAccepted = false;
     let finish;
     const completion = new Promise(resolve => { finish = resolve; });
@@ -896,6 +913,8 @@ class Controller extends EventEmitter {
       if (this.closing) throw new Error('Little Bot is closing.');
       if (prepared.descriptors.length) userMessage.attachments = attachmentDescriptors(prepared.descriptors);
       chat.messages.push(userMessage); chat.lastTurnRequestId = userMessage.id; inputAccepted = true;
+      if (playedMove) this.draughts.userMove(draughtsKey, playedMove);
+      if (draughtsKey) draughtsContext = await this.draughts.messageContext(draughtsKey, { played: playedMove, points: draughtsInput?.points || [] }).catch(error => { this.onError('draughts-context', error); return null; });
       if (!override?.automationId && !chat.private) this.store.memoryService?.setWorkingState(chat.id, {
         objective: text, status: 'running', workspace: folder, model: chat.model,
         source: { sessionId: chat.id, messageId: userMessage.id }, updatedAt: Date.now(),
@@ -943,7 +962,7 @@ class Controller extends EventEmitter {
       const requestBlock = override?.automationId
         ? `${security.stampLabel('Scheduled task', ownerCode)}: ${override.name || 'Automation'}\n${text}\n\nThis is an automated run of a saved task, not a new message from the user. Use relevant conversation context, but perform only this scheduled task. Do not resume unrelated unfinished conversation work or treat this prompt as a new personal fact about the user.`
         : goalTurn && chat.goal ? `${ownerCode ? `${security.stampLabel('Goal turn', ownerCode)}\n` : ''}${turnInstructions(chat.goal, goalTurn)}`
-          : `${security.stampLabel('Current user request', ownerCode)}:\n${text || (cadContext ? 'Look at what I pointed at in the CAD model.' : 'Examine the attached files.')}`;
+          : `${security.stampLabel('Current user request', ownerCode)}:\n${text || (cadContext ? 'Look at what I pointed at in the CAD model.' : playedMove ? `I played ${playedMove}. Your move.` : draughtsInput?.resume ? 'Your move.' : draughtsInput ? 'Look at the squares I pointed at on the draughts board.' : 'Examine the attached files.')}`;
       // Proactive messages and things to bring up belong to the continuous conversation.
       const unseenProactive = override || !isMain(chat) || goalTurn ? [] : proactive.unseen(chat);
       const intentionsDue = override || !isMain(chat) || goalTurn ? [] : companion.forChat(this.store.data.companion, text);
@@ -963,6 +982,7 @@ class Controller extends EventEmitter {
         memoryContext ? { kind: 'memory', label: 'Memory recall', text: memoryContext } : null,
         prepared.text ? { kind: 'attachments', label: 'Attachment excerpts', text: prepared.text } : null,
         cadContext?.text ? { kind: 'cad', label: 'CAD selection', text: cadContext.text } : null,
+        draughtsContext?.text ? { kind: 'draughts', label: 'Draughts', text: draughtsContext.text } : null,
         { kind: 'time', label: 'Current time', text: timeContext() },
         { kind: 'request', label: override?.automationId ? 'Scheduled task' : goalTurn ? 'Goal' : 'Current user request', text: requestBlock },
       ].filter(Boolean);
@@ -1326,6 +1346,8 @@ class Controller extends EventEmitter {
     if (!chat.internal && isMain(chat)) proactive.flush(chat, finishedAt);
     // A /goal decides here whether to check the work and continue.
     if (!chat.internal && !manual) this.chatGoal.turnFinished(chat, error);
+    // On Little Bot's draughts turn, a turn that ended without a move gets one from the board.
+    if (!chat.internal && !manual) void this.draughts?.turnFinished(chat, error).catch(failure => this.onError('draughts-turn', failure));
     if (!chat.internal) this.persistNow();
     this.changed();
   }

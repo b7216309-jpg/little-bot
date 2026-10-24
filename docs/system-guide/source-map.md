@@ -313,3 +313,18 @@ Guide: [20-cad.md](20-cad.md)
 | [src/renderer/cad-panel.js](../../src/renderer/cad-panel.js) | CAD panel and the selection chips in the composer |
 | [src/renderer/cad.css](../../src/renderer/cad.css) | CAD panel styles |
 | [resources/cad/GUIDE.md](../../resources/cad/GUIDE.md) | Script API and examples the model reads |
+
+## draughts
+
+Guide: [21-draughts.md](21-draughts.md)
+
+| Source / resource | Responsibility |
+| --- | --- |
+| [src/draughts-table.cjs](../../src/draughts-table.cjs) | Games per conversation, the draughts tool, message context and the fallback move |
+| [src/draughts/rules.cjs](../../src/draughts/rules.cjs) | International rules: legal moves, notation, crowning, draws |
+| [src/draughts/search.cjs](../../src/draughts/search.cjs) | Alpha-beta search: move verdicts and the fallback choice |
+| [src/draughts/worker.cjs](../../src/draughts/worker.cjs) | Worker thread that runs the search |
+| [src/renderer/draughts-panel.js](../../src/renderer/draughts-panel.js) | Board panel: moving, animations, sounds, chips |
+| [src/renderer/draughts.css](../../src/renderer/draughts.css) | Board and panel styles |
+| [src/renderer/assets/draughts](../../src/renderer/assets/draughts) | CC0 wood textures and sounds |
+| [test/draughts.test.cjs](../../test/draughts.test.cjs) | Rules, search, table and store tests |

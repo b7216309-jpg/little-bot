@@ -37,6 +37,8 @@ const { WindowsUia } = require('./windows-uia.cjs');
 const { DesktopTools } = require('./desktop-tools.cjs');
 const { CadKernel } = require('./cad-kernel.cjs');
 const { CadWorkshop } = require('./cad-workshop.cjs');
+const { DraughtsTable } = require('./draughts-table.cjs');
+const { Worker } = require('node:worker_threads');
 const { WebServices } = require('./web-services.cjs');
 const { electronWeb } = require('./web-electron.cjs');
 const { Attachments } = require('./attachments.cjs');
@@ -46,7 +48,7 @@ const { MAX_EVENTS, validateCalendarEvent, listCalendarEvents, calendarEventView
 const { randomUUID } = require('node:crypto');
 const companion = require('./companion.cjs');
 const { advanceMissedSchedules, missedCount } = require('./missed-schedules.cjs');
-const { mainChat } = require('./chats.cjs');
+const { mainChat, isMain, isSession } = require('./chats.cjs');
 const awakeClock = require('./awake-clock.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'little-bot-attachment', privileges: { standard: true, secure: true, supportFetchAPI: false } }, CadKernel.scheme()]);
@@ -290,8 +292,15 @@ app.whenReady().then(async () => {
     getWorkspace: () => store.data.settings.workspace, onChange: () => controller.changed(),
     // Meshes go straight to the windows: they are large and the phone relay has no use for them.
     onMesh: payload => desktopWindows?.broadcast({ type: 'cadMesh', ...payload }),
+    beforeShow: () => { if (controller.draughts) controller.draughts.panel = false; },
   });
-  controller.agentTools = new AgentTools({ management:controller.appManagement, store, browser: controller.browser, webServices: controller.webServices, windowsUi: controller.windowsUi, cad: controller.cad,
+  // Optional draughts against Little Bot: a game per conversation, the search in a worker thread.
+  controller.draughts = new DraughtsTable({
+    store, Worker, onChange: () => controller.changed(),
+    keyOf: chat => isSession(chat) ? chat.id : isMain(chat) ? 'main' : null,
+    beforeShow: () => { if (controller.cad) controller.cad.panel = false; },
+  });
+  controller.agentTools = new AgentTools({ management:controller.appManagement, store, browser: controller.browser, webServices: controller.webServices, windowsUi: controller.windowsUi, cad: controller.cad, draughts: controller.draughts,
     desktop: new DesktopTools({ desktopCapturer, screen, clipboard, nativeImage, BrowserWindow, session, root: path.join(stateDir, 'screenshots') }),
     onLesson: (modelId, key, text) => controller.recordLesson(modelId, key, text),
     phoneAction: async args => relay.phoneAction(args),
@@ -554,7 +563,7 @@ app.whenReady().then(async () => {
   // The CAD workshop. Opening its panel puts the browser panel away: one side panel at a time.
   register('cadEnable', ({ enabled } = {}) => controller.setCadEnabled(enabled));
   register('cadPanel', async ({ visible } = {}) => {
-    if (visible === true) controller.browser.showPanel(false);
+    if (visible === true) { controller.browser.showPanel(false); controller.draughts.panel = false; }
     await controller.cad.showPanel(visible === true);
     return controller.state();
   });
@@ -582,6 +591,18 @@ app.whenReady().then(async () => {
     if (file && file !== 'folder') shell.showItemInFolder(target); else { fs.mkdirSync(target, { recursive: true }); shell.openPath(target); }
     return true;
   });
+  // Draughts. Its panel, like the CAD one, puts the other side panels away. The user's own moves go through send.
+  const idle = () => { if (store.data.chats.some(chat => chat.status !== 'idle')) throw new Error("Wait for Little Bot's reply first."); };
+  register('draughtsEnable', ({ enabled } = {}) => controller.setDraughtsEnabled(enabled));
+  register('draughtsPanel', ({ visible } = {}) => {
+    if (visible === true) controller.browser.showPanel(false);
+    controller.draughts.showPanel(visible === true);
+    return controller.state();
+  });
+  register('draughtsNew', ({ key, userColor, level } = {}) => { idle(); controller.draughts.newGame(key, { userColor, level }); return controller.state(); });
+  register('draughtsTakeBack', ({ key } = {}) => { idle(); controller.draughts.takeBack(key); return controller.state(); });
+  register('draughtsResign', ({ key } = {}) => { idle(); controller.draughts.resign(key); return controller.state(); });
+  register('draughtsPrefs', ({ prefs } = {}) => { controller.draughts.setPrefs(prefs); return controller.state(); });
   register('chooseWorkspace', async () => {
     const selected = await dialog.showOpenDialog(desktopWindows.activeWindow(), { title: 'Choose Little Bot’s working folder',
       defaultPath: store.data.settings.workspace, properties: ['openDirectory', 'createDirectory'] });
@@ -950,6 +971,7 @@ app.on('before-quit', event => {
   desktopWindows?.close();
   controller?.webServices?.close();
   controller?.cad?.close();
+  controller?.draughts?.close();
   // Each step runs even if the one before failed, so the state is always flushed; a hang cannot keep an
   // invisible process holding the single-instance lock.
   const settle = step => Promise.resolve().then(step).catch(error => logDiagnostic('quit', error));

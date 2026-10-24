@@ -55,6 +55,37 @@ function normalizeCad(value) {
   return result;
 }
 
+// Draughts games, one per conversation ("main" or a session id), and the board preferences.
+function normalizeDraughts(value) {
+  if (!isObject(value)) return {};
+  const result = { games: {}, prefs: {} };
+  const squares = list => Array.isArray(list) && list.every(n => Number.isInteger(n) && n >= 1 && n <= 50);
+  const board = list => Array.isArray(list) && list.length === 51 && list.every(n => Number.isInteger(n) && n >= -2 && n <= 2);
+  for (const [key, game] of Object.entries(isObject(value.games) ? value.games : {}).slice(0, 12)) {
+    if (!/^(?:main|[w-]{1,128})$/.test(key) || !isObject(game) || !board(game.board) || ![1, -1].includes(game.turn) || ![1, -1].includes(game.userSide)) continue;
+    const moves = (Array.isArray(game.moves) ? game.moves : []).filter(move => isObject(move) && Number.isInteger(move.from) && Number.isInteger(move.to)
+      && [1, -1].includes(move.side) && squares(move.path) && squares(move.captures) && typeof move.notation === 'string').slice(-400).map(move => ({
+      n: Number.isInteger(move.n) ? move.n : 0, side: move.side, by: ['you', 'bot', 'auto'].includes(move.by) ? move.by : 'you', notation: move.notation.slice(0, 80),
+      from: move.from, to: move.to, path: move.path, captures: move.captures, crown: move.crown === true, king: move.king === true,
+      ...(board(move.before) ? { before: move.before } : {}), at: Number.isFinite(move.at) ? move.at : 0,
+    }));
+    const positions = {};
+    for (const [position, count] of Object.entries(isObject(game.positions) ? game.positions : {}).slice(0, 400)) if (Number.isInteger(count) && count > 0) positions[position.slice(0, 200)] = count;
+    result.games[key] = {
+      id: typeof game.id === 'string' ? game.id.slice(0, 64) : key, userSide: game.userSide, level: ['easy', 'medium', 'hard'].includes(game.level) ? game.level : 'medium',
+      board: game.board, turn: game.turn, moves, positions,
+      quietPlies: Number.isInteger(game.quietPlies) && game.quietPlies >= 0 ? game.quietPlies : 0, endgamePlies: Number.isInteger(game.endgamePlies) && game.endgamePlies >= 0 ? game.endgamePlies : 0,
+      status: game.status === 'over' ? 'over' : 'playing', winner: [1, -1, 0].includes(game.winner) ? game.winner : null, reason: typeof game.reason === 'string' ? game.reason.slice(0, 120) : null,
+      createdAt: Number.isFinite(game.createdAt) ? game.createdAt : 0, updatedAt: Number.isFinite(game.updatedAt) ? game.updatedAt : 0, note: typeof game.note === 'string' ? game.note.slice(0, 300) : null,
+    };
+  }
+  if (isObject(value.prefs)) {
+    if (['easy', 'medium', 'hard'].includes(value.prefs.level)) result.prefs.level = value.prefs.level;
+    for (const name of ['sound', 'numbers', 'dots']) if (typeof value.prefs[name] === 'boolean') result.prefs[name] = value.prefs[name];
+  }
+  return result;
+}
+
 const PROTECTED_STATE_VERSION = 1;
 
 function validProtector(value) {
@@ -143,6 +174,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
     feedbackLog: normalizeFeedbackLog(data.feedbackLog),
     webWatches: normalizeWatches(data.webWatches),
     cad: normalizeCad(data.cad),
+    draughts: normalizeDraughts(data.draughts),
     usage: normalizeUsage(data.usage),
     heartbeat: normalizeHeartbeat(data.heartbeat, { ...settings, workspace: string(settings.workspace, defaultWorkspace) }, Date.now(), recovering),
     settings: {
@@ -155,6 +187,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
       activityAwareness: settings.activityAwareness === true,
       nightShiftEnabled: settings.nightShiftEnabled === true,
       cadEnabled: settings.cadEnabled === true,
+      draughtsEnabled: settings.draughtsEnabled === true,
       localSampling: normalizeSampling(settings.localSampling),
       ...(typeof settings.systemPrompt === 'string' ? { systemPrompt: settings.systemPrompt.slice(0, 100000) } : {}),
       security: normalizeSecurity(settings.security),
@@ -202,6 +235,8 @@ function persistedData(data, defaultWorkspace, recovering = false) {
           if (typeof message.watchId === 'string') entry.watchId = message.watchId.slice(0, 100);
           // Labels of what the user pointed at in the CAD panel with this message.
           if (Array.isArray(message.cad)) { const cad = message.cad.filter(label => typeof label === 'string').slice(0, 12).map(label => label.slice(0, 80)); if (cad.length) entry.cad = cad; }
+          // The move the user played on the draughts board with this message.
+          if (typeof message.draughts === 'string' && message.draughts) entry.draughts = message.draughts.slice(0, 80);
           const independentCheck = normalizeIndependentCheckRecord(message.independentCheck);
           if (independentCheck) {
             if (recovering && independentCheck.status === 'running') {

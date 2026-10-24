@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld('bot', {
   cadEnable: invoke('cadEnable'), cadPanel: invoke('cadPanel'), cadOpen: invoke('cadOpen'), cadWrite: invoke('cadWrite'), cadSetParams: invoke('cadSetParams'),
   cadRevert: invoke('cadRevert'), cadMesh: invoke('cadMesh'), cadInspect: invoke('cadInspect'), cadMeasure: invoke('cadMeasure'), cadLimits: invoke('cadLimits'),
   cadExport: invoke('cadExport'), cadShowFile: invoke('cadShowFile'),
+  draughtsEnable: invoke('draughtsEnable'), draughtsPanel: invoke('draughtsPanel'), draughtsNew: invoke('draughtsNew'), draughtsTakeBack: invoke('draughtsTakeBack'),
+  draughtsResign: invoke('draughtsResign'), draughtsPrefs: invoke('draughtsPrefs'),
   stop: invoke('stop'), challengeIndependentCheck: invoke('challengeIndependentCheck'), compact: invoke('compact'), deleteChat: invoke('deleteChat'), renameChat: invoke('renameChat'), saveQuickSession: invoke('saveQuickSession'), respondApproval: invoke('respondApproval'),
   saveAutomation: invoke('saveAutomation'), deleteAutomation: invoke('deleteAutomation'), runAutomation: invoke('runAutomation'),
   saveStandingIntent: invoke('saveStandingIntent'), deleteStandingIntent: invoke('deleteStandingIntent'), toggleStandingIntent: invoke('toggleStandingIntent'),
