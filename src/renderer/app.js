@@ -1302,7 +1302,7 @@ function updateComposer() {
   $('plan-mode-toggle').disabled = Boolean(running || sending || !isReady());
   $('plan-mode-toggle').setAttribute('aria-pressed', String(Boolean(currentPlanMode())));
   $('plan-mode-toggle').classList.toggle('active', Boolean(currentPlanMode()));
-  $('message-input').placeholder = `${currentPlanMode() ? 'Ask Little Bot to plan…' : chatMode === 'quick' ? 'Quick task for Little Bot…' : chatMode === 'session' ? 'Message this session…' : 'Message Little Bot…'}  ·  / for commands`;
+  $('message-input').placeholder = `${currentPlanMode() ? 'Ask Little Bot to plan…' : chatMode === 'quick' ? 'Quick task for Little Bot…' : chatMode === 'session' ? 'Message this session…' : 'Message Little Bot…'}`;
   renderThinkingControl();
   renderAttachmentQueue();
   renderChatContext();
