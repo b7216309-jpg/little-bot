@@ -18,7 +18,10 @@ const { execFileSync } = require('node:child_process');
       /^\/node_modules\/onnxruntime-node\/bin\/napi-v6\/(?:darwin|linux|win32\/arm64)(?:\/|$)/,
       // The CAD workshop loads one OpenCascade build, replicad's ES module and three's two module files.
       /^\/node_modules\/replicad-opencascadejs\/dist\/replicad_multi\./, /^\/node_modules\/replicad\/dist\/.*\.(?:map|cjs)$/,
-      /^\/node_modules\/three\/(?!build(?:$|\/three\.(?:module|core)\.js$)|package\.json$|LICENSE$)/],
+      /^\/node_modules\/three\/(?!build(?:$|\/three\.(?:module|core)\.js$)|package\.json$|LICENSE$)/,
+      // Torrents: WebTorrent runs from its Node entry, not its browser bundle; native helpers only for Windows x64.
+      /^\/node_modules\/webtorrent\/dist(?:\/|$)/, /^\/node_modules\/web-streams-polyfill\/dist\/.*\.map$/,
+      /^\/node_modules\/(?:@[^/]+\/)?[^/]+\/prebuilds\/(?!win32-x64(?:\/|$))[^/]+/],
     win32metadata: { CompanyName: 'Personal project', FileDescription: 'Little Bot — local assistant', ProductName: 'Little Bot' },
   });
 

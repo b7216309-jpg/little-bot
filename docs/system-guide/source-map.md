@@ -328,3 +328,16 @@ Guide: [21-draughts.md](21-draughts.md)
 | [src/renderer/draughts.css](../../src/renderer/draughts.css) | Board and panel styles |
 | [src/renderer/assets/draughts](../../src/renderer/assets/draughts) | CC0 wood textures and sounds |
 | [test/draughts.test.cjs](../../test/draughts.test.cjs) | Rules, search, table and store tests |
+
+## torrents
+
+Guide: [22-torrents.md](22-torrents.md)
+
+| Source / resource | Responsibility |
+| --- | --- |
+| [src/torrents.cjs](../../src/torrents.cjs) | Transfers, scheduling, sharing limits, requests, the torrents tool and the full-screen probe |
+| [src/torrents/engine.mjs](../../src/torrents/engine.mjs) | WebTorrent in a utility process: reading, adding, choosing files, file name checks, numbers |
+| [src/torrents/sources.cjs](../../src/torrents/sources.cjs) | Internet Archive, Academic Torrents, Linux images, RSS/Atom and Torznab searches |
+| [src/renderer/torrents-panel.js](../../src/renderer/torrents-panel.js) | Panel: search, the card, transfers, requests, sources, settings, drops |
+| [src/renderer/torrents.css](../../src/renderer/torrents.css) | Panel styles |
+| [test/torrents.test.cjs](../../test/torrents.test.cjs) | Sources, manager, tool, store and file name tests |

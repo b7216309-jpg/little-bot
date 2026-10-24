@@ -1,7 +1,7 @@
 {
   "name": "little-bot",
   "productName": "Little Bot",
-  "version": "0.47.0",
+  "version": "0.48.0",
   "private": true,
   "description": "A focused local Windows assistant for chat, files, commands, and scheduled tasks.",
   "main": "src/main.cjs",
@@ -31,7 +31,8 @@
     "three": "0.186.1",
     "turndown": "7.2.4",
     "turndown-plugin-gfm": "1.0.2",
-    "unpdf": "1.8.1"
+    "unpdf": "1.8.1",
+    "webtorrent": "3.0.21"
   },
   "devDependencies": {
     "@electron/packager": "20.3.0",

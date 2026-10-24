@@ -1,3 +1,40 @@
+# Version 0.48.0 verification
+
+0.48.0 adds torrents, an optional built-in plugin: a light BitTorrent client for freely shared content ([system guide](docs/system-guide/22-torrents.md)). It also fixes draughts games in saved sessions, which 0.47.0 did not keep.
+
+## Changed
+- **Torrents**, off until switched on in Extensions › Tools:
+  - WebTorrent 3.0.21 in an Electron utility process: TCP and µTP, DHT, trackers, peer exchange, local discovery, and UPnP/NAT-PMP (a setting).
+  - Search across the Internet Archive, Academic Torrents, official Linux images (Debian, Ubuntu, Fedora) and the user's own RSS/Atom feeds and Torznab sources. A Torznab key is sealed with Windows' secure storage.
+  - Every torrent is read before it downloads: name, files to choose, size, free space, and programs, disk images and archives marked. A magnet link's file list is fetched into a private folder.
+  - Transfers: download slots, pause and resume (picking up what is on disk), carrying on after a restart, sharing back until a ratio or a time, a notice in the conversation when one finishes, Show in folder, a Microsoft Defender scan, and removal keeping or deleting the files.
+  - File names that leave the download folder, use `:` or other forbidden characters, or are device names are refused.
+  - Optional: slow transfers to a trickle while a full-screen game runs; open magnet links from the browser.
+- **The model's `torrents` tool** (search, request, list, pause, resume, limits) is offered only while torrents is on, only in the user's own conversation, and not in Plan mode. It never starts a download: a request puts a card in the panel and only the user's click downloads.
+- **One side panel at a time**: torrents, draughts, the CAD workshop and the browser put each other away.
+- **Fixed: draughts games in saved sessions.** The store dropped them on save, because a check meant to accept a session's id had lost its backslash (`[w-]` instead of `[\w-]`). Games in the main conversation were not affected.
+- **Size:** the installer grows by 7.5 MB (292.1 to 299.6 MB). WebTorrent's browser bundle, source maps, and native helpers for other systems are left out of the package.
+
+## Checked
+- **Tests** ([torrents.test.cjs](test/torrents.test.cjs)):
+  - feeds (enclosures, magnet links, Torznab numbers, Atom);
+  - search ranking, a link listed twice, a failing source, and Ubuntu's folders;
+  - a transfer through to sharing back and stopping at the ratio;
+  - download slots, pause, resume and remove;
+  - the model's search and request with the user's decision, and the tool's gating;
+  - the sealed Torznab key;
+  - the store;
+  - unsafe file names.
+- **Draughts:** a saved session's game now survives the store; the test fails without the fix.
+- **In the app**, with a throwaway profile and a scratch download folder:
+  - "debian netinst" found Debian's 13.7 netinst first, and it read instantly.
+  - It downloaded 756 MB, paused at 8% and resumed, finished in 22 s, and **matched Debian's SHA512SUMS**.
+  - The notice was posted, and Remove with the files deleted them.
+  - Search, the card, transfers and settings looked right in light and dark.
+- **The engine** in a utility process: Debian's torrent reached 31 MB/s from the source tree, and 18.8 MB/s from the packaged app's files after trimming.
+- **Full suite:** syntax, 224 Node tests, the three Electron tests and the docs check.
+- **Not yet:** a run with the real model (Strata was not running).
+
 # Version 0.47.0 verification
 
 0.47.0 adds draughts, an optional built-in plugin for playing international draughts against Little Bot ([system guide](docs/system-guide/21-draughts.md)).

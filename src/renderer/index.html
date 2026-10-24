@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="./panels.css">
   <link rel="stylesheet" href="./cad.css">
   <link rel="stylesheet" href="./draughts.css">
+  <link rel="stylesheet" href="./torrents.css">
 <link rel="stylesheet" href="./dark.css">
   <link rel="stylesheet" href="./widget-mode.css">
   <link rel="stylesheet" href="./usage.css">
@@ -32,6 +33,7 @@
   <script src="./standing-intents-panel.js" defer></script>
 <script type="module" src="./cad-panel.js"></script>
 <script type="module" src="./draughts-panel.js"></script>
+<script type="module" src="./torrents-panel.js"></script>
 </head>
 <body>
   <div id="widget-pill" aria-label="Little Bot compact widget">
@@ -91,7 +93,7 @@
       </header>
       <header class="topbar">
         <div class="topbar-left"><span id="page-label" class="page-label">Conversation</span><span class="topbar-divider"></span><span id="runtime-status" class="runtime-status"><span class="status-dot starting"></span><span>Starting engine</span></span></div>
-        <div class="topbar-actions"><button id="quick-keep" class="workspace-button hidden" type="button" title="Keep this Quick session as a saved session, with its history"><span class="icon" data-icon="bookmark"></span><span>Keep as session</span></button><button id="quick-end" class="workspace-button hidden" type="button" title="End this Quick session; it is not saved"><span class="icon" data-icon="x"></span><span>End session</span></button><button id="session-rename" class="workspace-button hidden" type="button" title="Rename this session"><span class="icon" data-icon="edit"></span><span>Rename</span></button><button id="session-delete" class="workspace-button hidden" type="button" title="Delete this session and its history"><span class="icon" data-icon="trash"></span><span>Delete</span></button><button id="enter-widget" class="workspace-button" type="button" title="Glass widget mode · Ctrl+Shift+M"><span class="icon" data-icon="compact"></span><span>Widget</span></button><button id="agent-inspector-toggle" class="workspace-button inspector-toggle" type="button" aria-pressed="false" title="Show agent activity"><span class="icon" data-icon="info"></span><span>Activity</span></button><button id="open-agent-browser" class="workspace-button agent-browser-button" type="button" title="Open the agent’s browser"><span class="icon" data-icon="browser"></span><span>Browser</span></button><button id="open-cad" class="workspace-button agent-browser-button hidden" type="button" aria-pressed="false" title="Show the CAD workshop"><span class="icon" data-icon="cube"></span><span>CAD</span></button><button id="open-draughts" class="workspace-button agent-browser-button hidden" type="button" aria-pressed="false" title="Show the draughts board"><span class="icon" data-icon="draughts"></span><span>Draughts</span></button><button id="choose-workspace" class="workspace-button" title="Choose a workspace"><span class="icon" data-icon="folder"></span><span id="workspace-label">Choose workspace</span><span class="icon small" data-icon="chevron-down"></span></button></div>
+        <div class="topbar-actions"><button id="quick-keep" class="workspace-button hidden" type="button" title="Keep this Quick session as a saved session, with its history"><span class="icon" data-icon="bookmark"></span><span>Keep as session</span></button><button id="quick-end" class="workspace-button hidden" type="button" title="End this Quick session; it is not saved"><span class="icon" data-icon="x"></span><span>End session</span></button><button id="session-rename" class="workspace-button hidden" type="button" title="Rename this session"><span class="icon" data-icon="edit"></span><span>Rename</span></button><button id="session-delete" class="workspace-button hidden" type="button" title="Delete this session and its history"><span class="icon" data-icon="trash"></span><span>Delete</span></button><button id="enter-widget" class="workspace-button" type="button" title="Glass widget mode · Ctrl+Shift+M"><span class="icon" data-icon="compact"></span><span>Widget</span></button><button id="agent-inspector-toggle" class="workspace-button inspector-toggle" type="button" aria-pressed="false" title="Show agent activity"><span class="icon" data-icon="info"></span><span>Activity</span></button><button id="open-agent-browser" class="workspace-button agent-browser-button" type="button" title="Open the agent’s browser"><span class="icon" data-icon="browser"></span><span>Browser</span></button><button id="open-cad" class="workspace-button agent-browser-button hidden" type="button" aria-pressed="false" title="Show the CAD workshop"><span class="icon" data-icon="cube"></span><span>CAD</span></button><button id="open-draughts" class="workspace-button agent-browser-button hidden" type="button" aria-pressed="false" title="Show the draughts board"><span class="icon" data-icon="draughts"></span><span>Draughts</span></button><button id="open-torrents" class="workspace-button agent-browser-button hidden" type="button" aria-pressed="false" title="Show torrents"><span class="icon" data-icon="import"></span><span>Torrents</span><span id="open-torrents-speed"></span></button><button id="choose-workspace" class="workspace-button" title="Choose a workspace"><span class="icon" data-icon="folder"></span><span id="workspace-label">Choose workspace</span><span class="icon small" data-icon="chevron-down"></span></button></div>
       </header>
       <section id="chat-view" class="chat-view"><div class="attachment-drop-overlay" aria-hidden="true"><span class="icon" data-icon="paperclip"></span><span>Drop files here</span></div>
         <aside id="agent-inspector" class="agent-inspector hidden" aria-label="Agent activity">
@@ -413,6 +415,57 @@
       </div>
       <div id="browser-activity" class="browser-activity hidden" role="status"><span class="status-dot running"></span><span>Little Bot is browsing</span></div>
       <div id="browser-viewport" class="browser-viewport"><div id="browser-empty" class="browser-empty"><span class="icon" data-icon="browser"></span><h2>Built-in browser</h2><p>Ask Little Bot to look something up, or type an address above. You can sign in to sites here; they stay signed in.</p></div></div>
+    </aside>
+    <aside id="torrents-panel" class="torrents-panel hidden" aria-label="Torrents">
+      <div class="torrents-bar">
+        <div class="torrents-title"><span class="icon" data-icon="import"></span><span>Torrents</span></div>
+        <span id="torrents-speed" class="torrents-speed" role="status"></span>
+        <div class="torrents-bar-end">
+          <div class="torrents-add-wrap"><button id="torrents-add" class="icon-button" type="button" title="Add a magnet link or .torrent address" aria-label="Add a magnet link or .torrent address"><span class="icon" data-icon="plus"></span></button>
+            <form id="torrents-add-menu" class="torrents-menu hidden"><label for="torrents-link">Magnet link or .torrent address</label><input id="torrents-link" type="text" spellcheck="false" autocomplete="off" placeholder="magnet:?xt=… or https://…/file.torrent"><p class="torrents-muted">Or drop a .torrent file on this panel.</p><div class="torrents-menu-actions"><button class="button primary small" type="submit">Read it</button></div></form></div>
+          <button id="torrents-open-folder" class="icon-button" type="button" title="Open the download folder" aria-label="Open the download folder"><span class="icon" data-icon="folder"></span></button>
+          <button id="torrents-hide" class="icon-button" type="button" title="Hide torrents" aria-label="Hide torrents"><span class="icon" data-icon="x"></span></button>
+        </div>
+      </div>
+      <div id="torrents-requests" class="torrents-requests hidden" aria-label="Downloads Little Bot asks for"></div>
+      <div class="torrents-tabs" role="tablist" aria-label="Torrents">
+        <button type="button" role="tab" data-torrents-tab="search" aria-selected="true">Search</button>
+        <button type="button" role="tab" data-torrents-tab="transfers" aria-selected="false">Transfers <span id="torrents-count" class="torrents-count"></span></button>
+        <button type="button" role="tab" data-torrents-tab="sources" aria-selected="false">Sources</button>
+        <button type="button" role="tab" data-torrents-tab="settings" aria-selected="false">Settings</button>
+      </div>
+      <div class="torrents-body">
+        <section data-torrents-panel="search" role="tabpanel" aria-label="Search">
+          <form id="torrents-search-form" class="torrents-search"><input id="torrents-query" type="search" placeholder="Search your sources" autocomplete="off" spellcheck="false" aria-label="Search your sources"><button class="button primary small" type="submit">Search</button></form>
+          <div id="torrents-results" class="torrents-results"></div>
+        </section>
+        <section data-torrents-panel="transfers" role="tabpanel" aria-label="Transfers" class="hidden"><div id="torrents-transfers" class="torrents-transfers"></div></section>
+        <section data-torrents-panel="sources" role="tabpanel" aria-label="Sources" class="hidden">
+          <div id="torrents-sources" class="torrents-sources"></div>
+          <form id="torrents-add-form" class="torrents-add-source">
+            <h3>Add a source</h3>
+            <div class="torrents-segment" role="radiogroup" aria-label="Kind of source"><button type="button" role="radio" data-torrents-kind="rss" aria-checked="true">RSS or Atom feed</button><button type="button" role="radio" data-torrents-kind="torznab" aria-checked="false">Torznab</button></div>
+            <label>Name <input id="torrents-add-name" type="text" maxlength="60" placeholder="Optional"></label>
+            <label>Address <input id="torrents-add-url" type="url" required spellcheck="false" placeholder="https://…"></label>
+            <label id="torrents-add-key-row" class="hidden">API key <input id="torrents-add-key" type="password" autocomplete="off" spellcheck="false" placeholder="If the source needs one"></label>
+            <p class="torrents-muted">A feed is read when you search; its entries are matched by title. A Torznab source searches on its side. Keys are saved encrypted by Windows.</p>
+            <div class="torrents-menu-actions"><span id="torrents-add-status" class="torrents-muted" role="status"></span><button class="button primary small" type="submit">Add</button></div>
+          </form>
+        </section>
+        <section data-torrents-panel="settings" role="tabpanel" aria-label="Settings" class="hidden">
+          <div class="torrents-settings">
+            <div class="torrents-setting"><div><strong>Download folder</strong><span id="torrents-folder"></span></div><button id="torrents-choose-folder" class="button secondary small" type="button">Change</button></div>
+            <div class="torrents-setting"><div><strong>Speed limits</strong><span>In KB/s; leave empty for none.</span></div><div class="torrents-inline"><label>↓ <input id="torrents-down" type="number" min="0" step="50" placeholder="none"></label><label>↑ <input id="torrents-up" type="number" min="0" step="50" placeholder="none"></label></div></div>
+            <div class="torrents-setting"><div><strong>Downloads at once</strong><span>The rest wait their turn.</span></div><input id="torrents-active" type="number" min="1" max="20" step="1"></div>
+            <div class="torrents-setting"><div><strong>Stop sharing</strong><span>Sharing gives back to the people you downloaded from.</span></div><div class="torrents-inline"><select id="torrents-stop"><option value="ratio">After giving back</option><option value="time">After a time</option><option value="never">Never</option></select><label id="torrents-ratio-row"><input id="torrents-ratio" type="number" min="0.1" max="100" step="0.1">×</label><label id="torrents-hours-row" class="hidden"><input id="torrents-hours" type="number" min="1" max="8760" step="1"> h</label></div></div>
+            <div class="torrents-setting"><div><strong>Slow down for full-screen games</strong><span>Transfers drop to a trickle while a full-screen game or app is in front.</span></div><label class="switch"><input id="torrents-games" type="checkbox"><span class="switch-track"></span></label></div>
+            <div class="torrents-setting"><div><strong>Open the router port automatically</strong><span>UPnP and NAT-PMP, so more peers can reach you.</span></div><label class="switch"><input id="torrents-upnp" type="checkbox"><span class="switch-track"></span></label></div>
+            <div class="torrents-setting"><div><strong>Open magnet links with Little Bot</strong><span>Clicking a magnet link in your browser opens it here, to read before downloading.</span></div><label class="switch"><input id="torrents-magnet" type="checkbox"><span class="switch-track"></span></label></div>
+            <p class="torrents-muted">Other peers see your IP address while you share, as with any BitTorrent client.</p>
+          </div>
+        </section>
+      </div>
+      <div id="torrents-draft" class="torrents-draft hidden" role="dialog" aria-label="A torrent to download"></div>
     </aside>
     <aside id="draughts-panel" class="draughts-panel hidden" aria-label="Draughts">
       <div class="draughts-bar">

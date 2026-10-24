@@ -1,0 +1,106 @@
+/* Torrents: a side panel with search, transfers, sources and settings. Only theme tokens are used, so the dark theme
+   needs no generated twin. */
+.app-shell.torrents-open{grid-template-columns:224px minmax(0,1fr) minmax(380px,42%)}
+@media(max-width:1050px){.app-shell.torrents-open{grid-template-columns:202px minmax(0,1fr) minmax(340px,42%)}}
+.custom-titlebar .app-shell.torrents-open .topbar{padding-right:24px}
+#open-torrents-speed:empty{display:none}
+#open-torrents-speed{font-variant-numeric:tabular-nums;font-size:11px;color:var(--muted)}
+.torrents-panel{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0;border-left:1px solid var(--line);background:var(--paper)}
+.torrents-panel.drop-active::after{content:"Drop the .torrent file to read it";position:absolute;inset:8px;z-index:20;display:flex;align-items:center;justify-content:center;border:2px dashed var(--accent);border-radius:12px;background:color-mix(in srgb,var(--paper) 85%,transparent);font-size:13px;color:var(--ink)}
+.torrents-bar{height:71px;flex-shrink:0;display:flex;align-items:center;gap:10px;padding:0 12px 0 16px;border-bottom:1px solid var(--line)}
+.custom-titlebar .torrents-bar{-webkit-app-region:drag;padding-right:calc(var(--caption-width) + 14px)}
+.custom-titlebar .torrents-bar button,.custom-titlebar .torrents-menu{-webkit-app-region:no-drag}
+.torrents-title{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--ink)}
+.torrents-title .icon{width:16px;height:16px;color:var(--muted)}
+.torrents-speed{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.torrents-bar-end{margin-left:auto;display:flex;align-items:center;gap:2px}
+.torrents-add-wrap{position:relative}
+.torrents-menu{position:absolute;top:calc(100% + 6px);right:0;z-index:30;width:320px;display:flex;flex-direction:column;gap:8px;background:var(--white);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px #1a1f1a29;padding:14px}
+.torrents-menu label{font-size:11px;color:var(--muted)}
+.torrents-panel input[type=text],.torrents-panel input[type=search],.torrents-panel input[type=url],.torrents-panel input[type=password],.torrents-panel input[type=number],.torrents-panel select{border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:12px;background:var(--white);color:var(--ink);min-width:0}
+.torrents-menu-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+.torrents-menu-actions>span{margin-right:auto}
+.torrents-panel .button.small{font-size:11px;min-height:30px;padding:5px 11px}
+.torrents-panel .button.danger{background:var(--accent);border-color:var(--accent);color:#fff}
+.torrents-muted{margin:0;font-size:11px;line-height:1.5;color:var(--muted)}
+.torrents-warning{margin:0;font-size:11px;line-height:1.5;color:var(--accent)}
+.torrents-warning-inline{font-size:11px;color:var(--accent)}
+.torrents-source-error{font-size:11px;color:var(--accent);overflow-wrap:anywhere}
+.torrents-tabs{display:flex;gap:2px;padding:8px 12px 0;border-bottom:1px solid var(--line)}
+.torrents-tabs button{border:0;background:transparent;padding:8px 10px;font-size:12px;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px}
+.torrents-tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--accent);font-weight:600}
+.torrents-count{font-size:10px;font-weight:600;background:var(--soft);border-radius:8px;padding:1px 6px;color:var(--ink)}
+.torrents-count:empty{display:none}
+.torrents-body{flex:1;min-height:0;overflow:auto;padding:12px 14px 18px}
+.torrents-search{display:flex;gap:6px;margin-bottom:10px}
+.torrents-search input{flex:1}
+.torrents-results,.torrents-transfers,.torrents-sources{display:flex;flex-direction:column;gap:6px}
+.torrents-empty{margin:18px 4px;font-size:12px;line-height:1.6;color:var(--muted)}
+.torrents-empty strong{display:block;color:var(--ink);font-size:13px;margin-bottom:4px}
+.torrents-empty p{margin:0}
+.torrents-result{display:flex;align-items:center;gap:10px;padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:var(--white)}
+.torrents-result-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.torrents-result-copy strong{font-size:12px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.torrents-result-copy span{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.torrents-note{font-style:italic}
+.torrents-result-actions{display:flex;align-items:center;gap:4px;flex-shrink:0}
+.torrents-transfer{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 10px;padding:10px 11px;border:1px solid var(--line);border-radius:10px;background:var(--white)}
+.torrents-transfer-head{grid-column:1/-1;display:flex;align-items:center;gap:8px;min-width:0}
+.torrents-transfer-head strong{flex:1;min-width:0;font-size:12px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.torrents-status{flex-shrink:0;font-size:10px;font-weight:600;border-radius:6px;padding:2px 7px;background:var(--soft);color:var(--muted)}
+.torrents-status.downloading{color:var(--accent)}
+.torrents-status.seeding,.torrents-status.finished{color:var(--green)}
+.torrents-status.error{color:#fff;background:var(--accent)}
+
+.torrents-progress{grid-column:1/-1;height:5px;border:0;border-radius:3px;background:var(--soft);overflow:hidden;padding:0}
+.torrents-progress>i{display:block;height:100%;width:0;border-radius:3px;background:var(--accent);transition:width .8s ease}
+.torrents-transfer.seeding .torrents-progress>i,.torrents-transfer.finished .torrents-progress>i{background:var(--green)}
+.torrents-transfer.paused .torrents-progress>i,.torrents-transfer.queued .torrents-progress>i{background:var(--muted)}
+.torrents-transfer-line{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;align-self:center;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.torrents-transfer-actions{display:flex;gap:1px}
+.torrents-transfer-actions .icon-button{width:28px;height:28px}
+.torrents-transfer-actions .icon-button .icon{width:14px;height:14px}
+.torrents-transfer-actions .attention{color:var(--accent)}
+.torrents-transfer-notes{grid-column:1/-1;display:flex;flex-direction:column;gap:2px}
+.torrents-transfer-notes:empty{display:none}
+.torrents-confirm{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-top:6px;border-top:1px solid var(--line);font-size:11px;color:var(--ink)}
+.torrents-confirm>span{margin-right:auto}
+.torrents-requests{display:flex;flex-direction:column;gap:6px;padding:10px 14px 0}
+.torrents-request{display:flex;flex-direction:column;gap:9px;padding:11px 12px;border:1px solid var(--accent);border-radius:12px;background:var(--white);box-shadow:0 6px 18px -10px #1a1f1a59}
+.torrents-request-copy{display:flex;flex-direction:column;gap:2px;min-width:0}
+.torrents-request-copy strong{font-size:13px;color:var(--ink);overflow-wrap:anywhere}
+.torrents-request-copy span{font-size:11px;color:var(--muted)}
+.torrents-eyebrow{font-size:10px!important;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--accent)!important}
+.torrents-request-note{font-size:11px;font-style:italic;color:var(--ink)}
+.torrents-request-actions{display:flex;justify-content:flex-end;gap:6px}
+.torrents-request-actions .button{font-size:11px;min-height:30px;padding:5px 11px}
+.torrents-source{display:flex;align-items:center;gap:10px;padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:var(--white)}
+.torrents-source-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.torrents-source-copy strong{font-size:12px;color:var(--ink)}
+.torrents-source-copy span{font-size:11px;color:var(--muted);overflow-wrap:anywhere}
+.torrents-add-source{display:flex;flex-direction:column;gap:8px;margin-top:16px;padding:12px;border:1px dashed var(--line);border-radius:12px}
+.torrents-add-source h3{margin:0;font-size:12px;color:var(--ink)}
+.torrents-add-source label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--muted)}
+.torrents-segment{display:flex;gap:2px;padding:2px;border:1px solid var(--line);border-radius:9px;background:var(--paper)}
+.torrents-segment button{flex:1;border:0;background:transparent;border-radius:7px;padding:6px;font-size:11px;font-weight:600;color:var(--muted)}
+.torrents-segment button[aria-checked=true]{background:var(--white);color:var(--ink);box-shadow:0 1px 3px #1a1f1a1f}
+.torrents-settings{display:flex;flex-direction:column;gap:2px}
+.torrents-setting{display:flex;align-items:center;gap:12px;padding:11px 2px;border-bottom:1px solid var(--line)}
+.torrents-setting>div:first-child{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.torrents-setting strong{font-size:12px;color:var(--ink)}
+.torrents-setting span{font-size:11px;line-height:1.5;color:var(--muted);overflow-wrap:anywhere}
+.torrents-setting input[type=number]{width:78px}
+.torrents-inline{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)}
+.torrents-inline label{display:flex;align-items:center;gap:4px}
+.torrents-settings>.torrents-muted{margin-top:10px}
+.torrents-draft{position:absolute;inset:0;z-index:15;display:flex;align-items:center;justify-content:center;padding:20px;background:color-mix(in srgb,var(--paper) 70%,transparent);backdrop-filter:blur(2px)}
+.torrents-draft-card{width:min(460px,100%);max-height:100%;display:flex;flex-direction:column;gap:9px;background:var(--white);border:1px solid var(--line);border-radius:14px;box-shadow:0 20px 44px -16px #1a1f1a66;padding:18px}
+.torrents-draft-card h3{margin:0;font-size:14px;color:var(--ink);overflow-wrap:anywhere}
+.torrents-files{display:flex;flex-direction:column;min-height:60px;max-height:240px;overflow:auto;border:1px solid var(--line);border-radius:9px;padding:4px}
+.torrents-file{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;font-size:11px;color:var(--ink);cursor:pointer}
+.torrents-file:hover{background:var(--soft)}
+.torrents-file span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.torrents-file em{font-style:normal;color:var(--muted);font-variant-numeric:tabular-nums}
+.torrents-file.all{font-weight:600;border-bottom:1px solid var(--line);border-radius:6px 6px 0 0}
+.torrents-file.risky span::after{content:"  · program or archive";color:var(--accent)}
+.torrents-draft-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:4px}

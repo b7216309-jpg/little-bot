@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, session, Notification, safeStorage, nativeImage, protocol, powerMonitor, nativeTheme, screen, desktopCapturer, clipboard } = require('electron');
+const { app, BrowserWindow, utilityProcess, ipcMain, dialog, shell, Menu, session, Notification, safeStorage, nativeImage, protocol, powerMonitor, nativeTheme, screen, desktopCapturer, clipboard } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -38,6 +38,7 @@ const { DesktopTools } = require('./desktop-tools.cjs');
 const { CadKernel } = require('./cad-kernel.cjs');
 const { CadWorkshop } = require('./cad-workshop.cjs');
 const { DraughtsTable } = require('./draughts-table.cjs');
+const { TorrentManager, formatBytes } = require('./torrents.cjs');
 const { Worker } = require('node:worker_threads');
 const { WebServices } = require('./web-services.cjs');
 const { electronWeb } = require('./web-electron.cjs');
@@ -292,15 +293,29 @@ app.whenReady().then(async () => {
     getWorkspace: () => store.data.settings.workspace, onChange: () => controller.changed(),
     // Meshes go straight to the windows: they are large and the phone relay has no use for them.
     onMesh: payload => desktopWindows?.broadcast({ type: 'cadMesh', ...payload }),
-    beforeShow: () => { if (controller.draughts) controller.draughts.panel = false; },
+    beforeShow: () => { if (controller.draughts) controller.draughts.panel = false; if (controller.torrents) controller.torrents.panel = false; },
   });
   // Optional draughts against Little Bot: a game per conversation, the search in a worker thread.
   controller.draughts = new DraughtsTable({
     store, Worker, onChange: () => controller.changed(),
     keyOf: chat => isSession(chat) ? chat.id : isMain(chat) ? 'main' : null,
-    beforeShow: () => { if (controller.cad) controller.cad.panel = false; },
+    beforeShow: () => { if (controller.cad) controller.cad.panel = false; if (controller.torrents) controller.torrents.panel = false; },
   });
-  controller.agentTools = new AgentTools({ management:controller.appManagement, store, browser: controller.browser, webServices: controller.webServices, windowsUi: controller.windowsUi, cad: controller.cad, draughts: controller.draughts,
+  // Optional torrents: WebTorrent in a utility process, started only when something transfers or is read.
+  controller.torrents = new TorrentManager({
+    store, root: path.join(stateDir, 'torrents'), downloadsDir: app.getPath('downloads'),
+    fork: (file, args, options) => utilityProcess.fork(file, args, options),
+    onChange: () => controller.changed(),
+    // Speeds change every second: they go straight to the windows, not through the whole state.
+    onStats: stats => desktopWindows?.broadcast({ type: 'torrentStats', stats }),
+    onFinished: item => {
+      proactiveChat.post(store.data, { kind: 'download', text: `⬇ Finished downloading ${item.name} (${formatBytes(item.length)}). It is in ${item.folder}.` });
+      controller.changed(true);
+    },
+    secrets: safeStorage.isEncryptionAvailable() ? { seal: text => safeStorage.encryptString(text).toString('base64'), open: sealed => safeStorage.decryptString(Buffer.from(sealed, 'base64')) } : null,
+  });
+  controller.torrents.resumeAll();
+  controller.agentTools = new AgentTools({ management:controller.appManagement, store, browser: controller.browser, webServices: controller.webServices, windowsUi: controller.windowsUi, cad: controller.cad, draughts: controller.draughts, torrents: controller.torrents,
     desktop: new DesktopTools({ desktopCapturer, screen, clipboard, nativeImage, BrowserWindow, session, root: path.join(stateDir, 'screenshots') }),
     onLesson: (modelId, key, text) => controller.recordLesson(modelId, key, text),
     phoneAction: async args => relay.phoneAction(args),
@@ -563,7 +578,7 @@ app.whenReady().then(async () => {
   // The CAD workshop. Opening its panel puts the browser panel away: one side panel at a time.
   register('cadEnable', ({ enabled } = {}) => controller.setCadEnabled(enabled));
   register('cadPanel', async ({ visible } = {}) => {
-    if (visible === true) { controller.browser.showPanel(false); controller.draughts.panel = false; }
+    if (visible === true) { controller.browser.showPanel(false); controller.draughts.panel = false; controller.torrents.panel = false; }
     await controller.cad.showPanel(visible === true);
     return controller.state();
   });
@@ -595,7 +610,7 @@ app.whenReady().then(async () => {
   const idle = () => { if (store.data.chats.some(chat => chat.status !== 'idle')) throw new Error("Wait for Little Bot's reply first."); };
   register('draughtsEnable', ({ enabled } = {}) => controller.setDraughtsEnabled(enabled));
   register('draughtsPanel', ({ visible } = {}) => {
-    if (visible === true) controller.browser.showPanel(false);
+    if (visible === true) { controller.browser.showPanel(false); controller.torrents.panel = false; }
     controller.draughts.showPanel(visible === true);
     return controller.state();
   });
@@ -603,6 +618,37 @@ app.whenReady().then(async () => {
   register('draughtsTakeBack', ({ key } = {}) => { idle(); controller.draughts.takeBack(key); return controller.state(); });
   register('draughtsResign', ({ key } = {}) => { idle(); controller.draughts.resign(key); return controller.state(); });
   register('draughtsPrefs', ({ prefs } = {}) => { controller.draughts.setPrefs(prefs); return controller.state(); });
+  // Torrents. Like the other side panels, its panel puts the rest away. Adding always starts from the user's click.
+  const torrents = () => controller.torrents;
+  register('torrentsEnable', ({ enabled } = {}) => { const state = controller.setTorrentsEnabled(enabled); syncMagnetHandler(); return state; });
+  register('torrentsPanel', ({ visible } = {}) => {
+    if (visible === true) { controller.browser.showPanel(false); controller.cad.panel = false; controller.draughts.panel = false; }
+    torrents().showPanel(visible === true);
+    return controller.state();
+  });
+  register('torrentsSearch', ({ query, only } = {}) => torrents().search(String(query || ''), Array.isArray(only) ? only : null));
+  register('torrentsPrepare', payload => torrents().prepare(payload || {}));
+  register('torrentsStart', async ({ id, select } = {}) => { await torrents().start(id, select ?? null); return controller.state(); });
+  register('torrentsCancel', ({ id } = {}) => { torrents().cancelDraft(id); return true; });
+  register('torrentsAnswer', async ({ id, accept, select } = {}) => { await torrents().answerRequest(id, accept === true, select ?? null); return controller.state(); });
+  register('torrentsPause', ({ key } = {}) => { torrents().pause(key); return controller.state(); });
+  register('torrentsResume', ({ key } = {}) => { torrents().resume(key); return controller.state(); });
+  register('torrentsRemove', async ({ key, deleteFiles } = {}) => { await torrents().remove(key, { deleteFiles: deleteFiles === true }); return controller.state(); });
+  register('torrentsShow', ({ key } = {}) => {
+    const item = key ? torrents().item(key) : null;
+    if (item) shell.showItemInFolder(torrents().location(item));
+    else { const folder = torrents().settings.folder; fs.mkdirSync(folder, { recursive: true }); shell.openPath(folder); }
+    return true;
+  });
+  register('torrentsScan', ({ key } = {}) => torrents().scan(key));
+  register('torrentsSettings', async ({ settings } = {}) => { await torrents().setSettings(settings); syncMagnetHandler(); return controller.state(); });
+  register('torrentsChooseFolder', async () => {
+    const selected = await dialog.showOpenDialog(desktopWindows.activeWindow(), { title: 'Choose where torrents are saved', defaultPath: torrents().settings.folder, properties: ['openDirectory', 'createDirectory'] });
+    if (selected.canceled || !selected.filePaths[0]) return controller.state();
+    await torrents().setSettings({ folder: selected.filePaths[0] });
+    return controller.state();
+  });
+  register('torrentsSources', async ({ change } = {}) => ({ result: await torrents().setSources(change), state: controller.state() }));
   register('chooseWorkspace', async () => {
     const selected = await dialog.showOpenDialog(desktopWindows.activeWindow(), { title: 'Choose Little Bot’s working folder',
       defaultPath: store.data.settings.workspace, properties: ['openDirectory', 'createDirectory'] });
@@ -932,6 +978,10 @@ app.whenReady().then(async () => {
   });
   await window.loadFile(rendererFile);
   await desktopWindows.setMode({ mode: desktopWindows.preferences.mode });
+  // Little Bot opened by a click on a magnet link.
+  syncMagnetHandler();
+  const startMagnet = process.argv.find(arg => /^magnet:\?/i.test(arg));
+  if (startMagnet) openMagnet(startMagnet);
   const startup = controller.start();
   // Background work starts once the engine is ready: after the first start, or after the automatic restart
   // that follows a failed one. One service failing to start does not keep the others off.
@@ -963,7 +1013,33 @@ app.whenReady().then(async () => {
   try { dialog.showErrorBox('Little Bot could not start', cleanError(error)); } catch { /* Shown only when possible. */ }
   app.exit(1);
 });
-app.on('second-instance', () => { desktopWindows?.show().catch(error => logDiagnostic('display-show', error)); });
+app.on('second-instance', (_event, argv) => {
+  desktopWindows?.show().catch(error => logDiagnostic('display-show', error));
+  const magnet = (argv || []).find(arg => /^magnet:\?/i.test(arg));
+  if (magnet) openMagnet(magnet);
+});
+
+// Magnet links from the browser, when the user lets Little Bot open them: the panel opens with the torrent read,
+// and nothing downloads until they click Download.
+function syncMagnetHandler() {
+  const wanted = controller?.torrents?.enabled && controller.torrents.settings.magnetLinks;
+  const args = process.defaultApp ? [path.resolve(process.argv[1] || '.')] : [];
+  try {
+    if (wanted && !app.isDefaultProtocolClient('magnet', process.execPath, args)) app.setAsDefaultProtocolClient('magnet', process.execPath, args);
+    if (!wanted && app.isDefaultProtocolClient('magnet', process.execPath, args)) app.removeAsDefaultProtocolClient('magnet', process.execPath, args);
+  } catch (error) { logDiagnostic('magnet-handler', error); }
+}
+async function openMagnet(link) {
+  const manager = controller?.torrents;
+  if (!manager?.enabled || !manager.settings.magnetLinks) return;
+  try {
+    controller.browser.showPanel(false); controller.cad.panel = false; controller.draughts.panel = false;
+    manager.showPanel(true);
+    desktopWindows?.broadcast({ type: 'torrentDraft', pending: true });
+    const draft = await manager.prepare({ magnet: link, name: 'Opened from a magnet link' });
+    desktopWindows?.broadcast({ type: 'torrentDraft', draft });
+  } catch (error) { desktopWindows?.broadcast({ type: 'torrentDraft', error: cleanError(error) }); }
+}
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', event => {
   if (quitting) return;
@@ -972,6 +1048,7 @@ app.on('before-quit', event => {
   controller?.webServices?.close();
   controller?.cad?.close();
   controller?.draughts?.close();
+  controller?.torrents?.close();
   // Each step runs even if the one before failed, so the state is always flushed; a hang cannot keep an
   // invisible process holding the single-instance lock.
   const settle = step => Promise.resolve().then(step).catch(error => logDiagnostic('quit', error));

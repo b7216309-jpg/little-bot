@@ -10,7 +10,7 @@ const { connectionBinding } = require('./connections.cjs');
 // and every proactive message stays unseen by the model until the user's next turn carries it.
 const MAX_BRIDGE = 10;
 const MAX_PENDING = 20;
-const PROACTIVE_KINDS = ['heartbeat', 'goal', 'memory', 'watch', 'offer'];
+const PROACTIVE_KINDS = ['heartbeat', 'goal', 'memory', 'watch', 'offer', 'download'];
 const MAX_FEEDBACK = 200;
 // Proactive messages carry buttons only for a concrete offer (a game launch). Notes, tips and check-ins get none:
 // the user simply replies in the chat, and a reply to a goal message already brings that goal's review forward.

@@ -27,6 +27,7 @@ function messageLabel(message) {
   if (message.kind === 'memory') return 'Little Bot · learned';
   if (message.kind === 'watch') return 'Little Bot · web watch';
   if (message.kind === 'offer') return 'Little Bot · offer';
+  if (message.kind === 'download') return 'Little Bot · torrents';
   if (message.automationId) return `Little Bot · ${message.automationName || 'Automation'}`;
   return 'Little Bot';
 }
