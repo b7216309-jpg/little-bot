@@ -333,6 +333,7 @@ class Controller extends EventEmitter {
       browser: this.browser?.getState() || null,
       cad: this.cad?.state() || null,
       draughts: this.draughts?.state() || null,
+      torrents: this.torrents?.state() || null,
       webServices: this.webServices?.getState() || null,
       extensionRuntime: this.extensionRuntime?.state || { status: 'ready', servers: [] },
       models: this.models.map(({ id, displayName, inputModalities, vision }) => ({
@@ -537,6 +538,16 @@ class Controller extends EventEmitter {
     this.store.data.settings = { ...this.store.data.settings, draughtsEnabled: enabled };
     if (!enabled && this.draughts) { this.draughts.panel = false; this.draughts.close(); }
     this.store.save(); this.changed();
+    return this.state();
+  }
+  // And torrents: off, no engine, panel or tool.
+  setTorrentsEnabled(enabled) {
+    if (typeof enabled !== 'boolean') throw new Error('Torrents is on or off.');
+    this.store.data.settings = { ...this.store.data.settings, torrentsEnabled: enabled };
+    if (!enabled && this.torrents) this.torrents.disable();
+    this.store.save();
+    if (enabled) this.torrents?.resumeAll();
+    this.changed();
     return this.state();
   }
   setCadLimits(limits) {

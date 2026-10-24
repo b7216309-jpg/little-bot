@@ -53,3 +53,16 @@ The optional draughts board uses these files, all released under [CC0 1.0](https
 | ebony.jpg | [Wood Table 001](https://polyhaven.com/a/wood_table_001), Poly Haven | Dimitrios Savva and Rico Cilliers |
 | move-1.ogg, move-2.ogg, move-3.ogg, capture-1.ogg, capture-2.ogg | impactWood_light_000–002 and impactWood_medium_000–001 from [Impact Sounds](https://kenney.nl/assets/impact-sounds) 1.0 | Kenney (www.kenney.nl) |
 | stack-1.ogg, stack-2.ogg, crown.ogg | chips-stack-1, chips-stack-2 and chip-lay-1 from [Casino Audio](https://kenney.nl/assets/casino-audio) 1.1 | Kenney (www.kenney.nl) |
+
+# Torrents engine
+
+The optional torrents plugin ships [WebTorrent](https://github.com/webtorrent/webtorrent) 3.0.21 (MIT, Copyright (c) Feross Aboukhadijeh and WebTorrent, LLC) unmodified in `node_modules`, with the 161 packages it depends on. Their full licence texts are in each package's `LICENSE` file.
+
+| Licence | Packages |
+| --- | --- |
+| MIT | 132, among them bittorrent-dht, bittorrent-protocol, bittorrent-tracker, parse-torrent, utp-native and limiter |
+| Apache-2.0 | b4a, bare-addon-resolve, bare-events, bare-fs, bare-module-resolve, bare-path, bare-semver, bare-stream, bare-url, detect-libc, events-universal, fs-native-extensions, human-signals, require-addon, text-decoder, tunnel-agent, which-runtime |
+| ISC | chownr, ini, once, signal-exit, wrappy |
+| BSD | compact2string (BSD), default-gateway (BSD-2-Clause), ieee754 (BSD-3-Clause) |
+| Other permissive | expand-template (MIT or WTFPL), rc (BSD-2-Clause, MIT or Apache-2.0), sax (BlueOak-1.0.0) |
+| MPL-2.0 | [node-datachannel](https://github.com/murat-dogan/node-datachannel) 0.32.3, with its prebuilt `node_datachannel.node` (built on libdatachannel). It is unmodified; its source is available from that project. |

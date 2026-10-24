@@ -398,6 +398,7 @@ function render() {
   renderBrowserPanel();
   window.LittleBotCad?.render(state);
   window.LittleBotDraughts?.render(state);
+  window.LittleBotTorrents?.render(state);
   renderApprovals();
   updateComposer();
   window.LittleBotWidget?.render(state);
@@ -1053,7 +1054,7 @@ function conversationMessage(chat, message, index) {
   } else {
     if (!node) {
       node = element('article', `message ${variant}`);
-      if (variant === 'assistant' && (message.goalId || ['heartbeat', 'memory', 'watch', 'offer', 'goal', 'goal-check'].includes(message.kind))) node.classList.add('proactive');
+      if (variant === 'assistant' && (message.goalId || ['heartbeat', 'memory', 'watch', 'offer', 'download', 'goal', 'goal-check'].includes(message.kind))) node.classList.add('proactive');
       if (message.kind === 'goal-check') node.classList.add('goal-result', `goal-${message.goalStatus || 'achieved'}`);
       // A /goal: the condition the user set, and the automatic "keep going" prompts between turns.
       if (variant === 'user' && ['goal-set', 'goal-step'].includes(message.kind)) {
@@ -1070,7 +1071,7 @@ function conversationMessage(chat, message, index) {
         const label = element('div', 'message-label');
         let mark = element('span', 'mini-mark', 'P');
         if (variant !== 'plan') { mark = element('img', 'mini-mark wink-mark'); mark.src = './assets/wink.svg'; mark.alt = ''; }
-        label.append(mark, document.createTextNode(variant === 'plan' ? 'Plan' : message.goalId ? `Goal · ${message.goalName || 'Little Bot'}` : message.kind === 'heartbeat' ? `Little Bot · on its own${message.heartbeatTopic ? ` · ${message.heartbeatTopic}` : ''}` : message.kind === 'goal-check' ? 'Little Bot · goal' : message.kind === 'memory' ? 'Little Bot · learned' : message.kind === 'watch' ? 'Little Bot · web watch' : message.kind === 'offer' ? 'Little Bot · offer' : message.automationId ? `Little Bot · ${message.automationName || 'Automation'}` : 'Little Bot'));
+        label.append(mark, document.createTextNode(variant === 'plan' ? 'Plan' : message.goalId ? `Goal · ${message.goalName || 'Little Bot'}` : message.kind === 'heartbeat' ? `Little Bot · on its own${message.heartbeatTopic ? ` · ${message.heartbeatTopic}` : ''}` : message.kind === 'goal-check' ? 'Little Bot · goal' : message.kind === 'memory' ? 'Little Bot · learned' : message.kind === 'watch' ? 'Little Bot · web watch' : message.kind === 'offer' ? 'Little Bot · offer' : message.kind === 'download' ? 'Little Bot · torrents' : message.automationId ? `Little Bot · ${message.automationName || 'Automation'}` : 'Little Bot'));
         node.append(label);
       }
       node.append(element('div', 'message-content'));
@@ -4087,6 +4088,15 @@ function renderExtensionTools() {
     copy.append(meta);
     fragment.append(card);
   }
+  {
+    const enabled = Boolean(state.torrents?.enabled);
+    const { card, heading, copy } = extensionCard('Torrents', 'A light BitTorrent client for freely shared content: search the Internet Archive, Academic Torrents, official Linux images and your own feeds, look inside before downloading, and let downloads share back up to a limit. Little Bot can search and ask; a download starts only from your click.', 'import');
+    heading.append(extensionToggle('Enable torrents', enabled, 'torrents', (next) => mutateExtension('torrents', () => window.bot.torrentsEnable({ enabled: next }), next ? 'Torrents on. Open them with the Torrents button.' : 'Torrents off.')));
+    const meta = element('div', 'extension-card-meta');
+    meta.append(element('span', '', enabled ? 'On · the torrents tool is offered in conversations' : 'Off · no engine, panel or tool'), element('span', 'extension-tag', 'Built in'));
+    copy.append(meta);
+    fragment.append(card);
+  }
   // Little Bot's own tools, so it is clear what the assistant can do without any extension.
   fragment.append(element('p', 'extension-group-label', 'Little Bot abilities'));
   const abilities = element('div', 'ability-grid');
@@ -4581,6 +4591,7 @@ $('open-agent-browser').addEventListener('click', () => state?.browser?.panel ? 
 document.addEventListener('cad-selection', () => updateComposer());
 document.addEventListener('draughts-selection', () => updateComposer());
 document.addEventListener('draughts-ready', () => { if (state) window.LittleBotDraughts.render(state); });
+document.addEventListener('torrents-ready', () => { if (state) window.LittleBotTorrents.render(state); });
 document.addEventListener('cad-ready', () => { if (state) window.LittleBotCad.render(state); });
 $('browser-hide').addEventListener('click', () => browserPanelAction('hide'));
 $('browser-back').addEventListener('click', () => browserPanelAction({ action: 'back' }));

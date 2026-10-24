@@ -13,7 +13,7 @@
   <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-2b2a24?style=flat-square">
   <img alt="Local first" src="https://img.shields.io/badge/runs-local%20first-65846c?style=flat-square">
   <img alt="Electron 44" src="https://img.shields.io/badge/Electron-44-2b2a24?style=flat-square">
-  <img alt="Version 0.47.0" src="https://img.shields.io/badge/version-0.47.0-bc623f?style=flat-square">
+  <img alt="Version 0.48.0" src="https://img.shields.io/badge/version-0.48.0-bc623f?style=flat-square">
 </p>
 
 <p align="center"><img src="docs/screenshots/hero.png" alt="Little Bot on the desktop and on a phone, suggesting a break after a long coding session"></p>
@@ -61,6 +61,7 @@ Most assistants wait for you to type. Little Bot keeps one continuous conversati
 | **Use the web** | Built-in search across DuckDuckGo, Bing and Yahoo, ranked together with the best passage of each top page, and page reading for articles, docs, PDFs, Reddit threads and JavaScript sites. Up to 10 searches or pages at once, no account, key or quota. For sign-ins and clicking through sites, a built-in browser panel it drives while you watch (logins persist). |
 | **Design parts** | An optional CAD workshop (off until you turn it on): describe a small part and it writes a parametric OpenCascade model you see in 3D. Click faces and edges, pin notes or measure to show what to change; try sizes with sliders; checks flag thin walls, tiny holes and overhangs; export STL, 3MF, STEP, SVG or DXF. |
 | **Play draughts** | An optional wooden board (off until you turn it on): international draughts, French rules, against Little Bot at three levels. Move by clicking or dragging, chat between moves, right-click a square to ask about it, take moves back. |
+| **Download torrents** | An optional, light BitTorrent client (off until you turn it on) for freely shared content: search the Internet Archive, Academic Torrents, official Linux images and your own RSS or Torznab sources, look inside before downloading, and share back up to a limit. Little Bot can search and ask; a download starts only from your click. |
 | **Use your apps** | Windows UI Automation: list windows, read controls, click, type and select in ordinary desktop apps. |
 | **Know your life** | A local calendar, your Steam library (with one-click launch offers), web pages it watches for changes, and opt-in awareness of the app you are using. |
 | **Remember** | Facts, preferences and decisions in a local SQLite memory with offline semantic search (bundled BGE embeddings). Inspect, edit, pin or forget anything, with sources. |

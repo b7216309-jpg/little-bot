@@ -62,7 +62,7 @@ function normalizeDraughts(value) {
   const squares = list => Array.isArray(list) && list.every(n => Number.isInteger(n) && n >= 1 && n <= 50);
   const board = list => Array.isArray(list) && list.length === 51 && list.every(n => Number.isInteger(n) && n >= -2 && n <= 2);
   for (const [key, game] of Object.entries(isObject(value.games) ? value.games : {}).slice(0, 12)) {
-    if (!/^(?:main|[w-]{1,128})$/.test(key) || !isObject(game) || !board(game.board) || ![1, -1].includes(game.turn) || ![1, -1].includes(game.userSide)) continue;
+    if (!/^(?:main|[\w-]{1,128})$/.test(key) || !isObject(game) || !board(game.board) || ![1, -1].includes(game.turn) || ![1, -1].includes(game.userSide)) continue;
     const moves = (Array.isArray(game.moves) ? game.moves : []).filter(move => isObject(move) && Number.isInteger(move.from) && Number.isInteger(move.to)
       && [1, -1].includes(move.side) && squares(move.path) && squares(move.captures) && typeof move.notation === 'string').slice(-400).map(move => ({
       n: Number.isInteger(move.n) ? move.n : 0, side: move.side, by: ['you', 'bot', 'auto'].includes(move.by) ? move.by : 'you', notation: move.notation.slice(0, 80),
@@ -84,6 +84,37 @@ function normalizeDraughts(value) {
     for (const name of ['sound', 'numbers', 'dots']) if (typeof value.prefs[name] === 'boolean') result.prefs[name] = value.prefs[name];
   }
   return result;
+}
+
+// Torrents: transfers, settings and the user's sources (a Torznab key only in its sealed form).
+function normalizeTorrents(value) {
+  if (!isObject(value)) return {};
+  const text = (item, max) => typeof item === 'string' ? item.slice(0, max) : '';
+  const items = (Array.isArray(value.items) ? value.items : []).filter(item => isObject(item) && /^[a-f\d]{40}$/i.test(item.key || '') && typeof item.torrentPath === 'string' && typeof item.folder === 'string').slice(0, 200).map(item => ({
+    key: item.key.toLowerCase(), name: text(item.name, 300) || 'Torrent', length: Number.isFinite(item.length) ? item.length : 0, totalLength: Number.isFinite(item.totalLength) ? item.totalLength : 0,
+    files: (Array.isArray(item.files) ? item.files : []).filter(file => isObject(file) && Number.isInteger(file.index) && typeof file.path === 'string').slice(0, 500).map(file => ({ index: file.index, path: file.path.slice(0, 500), length: Number.isFinite(file.length) ? file.length : 0 })),
+    fileCount: Number.isInteger(item.fileCount) ? item.fileCount : 0, select: Array.isArray(item.select) ? item.select.filter(Number.isInteger).slice(0, 10000) : null,
+    folder: item.folder.slice(0, 1000), torrentPath: item.torrentPath.slice(0, 1000),
+    source: isObject(item.source) ? { name: text(item.source.name, 80), page: text(item.source.page, 500) || null } : { name: '', page: null },
+    // A transfer that was running carries on after a restart.
+    status: ['queued', 'downloading', 'seeding', 'paused', 'finished', 'error'].includes(item.status) ? (item.status === 'downloading' ? 'queued' : item.status) : 'queued',
+    ...(item.resumeTo === 'seeding' || item.resumeTo === 'queued' ? { resumeTo: item.resumeTo } : {}),
+    progress: Number.isFinite(item.progress) ? Math.min(1, Math.max(0, item.progress)) : 0, uploaded: Number.isFinite(item.uploaded) ? item.uploaded : 0,
+    addedAt: Number.isFinite(item.addedAt) ? item.addedAt : 0, doneAt: Number.isFinite(item.doneAt) ? item.doneAt : null, finishedAt: Number.isFinite(item.finishedAt) ? item.finishedAt : null,
+    error: text(item.error, 300) || null, risky: item.risky === true,
+  }));
+  const settings = {};
+  const saved = isObject(value.settings) ? value.settings : {};
+  if (typeof saved.folder === 'string' && saved.folder.length < 1000) settings.folder = saved.folder;
+  for (const name of ['downloadLimit', 'uploadLimit', 'ratio', 'hours', 'maxActive']) if (Number.isFinite(saved[name]) && saved[name] >= 0) settings[name] = saved[name];
+  if (['ratio', 'time', 'never'].includes(saved.stopSharing)) settings.stopSharing = saved.stopSharing;
+  for (const name of ['upnp', 'magnetLinks', 'pauseForGames']) if (typeof saved[name] === 'boolean') settings[name] = saved[name];
+  const sources = isObject(value.sources) ? value.sources : {};
+  const builtIn = {};
+  for (const id of ['archive', 'academic', 'linux']) if (typeof sources.builtIn?.[id] === 'boolean') builtIn[id] = sources.builtIn[id];
+  const custom = (Array.isArray(sources.custom) ? sources.custom : []).filter(source => isObject(source) && typeof source.id === 'string' && /^https?:\/\//i.test(source.url || '') && ['rss', 'torznab'].includes(source.kind)).slice(0, 30)
+    .map(source => ({ id: source.id.slice(0, 64), name: text(source.name, 60) || 'Source', kind: source.kind, url: source.url.slice(0, 2000), enabled: source.enabled !== false, ...(typeof source.apiKeySealed === 'string' ? { apiKeySealed: source.apiKeySealed.slice(0, 4000) } : {}) }));
+  return { items, settings, sources: { builtIn, custom } };
 }
 
 const PROTECTED_STATE_VERSION = 1;
@@ -175,6 +206,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
     webWatches: normalizeWatches(data.webWatches),
     cad: normalizeCad(data.cad),
     draughts: normalizeDraughts(data.draughts),
+    torrents: normalizeTorrents(data.torrents),
     usage: normalizeUsage(data.usage),
     heartbeat: normalizeHeartbeat(data.heartbeat, { ...settings, workspace: string(settings.workspace, defaultWorkspace) }, Date.now(), recovering),
     settings: {
@@ -188,6 +220,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
       nightShiftEnabled: settings.nightShiftEnabled === true,
       cadEnabled: settings.cadEnabled === true,
       draughtsEnabled: settings.draughtsEnabled === true,
+      torrentsEnabled: settings.torrentsEnabled === true,
       localSampling: normalizeSampling(settings.localSampling),
       ...(typeof settings.systemPrompt === 'string' ? { systemPrompt: settings.systemPrompt.slice(0, 100000) } : {}),
       security: normalizeSecurity(settings.security),

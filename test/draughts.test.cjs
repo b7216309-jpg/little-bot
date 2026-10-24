@@ -241,6 +241,8 @@ test('the store keeps games and preferences and drops anything malformed', () =>
     const store = new Store({ filePath: path.join(dir, 'state.json'), defaultWorkspace: dir });
     const table = new DraughtsTable({ store, keyOf: () => 'main' });
     store.data.settings.draughtsEnabled = true;
+    // A saved session's game, keyed by the session's id.
+    table.newGame('3f2b8c1e-5d4a-4b7e-9c2d-1a0e6f8b7c9d', { level: 'easy' });
     table.newGame('main', { level: 'hard' });
     table.userMove('main', '32-28');
     table.setPrefs({ sound: false, numbers: true });
@@ -249,7 +251,7 @@ test('the store keeps games and preferences and drops anything malformed', () =>
     store.save();
     const again = new Store({ filePath: path.join(dir, 'state.json'), defaultWorkspace: dir });
     assert.equal(again.data.settings.draughtsEnabled, true);
-    assert.deepEqual(Object.keys(again.data.draughts.games), ['main']);
+    assert.deepEqual(Object.keys(again.data.draughts.games).sort(), ['3f2b8c1e-5d4a-4b7e-9c2d-1a0e6f8b7c9d', 'main']);
     const game = again.data.draughts.games.main;
     assert.equal(game.level, 'hard');
     assert.deepEqual(game.moves.map(move => move.notation), ['32-28']);
