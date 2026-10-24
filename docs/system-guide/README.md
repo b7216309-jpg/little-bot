@@ -26,6 +26,7 @@ Start with the [second functional review](review.md) for confirmed problems and 
 | Phone app, pairing, live sync and notifications | [Phone relay](18-phone-relay.md) |
 | Agent loop, commands, patches, MCP client, compaction and history | [Engine](19-engine.md) |
 | Optional part design: engine page, 3D view, pointing, checks and exports | [CAD workshop](20-cad.md) |
+| Optional draughts against Little Bot: rules, search, board and the draughts tool | [Draughts](21-draughts.md) |
 
 Each guide gives the call path, data ownership, conditions that prevent operation, and relevant tests. The [reproduction instructions](review/README.md) explain how to repeat the new failure probes without touching personal data.
 

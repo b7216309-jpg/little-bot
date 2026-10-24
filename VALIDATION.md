@@ -1,3 +1,33 @@
+# Version 0.47.0 verification
+
+0.47.0 adds draughts, an optional built-in plugin for playing international draughts against Little Bot ([system guide](docs/system-guide/21-draughts.md)).
+
+## Changed
+- **Draughts**, off until switched on in Extensions › Tools:
+  - International rules on a 10×10 board, as played in France, checked in the main process, so no illegal move can be played.
+  - A wooden board beside the conversation. Move by clicking or dragging; dots show where a piece can go, and hovering a destination shows what it takes.
+  - Moves slide along their path. Taken pieces lift off and pile up beside the board, with wood and chip sounds (CC0, Poly Haven and Kenney).
+  - Each move goes to the conversation as a message, with any text typed as a comment, and Little Bot answers with its own move and a sentence or two.
+  - Right-clicking a square sends it with the next message.
+  - New game (colour, level), Take back, Resign, square numbers, the dots and sound in the bar.
+  - Each conversation keeps its own game.
+- **The model's `draughts` tool** (board, move, analyse, new) is offered only while draughts is on, only in the user's own conversation, and not in Plan mode.
+- **Levels:** a search in a worker thread gives each of Little Bot's moves a verdict. On Easy it sees none, on Medium the moves that lose material are marked, and on Hard every verdict and the strongest move. If the model ends its turn without moving, the board plays for it and says so.
+- **One side panel at a time:** the board, the CAD workshop and the browser put each other away.
+
+## Checked
+- **Rules and table tests** ([draughts.test.cjs](test/draughts.test.cjs)):
+  - Move generation matches the published counts for the opening position to depth 5 (9, 81, 658, 4,265, 27,117).
+  - Backward captures, the most-pieces rule, flying kings, no crown when a capture only passes over the far row, and no piece taken twice over 20 random games.
+  - Typed moves, ambiguous captures, the draw rules, and the search seeing a lost piece.
+  - A game through the table, what each level tells the model, the fallback move, taking back, a game over, the plugin's gating, and the store.
+- **In the app** with the real model (Strata 0.2.2, Qwen 3.8 Flash Next IQ3_S), in a throwaway profile, playing White on Medium by clicking, dragging and right-clicking:
+  - 31-27 → Little Bot played 19-23 in 18 s: "19-23 bolsters my centre and eyes your advanced man on 27."
+  - 27-22, with square 27 pointed at and "Is this a good piece to move?" → it took 18x27 in 59 s and explained that 27-22 lost a piece.
+  - The forced 32x21 → it took 16x27 in 12 s.
+  - The board, the move list, the capture piles, the move chips in the timeline, and both themes looked right.
+- **Full suite:** syntax, the Node tests and the three Electron tests.
+
 # Version 0.46.0 verification
 
 0.46.0 adds the CAD workshop, an optional built-in plugin for designing small parts ([system guide](docs/system-guide/20-cad.md)).

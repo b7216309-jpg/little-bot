@@ -63,6 +63,11 @@ const icons = {
   cube: ['M12 2 3 7v10l9 5 9-5V7Z', 'M3 7l9 5 9-5', 'M12 12v10'],
   ruler: ['M3 17 17 3l4 4L7 21Z', 'M7 13l2 2', 'M10 10l2 2', 'M13 7l2 2'],
   cursor: ['M5 3l14 7-6 2-2 6Z'],
+  draughts: ['M3 10a9 4 0 1 0 18 0a9 4 0 1 0-18 0', 'M3 10v3a9 4 0 0 0 18 0v-3', 'M8 10a4 1.7 0 1 0 8 0a4 1.7 0 1 0-8 0'],
+  undo: ['M9 14 4 9l5-5', 'M4 9h10.5a5.5 5.5 0 0 1 0 11H11'],
+  target: ['M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0-18 0', 'M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0'],
+  hash: ['M4 9h16', 'M4 15h16', 'M10 3 8 21', 'M16 3l-2 18'],
+  volume: ['M11 5 6 9H2v6h4l5 4Z', 'M15.5 8.5a5 5 0 0 1 0 7', 'M19 5a10 10 0 0 1 0 14'],
 };
 
 function fillIcon(node, name) {
@@ -392,6 +397,7 @@ function render() {
   renderGoalDrawer();
   renderBrowserPanel();
   window.LittleBotCad?.render(state);
+  window.LittleBotDraughts?.render(state);
   renderApprovals();
   updateComposer();
   window.LittleBotWidget?.render(state);
@@ -1082,6 +1088,14 @@ function conversationMessage(chat, message, index) {
         for (const label of message.cad) marks.append(element('span', '', label));
         content.after(marks);
       }
+      // The move the user played on the draughts board.
+      node.querySelector(':scope > .message-draughts')?.remove();
+      if (variant === 'user' && message.draughts) {
+        const played = element('div', 'message-draughts');
+        played.title = 'Played on the draughts board';
+        played.append(element('span', '', `Played ${message.draughts}`));
+        content.after(played);
+      }
     }
     if (!retained || previous.fingerprint[5] !== fingerprint[5]) {
       node.querySelector(':scope > .attachment-list')?.remove();
@@ -1303,7 +1317,7 @@ function renderConversation() {
 function updateComposer() {
   const chat = currentChat();
   const running = chat?.status === 'running' || chat?.status === 'waiting' || chat?.compaction?.status === 'running' || compactionPending.has(chat?.id);
-  const canSend = Boolean(state && isConnected() && isReady() && !running && !sending && !thinkingSaving && !attachmentImportPending && ($('message-input').value.trim() || queuedAttachments().length || window.LittleBotCad?.selection().length));
+  const canSend = Boolean(state && isConnected() && isReady() && !running && !sending && !thinkingSaving && !attachmentImportPending && ($('message-input').value.trim() || queuedAttachments().length || window.LittleBotCad?.selection().length || window.LittleBotDraughts?.selection().length));
   $('send-button').disabled = !canSend;
   renderGoalBar();
   $('send-button').classList.toggle('hidden', Boolean(running));
@@ -1921,7 +1935,9 @@ async function executeSlashCommand(parsed) {
   }
 }
 
-async function sendMessage(event) {
+// extra: { draughts: { played } or { resume: true } } when the draughts board sends a move or asks Little Bot to play.
+// Returns whether the message was sent.
+async function sendMessage(event, extra = null) {
   event?.preventDefault();
   const submittedDraft = $('message-input').value;
   const text = submittedDraft.trim();
@@ -1930,12 +1946,15 @@ async function sendMessage(event) {
   const attachmentIds = queuedAttachments().map((attachment) => attachment.id);
   // What the user pointed at in the CAD panel goes with this message.
   const cadItems = window.LittleBotCad?.selection() || [];
-  const slashCommand = text ? LittleBotSlashCommands.parse(submittedDraft) : null;
+  // A move on the draughts board, and the squares pointed at there.
+  const draughtsPoints = window.LittleBotDraughts?.selection() || [];
+  const draughts = extra?.draughts || draughtsPoints.length ? { ...(extra?.draughts || {}), ...(draughtsPoints.length ? { points: draughtsPoints } : {}) } : null;
+  const slashCommand = text && !extra ? LittleBotSlashCommands.parse(submittedDraft) : null;
   if (slashCommand) {
     await executeSlashCommand(slashCommand);
-    return;
+    return false;
   }
-  if ((!text && !attachmentIds.length && !cadItems.length) || sending || thinkingSaving || attachmentImportPending || !isConnected() || !isReady() || chat?.status === 'running' || chat?.status === 'waiting' || chat?.compaction?.status === 'running' || compactionPending.has(chat?.id)) return;
+  if ((!text && !attachmentIds.length && !cadItems.length && !draughts) || sending || thinkingSaving || attachmentImportPending || !isConnected() || !isReady() || chat?.status === 'running' || chat?.status === 'waiting' || chat?.compaction?.status === 'running' || compactionPending.has(chat?.id)) return false;
   const originChatId = selectedChatId;
   const originDraftKey = originChatId || newDraftKey();
   const originMode = chatMode, originSession = sessionId;
@@ -1944,9 +1963,10 @@ async function sendMessage(event) {
   sending = true;
   updateComposer();
   try {
-    const result = await window.bot.send({ chatId: originChatId || undefined, text, attachmentIds, mode, ...(cadItems.length ? { cad: { items: cadItems } } : {}), ...(originMode === 'quick' ? { quick: true } : originMode === 'session' ? { session: true } : {}) });
+    const result = await window.bot.send({ chatId: originChatId || undefined, text, attachmentIds, mode, ...(cadItems.length ? { cad: { items: cadItems } } : {}), ...(draughts ? { draughts } : {}), ...(originMode === 'quick' ? { quick: true } : originMode === 'session' ? { session: true } : {}) });
     if (chatDrafts.get(originDraftKey) === submittedDraft) chatDrafts.delete(originDraftKey);
     if (cadItems.length) window.LittleBotCad?.clearSelection();
+    if (draughtsPoints.length) window.LittleBotDraughts?.clearSelection();
     const remainingAttachments = (attachmentDrafts.get(originDraftKey) || []).filter((attachment) => !attachmentIds.includes(attachment.id));
     if (remainingAttachments.length) attachmentDrafts.set(originDraftKey, remainingAttachments);
     else attachmentDrafts.delete(originDraftKey);
@@ -1971,8 +1991,10 @@ async function sendMessage(event) {
     render();
     sizeComposer();
     if (originNavigation === navigationVersion && currentView === 'chat') scrollChatToBottom();
+    return true;
   } catch (error) {
     notify(error?.message || String(error), true);
+    return false;
   } finally {
     sending = false;
     newSessionSince = 0;
@@ -1980,6 +2002,13 @@ async function sendMessage(event) {
     if (originNavigation === navigationVersion && currentView === 'chat') $('message-input').focus();
   }
 }
+// For the draughts panel: its game belongs to the main conversation or the open saved session.
+globalThis.sendDraughts = draughts => sendMessage(null, { draughts });
+globalThis.draughtsChat = () => {
+  const chat = modeChat();
+  return { key: chatMode === 'main' ? 'main' : chatMode === 'session' && sessionId ? sessionId : null,
+    busy: sending || chat?.status === 'running' || chat?.status === 'waiting' || chat?.compaction?.status === 'running' };
+};
 
 function renderConnection() {
   $('local-connection-card').classList.toggle('hidden', isConnected());
@@ -4049,6 +4078,15 @@ function renderExtensionTools() {
     copy.append(meta);
     fragment.append(card);
   }
+  {
+    const enabled = Boolean(state.draughts?.enabled);
+    const { card, heading, copy } = extensionCard('Draughts', 'Play international draughts (10×10, French rules) against Little Bot on a wooden board beside the conversation, and chat between moves. Three levels; the rules are checked on this PC, so no move can be illegal.', 'draughts');
+    heading.append(extensionToggle('Enable draughts', enabled, 'draughts', (next) => mutateExtension('draughts', () => window.bot.draughtsEnable({ enabled: next }), next ? 'Draughts on. Open the board with the Draughts button.' : 'Draughts off.')));
+    const meta = element('div', 'extension-card-meta');
+    meta.append(element('span', '', enabled ? 'On · the draughts tool is offered in conversations' : 'Off · no tool or board'), element('span', 'extension-tag', 'Built in'));
+    copy.append(meta);
+    fragment.append(card);
+  }
   // Little Bot's own tools, so it is clear what the assistant can do without any extension.
   fragment.append(element('p', 'extension-group-label', 'Little Bot abilities'));
   const abilities = element('div', 'ability-grid');
@@ -4541,6 +4579,8 @@ $('inspector-context-refresh').addEventListener('click', () => {
 });
 $('open-agent-browser').addEventListener('click', () => state?.browser?.panel ? browserPanelAction('hide') : browserAction('open'));
 document.addEventListener('cad-selection', () => updateComposer());
+document.addEventListener('draughts-selection', () => updateComposer());
+document.addEventListener('draughts-ready', () => { if (state) window.LittleBotDraughts.render(state); });
 document.addEventListener('cad-ready', () => { if (state) window.LittleBotCad.render(state); });
 $('browser-hide').addEventListener('click', () => browserPanelAction('hide'));
 $('browser-back').addEventListener('click', () => browserPanelAction({ action: 'back' }));

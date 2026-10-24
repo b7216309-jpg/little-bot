@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="./standing-intents.css">
   <link rel="stylesheet" href="./panels.css">
   <link rel="stylesheet" href="./cad.css">
+  <link rel="stylesheet" href="./draughts.css">
 <link rel="stylesheet" href="./dark.css">
   <link rel="stylesheet" href="./widget-mode.css">
   <link rel="stylesheet" href="./usage.css">
@@ -30,6 +31,7 @@
   <script src="./app.js" defer></script>
   <script src="./standing-intents-panel.js" defer></script>
 <script type="module" src="./cad-panel.js"></script>
+<script type="module" src="./draughts-panel.js"></script>
 </head>
 <body>
   <div id="widget-pill" aria-label="Little Bot compact widget">
@@ -89,7 +91,7 @@
       </header>
       <header class="topbar">
         <div class="topbar-left"><span id="page-label" class="page-label">Conversation</span><span class="topbar-divider"></span><span id="runtime-status" class="runtime-status"><span class="status-dot starting"></span><span>Starting engine</span></span></div>
-        <div class="topbar-actions"><button id="quick-keep" class="workspace-button hidden" type="button" title="Keep this Quick session as a saved session, with its history"><span class="icon" data-icon="bookmark"></span><span>Keep as session</span></button><button id="quick-end" class="workspace-button hidden" type="button" title="End this Quick session; it is not saved"><span class="icon" data-icon="x"></span><span>End session</span></button><button id="session-rename" class="workspace-button hidden" type="button" title="Rename this session"><span class="icon" data-icon="edit"></span><span>Rename</span></button><button id="session-delete" class="workspace-button hidden" type="button" title="Delete this session and its history"><span class="icon" data-icon="trash"></span><span>Delete</span></button><button id="enter-widget" class="workspace-button" type="button" title="Glass widget mode · Ctrl+Shift+M"><span class="icon" data-icon="compact"></span><span>Widget</span></button><button id="agent-inspector-toggle" class="workspace-button inspector-toggle" type="button" aria-pressed="false" title="Show agent activity"><span class="icon" data-icon="info"></span><span>Activity</span></button><button id="open-agent-browser" class="workspace-button agent-browser-button" type="button" title="Open the agent’s browser"><span class="icon" data-icon="browser"></span><span>Browser</span></button><button id="open-cad" class="workspace-button agent-browser-button hidden" type="button" aria-pressed="false" title="Show the CAD workshop"><span class="icon" data-icon="cube"></span><span>CAD</span></button><button id="choose-workspace" class="workspace-button" title="Choose a workspace"><span class="icon" data-icon="folder"></span><span id="workspace-label">Choose workspace</span><span class="icon small" data-icon="chevron-down"></span></button></div>
+        <div class="topbar-actions"><button id="quick-keep" class="workspace-button hidden" type="button" title="Keep this Quick session as a saved session, with its history"><span class="icon" data-icon="bookmark"></span><span>Keep as session</span></button><button id="quick-end" class="workspace-button hidden" type="button" title="End this Quick session; it is not saved"><span class="icon" data-icon="x"></span><span>End session</span></button><button id="session-rename" class="workspace-button hidden" type="button" title="Rename this session"><span class="icon" data-icon="edit"></span><span>Rename</span></button><button id="session-delete" class="workspace-button hidden" type="button" title="Delete this session and its history"><span class="icon" data-icon="trash"></span><span>Delete</span></button><button id="enter-widget" class="workspace-button" type="button" title="Glass widget mode · Ctrl+Shift+M"><span class="icon" data-icon="compact"></span><span>Widget</span></button><button id="agent-inspector-toggle" class="workspace-button inspector-toggle" type="button" aria-pressed="false" title="Show agent activity"><span class="icon" data-icon="info"></span><span>Activity</span></button><button id="open-agent-browser" class="workspace-button agent-browser-button" type="button" title="Open the agent’s browser"><span class="icon" data-icon="browser"></span><span>Browser</span></button><button id="open-cad" class="workspace-button agent-browser-button hidden" type="button" aria-pressed="false" title="Show the CAD workshop"><span class="icon" data-icon="cube"></span><span>CAD</span></button><button id="open-draughts" class="workspace-button agent-browser-button hidden" type="button" aria-pressed="false" title="Show the draughts board"><span class="icon" data-icon="draughts"></span><span>Draughts</span></button><button id="choose-workspace" class="workspace-button" title="Choose a workspace"><span class="icon" data-icon="folder"></span><span id="workspace-label">Choose workspace</span><span class="icon small" data-icon="chevron-down"></span></button></div>
       </header>
       <section id="chat-view" class="chat-view"><div class="attachment-drop-overlay" aria-hidden="true"><span class="icon" data-icon="paperclip"></span><span>Drop files here</span></div>
         <aside id="agent-inspector" class="agent-inspector hidden" aria-label="Agent activity">
@@ -157,7 +159,7 @@
             <button id="goal-bar-toggle" class="button text-button" type="button"></button>
             <button id="goal-bar-clear" class="icon-button" type="button" aria-label="Clear the goal" title="Clear the goal"><span class="icon" data-icon="x"></span></button>
           </section>
-          <form id="composer" class="composer"><div id="cad-selection" class="cad-selection hidden" aria-label="What you pointed at in the CAD model"></div><div id="attachment-queue" class="hidden" aria-label="Attached files"></div><p id="attachment-import-status" class="attachment-import-status hidden" role="status"></p>
+          <form id="composer" class="composer"><div id="cad-selection" class="cad-selection hidden" aria-label="What you pointed at in the CAD model"></div><div id="draughts-selection" class="cad-selection hidden" aria-label="Squares you pointed at on the draughts board"></div><div id="attachment-queue" class="hidden" aria-label="Attached files"></div><p id="attachment-import-status" class="attachment-import-status hidden" role="status"></p>
             <label for="message-input" class="sr-only">Message Little Bot</label>
             <textarea id="message-input" rows="2" placeholder="Message Little Bot…  ·  / for commands" maxlength="32000" role="combobox" aria-autocomplete="list" aria-controls="slash-menu" aria-expanded="false"></textarea>
             <div class="composer-toolbar">
@@ -411,6 +413,32 @@
       </div>
       <div id="browser-activity" class="browser-activity hidden" role="status"><span class="status-dot running"></span><span>Little Bot is browsing</span></div>
       <div id="browser-viewport" class="browser-viewport"><div id="browser-empty" class="browser-empty"><span class="icon" data-icon="browser"></span><h2>Built-in browser</h2><p>Ask Little Bot to look something up, or type an address above. You can sign in to sites here; they stay signed in.</p></div></div>
+    </aside>
+    <aside id="draughts-panel" class="draughts-panel hidden" aria-label="Draughts">
+      <div class="draughts-bar">
+        <div class="draughts-title"><span class="icon" data-icon="draughts"></span><span>Draughts</span><span id="draughts-level" class="draughts-level"></span></div>
+        <div id="draughts-status" class="draughts-status" role="status"></div>
+        <div class="draughts-bar-end">
+          <div class="draughts-menu-wrap"><button id="draughts-new" class="icon-button" type="button" aria-expanded="false" aria-controls="draughts-new-menu" title="New game" aria-label="New game"><span class="icon" data-icon="plus"></span></button><div id="draughts-new-menu" class="draughts-menu hidden"></div></div>
+          <button id="draughts-undo" class="icon-button" type="button" title="Take back your last move" aria-label="Take back your last move"><span class="icon" data-icon="undo"></span></button>
+          <button id="draughts-dots" class="icon-button" type="button" aria-pressed="true" title="Show where a piece can go" aria-label="Show where a piece can go"><span class="icon" data-icon="target"></span></button>
+          <button id="draughts-numbers" class="icon-button" type="button" aria-pressed="false" title="Show square numbers" aria-label="Show square numbers"><span class="icon" data-icon="hash"></span></button>
+          <button id="draughts-sound" class="icon-button" type="button" aria-pressed="true" title="Sound" aria-label="Sound"><span class="icon" data-icon="volume"></span></button>
+          <button id="draughts-hide" class="icon-button" type="button" aria-label="Hide the draughts board" title="Hide the draughts board"><span class="icon" data-icon="x"></span></button>
+        </div>
+      </div>
+      <div id="draughts-stage" class="draughts-stage">
+        <div id="draughts-tray-top" class="draughts-tray"></div>
+        <div id="draughts-board-wrap" class="draughts-board-wrap"><div class="draughts-frame"><div id="draughts-grid" class="draughts-grid" aria-label="Draughts board. Click or drag a piece to move it; right-click a square to point at it."></div></div></div>
+        <div id="draughts-tray-bottom" class="draughts-tray"></div>
+        <div id="draughts-result" class="draughts-result hidden" role="status"></div>
+        <div id="draughts-empty" class="draughts-empty"><div class="draughts-card"></div></div>
+      </div>
+      <div class="draughts-foot">
+        <p id="draughts-note" class="draughts-note hidden" role="status"></p>
+        <ol id="draughts-moves" class="draughts-moves" aria-label="Moves"></ol>
+        <div class="draughts-actions"><button id="draughts-ask" class="button secondary hidden" type="button">Ask Little Bot to play</button><button id="draughts-resign" class="button secondary hidden" type="button">Resign</button></div>
+      </div>
     </aside>
     <aside id="cad-panel" class="cad-panel hidden" aria-label="CAD workshop">
       <div class="cad-bar">

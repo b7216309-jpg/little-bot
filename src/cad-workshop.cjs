@@ -59,7 +59,7 @@ const SPEC = {
 };
 
 class CadWorkshop {
-  constructor({ kernel, store, root, getWorkspace, onChange, onMesh, guidePath }) {
+  constructor({ kernel, store, root, getWorkspace, onChange, onMesh, guidePath, beforeShow }) {
     this.kernel = kernel;
     this.store = store;
     this.root = root;
@@ -67,6 +67,7 @@ class CadWorkshop {
     this.onChange = onChange || (() => {});
     this.onMesh = onMesh || (() => {});
     this.guidePath = guidePath;
+    this.beforeShow = beforeShow || (() => {}); // puts away another side panel
     this.panel = false;
     this.project = null;     // { id, name, file, versions: [{ n, at, note, by }], version, code, overrides }
     this.last = null;        // the last build: { params, info, checks, steps, error, mesh, version }
@@ -259,6 +260,7 @@ class CadWorkshop {
     this._requireEnabled();
     this.panel = visible === true;
     if (this.panel) {
+      this.beforeShow();
       this.kernel.start().catch(() => {});
       if (this._ensureProject()?.code && !this.last) await this.build();
       else if (this.last?.version && this.meshes.has(this.last.version)) this.onMesh({ version: this.last.version, mesh: this.meshes.get(this.last.version) });
@@ -345,7 +347,7 @@ class CadWorkshop {
     throw new Error('Use one of the listed actions.');
   }
 
-  _showForModel() { if (!this.panel) { this.panel = true; this.changed(); } }
+  _showForModel() { if (!this.panel) { this.beforeShow(); this.panel = true; this.changed(); } }
 
   async _withPicture(summary) {
     if (summary.error || !this.last?.info) return summary;
