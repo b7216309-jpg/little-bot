@@ -296,3 +296,20 @@ Guide: [18-phone-relay.md](18-phone-relay.md)
 | [resources/icons/little-bot-maskable.png](../../resources/icons/little-bot-maskable.png) | Android launcher icon |
 | [src/phone-context.cjs](../../src/phone-context.cjs) | Phone location, home/away and battery for prompts |
 | [resources/android/little-bot.apk](../../resources/android/little-bot.apk) | Built Android app from its own private repository, served at /little-bot.apk |
+
+## cad workshop
+
+Guide: [20-cad.md](20-cad.md)
+
+| Source / resource | Responsibility |
+| --- | --- |
+| [src/cad-workshop.cjs](../../src/cad-workshop.cjs) | Parts, versions, the cad tool, pictures and message context |
+| [src/cad-kernel.cjs](../../src/cad-kernel.cjs) | Hidden sandboxed engine page and its little-bot-cad protocol |
+| [src/cad/worker.js](../../src/cad/worker.js) | replicad and OpenCascade: builds, checks, faces, edges, measures and exports |
+| [src/cad/viewer.js](../../src/cad/viewer.js) | three.js view shared by the panel and the engine page |
+| [src/cad/kernel.js](../../src/cad/kernel.js) | Engine page: worker lifecycle and pictures |
+| [src/cad/kernel.html](../../src/cad/kernel.html) | Engine page shell and its content security policy |
+| [src/cad/zip.js](../../src/cad/zip.js) | Uncompressed zip for 3MF |
+| [src/renderer/cad-panel.js](../../src/renderer/cad-panel.js) | CAD panel and the selection chips in the composer |
+| [src/renderer/cad.css](../../src/renderer/cad.css) | CAD panel styles |
+| [resources/cad/GUIDE.md](../../resources/cad/GUIDE.md) | Script API and examples the model reads |

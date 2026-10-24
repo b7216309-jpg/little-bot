@@ -1,0 +1,111 @@
+/* The CAD workshop side panel: 3D view on top, settings, checks, script and versions below. */
+.app-shell.cad-open{grid-template-columns:224px minmax(0,1fr) minmax(380px,46%)}
+@media(max-width:1050px){.app-shell.cad-open{grid-template-columns:202px minmax(0,1fr) minmax(340px,44%)}}
+.custom-titlebar .app-shell.cad-open .topbar{padding-right:24px}
+.cad-panel{display:flex;flex-direction:column;min-width:0;min-height:0;border-left:1px solid var(--line);background:var(--paper)}
+.cad-bar{height:71px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--line)}
+.custom-titlebar .cad-bar{-webkit-app-region:drag;padding-right:calc(var(--caption-width) + 14px)}
+.custom-titlebar .cad-bar button,.custom-titlebar .cad-bar input,.custom-titlebar .cad-bar form,.custom-titlebar .cad-menu{-webkit-app-region:no-drag}
+.cad-part-wrap{position:relative;min-width:0}
+.cad-part{display:flex;align-items:center;gap:7px;max-width:220px;border:1px solid transparent;background:transparent;border-radius:8px;padding:7px 9px;font-size:12px;font-weight:600;color:var(--ink);cursor:pointer}
+.cad-part:hover,.cad-part[aria-expanded=true]{background:var(--soft)}
+.cad-part #cad-part-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cad-part .icon{width:15px;height:15px;color:var(--muted);flex-shrink:0}
+.cad-version{font-size:10px;font-weight:500;color:var(--muted);background:var(--soft);border-radius:4px;padding:1px 5px}
+.cad-version:empty{display:none}
+.cad-modes{display:flex;gap:2px;padding:2px;border:1px solid var(--line);border-radius:9px;background:var(--white)}
+.cad-modes button{display:flex;align-items:center;gap:5px;border:0;background:transparent;border-radius:7px;padding:5px 9px;font-size:11px;color:var(--muted);cursor:pointer}
+.cad-modes button .icon{width:13px;height:13px}
+.cad-modes button:hover{color:var(--ink)}
+.cad-modes button[aria-checked=true]{background:#edf2e4;color:#58705c}
+.cad-bar-end{margin-left:auto;display:flex;align-items:center;gap:4px}
+.cad-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:30;width:260px;background:var(--white);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 30px #1a1f1a1f;padding:12px;display:flex;flex-direction:column;gap:8px}
+.cad-menu label{font-size:11px;color:var(--muted)}
+.cad-menu input{border:1px solid var(--line);border-radius:7px;padding:7px 9px;font-size:12px;background:var(--paper);color:var(--ink)}
+.cad-menu-actions{display:flex;justify-content:space-between;gap:6px}
+.cad-export-menu{left:auto;right:0;width:200px;padding:6px;gap:2px}
+.cad-export-menu button{display:flex;align-items:baseline;justify-content:space-between;gap:10px;border:0;background:transparent;border-radius:6px;padding:7px 9px;font-size:12px;font-weight:600;color:var(--ink);text-align:left;cursor:pointer}
+.cad-export-menu button span{font-size:10px;font-weight:400;color:var(--muted)}
+.cad-export-menu button:hover{background:var(--soft)}
+.cad-stage{position:relative;flex:1 1 55%;min-height:200px;overflow:hidden}
+.cad-stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block;outline:none;touch-action:none}
+.cad-panel[data-mode=pin] .cad-stage canvas,.cad-panel[data-mode=measure] .cad-stage canvas{cursor:crosshair}
+.cad-marks{position:absolute;inset:0;pointer-events:none}
+.cad-mark{position:absolute;transform:translate(-50%,-50%);min-width:20px;height:20px;border-radius:10px;background:#2f6f8f;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 5px;box-shadow:0 1px 4px #00000040}
+.cad-mark.problem{background:#c0392b}
+.cad-mark.warning{background:#d08a2e}
+.cad-mark.info{background:#4f7aa8}
+.cad-mark.measure{background:#bc623f}
+.cad-views{position:absolute;top:10px;right:10px;display:flex;gap:2px;padding:2px;background:#fcfbf8e6;border:1px solid var(--line);border-radius:8px}
+.cad-views button{border:0;background:transparent;border-radius:6px;padding:4px 8px;font-size:10px;color:var(--muted);cursor:pointer}
+.cad-views button:hover{color:var(--ink);background:var(--soft)}
+.cad-views button[aria-pressed=true]{background:#edf2e4;color:#58705c}
+.cad-size{position:absolute;left:12px;bottom:10px;font-size:11px;color:var(--muted);background:#fcfbf8e6;border-radius:6px;padding:3px 7px}
+.cad-size:empty{display:none}
+.cad-readout{position:absolute;left:12px;top:10px;max-width:60%;font-size:11px;line-height:1.5;color:var(--ink);background:#fcfbf8f0;border:1px solid var(--line);border-radius:8px;padding:6px 9px}
+.cad-building{position:absolute;right:12px;bottom:10px;display:flex;align-items:center;gap:7px;font-size:11px;color:#58705c;background:#f2f5ec;border:1px solid #dfe7d4;border-radius:7px;padding:4px 9px}
+.cad-error{position:absolute;left:12px;right:12px;bottom:40px;font-size:11px;line-height:1.5;color:#8a2f22;background:#fbefec;border:1px solid #efcfc8;border-radius:8px;padding:8px 10px;display:flex;gap:10px;align-items:flex-start;justify-content:space-between}
+.cad-error button{flex-shrink:0}
+.cad-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:32px;text-align:center;color:var(--muted);background:var(--paper)}
+.cad-empty .icon{width:34px;height:34px;color:#b9bfae}
+.cad-empty h2{font:22px/1.2 Georgia,serif;font-weight:400;color:var(--ink)}
+.cad-empty p{max-width:320px;font-size:12px;line-height:1.6}
+.cad-tabs{display:flex;gap:2px;padding:0 12px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);flex-shrink:0}
+.cad-tabs button{border:0;background:transparent;border-bottom:2px solid transparent;padding:9px 10px 8px;font-size:11px;font-weight:600;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:5px}
+.cad-tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--accent)}
+.cad-count{font-size:9px;font-weight:700;border-radius:8px;padding:0 5px;background:var(--soft);color:var(--muted)}
+.cad-count:empty{display:none}
+.cad-count.error{background:#fbefec;color:#a3382a}
+.cad-count.warning{background:#fbf3e4;color:#94621c}
+.cad-drawer{flex:0 1 42%;min-height:150px;overflow:auto;padding:12px 14px}
+.cad-params{display:grid;grid-template-columns:minmax(80px,auto) 1fr 64px;gap:8px 10px;align-items:center}
+.cad-params label{font-size:11px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cad-params input[type=range]{width:100%;-webkit-appearance:none;appearance:none;height:4px;min-height:0;padding:0;margin:0;border:0;border-radius:2px;background:#dcded4;outline:none;cursor:pointer;box-shadow:none}
+.cad-params input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#8fa17a;border:2px solid #fcfbf8;box-shadow:0 1px 3px #00000030}
+.cad-params input[type=range]:focus-visible::-webkit-slider-thumb{outline:2px solid var(--accent);outline-offset:2px}
+.cad-params input[type=number],.cad-params input[type=text]{width:100%;border:1px solid var(--line);border-radius:6px;padding:4px 6px;font-size:11px;background:var(--white);color:var(--ink)}
+.cad-params .cad-param-wide{grid-column:2/4}
+.cad-param-changed label{color:#58705c;font-weight:600}
+.cad-hint{grid-column:1/-1;font-size:11px;color:var(--muted);line-height:1.5}
+.cad-checks{display:flex;flex-direction:column;gap:6px}
+.cad-check{display:flex;align-items:flex-start;gap:9px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--white)}
+.cad-check-dot{width:8px;height:8px;border-radius:50%;margin-top:5px;flex-shrink:0;background:#4f7aa8}
+.cad-check.error .cad-check-dot{background:#c0392b}
+.cad-check.warning .cad-check-dot{background:#d08a2e}
+.cad-check p{flex:1;font-size:11px;line-height:1.5;color:var(--ink)}
+.cad-check-actions{display:flex;gap:4px;flex-shrink:0}
+.cad-check-actions button{border:1px solid var(--line);background:var(--paper);border-radius:6px;padding:3px 8px;font-size:10px;color:var(--ink);cursor:pointer}
+.cad-check-actions button:hover{background:var(--soft)}
+.cad-ok{font-size:11px;color:#58705c;display:flex;align-items:center;gap:6px}
+.cad-limits{margin-top:12px;font-size:11px;color:var(--muted)}
+.cad-limits summary{cursor:pointer}
+.cad-limit-grid{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.cad-limit-grid label{display:flex;align-items:center;gap:6px}
+.cad-limit-grid input[type=number]{width:60px;border:1px solid var(--line);border-radius:6px;padding:3px 5px;font-size:11px;background:var(--white);color:var(--ink)}
+.cad-script{display:flex;border:1px solid var(--line);border-radius:8px;background:var(--white);overflow:hidden;min-height:180px;height:calc(100% - 40px)}
+.cad-gutter{margin:0;padding:8px 6px;min-width:34px;text-align:right;font:11px/1.55 Consolas,"Cascadia Mono",monospace;color:#a6aa9f;background:var(--soft);border-right:1px solid var(--line);overflow:hidden;user-select:none;white-space:pre}
+.cad-gutter .bad{color:#fff;background:#c0392b;border-radius:3px;padding:0 2px}
+.cad-gutter .hit{color:#fff;background:#bc623f;border-radius:3px;padding:0 2px}
+#cad-code{flex:1;border:0;resize:none;outline:none;padding:8px 10px;font:11px/1.55 Consolas,"Cascadia Mono",monospace;color:var(--ink);background:transparent;white-space:pre;overflow:auto;tab-size:2}
+.cad-script-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px}
+.cad-versions{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.cad-versions li{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--ink);padding:6px 8px;border-radius:7px}
+.cad-versions li:hover{background:var(--soft)}
+.cad-versions li.current{background:#f2f5ec}
+.cad-versions .n{font-weight:700;color:var(--muted);min-width:26px}
+.cad-versions .note{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cad-versions .by{font-size:10px;color:var(--muted)}
+.cad-versions button{border:1px solid var(--line);background:var(--paper);border-radius:6px;padding:2px 7px;font-size:10px;color:var(--ink);cursor:pointer}
+/* What the user pointed at, waiting in the composer for the next message. */
+.cad-selection{display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px 0}
+.cad-chip{display:flex;align-items:center;gap:6px;max-width:100%;border:1px solid #cad7bb;background:#f2f5ec;border-radius:8px;padding:3px 4px 3px 4px;font-size:11px;color:var(--ink)}
+.cad-chip .cad-chip-n{min-width:18px;height:18px;border-radius:9px;background:#2f6f8f;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 4px}
+.cad-chip.measure .cad-chip-n{background:#bc623f}
+.cad-chip.problem .cad-chip-n{background:#c0392b}
+.cad-chip .cad-chip-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
+.cad-chip input{border:0;border-left:1px solid #cad7bb;background:transparent;font-size:11px;padding:2px 6px;width:150px;color:var(--ink);outline:none}
+.cad-chip button{border:0;background:transparent;color:var(--muted);width:18px;height:18px;border-radius:4px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.cad-chip button:hover{background:#e3ead8;color:var(--ink)}
+.cad-chip button .icon{width:11px;height:11px}
+.message-cad{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.message-cad span{font-size:10px;color:#58705c;background:#f2f5ec;border:1px solid #dfe7d4;border-radius:5px;padding:1px 6px}

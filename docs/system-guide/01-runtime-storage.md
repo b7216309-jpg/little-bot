@@ -2,7 +2,7 @@
 
 ## How it works
 
-[main.cjs](../../src/main.cjs) owns Electron startup, window lifecycle, IPC registration and component wiring. [preload.cjs](../../src/preload.cjs) exposes the `window.bot` calls used by the renderer. [Controller](../../src/controller.cjs) starts and coordinates the bundled [assistant engine client](../../src/engine.cjs); Little Bot supplies the interface, state and tools, while the engine supplies native agent execution.
+[main.cjs](../../src/main.cjs) owns Electron startup, window lifecycle, IPC registration and component wiring. [preload.cjs](../../src/preload.cjs) exposes the `window.bot` calls used by the renderer. [Controller](../../src/controller.cjs) starts and coordinates Little Bot's own [engine](../../src/engine/index.cjs) (see [Engine](19-engine.md)): the controller supplies the interface, state and tools, and the engine runs the model's turns.
 
 The normal Windows user-data folder is `%APPDATA%/Little Bot`. Its `data` directory contains:
 

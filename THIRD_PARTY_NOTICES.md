@@ -25,3 +25,18 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+# CAD workshop libraries
+
+The optional CAD workshop ships these libraries unmodified in `node_modules`. Their full licence texts are in each package's `LICENSE` file.
+
+| Package | Version | Licence | Copyright |
+| --- | --- | --- | --- |
+| [replicad](https://github.com/sgenoud/replicad) | 1.1.0 | MIT | Copyright 2023 QuaroTech Sàrl |
+| [replicad-opencascadejs](https://github.com/sgenoud/replicad) (OpenCascade compiled to WebAssembly) | 1.1.0 | LGPL-2.1-only | Open CASCADE SAS and contributors |
+| [three](https://github.com/mrdoob/three.js) | 0.186.1 | MIT | Copyright © 2010-2026 three.js authors |
+| [acorn](https://github.com/acornjs/acorn) | 8.19.0 | MIT | Copyright (C) 2012-2022 by various contributors |
+| [opentype.js](https://github.com/opentypejs/opentype.js) (a replicad dependency) | 1.3.4 | MIT | Copyright (c) 2020 Frederik De Bleser |
+| [flatbush](https://github.com/mourner/flatbush) (a replicad dependency) | 4.6.2 | ISC | Copyright (c) 2022, Vladimir Agafonkin |
+
+OpenCascade is used under the GNU Lesser General Public License 2.1. It is loaded at run time as a separate file, `node_modules/replicad-opencascadejs/dist/replicad_single.wasm` with its loader `replicad_single.js`, which can be replaced with a compatible build; the source is available from the replicad and Open CASCADE projects.

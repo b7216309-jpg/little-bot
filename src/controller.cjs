@@ -331,6 +331,7 @@ class Controller extends EventEmitter {
       profile,
       profiles: this.profiles ? { ...this.profiles.state(), presets: listPresets() } : null,
       browser: this.browser?.getState() || null,
+      cad: this.cad?.state() || null,
       webServices: this.webServices?.getState() || null,
       extensionRuntime: this.extensionRuntime?.state || { status: 'ready', servers: [] },
       models: this.models.map(({ id, displayName, inputModalities, vision }) => ({
@@ -520,6 +521,26 @@ class Controller extends EventEmitter {
     try { this.store.save(); } catch (error) { this.store.data.settings = previous; throw error; }
     this.changed();
     return this.state();
+  }
+  // The CAD workshop is an optional built-in plugin: off, it has no panel, no engine and no tool in any prompt.
+  setCadEnabled(enabled) {
+    if (typeof enabled !== 'boolean') throw new Error('The CAD workshop is on or off.');
+    this.store.data.settings = { ...this.store.data.settings, cadEnabled: enabled };
+    if (!enabled && this.cad) { this.cad.panel = false; this.cad.close(); }
+    this.store.save(); this.changed();
+    return this.state();
+  }
+  setCadLimits(limits) {
+    if (!limits || typeof limits !== 'object') throw new Error('Give the check limits.');
+    const next = { ...(this.store.data.cad?.limits || {}) };
+    for (const [key, low, high] of [['minWall', 0.1, 20], ['minHole', 0.1, 50], ['overhangAngle', 10, 80]]) {
+      if (limits[key] === undefined) continue;
+      if (!Number.isFinite(limits[key]) || limits[key] < low || limits[key] > high) throw new Error(`${key} must be between ${low} and ${high}.`);
+      next[key] = limits[key];
+    }
+    if (limits.overhang !== undefined) next.overhang = limits.overhang === true;
+    this.store.data.cad = { ...(this.store.data.cad || {}), limits: next };
+    this.store.save(); this.changed();
   }
   setWorkspace(folder) {
     if (this.memoryBusy || this.store.data.chats.some(chat => chat.status !== 'idle')) throw new Error('Finish or stop the current task before changing folders.');
@@ -744,8 +765,10 @@ class Controller extends EventEmitter {
         'features.multi_agent': false, 'model_reasoning_effort': chat.effort || 'low' },
     };
   }
+  // A change here reloads an idle thread before its next turn, so it also covers the tool list (an optional
+  // tool switched on or off).
   threadSignature(common) {
-    return `${common.sandbox}\0${common.approvalPolicy}\0${common.developerInstructions}`;
+    return `${common.sandbox}\0${common.approvalPolicy}\0${common.developerInstructions}\0${(common.dynamicTools || []).map(tool => tool.name).join(',')}`;
   }
   async resumeThread(chat, common) {
     const percent = compactionKey(common.config);
@@ -768,7 +791,7 @@ class Controller extends EventEmitter {
     }
   }
   // internal.goalTurn comes only from ChatGoalRunner: the opening or a continuation turn of a /goal.
-  async send({ chatId, text = '', attachmentIds = [], mode, quick, session } = {}, override = null, internal = {}) {
+  async send({ chatId, text = '', attachmentIds = [], mode, quick, session, cad } = {}, override = null, internal = {}) {
     const goalTurn = override ? null : internal?.goalTurn || null;
     if (this.memoryConsolidator) await this.memoryConsolidator.pauseForUser();
     // The user's own message always wins over a pending goal check.
@@ -793,7 +816,8 @@ class Controller extends EventEmitter {
     if (!override && session === true && chatId && !target) throw new Error('This session no longer exists.');
     const kind = override ? 'main' : target ? chatKind(target) : quick === true ? 'quick' : session === true ? 'session' : 'main';
     const turnPrivate = kind === 'quick';
-    if (typeof text !== 'string' || (!text.trim() && !attachmentIds.length)) throw new Error('Write a message or attach a file.');
+    const cadItems = !override && cad?.items?.length && this.cad?.enabled ? cad : null;
+    if (typeof text !== 'string' || (!text.trim() && !attachmentIds.length && !cadItems)) throw new Error('Write a message or attach a file.');
     if (text.length > 32000) throw new Error(`This message is ${text.length.toLocaleString('en-US')} characters; the limit is 32,000. Attach long text as a file instead.`);
     text = text.trim();
     const selectedSkills = skillContext(this.store.data.extensions, text);
@@ -860,6 +884,10 @@ class Controller extends EventEmitter {
       if (!chat.private) await this.store.memoryService?.prepareQuery(text);
       if (!chat.private) memoryContext = buildMemoryContext(this.store.data.memory, { workspace: folder, query: text, chatId: override?.automationId ? undefined : chat.id, sessions: this.store.data.chats, settings: this.store.data.settings });
       const prepared = attachmentIds.length ? await this.attachments.prepare(attachmentIds) : { descriptors: [], input: [], text: '' };
+      // What the user pointed at in the CAD panel: a text block, and a picture with the numbered marks.
+      const cadContext = cadItems ? await this.cad.messageContext(cadItems).catch(error => { this.onError('cad-context', error); return null; }) : null;
+      if (cadContext?.image && this.visionSupport(chat.model) !== false) prepared.input.push({ type: 'localImage', path: cadContext.image });
+      if (cadContext?.labels?.length) userMessage.cad = cadContext.labels;
       const hasImageInput = prepared.input.some(item => item?.type === 'localImage');
       const vision = hasImageInput ? this.visionSupport(chat.model) : null;
       if (hasImageInput && vision === false) {
@@ -915,7 +943,7 @@ class Controller extends EventEmitter {
       const requestBlock = override?.automationId
         ? `${security.stampLabel('Scheduled task', ownerCode)}: ${override.name || 'Automation'}\n${text}\n\nThis is an automated run of a saved task, not a new message from the user. Use relevant conversation context, but perform only this scheduled task. Do not resume unrelated unfinished conversation work or treat this prompt as a new personal fact about the user.`
         : goalTurn && chat.goal ? `${ownerCode ? `${security.stampLabel('Goal turn', ownerCode)}\n` : ''}${turnInstructions(chat.goal, goalTurn)}`
-          : `${security.stampLabel('Current user request', ownerCode)}:\n${text || 'Examine the attached files.'}`;
+          : `${security.stampLabel('Current user request', ownerCode)}:\n${text || (cadContext ? 'Look at what I pointed at in the CAD model.' : 'Examine the attached files.')}`;
       // Proactive messages and things to bring up belong to the continuous conversation.
       const unseenProactive = override || !isMain(chat) || goalTurn ? [] : proactive.unseen(chat);
       const intentionsDue = override || !isMain(chat) || goalTurn ? [] : companion.forChat(this.store.data.companion, text);
@@ -934,6 +962,7 @@ class Controller extends EventEmitter {
         selectedSkills ? { kind: 'skills', label: 'Selected skills', text: selectedSkills } : null,
         memoryContext ? { kind: 'memory', label: 'Memory recall', text: memoryContext } : null,
         prepared.text ? { kind: 'attachments', label: 'Attachment excerpts', text: prepared.text } : null,
+        cadContext?.text ? { kind: 'cad', label: 'CAD selection', text: cadContext.text } : null,
         { kind: 'time', label: 'Current time', text: timeContext() },
         { kind: 'request', label: override?.automationId ? 'Scheduled task' : goalTurn ? 'Goal' : 'Current user request', text: requestBlock },
       ].filter(Boolean);

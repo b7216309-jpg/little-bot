@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const renderer = path.join(__dirname, '..', 'src', 'renderer');
-const SOURCES = ['styles.css', 'goal-ledger.css', 'provider-usage.css', 'standing-intents.css', 'branding.css', 'widget-mode.css', 'panels.css'];
+const SOURCES = ['styles.css', 'goal-ledger.css', 'provider-usage.css', 'standing-intents.css', 'branding.css', 'widget-mode.css', 'panels.css', 'cad.css'];
 const OUTPUT = path.join(renderer, 'dark.css');
 const SKIP_PROPERTIES = /^(box-shadow|text-shadow|filter|-webkit-app-region|mask|content)$/;
 const COLOR = /#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)|(?<![-\w])(?:white|black)(?![-\w])/g;

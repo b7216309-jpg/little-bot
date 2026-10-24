@@ -35,6 +35,8 @@ const { EmbeddedBrowser } = require('./embedded-browser.cjs');
 const { DesktopWindows } = require('./desktop-windows.cjs');
 const { WindowsUia } = require('./windows-uia.cjs');
 const { DesktopTools } = require('./desktop-tools.cjs');
+const { CadKernel } = require('./cad-kernel.cjs');
+const { CadWorkshop } = require('./cad-workshop.cjs');
 const { WebServices } = require('./web-services.cjs');
 const { electronWeb } = require('./web-electron.cjs');
 const { Attachments } = require('./attachments.cjs');
@@ -47,7 +49,7 @@ const { advanceMissedSchedules, missedCount } = require('./missed-schedules.cjs'
 const { mainChat } = require('./chats.cjs');
 const awakeClock = require('./awake-clock.cjs');
 
-protocol.registerSchemesAsPrivileged([{ scheme: 'little-bot-attachment', privileges: { standard: true, secure: true, supportFetchAPI: false } }]);
+protocol.registerSchemesAsPrivileged([{ scheme: 'little-bot-attachment', privileges: { standard: true, secure: true, supportFetchAPI: false } }, CadKernel.scheme()]);
 
 app.setName('Little Bot');
 if (process.env.LITTLE_BOT_DATA_DIR) app.setPath('userData', path.resolve(process.env.LITTLE_BOT_DATA_DIR));
@@ -281,7 +283,15 @@ app.whenReady().then(async () => {
 
   controller.appManagement = new AppManagement({controller,handlers:appHandlers,filename:path.join(stateDir,'app-operations.json')});
   controller.windowsUi = new WindowsUia({ root: path.join(stateDir, 'windows-ui') });
-  controller.agentTools = new AgentTools({ management:controller.appManagement, store, browser: controller.browser, webServices: controller.webServices, windowsUi: controller.windowsUi,
+  // The optional CAD workshop. Its engine page starts only when the panel opens or the model uses it.
+  controller.cad = new CadWorkshop({
+    kernel: new CadKernel({ BrowserWindow, session, appRoot: path.join(__dirname, '..'), onCrash: () => logDiagnostic('cad-kernel', new Error('The CAD engine page stopped.')) }),
+    store, root: path.join(stateDir, 'cad'), guidePath: path.join(__dirname, '..', 'resources', 'cad', 'GUIDE.md'),
+    getWorkspace: () => store.data.settings.workspace, onChange: () => controller.changed(),
+    // Meshes go straight to the windows: they are large and the phone relay has no use for them.
+    onMesh: payload => desktopWindows?.broadcast({ type: 'cadMesh', ...payload }),
+  });
+  controller.agentTools = new AgentTools({ management:controller.appManagement, store, browser: controller.browser, webServices: controller.webServices, windowsUi: controller.windowsUi, cad: controller.cad,
     desktop: new DesktopTools({ desktopCapturer, screen, clipboard, nativeImage, BrowserWindow, session, root: path.join(stateDir, 'screenshots') }),
     onLesson: (modelId, key, text) => controller.recordLesson(modelId, key, text),
     phoneAction: async args => relay.phoneAction(args),
@@ -541,6 +551,37 @@ app.whenReady().then(async () => {
   });
   register('openAgentBrowser', async () => { await controller.browser.open(); return controller.state(); });
   register('closeAgentBrowser', async () => { await controller.browser.close(); return controller.state(); });
+  // The CAD workshop. Opening its panel puts the browser panel away: one side panel at a time.
+  register('cadEnable', ({ enabled } = {}) => controller.setCadEnabled(enabled));
+  register('cadPanel', async ({ visible } = {}) => {
+    if (visible === true) controller.browser.showPanel(false);
+    await controller.cad.showPanel(visible === true);
+    return controller.state();
+  });
+  register('cadOpen', async ({ name } = {}) => { await controller.cad.open(name); return controller.state(); });
+  register('cadWrite', async ({ code } = {}) => ({ summary: await controller.cad.write({ code, note: 'Edited by you', by: 'you' }), state: controller.state() }));
+  register('cadSetParams', async ({ params } = {}) => ({ summary: await controller.cad.setParams(params), state: controller.state() }));
+  register('cadRevert', async ({ version } = {}) => ({ summary: await controller.cad.revert(version), state: controller.state() }));
+  register('cadMesh', ({ version } = {}) => controller.cad.mesh(version));
+  register('cadInspect', payload => controller.cad.inspect(payload || {}));
+  register('cadMeasure', ({ from, to } = {}) => controller.cad.measure(from, to));
+  register('cadLimits', async ({ limits } = {}) => { controller.setCadLimits(limits); if (controller.cad.project?.code) await controller.cad.build(); return controller.state(); });
+  register('cadExport', async ({ format } = {}) => {
+    const project = controller.cad.project;
+    if (!project) throw new Error('There is no part to export yet.');
+    const names = { step: 'STEP', stl: 'STL', '3mf': '3MF', svg: 'SVG', dxf: 'DXF' };
+    const selected = await dialog.showSaveDialog(desktopWindows.activeWindow(), { title: `Export ${project.name} as ${names[format] || format}`,
+      defaultPath: path.join(path.dirname(project.file), `${project.name}.${format}`), filters: [{ name: names[format] || format, extensions: [format] }] });
+    if (selected.canceled || !selected.filePath) return null;
+    return controller.cad.exportFile({ format, path: selected.filePath });
+  });
+  register('cadShowFile', ({ file } = {}) => {
+    const project = controller.cad.project;
+    const target = file === 'folder' || !file ? path.dirname(project?.file || path.join(store.data.settings.workspace, 'cad', 'x')) : String(file);
+    if (file && file !== 'folder' && !target.startsWith(store.data.settings.workspace)) throw new Error('Only files in the working folder can be shown.');
+    if (file && file !== 'folder') shell.showItemInFolder(target); else { fs.mkdirSync(target, { recursive: true }); shell.openPath(target); }
+    return true;
+  });
   register('chooseWorkspace', async () => {
     const selected = await dialog.showOpenDialog(desktopWindows.activeWindow(), { title: 'Choose Little Bot’s working folder',
       defaultPath: store.data.settings.workspace, properties: ['openDirectory', 'createDirectory'] });
@@ -831,6 +872,8 @@ app.whenReady().then(async () => {
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true,
       nodeIntegration: false, sandbox: true, spellcheck: false, webviewTag: false },
   });
+  // The CAD engine's hidden page is a window too: without this, closing Little Bot would leave it running.
+  window.on('closed', () => controller.cad?.close());
   window.webContents.on('render-process-gone', (_event, details) => {
     logDiagnostic('renderer:process-gone', new Error(`Renderer process exited: ${details.reason || 'unknown'}`), {
       reason: details.reason, exitCode: details.exitCode,
@@ -906,6 +949,7 @@ app.on('before-quit', event => {
   event.preventDefault(); quitting = true; scheduler?.stop(); heartbeat?.stop(); eventRuntime?.stop(); activity?.stop(); webWatcher?.stop(); relay?.stop().catch(() => {});
   desktopWindows?.close();
   controller?.webServices?.close();
+  controller?.cad?.close();
   // Each step runs even if the one before failed, so the state is always flushed; a hang cannot keep an
   // invisible process holding the single-instance lock.
   const settle = step => Promise.resolve().then(step).catch(error => logDiagnostic('quit', error));
