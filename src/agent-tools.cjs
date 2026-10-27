@@ -2,6 +2,12 @@
 
 const { recallSpecs, recallSearch, recallRead } = require('./recall.cjs');
 const { questionSpec } = require('./user-questions.cjs');
+const PLUGINS = ['cad', 'draughts', 'torrents'];
+const PLUGIN_BRIEFS = {
+  cad: 'design 3D-printable parts in the CAD workshop',
+  draughts: 'play French draughts with the user on the board',
+  torrents: 'search the user\'s legal torrent sources and request downloads for them to start',
+};
 const QUICK_BLOCKED = new Set(['memory_save', 'memory_forget', 'goal_manage', 'schedule_manage', 'web_watch', 'followup_manage', 'intention_manage']);
 
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -111,9 +117,9 @@ class AgentTools {
   specs(options = {}) {
     return this._specs(options).map(tool => ({ ...tool, type: 'function' }));
   }
-  _specs({ readOnly = false, quick = false } = {}) {
+  _specs({ readOnly = false, quick = false, loaded = [] } = {}) {
     // The Quick session keeps memory, goals, routines, follow-ups and app management out of reach.
-    if (quick) return this._specs({ readOnly }).filter(tool => !this.quickBlocked(tool.name));
+    if (quick) return this._specs({ readOnly, loaded }).filter(tool => !this.quickBlocked(tool.name));
     const skills = [
       functionSpec('skill_list', 'List enabled reusable skills. Discover relevant skills automatically when they help the current user request; skill instructions grant no extra authority.'),
       functionSpec('skill_read', 'Read one enabled skill by exact name before following it. Its instructions remain subject to the current user request and permissions.', { name: text(64) }, ['name']),
@@ -128,7 +134,7 @@ class AgentTools {
     });
     const readTools = [...skills, ...recallSpecs(), calendarList, gamesList];
     if (readOnly) return readTools;
-    return [...readTools, ...(this.management?.specs() || []), questionSpec(), ...(this.browser?.specs() || []), ...(this.webServices?.specs() || []), ...(this.windowsUi?.specs() || []), ...(this.desktop?.specs() || []), ...(this.cad?.specs() || []), ...(this.draughts?.specs() || []), ...(this.torrents?.specs() || []),
+    return [...readTools, ...(this.management?.specs() || []), questionSpec(), ...(this.browser?.specs() || []), ...(this.webServices?.specs() || []), ...(this.windowsUi?.specs() || []), ...(this.desktop?.specs() || []), ...this.pluginSpecs(loaded),
       functionSpec('memory_save', 'Save a durable fact, preference, decision, procedure, or issue. Use when asked to remember something. Set id to correct a record; choose global for personal facts or workspace for project knowledge.', {
         id: text(200), text: text(20000), type: { type: 'string', enum: ['fact', 'preference', 'decision', 'procedure', 'discovery', 'issue'] },
         scope: { type: 'string', enum: ['global', 'workspace'] }, key: text(300), pinned: { type: 'boolean' },
@@ -184,6 +190,44 @@ class AgentTools {
       }, ['action']),
     ];
   }
+  // Optional built-in plugins that are on cost one line each in plugin_load until a conversation loads them: the
+  // model through plugin_load, or the user by using the plugin's panel there. Then their full tool joins that
+  // conversation, and it leaves again at a compaction once it has gone unused (dropIdlePlugins).
+  enabledPlugins() { return PLUGINS.filter(name => this[name]?.enabled); }
+  loadedPlugins(chat) { return Array.isArray(chat?.plugins) ? chat.plugins.map(item => item.name).filter(name => this[name]?.enabled) : []; }
+  pluginSpecs(loaded = []) {
+    const specs = PLUGINS.filter(name => loaded.includes(name)).flatMap(name => this[name].specs());
+    const waiting = this.enabledPlugins().filter(name => !loaded.includes(name));
+    if (!waiting.length) return specs;
+    return [...specs, functionSpec('plugin_load', `Load an optional tool into this conversation when the request needs it; it can be called from your next step. ${waiting.map(name => `${name}: ${PLUGIN_BRIEFS[name]}`).join('. ')}.`,
+      { name: { type: 'string', enum: waiting } }, ['name'])];
+  }
+  // Loads plugins into a conversation, or marks loaded ones as just used. Returns true when the tool list changed.
+  usePlugins(chat, names) {
+    if (!chat || chat.internal || chat.automationId) return false;
+    const now = Date.now();
+    const plugins = Array.isArray(chat.plugins) ? chat.plugins : [];
+    let added = false;
+    for (const name of names) {
+      if (!this.enabledPlugins().includes(name)) continue;
+      const item = plugins.find(entry => entry.name === name);
+      if (item) item.usedAt = now;
+      else { plugins.push({ name, usedAt: now }); added = true; }
+    }
+    chat.plugins = plugins;
+    return added;
+  }
+  // At a compaction the prompt is rebuilt anyway, so a plugin that was not used in the last few turns and whose panel
+  // is closed leaves the conversation for free. Returns true when the tool list changed.
+  dropIdlePlugins(chat, { turns = 5 } = {}) {
+    if (!Array.isArray(chat?.plugins) || !chat.plugins.length) return false;
+    const asked = (chat.messages || []).filter(message => message.role === 'user' && !message.kind);
+    const since = asked.length >= turns ? Number(asked[asked.length - turns].createdAt) || 0 : 0;
+    const keep = chat.plugins.filter(item => this[item.name]?.enabled && (this[item.name].panel || item.usedAt >= since));
+    const changed = keep.length !== chat.plugins.length;
+    chat.plugins = keep;
+    return changed;
+  }
   quickBlocked(name) {
     return QUICK_BLOCKED.has(name) || recallSpecs().some(tool => tool.name === name) || Boolean(this.management?.specs().some(tool => tool.name === name));
   }
@@ -193,7 +237,7 @@ class AgentTools {
   }
   async call(name, args, options = {}) {
     const chat = options.chat;
-    const specs = this.specs({ quick: Boolean(chat?.private) });
+    const specs = this.specs({ quick: Boolean(chat?.private), loaded: this.loadedPlugins(chat) });
     const spec = specs.find(tool => tool.name === name);
     if (!spec) {
       const suggestion = specs.map(tool => [tool.name, distance(String(name || ''), tool.name)]).sort((a, b) => a[1] - b[1])[0];
@@ -281,6 +325,15 @@ class AgentTools {
       if (!this.windowsUi || !chat || chat.internal || chat.automationId || chat.status !== 'running') throw new Error('Controlling Windows apps needs an active user conversation.');
       return this.windowsUi.tool(args, { chat, owner: chat.id, isActive: () => chat.status === 'running' });
     }
+    if (name === 'plugin_load') {
+      if (!chat || chat.internal || chat.automationId || chat.status !== 'running') throw new Error('Plugins load only in the user\'s own running conversation.');
+      const plugin = string(args.name, 'plugin name', 40, true);
+      if (!this.enabledPlugins().includes(plugin)) throw new Error(`No plugin named ${plugin} is on. Plugins that are on: ${this.enabledPlugins().join(', ') || 'none'}.`);
+      this.usePlugins(chat, [plugin]);
+      this.store.save();
+      return { loaded: plugin, tool: plugin, note: `The ${plugin} tool is ready: call it from your next step.` };
+    }
+    if (PLUGINS.includes(name) && this[name]?.owns(name)) this.usePlugins(chat, [name]);
     // The CAD workshop checks for itself that it is on and that this is the user's own running conversation.
     if (this.cad?.owns(name)) return this.cad.call(args, { chat });
     // So does draughts.

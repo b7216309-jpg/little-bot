@@ -1,6 +1,6 @@
 # Draughts
 
-Draughts is an optional built-in plugin for playing international draughts against Little Bot. It is off until the user switches it on in **Extensions › Tools › Built-in plugins**. While it is off there is no board and no `draughts` tool in any prompt.
+Draughts is an optional built-in plugin for playing international draughts against Little Bot. It is off until the user switches it on in **Extensions › Tools › Built-in plugins**. While it is off there is no board and no `draughts` tool in any prompt. While it is on, a conversation gets the `draughts` tool only once it is loaded there, by the model through `plugin_load` or by the user using the panel (see [Optional plugins load on demand](10-agent-tools-terminal.md#optional-plugins-load-on-demand)).
 
 ## How it fits together
 

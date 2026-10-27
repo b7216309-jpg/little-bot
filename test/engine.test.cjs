@@ -156,6 +156,23 @@ test('app tools go to the app, and their images reach the model as a user messag
   assert.deepEqual(strata.requests[0].tools.map(tool => tool.function.name), ['exec_command', 'write_stdin', 'screen_capture', 'memory_search']);
 });
 
+test('a tool call can hand the thread a new tool list, offered from the next step of the same turn', async t => {
+  const spec = name => ({ type: 'function', name, description: name, inputSchema: { type: 'object', properties: {} } });
+  const { strata, thread, run } = await setup(t, [
+    { calls: [{ name: 'plugin_load', arguments: { name: 'cad' } }] },
+    { calls: [{ name: 'cad', arguments: {} }] },
+    { content: 'Built.' },
+  ], { tools: {
+    plugin_load: () => ({ success: true, contentItems: [{ type: 'inputText', text: 'loaded' }], dynamicTools: [spec('cad')] }),
+    cad: () => ({ success: true, contentItems: [{ type: 'inputText', text: 'a box' }] }),
+  } });
+  const threadId = await thread({ dynamicTools: [spec('plugin_load')] });
+  assert.equal((await run(threadId, 'Design a box')).status, 'completed');
+  const names = request => request.tools.map(tool => tool.function.name).filter(name => !['exec_command', 'write_stdin'].includes(name));
+  assert.deepEqual(strata.requests.map(names), [['plugin_load'], ['cad'], ['cad']]);
+  assert.equal(strata.requests[2].messages.filter(message => message.role === 'tool').at(-1).content, 'a box');
+});
+
 test('Plan mode reads but refuses anything that could change files', async t => {
   const { home, asks, strata, thread, run } = await setup(t, [
     { calls: [{ name: 'exec_command', arguments: { cmd: 'Get-ChildItem -Name', yield_time_ms: 120000 } }, { name: 'exec_command', arguments: { cmd: 'Remove-Item -Recurse .' } }] },

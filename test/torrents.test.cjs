@@ -161,8 +161,8 @@ test('the model searches and asks; only the user starts a download', async t => 
   await assert.rejects(manager.call({ action: 'list' }, { chat }), /Torrents is off/);
   store.data.settings.torrentsEnabled = true;
   const tools = new AgentTools({ store, torrents: manager });
-  assert.ok(tools.specs().some(tool => tool.name === 'torrents'));
-  assert.ok(!tools.specs({ readOnly: true }).some(tool => tool.name === 'torrents'), 'not in Plan mode');
+  assert.ok(tools.specs({ loaded: ['torrents'] }).some(tool => tool.name === 'torrents'));
+  assert.ok(!tools.specs({ readOnly: true, loaded: ['torrents'] }).some(tool => tool.name === 'torrents'), 'not in Plan mode');
 });
 
 test('a Torznab key is saved sealed and opened only for a search', async t => {

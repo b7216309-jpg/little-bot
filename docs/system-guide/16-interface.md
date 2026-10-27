@@ -18,6 +18,18 @@ The **Goal** button next to **Plan** (or `/goal` alone) opens a drawer above the
 
 Background goals live on **Tools → Goals**. **New goal** and **Edit** there, or `/goals <objective>`, open the goal editor beside the page, with six tabs: Basics, Evidence, Checks, Access, Limits and Schedule. Tokens, minutes and actions each have a **No limit** switch that saves 0. Saving fails on the tab holding the first invalid field. Switching chats or pages closes the drawer and the editor.
 
+## Side panels
+
+The browser, the CAD workshop, draughts and torrents open beside the conversation, one at a time. They share a single top bar button, [panel-switcher.js](../../src/renderer/panel-switcher.js):
+
+- The button shows the open panel's icon and name, or **Panels** when none is open.
+- It opens a menu with one row per panel that is on. Each panel module keeps its own row (`#open-agent-browser`, `#open-cad`, `#open-draughts`, `#open-torrents`): whether it is shown, whether it is selected, and what a click does.
+- Each row shows a hint: the browser's site, the open CAD part, "Your move" or "Thinking…" in draughts, and the torrent download speed. **Close panel** hides the open one.
+- A dot on the button means a closed panel waits for the user: their move in draughts, or a download the model asked for.
+- Ctrl+1 to Ctrl+4 toggle the panels directly. Esc closes the menu but not a panel, because inside the panels Esc already cancels a measure or a selected piece.
+
+Opening a plugin's panel also loads that plugin's tool into the conversation the next message goes to (see [Optional plugins load on demand](10-agent-tools-terminal.md#optional-plugins-load-on-demand)).
+
 ## Glass widget
 
 [DesktopWindows](../../src/desktop-windows.cjs) owns the full window and the floating Glass widget. Both load the same renderer, share one controller, and pass the same strict IPC main-frame check. Switching carries the unsent draft, Plan choice and attachment references; the widget can be pinned on top or collapsed to a pill, and its size, position and mode are saved in `display.json`. See [WIDGET.md](../../WIDGET.md).
