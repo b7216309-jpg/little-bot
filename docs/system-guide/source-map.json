@@ -97,6 +97,7 @@
   "src/bundled-skills.cjs": "12-skills-plugins-mcp.md",
   "src/cad-kernel.cjs": "20-cad.md",
   "src/cad-workshop.cjs": "20-cad.md",
+  "src/cad/colors.js": "20-cad.md",
   "src/cad/kernel.html": "20-cad.md",
   "src/cad/kernel.js": "20-cad.md",
   "src/cad/viewer.js": "20-cad.md",

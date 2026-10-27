@@ -553,7 +553,7 @@ class Controller extends EventEmitter {
   setCadLimits(limits) {
     if (!limits || typeof limits !== 'object') throw new Error('Give the check limits.');
     const next = { ...(this.store.data.cad?.limits || {}) };
-    for (const [key, low, high] of [['minWall', 0.1, 20], ['minHole', 0.1, 50], ['overhangAngle', 10, 80]]) {
+    for (const [key, low, high] of [['minWall', 0.1, 20], ['minHole', 0.1, 50], ['overhangAngle', 10, 80], ['minClearance', 0.05, 5]]) {
       if (limits[key] === undefined) continue;
       if (!Number.isFinite(limits[key]) || limits[key] < low || limits[key] > high) throw new Error(`${key} must be between ${low} and ${high}.`);
       next[key] = limits[key];

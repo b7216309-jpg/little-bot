@@ -1,3 +1,59 @@
+# Version 0.49.0 verification
+
+0.49.0 lets the CAD workshop design several parts in one project, such as a box and its lid, and checks how they fit ([system guide](docs/system-guide/20-cad.md#several-parts)).
+
+## Changed
+- **Several parts:** a script returns named parts, `return { box, lid }` or a list of `{ name, shape, color }`. Older one-shape scripts are one part, unchanged.
+- **Checks per part:**
+  - volume and separate pieces are checked within each part, so two parts are no longer "two loose pieces";
+  - thin walls are measured inside one part only;
+  - overhangs are measured from each part's own bed.
+- **Fit check between parts:**
+  - overlaps are errors, with their volume;
+  - gaps under the minimum clearance are warnings (0.2 mm by default, set as "Smallest gap between parts");
+  - small gaps and parts that touch are noted;
+  - when parts touch (a lid on a rim), the smallest gap elsewhere (the lip inside the box) is measured and checked as well.
+- **Exports:**
+  - STEP is a named, coloured assembly;
+  - 3MF has one named, coloured object per part;
+  - STL, 3MF, SVG and DXF of all parts are laid out side by side for printing;
+  - any export can take one part.
+- **Panel:**
+  - a parts strip (colours, show only one, hide one);
+  - an Assembled / Print layout switch;
+  - a part choice in the export menu;
+  - the part named on chips, checks and the size line.
+
+  Clicking in the print layout keeps points in assembled coordinates.
+- **The model:**
+  - the `cad` tool's summary lists the parts and tags checks with their part;
+  - `export` takes a part;
+  - pointing names the part;
+  - pictures have a legend of the parts;
+  - the guide explains parts and clearances, with a box-and-lid example.
+
+## Checked
+- **Engine test in Electron** ([cad-kernel-electron.cjs](test/cad-kernel-electron.cjs)):
+  - the guide's box and lid: faces tagged with their part, no "pieces" error and no thin wall between the parts, and the two noted as touching with the lip's 0.25 mm gap measured elsewhere (and a 0.1 mm gap flagged as too tight);
+  - the lid laid on the bed (offset −28 mm, as its lip reaches z = 28), side by side with the box;
+  - a STEP assembly naming "box" and "lid", a 3MF with two objects, and the lid's own STL;
+  - a 2 mm overlap reported as 200 mm³, a 0.1 mm gap as too tight, and a chosen colour kept;
+  - bad and repeated part names refused.
+- **Every guide example** builds one solid per part with no error.
+- **Workshop test:** the summary lists the parts, one part exports as `part-lid.stl`, an unknown part is refused, and pointing names the part.
+- **In the app** (throwaway profile):
+  - the box and lid in their colours with the parts strip, in light and dark;
+  - the print layout;
+  - a click on the lid in the layout gave "lid · Face 23" at its assembled height (z = 32);
+  - the lid shown alone, the checks tagged by part, and the export menu's part choice;
+  - the picture for the model shows the legend.
+- **With the real model** (Qwen 3.8 Flash Next on Strata), in a throwaway profile:
+  - Asked for "a pill box … a separate lid with a lip … two separate parts", it returned `body` and `lid` in 106 s, with a 0.25 mm lip clearance and corner radii following the box, exported a STEP assembly and a laid-out STL, and said to print the lid upside down because of the overhang check.
+  - A click on the lid in the print layout with "1 mm thicker and a finger notch" changed only the lid in 148 s (plate 1.6 → 2.6 mm, a 14 × 6 mm notch with sliders, and a third version to remove 0.25 mm slivers).
+  - "Export only the lid as an STL" saved `pill_box_lid.stl` in 30 s.
+  - The fit check then only said the parts touch, and the model assumed the lip gap was fine. The check now measures the gap elsewhere when parts touch.
+- **Full suite:** syntax, the Node tests, the three Electron tests and the docs check.
+
 # Version 0.48.0 verification
 
 0.48.0 adds torrents, an optional built-in plugin: a light BitTorrent client for freely shared content ([system guide](docs/system-guide/22-torrents.md)). It also fixes draughts games in saved sessions, which 0.47.0 did not keep.
