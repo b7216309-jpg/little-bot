@@ -1,3 +1,39 @@
+# Version 0.50.0 verification
+
+0.50.0 blocks ads, trackers and cookie walls in the built-in browser ([system guide](docs/system-guide/11-browser-web.md#ad-and-tracker-blocking)).
+
+## Changed
+- **Ad and tracker blocking** with Ghostery's blocker (2.20.1, MPL-2.0), in the browser's own session only:
+  - requests to ad and tracker servers are cancelled before they leave;
+  - leftover ad boxes and cookie notices are hidden.
+
+  It uses EasyList, EasyPrivacy and uBlock Origin's privacy, cookie and annoyance lists. They are downloaded on first use, kept as a ready engine (about 9 MB) so later starts are instant and offline, and refreshed once a day.
+- **Settings › Browser & web › Block ads and trackers:** on unless turned off.
+- **A shield in the browser bar** counts what was blocked on the page. A click lets that site through, saved as an exception; another click blocks it again.
+- **The browser tool:** `allow_site` (with a reason) and `block_site`, for pages that need something blocked.
+- **Size:** about 7 MB in `node_modules` (the blocker and its helpers).
+
+## Checked
+- **Blocker tests** ([browser-blocker.test.cjs](test/browser-blocker.test.cjs)):
+  - the first build and the saved engine;
+  - the daily refresh, and a failed one;
+  - starting offline, and having no lists;
+  - site exceptions kept across engines;
+  - the per-page count;
+  - switching off.
+- **In the app** (throwaway profile), the same pages with blocking off, then on:
+  - **AdBlock Tester:** 0 → 25 requests blocked.
+  - **Marmiton:**
+    - with blocking off, the page opens on a consent dialog ("Marmiton et ses 1139 partenaires…"), and that is what the page text starts with;
+    - with blocking on, the dialog is gone, the latest recipes show, and 6 requests were blocked.
+  - **20 Minutes:**
+    - off: "Vous prendrez bien un cookie ? … Nos 259 partenaires…";
+    - on: the menu and headlines, with 4 requests blocked.
+  - **Le Monde:** 3 requests blocked.
+  - **Site exceptions:** letting a site through, then blocking it again, both reload the page and update the shield.
+  - The engine was saved (8.96 MB) and loaded instantly on the next start.
+- **Full suite:** syntax, the Node tests, the three Electron tests and the docs check.
+
 # Version 0.49.0 verification
 
 0.49.0 lets the CAD workshop design several parts in one project, such as a box and its lid, and checks how they fit ([system guide](docs/system-guide/20-cad.md#several-parts)).

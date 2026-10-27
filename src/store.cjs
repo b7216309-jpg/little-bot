@@ -117,6 +117,13 @@ function normalizeTorrents(value) {
   return { items, settings, sources: { builtIn, custom } };
 }
 
+// The sites the user lets through the built-in browser's ad and tracker blocking.
+function normalizeBrowserBlocking(value) {
+  if (!isObject(value) || !Array.isArray(value.allowed)) return {};
+  const allowed = [...new Set(value.allowed.filter(site => typeof site === 'string' && /^(?=.{1,253}$)(?:[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?\.)+[a-z\d-]{2,63}$/i.test(site)).map(site => site.toLowerCase()))].slice(-500);
+  return allowed.length ? { allowed } : {};
+}
+
 const PROTECTED_STATE_VERSION = 1;
 
 function validProtector(value) {
@@ -207,6 +214,7 @@ function persistedData(data, defaultWorkspace, recovering = false) {
     cad: normalizeCad(data.cad),
     draughts: normalizeDraughts(data.draughts),
     torrents: normalizeTorrents(data.torrents),
+    browserBlocking: normalizeBrowserBlocking(data.browserBlocking),
     usage: normalizeUsage(data.usage),
     heartbeat: normalizeHeartbeat(data.heartbeat, { ...settings, workspace: string(settings.workspace, defaultWorkspace) }, Date.now(), recovering),
     settings: {
@@ -221,6 +229,8 @@ function persistedData(data, defaultWorkspace, recovering = false) {
       cadEnabled: settings.cadEnabled === true,
       draughtsEnabled: settings.draughtsEnabled === true,
       torrentsEnabled: settings.torrentsEnabled === true,
+      // Ad and tracker blocking in the built-in browser is on unless the user turns it off.
+      browserBlocking: settings.browserBlocking !== false,
       localSampling: normalizeSampling(settings.localSampling),
       ...(typeof settings.systemPrompt === 'string' ? { systemPrompt: settings.systemPrompt.slice(0, 100000) } : {}),
       security: normalizeSecurity(settings.security),

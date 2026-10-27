@@ -10,6 +10,33 @@ The agent tool supports navigate, snapshot, read, ref-based click/fill/select/ch
 - Fill selects the field, then inserts text.
 - Off screen (minimized or covered), Enter and Space fall back to their common default actions. Screenshots then return an error that suggests snapshot or read.
 
+### Ad and tracker blocking
+
+[BrowserBlocker](../../src/browser-blocker.cjs) runs Ghostery's blocker (`@ghostery/adblocker-electron` 2.20.1, the engine of the Ghostery extension) in the browser's own partition only. The app's window, the CAD engine page and other sessions are untouched.
+
+- **What it blocks:**
+  - requests to ad and tracker servers are cancelled before they leave (`webRequest`), or swapped for harmless stand-ins where a page needs a script to exist;
+  - a preload script in the page hides leftover ad boxes and cookie notices.
+
+  It uses Ghostery's "full" preset: EasyList, EasyPrivacy, and uBlock Origin's privacy, cookie and annoyance lists.
+- **Lists:**
+  - downloaded from Ghostery's repository on GitHub on first use;
+  - kept as a ready engine in `data/browser/blocker/engine.bin` (about 9 MB), so later starts are instant and work offline;
+  - refreshed once a day in the background. A failed refresh keeps the saved engine, and a new one replaces it only when complete.
+  - Matching happens on this PC; nothing about the pages visited is sent.
+- **The setting:** Settings › Browser & web › **Block ads and trackers**, on unless turned off. Turning it on or off reloads the page shown.
+- **The shield** in the browser bar counts the requests blocked on the page shown (from zero on each new page; only this browser's page counts).
+  - A click lets the current site through: an exception rule `@@||site^$document` saved in `state.json`, re-added to each new engine. The page reloads.
+  - Another click blocks the site again.
+  - A site is its host without `www.`.
+- **The browser tool:**
+  - `allow_site` lets the current site through, and must say why in `text`;
+  - `block_site` blocks it again.
+
+  The tool's description tells the model to use them when a page needs something blocked (a player, a sign-in, a checkout).
+- **If the lists cannot be had** (offline on the first start), the browser works unblocked and the setting says why.
+- **Effect on reading:** with blocking on, consent walls and ad frames are gone from what Little Bot reads.
+
 Every protocol command has a 15-second limit. Actions are serialized by the busy state. When the agent uses the browser, the panel opens and shows "Little Bot is browsing". The user's address bar and buttons are disabled meanwhile. The user can browse, sign in or solve a check in the panel at any other time.
 
 ## Other Windows apps
@@ -40,4 +67,12 @@ Pages behind a sign-in or a human check (CAPTCHA) fail every reading tier or com
 ## Verification
 
 [built-in browser](../../test/embedded-browser-electron.cjs).
+
+[browser-blocker.test.cjs](../../test/browser-blocker.test.cjs), with a stand-in engine, covers:
+- the first build and the saved engine;
+- the daily refresh, and a failed one;
+- starting offline, and having no lists at all;
+- site exceptions kept across engines;
+- the per-page count;
+- switching blocking off.
 

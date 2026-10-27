@@ -147,6 +147,7 @@ Guide: [11-browser-web.md](11-browser-web.md)
 | Source / resource | Responsibility |
 | --- | --- |
 | [src/embedded-browser.cjs](../../src/embedded-browser.cjs) | Production application module |
+| [src/browser-blocker.cjs](../../src/browser-blocker.cjs) | Ad and tracker blocking in the built-in browser: lists, saved engine, site exceptions, counts |
 | [src/web-services.cjs](../../src/web-services.cjs) | Production application module |
 | [src/web-engines.cjs](../../src/web-engines.cjs) | Production application module |
 | [src/web-rank.cjs](../../src/web-rank.cjs) | Production application module |
