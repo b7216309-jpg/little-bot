@@ -2313,6 +2313,10 @@ function renderBrowserSettings() {
   $('settings-open-browser').disabled = busy || !browser.available;
   $('settings-close-browser').disabled = Boolean(browserActionPending) || (!browser.active && browser.status !== 'running');
   $('settings-clear-browser').disabled = busy;
+  const blocking = browser.blocking;
+  $('settings-browser-blocking').checked = state.settings?.browserBlocking !== false;
+  $('settings-blocking-status').textContent = blocking?.error || (state.settings?.browserBlocking === false ? 'Off: pages load everything they ask for'
+    : `EasyList, EasyPrivacy and uBlock Origin lists, matched on this PC${blocking?.updatedAt ? ` · lists from ${new Date(blocking.updatedAt).toLocaleDateString()}` : ''}${blocking?.sites ? ` · ${blocking.sites} site${blocking.sites === 1 ? '' : 's'} let through` : ''}`);
   $('open-agent-browser').disabled = busy;
   $('open-agent-browser').classList.toggle('browser-active', Boolean(browser.panel));
   $('open-agent-browser').setAttribute('aria-pressed', String(Boolean(browser.panel)));
@@ -2340,7 +2344,25 @@ function renderBrowserPanel() {
   $('browser-panel').classList.toggle('loading', Boolean(browser.loading));
   $('browser-activity').classList.toggle('hidden', !browser.driving);
   $('browser-empty').classList.toggle('hidden', Boolean(page));
+  renderBrowserShield(browser, page);
   scheduleBrowserBounds();
+}
+// The shield: how many ads and trackers were blocked on this page; a click lets this site through or blocks it again.
+function renderBrowserShield(browser, page) {
+  const blocking = browser.blocking;
+  const shield = $('browser-shield');
+  const shown = Boolean(blocking?.enabled && page && blocking.site);
+  shield.classList.toggle('hidden', !shown);
+  if (!shown) return;
+  const allowed = Boolean(blocking.allowed);
+  shield.setAttribute('aria-pressed', String(!allowed));
+  shield.classList.toggle('off', allowed);
+  shield.disabled = Boolean(browser.driving);
+  $('browser-shield-count').textContent = allowed ? 'Off' : blocking.ready ? String(blocking.blocked || 0) : '…';
+  const label = allowed ? `Ads and trackers are let through on ${blocking.site}. Click to block them again.`
+    : !blocking.ready ? (blocking.error || 'Getting the ad and tracker lists…')
+      : `${blocking.blocked || 0} ad and tracker request${blocking.blocked === 1 ? '' : 's'} blocked on this page. Click to let ${blocking.site} through (if the site does not work).`;
+  shield.title = label; shield.setAttribute('aria-label', label);
 }
 function scheduleBrowserBounds() { requestAnimationFrame(sendBrowserBounds); }
 function sendBrowserBounds() {
@@ -4594,6 +4616,11 @@ document.addEventListener('draughts-ready', () => { if (state) window.LittleBotD
 document.addEventListener('torrents-ready', () => { if (state) window.LittleBotTorrents.render(state); });
 document.addEventListener('cad-ready', () => { if (state) window.LittleBotCad.render(state); });
 $('browser-hide').addEventListener('click', () => browserPanelAction('hide'));
+$('browser-shield').addEventListener('click', async () => {
+  const allow = !state?.browser?.blocking?.allowed;
+  try { applyState(await window.bot.browserSiteBlocking({ allow })); notify(allow ? `Ads and trackers let through on ${state.browser.blocking.site}.` : `Blocking ads and trackers on ${state.browser.blocking.site} again.`); }
+  catch (error) { notify(error?.message || String(error), true); }
+});
 $('browser-back').addEventListener('click', () => browserPanelAction({ action: 'back' }));
 $('browser-forward').addEventListener('click', () => browserPanelAction({ action: 'forward' }));
 $('browser-reload').addEventListener('click', () => browserPanelAction({ action: state?.browser?.loading ? 'stop' : 'reload' }));
@@ -4959,6 +4986,11 @@ $('relay-https').addEventListener('click', async () => {
   const result = await attempt(() => window.bot.relayTailscaleHttps(), 'Tailscale HTTPS is on.');
   $('relay-https').disabled = false;
   if (result) renderRelay(result);
+});
+$('settings-browser-blocking').addEventListener('change', async event => {
+  const enabled = event.target.checked;
+  const result = await attempt(() => window.bot.browserBlocking({ enabled }), enabled ? 'Blocking ads and trackers in the built-in browser.' : 'Ad and tracker blocking is off.');
+  if (!result) event.target.checked = !enabled;
 });
 $('activity-awareness').addEventListener('change', async event => {
   const enabled = event.target.checked;

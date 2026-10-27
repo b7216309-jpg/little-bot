@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld('bot', {
   cadEnable: invoke('cadEnable'), cadPanel: invoke('cadPanel'), cadOpen: invoke('cadOpen'), cadWrite: invoke('cadWrite'), cadSetParams: invoke('cadSetParams'),
   cadRevert: invoke('cadRevert'), cadMesh: invoke('cadMesh'), cadInspect: invoke('cadInspect'), cadMeasure: invoke('cadMeasure'), cadLimits: invoke('cadLimits'),
   cadExport: invoke('cadExport'), cadShowFile: invoke('cadShowFile'),
+  browserBlocking: invoke('browserBlocking'), browserSiteBlocking: invoke('browserSiteBlocking'),
   draughtsEnable: invoke('draughtsEnable'), draughtsPanel: invoke('draughtsPanel'), draughtsNew: invoke('draughtsNew'), draughtsTakeBack: invoke('draughtsTakeBack'),
   draughtsResign: invoke('draughtsResign'), draughtsPrefs: invoke('draughtsPrefs'),
   torrentsEnable: invoke('torrentsEnable'), torrentsPanel: invoke('torrentsPanel'), torrentsSearch: invoke('torrentsSearch'), torrentsPrepare: invoke('torrentsPrepare'),

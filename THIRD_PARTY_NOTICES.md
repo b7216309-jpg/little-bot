@@ -54,6 +54,18 @@ The optional draughts board uses these files, all released under [CC0 1.0](https
 | move-1.ogg, move-2.ogg, move-3.ogg, capture-1.ogg, capture-2.ogg | impactWood_light_000–002 and impactWood_medium_000–001 from [Impact Sounds](https://kenney.nl/assets/impact-sounds) 1.0 | Kenney (www.kenney.nl) |
 | stack-1.ogg, stack-2.ogg, crown.ogg | chips-stack-1, chips-stack-2 and chip-lay-1 from [Casino Audio](https://kenney.nl/assets/casino-audio) 1.1 | Kenney (www.kenney.nl) |
 
+# Browser ad and tracker blocking
+
+The built-in browser's blocking ships these packages unmodified in `node_modules`. Their full licence texts are in each package's `LICENSE` file; their source is available from the projects below.
+
+| Package | Version | Licence |
+| --- | --- | --- |
+| [@ghostery/adblocker-electron](https://github.com/ghostery/adblocker), with @ghostery/adblocker, adblocker-electron-preload, adblocker-content, adblocker-extended-selectors and url-parser | 2.20.1 (url-parser 1.3.1) | MPL-2.0 |
+| [@remusao/guess-url-type, small, smaz, smaz-compress, smaz-decompress, trie](https://github.com/remusao/mono) | 2.1.0–2.2.0 | MPL-2.0 |
+| [tldts-experimental, tldts-core](https://github.com/remusao/tldts) | 7.4.19 | MIT |
+
+The filter lists are not shipped: they are downloaded from Ghostery's repository when blocking starts, under their own licences: EasyList and EasyPrivacy (GPL-3.0 or CC BY-SA 3.0, the EasyList authors) and uBlock Origin's lists (GPL-3.0, Raymond Hill and contributors).
+
 # Torrents engine
 
 The optional torrents plugin ships [WebTorrent](https://github.com/webtorrent/webtorrent) 3.0.21 (MIT, Copyright (c) Feross Aboukhadijeh and WebTorrent, LLC) unmodified in `node_modules`, with the 161 packages it depends on. Their full licence texts are in each package's `LICENSE` file.

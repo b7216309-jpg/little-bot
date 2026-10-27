@@ -411,7 +411,7 @@
         <button id="browser-forward" class="icon-button" type="button" aria-label="Forward" title="Forward"><span class="icon" data-icon="arrow-right"></span></button>
         <button id="browser-reload" class="icon-button" type="button" aria-label="Reload" title="Reload"><span class="icon" data-icon="refresh"></span></button>
         <form id="browser-address-form" class="browser-address"><input id="browser-address" type="text" spellcheck="false" autocomplete="off" placeholder="Search or type an address" aria-label="Address"></form>
-        <button id="browser-hide" class="icon-button" type="button" aria-label="Hide browser" title="Hide browser (the page stays open)"><span class="icon" data-icon="x"></span></button>
+        <button id="browser-shield" class="browser-shield hidden" type="button" aria-pressed="true"><span class="icon" data-icon="shield"></span><span id="browser-shield-count"></span></button><button id="browser-hide" class="icon-button" type="button" aria-label="Hide browser" title="Hide browser (the page stays open)"><span class="icon" data-icon="x"></span></button>
       </div>
       <div id="browser-activity" class="browser-activity hidden" role="status"><span class="status-dot running"></span><span>Little Bot is browsing</span></div>
       <div id="browser-viewport" class="browser-viewport"><div id="browser-empty" class="browser-empty"><span class="icon" data-icon="browser"></span><h2>Built-in browser</h2><p>Ask Little Bot to look something up, or type an address above. You can sign in to sites here; they stay signed in.</p></div></div>
@@ -614,6 +614,7 @@
           <p id="settings-browser-location" class="field-hint hidden"></p>
           <div class="settings-actions"><button id="settings-open-browser" class="button secondary" type="button"><span class="icon" data-icon="browser"></span>Open</button><button id="settings-close-browser" class="button text-button" type="button" disabled>Close</button><button id="settings-clear-browser" class="button text-button" type="button">Clear browsing data</button></div>
           <p id="settings-browser-error" class="inline-error hidden" role="alert"></p>
+          <div class="setting-row"><div class="setting-copy"><strong>Block ads and trackers</strong><span id="settings-blocking-status">EasyList, EasyPrivacy and uBlock Origin lists, matched on this PC; the shield in the browser bar lets a site through</span></div><div class="setting-control"><label class="switch"><input id="settings-browser-blocking" type="checkbox" aria-label="Block ads and trackers in the built-in browser"><span class="switch-track"></span></label></div></div>
         </div>
         <div class="settings-card">
           <div class="setting-row"><div class="setting-copy"><strong><span id="web-settings-title">Web search</span></strong><span>Built in · DuckDuckGo, Bing and Yahoo · no key</span></div><div class="setting-control"></div></div>

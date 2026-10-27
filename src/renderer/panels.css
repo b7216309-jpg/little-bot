@@ -172,3 +172,10 @@
   .composer-options #model-select{max-width:130px}
   .composer-options #effort-select{max-width:100px}
 }
+
+/* The browser bar's shield: ads and trackers blocked on this page, or "Off" for a site let through. */
+.browser-shield{display:flex;align-items:center;gap:4px;height:30px;border:1px solid var(--line);border-radius:8px;background:var(--white);padding:0 8px 0 6px;font-size:11px;font-weight:600;color:#58705c;font-variant-numeric:tabular-nums;cursor:pointer;flex-shrink:0}
+.browser-shield .icon{width:14px;height:14px}
+.browser-shield:hover{background:#edf2e4}
+.browser-shield.off{color:var(--muted)}
+.browser-shield.off:hover{background:var(--soft)}

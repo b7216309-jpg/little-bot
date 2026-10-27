@@ -32,6 +32,7 @@ const { Profiles } = require('./profiles.cjs');
 const { loadPreset, presetPrompt } = require('./profile-presets.cjs');
 const { installBundledSkills } = require('./bundled-skills.cjs');
 const { EmbeddedBrowser } = require('./embedded-browser.cjs');
+const { BrowserBlocker } = require('./browser-blocker.cjs');
 const { DesktopWindows } = require('./desktop-windows.cjs');
 const { WindowsUia } = require('./windows-uia.cjs');
 const { DesktopTools } = require('./desktop-tools.cjs');
@@ -136,7 +137,8 @@ app.whenReady().then(async () => {
   controller.memoryConsolidator = new MemoryConsolidator(controller);
   controller.systemIdleSeconds = () => powerMonitor.getSystemIdleTime();
   try { controller.memoryConsolidator.retryFormatFailures(); } catch (error) { logDiagnostic('memory-retry', error); }
-  controller.browser = new EmbeddedBrowser({ root: path.join(stateDir, 'browser'), getWindow: () => window, onChange: () => controller.changed() });
+  controller.browser = new EmbeddedBrowser({ root: path.join(stateDir, 'browser'), getWindow: () => window, onChange: () => controller.changed(),
+    blocker: new BrowserBlocker({ root: path.join(stateDir, 'browser', 'blocker'), store, onChange: () => controller.changed() }) });
   controller.webServices = new WebServices(electronWeb(require('electron')));
   const attachmentReferences = () => store.data.chats.flatMap(chat => chat.messages.flatMap(message => (message.attachments || []).map(item => item.id)));
   controller.attachments = new Attachments({ root: path.join(stateDir, 'attachments'), nativeImage, references: attachmentReferences });
@@ -916,6 +918,17 @@ app.whenReady().then(async () => {
   register('browserPanel', ({ visible } = {}) => { controller.browser.showPanel(visible === true); return controller.state(); });
   register('browserNavigate', async payload => { await controller.browser.userNavigate(payload); return controller.state(); });
   register('browserClearData', async () => { await controller.browser.clearData(); return controller.state(); });
+  // Ad and tracker blocking: the setting, and the shield's per-site switch.
+  register('browserBlocking', async ({ enabled } = {}) => {
+    if (typeof enabled !== 'boolean') throw new Error('Ad blocking is on or off.');
+    store.data.settings.browserBlocking = enabled;
+    store.save();
+    await controller.browser.blocker.sync();
+    if (controller.browser.url && controller.browser.url !== 'about:blank' && !controller.browser.busy) controller.browser.view?.webContents.reload();
+    controller.changed();
+    return controller.state();
+  });
+  register('browserSiteBlocking', ({ allow } = {}) => { controller.browser.setSiteBlocking(allow === true); return controller.state(); });
   register('setTitleBarTheme', ({ dark } = {}) => {
     if (window && !window.isDestroyed()) window.setTitleBarOverlay(titleBarColors(dark === true));
     return true;
@@ -1049,6 +1062,7 @@ app.on('before-quit', event => {
   desktopWindows?.close();
   controller?.webServices?.close();
   controller?.cad?.close();
+  controller?.browser?.blocker?.close();
   controller?.draughts?.close();
   controller?.torrents?.close();
   // Each step runs even if the one before failed, so the state is always flushed; a hang cannot keep an
