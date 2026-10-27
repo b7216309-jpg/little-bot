@@ -60,6 +60,7 @@ const icons = {
   globe: ['M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0', 'M3 12h18', 'M12 3a14 14 0 0 1 0 18', 'M12 3a14 14 0 0 0 0 18'],
   sun: ['M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0', 'M12 2v2', 'M12 20v2', 'M4.9 4.9l1.4 1.4', 'M17.7 17.7l1.4 1.4', 'M2 12h2', 'M20 12h2', 'M4.9 19.1l1.4-1.4', 'M17.7 6.3l1.4-1.4'],
   box: ['M3 7l9-4 9 4v10l-9 4-9-4Z', 'M3 7l9 4 9-4', 'M12 11v10'],
+  panels: ['M3 5h18v14H3Z', 'M15 5v14'],
   cube: ['M12 2 3 7v10l9 5 9-5V7Z', 'M3 7l9 5 9-5', 'M12 12v10'],
   ruler: ['M3 17 17 3l4 4L7 21Z', 'M7 13l2 2', 'M10 10l2 2', 'M13 7l2 2'],
   cursor: ['M5 3l14 7-6 2-2 6Z'],
@@ -399,6 +400,7 @@ function render() {
   window.LittleBotCad?.render(state);
   window.LittleBotDraughts?.render(state);
   window.LittleBotTorrents?.render(state);
+  window.LittleBotPanels?.render(state);
   renderApprovals();
   updateComposer();
   window.LittleBotWidget?.render(state);
@@ -4615,6 +4617,7 @@ document.addEventListener('draughts-selection', () => updateComposer());
 document.addEventListener('draughts-ready', () => { if (state) window.LittleBotDraughts.render(state); });
 document.addEventListener('torrents-ready', () => { if (state) window.LittleBotTorrents.render(state); });
 document.addEventListener('cad-ready', () => { if (state) window.LittleBotCad.render(state); });
+document.addEventListener('panels-ready', () => { if (state) window.LittleBotPanels.render(state); });
 $('browser-hide').addEventListener('click', () => browserPanelAction('hide'));
 $('browser-shield').addEventListener('click', async () => {
   const allow = !state?.browser?.blocking?.allowed;

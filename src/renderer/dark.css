@@ -456,6 +456,8 @@ html[data-theme=dark] .settings-jump button{color:#969e8f}
 html[data-theme=dark] .setting-field{color:#94a288}
 html[data-theme=dark] .browser-shield{color:#93aa97}
 html[data-theme=dark] .browser-shield:hover{background:#2c3026}
+html[data-theme=dark] .panel-switch.browser-active{background:#2c3026;border-color:#49513f;color:#a2ae98}
+html[data-theme=dark] .panel-menu-item[aria-checked="true"]{background:#2c3026;color:#a2ae98}
 html[data-theme=dark] .cad-modes button[aria-checked=true]{background:#2c3026;color:#93aa97}
 html[data-theme=dark] .cad-mark{background:#4284a5;color:#1a1a1a}
 html[data-theme=dark] .cad-mark.problem{background:#c9574b}

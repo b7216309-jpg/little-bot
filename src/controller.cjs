@@ -780,10 +780,13 @@ class Controller extends EventEmitter {
       approvalsReviewer: 'user', sandbox: planning ? 'read-only' : 'danger-full-access', ...this.engineBaseOptions(),
       developerInstructions: chat.lessonBlock ? `${baseInstructions}\n\n${chat.lessonBlock}` : baseInstructions,
       // Tools travel with every thread start and resume: the engine always offers the current set.
-      ...(this.agentTools ? { dynamicTools: this.agentTools.specs({ readOnly: planning || chat.toolMode === 'readOnly', quick: chat.private === true }) } : {}),
+      ...(this.agentTools ? { dynamicTools: this.threadTools(chat) } : {}),
       config: { ...this.extensionRuntime?.config({ heartbeat: planning }), ...compactionConfig(this.store.data.settings, this.connection?.contextWindow), ...this.providerConfig(),
         'features.multi_agent': false, 'model_reasoning_effort': chat.effort || 'low' },
     };
+  }
+  threadTools(chat) {
+    return this.agentTools.specs({ readOnly: chat.mode === 'plan' || chat.toolMode === 'readOnly', quick: chat.private === true, loaded: this.agentTools.loadedPlugins?.(chat) || [] });
   }
   // A change here reloads an idle thread before its next turn, so it also covers the tool list (an optional
   // tool switched on or off).
@@ -886,6 +889,8 @@ class Controller extends EventEmitter {
       if (kind === 'main') this.store.data.chats.unshift(chat); else this.store.data.chats.push(chat);
     }
     Object.assign(chat, binding, { workspace: folder, model: selectedModel, toolMode });
+    // Using a plugin's panel loads its tool into this conversation (the model can also load it with plugin_load).
+    if (!override && this.agentTools?.usePlugins) this.agentTools.usePlugins(chat, ['cad', 'draughts', 'torrents'].filter(name => this[name]?.enabled && (this[name].panel || (name === 'cad' && cadItems) || (name === 'draughts' && draughtsInput))));
     if (goalTurn?.kind === 'start') chat.goal = goalTurn.goal;
     // Mark busy before awaiting RPC so two clicks cannot start overlapping turns.
     if (override?.automationId) chat.automationPreviousMode = chat.mode || 'execute';
@@ -1649,6 +1654,8 @@ class Controller extends EventEmitter {
         const completed = method === 'item/completed';
         const changed = this.compactions.item(chat, { id: item.id, turnId: eventTurnId || activeTurnId, completed, manual: !!manual });
         if (changed && completed && manual) manual.completed = true;
+        // The new tool list reaches the engine with the next turn, which reloads the thread for it.
+        if (completed && !chat.internal && this.agentTools?.dropIdlePlugins?.(chat)) this.store.save();
         if (changed) this.changed(!chat.internal);
         return;
       } else if (manual) {
@@ -1772,7 +1779,15 @@ class Controller extends EventEmitter {
           .then(value => {
             this.rememberToolOutcome(chat, params.turnId, { tool: params.tool, args: params.arguments }, true);
             const images = (value?.[TOOL_IMAGES] || []).map(imageUrl => ({ type: 'inputImage', imageUrl }));
-            return { success: true, contentItems: [{ type: 'inputText', text: JSON.stringify(value ?? { ok: true }).slice(0, 25000) }, ...images] };
+            const response = { success: true, contentItems: [{ type: 'inputText', text: JSON.stringify(value ?? { ok: true }).slice(0, 25000) }, ...images] };
+            // A loaded plugin joins the running turn: the engine takes the new tool list for its next step, and the
+            // thread's signature follows so the next turn does not reload the thread for it.
+            if (params.tool === 'plugin_load') {
+              response.dynamicTools = this.threadTools(chat);
+              const signature = this.threadInstructionSettings.get(chat.threadId);
+              if (signature) this.threadInstructionSettings.set(chat.threadId, `${signature.slice(0, signature.lastIndexOf('\0') + 1)}${response.dynamicTools.map(tool => tool.name).join(',')}`);
+            }
+            return response;
           })
           .catch(error => {
             const message = cleanError(error);

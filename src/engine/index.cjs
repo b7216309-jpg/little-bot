@@ -561,6 +561,8 @@ class Engine extends EventEmitter {
         response = { success: false, contentItems: [{ type: 'inputText', text: error.message }] };
       }
       const items = Array.isArray(response?.contentItems) ? response.contentItems : [];
+      // The app can change the thread's tools from a call (an optional plugin loaded): the next step offers them.
+      if (Array.isArray(response?.dynamicTools)) thread.options.dynamicTools = response.dynamicTools;
       thread.notify('item/completed', { turnId: turn.id, item: { type: 'dynamicToolCall', id: call.id, tool: name, arguments: args, success: response?.success !== false, status: response?.success === false ? 'failed' : 'completed' } });
       return { text: items.filter(item => item?.type === 'inputText').map(item => text(item.text)).join('\n') || (response?.success === false ? 'The tool failed.' : 'Done.'),
         images: items.filter(item => item?.type === 'inputImage' && typeof item.imageUrl === 'string').map(item => item.imageUrl) };
