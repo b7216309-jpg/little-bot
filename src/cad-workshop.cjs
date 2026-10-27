@@ -33,6 +33,8 @@ const SPEC = {
     + 'write (save a new version of the whole script and build it; returns size, checks and a picture), set (change setting values without rewriting), '
     + 'view (a picture; views iso/front/top/right/..., optional faceIds/edgeIds to highlight), inspect (one face or edge: type, size, the script line that made it, a ready finder for fillet/chamfer/shell), '
     + 'measure (distance and angle between two faces, edges or points), export (step, stl, 3mf, svg or dxf into the working folder), open (open or start a part by name), revert (go back to a version). '
+    + 'Several parts (a box and its lid, a hinge and its pin): return them named, as `return { box, lid }` (or [{ name, shape, color }]); each part is checked on its own, '
+    + 'the fit between parts is checked (overlaps, gaps under the clearance), and export can take one part by name. '
     + 'After each write, look at the picture and the checks and fix problems before answering.',
   inputSchema: {
     type: 'object',
@@ -50,6 +52,7 @@ const SPEC = {
       to: { type: 'object', description: 'measure: the second face, edge or point.' },
       format: { type: 'string', enum: FORMATS },
       path: { type: 'string', maxLength: 1000, description: 'export: file path, default cad/<name>.<format> in the working folder.' },
+      part: { type: 'string', maxLength: 40, description: 'export: one part by name; all parts when left out (side by side for printing, a named assembly for STEP).' },
       name: { type: 'string', maxLength: 60, description: 'open: the part name.' },
       version: { type: 'integer', minimum: 1, description: 'revert: the version number.' },
     },
@@ -78,7 +81,7 @@ class CadWorkshop {
   get enabled() { return this.store.data.settings.cadEnabled === true; }
   get limits() {
     const saved = this.store.data.cad?.limits || {};
-    return { minWall: saved.minWall ?? 0.8, minHole: saved.minHole ?? 1, overhang: saved.overhang !== false, overhangAngle: saved.overhangAngle ?? 45 };
+    return { minWall: saved.minWall ?? 0.8, minHole: saved.minHole ?? 1, overhang: saved.overhang !== false, overhangAngle: saved.overhangAngle ?? 45, minClearance: saved.minClearance ?? 0.2 };
   }
 
   specs() { return this.enabled ? [structuredClone(SPEC)] : []; }
@@ -230,12 +233,13 @@ class CadWorkshop {
     if (!last) return base;
     if (last.error) return { ...base, error: last.error, settings: settingsOf(last.params), hint: 'Fix the script and write it again. Read the guide action if an API call is unclear.' };
     const { info } = last;
+    const parts = info.parts?.length > 1 ? info.parts.map(part => `${part.name}: ${round(part.size[0])} × ${round(part.size[1])} × ${round(part.size[2])} mm, ${round(part.volume, 1)} mm³${part.solids > 1 ? `, ${part.solids} pieces` : ''}`) : null;
     return {
       ...base,
       size: { x: round(info.size[0]), y: round(info.size[1]), z: round(info.size[2]) },
-      volume: round(info.volume, 1), pieces: info.solids, faces: info.faces, edges: info.edges,
+      volume: round(info.volume, 1), ...(parts ? { parts } : { pieces: info.solids }), faces: info.faces, edges: info.edges,
       settings: settingsOf(last.params),
-      checks: last.checks.length ? last.checks.map(check => `${check.severity}: ${check.message}${check.faceIds?.length > 1 ? ` (faces ${check.faceIds.join(', ')})` : check.faceId !== undefined ? ` (face ${check.faceId})` : ''}${check.at ? ` at [${check.at.join(', ')}]` : ''}`) : ['No problems found.'],
+      checks: last.checks.length ? last.checks.map(check => `${check.severity}: ${check.part ? `[${check.part}] ` : ''}${check.message}${check.faceIds?.length > 1 ? ` (faces ${check.faceIds.join(', ')})` : check.faceId !== undefined ? ` (face ${check.faceId})` : ''}${check.at ? ` at [${check.at.join(', ')}]` : ''}`) : ['No problems found.'],
     };
   }
 
@@ -307,16 +311,22 @@ class CadWorkshop {
     return { file, image };
   }
 
-  async exportFile({ format, path: target }) {
+  // One part by name, or all: side by side as laid out for printing, or as a named assembly for STEP.
+  async exportFile({ format, path: target, part = null }) {
     this._requireBuild();
     if (!FORMATS.includes(format)) throw new Error(`Export as ${FORMATS.join(', ')}.`);
+    const names = (this.last.info.parts || []).map(item => item.name);
+    if (part && !names.includes(part)) throw new Error(`There is no part "${part}". Parts: ${names.join(', ')}.`);
     const workspace = this.getWorkspace();
-    const file = target ? path.resolve(workspace, String(target)) : path.join(path.dirname(this.project.file), `${this.project.name}.${format}`);
+    const stem = part && names.length > 1 ? `${this.project.name}-${part.replace(/\s+/g, '-')}` : this.project.name;
+    const file = target ? path.resolve(workspace, String(target)) : path.join(path.dirname(this.project.file), `${stem}.${format}`);
     if (path.extname(file).toLowerCase() !== `.${format}`) throw new Error(`The file must end in .${format}.`);
-    const bytes = await this.kernel.call('export', { format, view: 'top' }, 120000);
+    const bytes = await this.kernel.call('export', { format, view: 'top', ...(part ? { part } : {}) }, 120000);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, Buffer.from(bytes));
-    return { path: file, format, bytes: bytes.length, ...(format === 'svg' || format === 'dxf' ? { note: 'Seen from the top, as for a laser cutter.' } : {}) };
+    const several = !part && names.length > 1;
+    const notes = [format === 'svg' || format === 'dxf' ? 'Seen from the top, as for a laser cutter.' : '', several ? (format === 'step' ? 'All parts, as a named assembly in place.' : 'All parts, side by side as laid out for printing.') : ''].filter(Boolean);
+    return { path: file, format, bytes: bytes.length, ...(part ? { part } : {}), ...(notes.length ? { note: notes.join(' ') } : {}) };
   }
 
   // ---------------------------------------------------------------------------------------------- the model's tool
@@ -343,7 +353,7 @@ class CadWorkshop {
     }
     if (action === 'inspect') return this.inspect({ faceId: args.faceId, edgeId: args.edgeId });
     if (action === 'measure') return this.measure(args.from, args.to);
-    if (action === 'export') return this.exportFile({ format: args.format, path: args.path });
+    if (action === 'export') return this.exportFile({ format: args.format, path: args.path, part: typeof args.part === 'string' && args.part.trim() ? args.part.trim() : null });
     throw new Error('Use one of the listed actions.');
   }
 
@@ -370,7 +380,7 @@ class CadWorkshop {
       const n = index + 1;
       const note = typeof item.note === 'string' && item.note.trim() ? ` — note: "${item.note.trim().slice(0, 300)}"` : '';
       const at = Array.isArray(item.point) && item.point.length === 3 && item.point.every(Number.isFinite) ? item.point.map(v => Math.round(v * 1000) / 1000) : null;
-      if (at) labels.push({ text: n, at });
+      if (at) labels.push({ text: n, at, ...(typeof item.part === 'string' ? { part: item.part } : {}) });
       if (item.kind === 'face' && Number.isInteger(item.faceId)) {
         faces.push(item.faceId);
         lines.push(`${n}. Face ${item.faceId}: ${describeFace(item)}${note}`);
@@ -387,7 +397,8 @@ class CadWorkshop {
     lines.push('Use the cad tool (inspect, write) to act on these.');
     let image = null;
     try { if (this.last?.info) image = (await this.picture({ faces, edges, labels })).file; } catch { /* Text alone still helps. */ }
-    return { text: lines.join('\n'), image, labels: items.map((item, index) => `${index + 1}. ${item.kind === 'face' ? `Face ${item.faceId}` : item.kind === 'edge' ? `Edge ${item.edgeId}` : item.kind === 'measure' ? 'Measure' : item.kind === 'problem' ? 'Problem' : 'Point'}`) };
+    const owner = item => (typeof item.part === 'string' ? `${item.part} · ` : '');
+    return { text: lines.join('\n'), image, labels: items.map((item, index) => `${index + 1}. ${item.kind === 'face' ? `${owner(item)}Face ${item.faceId}` : item.kind === 'edge' ? `${owner(item)}Edge ${item.edgeId}` : item.kind === 'measure' ? 'Measure' : item.kind === 'problem' ? 'Problem' : 'Point'}`) };
   }
 
   close() { this.kernel.close(); }
@@ -400,7 +411,7 @@ function settingsOf(params = []) {
 }
 
 function describeFace(item) {
-  const parts = [String(item.type || 'face').toLowerCase().replace('cylindre', 'cylinder')];
+  const parts = [`${typeof item.part === 'string' ? `of part "${item.part}", ` : ''}${String(item.type || 'face').toLowerCase().replace('cylindre', 'cylinder')}`];
   if (item.diameter) parts.push(`⌀${item.diameter} mm`);
   if (item.plane) parts.push(`facing ${item.plane}`);
   if (Number.isFinite(item.area)) parts.push(`${item.area} mm²`);
@@ -410,7 +421,7 @@ function describeFace(item) {
 }
 
 function describeEdge(item) {
-  const parts = [String(item.type || 'edge').toLowerCase()];
+  const parts = [`${typeof item.part === 'string' ? `of part "${item.part}", ` : ''}${String(item.type || 'edge').toLowerCase()}`];
   if (item.diameter) parts.push(`⌀${item.diameter} mm`);
   if (item.direction) parts.push(`along ${item.direction}`);
   if (Number.isFinite(item.length)) parts.push(`${item.length} mm long`);

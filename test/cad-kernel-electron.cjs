@@ -127,13 +127,52 @@ function main() {
   for (const code of examples) {
     const result = await kernel.call('run', { code });
     assert.equal(result.error, undefined, `${code.split('\n')[0]} → ${JSON.stringify(result.error)}`);
-    assert.equal(result.info.solids, 1, code.split('\n')[0]);
+    // Each part is one solid, and nothing in an example is an error.
+    for (const part of result.info.parts) assert.equal(part.solids, 1, `${code.split('\n')[0]}: ${part.name}`);
+    assert.ok(!result.checks.some(check => check.severity === 'error'), `${code.split('\n')[0]}: ${JSON.stringify(result.checks)}`);
     built.push(result.info);
   }
+  assert.deepEqual(built.at(-1).parts.map(part => part.name), ['box', 'lid'], 'the guide shows several parts');
   const [, , box, , knob] = built;
   assert.ok(Math.abs(box.size[0] - 50) < 1e-6 && Math.abs(box.size[2] - 25) < 1e-6, `shell keeps the outer size: ${box.size}`);
   assert.ok(Math.abs(knob.size[0] - 30) < 1e-3 && Math.abs(knob.size[1] - 30) < 1e-3 && Math.abs(knob.size[2] - 12) < 1e-3, `revolve spins around Z: ${knob.size}`);
   step('guide examples built');
+
+  // Several parts: named, each face and edge tagged with its part, checked one by one and for their fit.
+  const boxAndLid = await kernel.call('run', { code: examples.at(-1) });
+  assert.deepEqual(boxAndLid.mesh.parts.map(part => part.name), ['box', 'lid']);
+  assert.ok(boxAndLid.mesh.faceGroups.every(group => group.part === 0 || group.part === 1) && boxAndLid.mesh.faceGroups.some(group => group.part === 1));
+  assert.ok(!boxAndLid.checks.some(check => check.kind === 'pieces'), 'two parts are not two loose pieces');
+  const fit = boxAndLid.checks.find(check => check.kind === 'fit');
+  assert.ok(fit && /touch/.test(fit.message) && fit.parts.join() === 'box,lid', JSON.stringify(boxAndLid.checks));
+  assert.equal(fit.value, 0.25, `the lip's clearance is measured where the parts do not touch: ${fit.message}`);
+  assert.equal(fit.severity, 'info');
+  const tightLid = await kernel.call('run', { code: examples.at(-1), params: { gap: 0.1 } });
+  const tightFit = tightLid.checks.find(check => check.kind === 'fit');
+  assert.ok(tightFit.severity === 'warning' && tightFit.value === 0.1, `a 0.1 mm lip gap is too tight: ${JSON.stringify(tightFit)}`);
+  assert.ok(!boxAndLid.checks.some(check => check.kind === 'thinWall'), 'the gap between parts is not a thin wall');
+  const [layoutBox, layoutLid] = boxAndLid.mesh.parts.map(part => part.offset);
+  assert.equal(layoutLid[2], -28, 'the lid goes down onto the bed in the print layout (its lip reaches down to z = 28)');
+  assert.ok(layoutBox[0] < 0 && layoutLid[0] > 0, 'side by side');
+  const lidFace = (await Promise.all(Array.from({ length: boxAndLid.info.faces }, (_, faceId) => kernel.call('face', { faceId })))).find(face => face.part === 'lid' && face.plane === '+Z');
+  assert.ok(lidFace && lidFace.line, 'a lid face names its part and its line');
+  const assembly = Buffer.from(await kernel.call('export', { format: 'step' })).toString();
+  assert.ok(/PRODUCT\('box'/.test(assembly) && /PRODUCT\('lid'/.test(assembly), 'STEP is a named assembly');
+  const objects = Buffer.from(await kernel.call('export', { format: '3mf' })).toString('latin1').match(/<object [^>]*name="(box|lid)"/g) || [];
+  assert.equal(objects.length, 2, '3MF has one object per part');
+  const lidOnly = await kernel.call('export', { format: 'stl', part: 'lid' });
+  const both = await kernel.call('export', { format: 'stl' });
+  assert.ok(lidOnly.length > 200 && lidOnly.length < both.length);
+  await assert.rejects(kernel.call('export', { format: 'stl', part: 'nope' }), /There is no part "nope"/);
+  const overlap = await kernel.call('run', { code: 'function main() { return { a: makeBox([0, 0, 0], [10, 10, 10]), b: makeBox([8, 0, 0], [20, 10, 10]) }; }' });
+  const clash = overlap.checks.find(check => check.kind === 'fit');
+  assert.ok(clash.severity === 'error' && clash.value === 200, JSON.stringify(overlap.checks));
+  const tight = await kernel.call('run', { code: 'function main() { return [makeBox([0, 0, 0], [10, 10, 10]), { name: "peg", shape: makeBox([10.1, 0, 0], [20, 10, 10]), color: "#ff8800" }]; }' });
+  assert.deepEqual(tight.checks.map(check => [check.kind, check.severity, check.value]), [['fit', 'warning', 0.1]]);
+  assert.deepEqual(tight.mesh.parts.map(part => [part.name, part.color]), [['part 1', null], ['peg', '#ff8800']]);
+  assert.match((await kernel.call('run', { code: 'function main() { return { "a/b": makeBaseBox(1, 1, 1) }; }' })).error.message, /not a usable part name/);
+  assert.match((await kernel.call('run', { code: 'function main() { const s = makeBaseBox(5, 5, 5); return { a: s, b: s }; }' })).error.message, /are the same shape/);
+  step('parts checked');
 
   // A stuck script is stopped and the engine comes back.
   const stuckStarted = Date.now();

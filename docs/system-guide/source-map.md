@@ -310,6 +310,7 @@ Guide: [20-cad.md](20-cad.md)
 | [src/cad/kernel.js](../../src/cad/kernel.js) | Engine page: worker lifecycle and pictures |
 | [src/cad/kernel.html](../../src/cad/kernel.html) | Engine page shell and its content security policy |
 | [src/cad/zip.js](../../src/cad/zip.js) | Uncompressed zip for 3MF |
+| [src/cad/colors.js](../../src/cad/colors.js) | Part colors shared by the engine and the view |
 | [src/renderer/cad-panel.js](../../src/renderer/cad-panel.js) | CAD panel and the selection chips in the composer |
 | [src/renderer/cad.css](../../src/renderer/cad.css) | CAD panel styles |
 | [resources/cad/GUIDE.md](../../resources/cad/GUIDE.md) | Script API and examples the model reads |

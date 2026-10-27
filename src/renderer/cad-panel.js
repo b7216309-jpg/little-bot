@@ -77,11 +77,11 @@ function placeMarks() {
   const layer = $('cad-marks');
   if (!viewer || !layer) return;
   const marks = [];
-  selection.forEach((item, index) => { if (item.point) marks.push({ at: item.point, text: String(index + 1), kind: item.kind === 'measure' ? 'measure' : item.kind === 'problem' ? 'problem' : '' }); });
-  if (measureFrom?.point) marks.push({ at: measureFrom.point, text: 'A', kind: 'measure' });
-  if (flash?.at) marks.push({ at: flash.at, text: '!', kind: flash.severity === 'error' ? 'problem' : flash.severity || 'warning' });
+  selection.forEach((item, index) => { if (item.point) marks.push({ at: item.point, part: item.part, text: String(index + 1), kind: item.kind === 'measure' ? 'measure' : item.kind === 'problem' ? 'problem' : '' }); });
+  if (measureFrom?.point) marks.push({ at: measureFrom.point, part: measureFrom.part, text: 'A', kind: 'measure' });
+  if (flash?.at) marks.push({ at: flash.at, part: flash.part, text: '!', kind: flash.severity === 'error' ? 'problem' : flash.severity || 'warning' });
   layer.replaceChildren(...marks.map(mark => {
-    const spot = viewer.project(mark.at);
+    const spot = viewer.project(mark.at, mark.part);
     const node = make('span', `cad-mark ${mark.kind}`.trim(), mark.text);
     if (!spot) node.hidden = true; else { node.style.left = `${spot.x}px`; node.style.top = `${spot.y}px`; }
     return node;
@@ -91,11 +91,12 @@ function placeMarks() {
 // ------------------------------------------------------------------------------------------------ pointing
 
 function label(item) {
-  if (item.kind === 'face') return `Face ${item.faceId} · ${(item.type || '').toLowerCase().replace('cylindre', 'cylinder')}${item.diameter ? ` ⌀${item.diameter}` : ''}${item.plane ? ` ${item.plane}` : ''}${item.line ? ` · line ${item.line}` : ''}`;
-  if (item.kind === 'edge') return `Edge ${item.edgeId} · ${(item.type || '').toLowerCase()}${item.diameter ? ` ⌀${item.diameter}` : ''}${item.length ? ` ${item.length} mm` : ''}`;
+  const owner = item.part ? `${item.part} · ` : '';
+  if (item.kind === 'face') return `${owner}Face ${item.faceId} · ${(item.type || '').toLowerCase().replace('cylindre', 'cylinder')}${item.diameter ? ` ⌀${item.diameter}` : ''}${item.plane ? ` ${item.plane}` : ''}${item.line ? ` · line ${item.line}` : ''}`;
+  if (item.kind === 'edge') return `${owner}Edge ${item.edgeId} · ${(item.type || '').toLowerCase()}${item.diameter ? ` ⌀${item.diameter}` : ''}${item.length ? ` ${item.length} mm` : ''}`;
   if (item.kind === 'measure') return item.text;
   if (item.kind === 'problem') return item.message;
-  return `Point ${item.point.map(value => round(value, 1)).join(', ')}`;
+  return `${owner}Point ${item.point.map(value => round(value, 1)).join(', ')}`;
 }
 
 function describe(info) {
@@ -110,19 +111,22 @@ async function onPick({ x, y, shift }) {
   const hit = viewer.pick(x, y);
   if (mode === 'pin') {
     if (!hit) return;
-    selection.push({ kind: 'point', point: hit.point, note: '' });
+    selection.push({ kind: 'point', point: hit.point, ...(hit.part ? { part: hit.part } : {}), note: '' });
     selectionChanged({ focusLast: true });
     return;
   }
   if (mode === 'measure') {
     if (!hit) { measureFrom = null; showReadout(''); placeMarks(); return; }
     const target = hit.kind === 'face' ? { faceId: hit.faceId } : { edgeId: hit.edgeId };
-    if (!measureFrom) { measureFrom = { target, point: hit.point, name: hit.kind === 'face' ? `face ${hit.faceId}` : `edge ${hit.edgeId}` }; showReadout('Now click the second face or edge.'); placeMarks(); return; }
+    const of = hit.part ? ` of ${hit.part}` : '';
+    if (!measureFrom) { measureFrom = { target, point: hit.point, part: hit.part, name: hit.kind === 'face' ? `face ${hit.faceId}${of}` : `edge ${hit.edgeId}${of}` }; showReadout('Now click the second face or edge.'); placeMarks(); return; }
     const result = await window.bot.cadMeasure({ from: measureFrom.target, to: target });
-    const name = hit.kind === 'face' ? `face ${hit.faceId}` : `edge ${hit.edgeId}`;
+    const name = hit.kind === 'face' ? `face ${hit.faceId}${of}` : `edge ${hit.edgeId}${of}`;
     const text = `${result.distance} mm between ${measureFrom.name} and ${name}${Number.isFinite(result.angle) ? `, ${result.angle}° apart` : ''}`;
     const mid = measureFrom.point.map((value, axis) => (value + hit.point[axis]) / 2);
-    selection.push({ kind: 'measure', text, point: mid, note: '' });
+    // Between two parts the midpoint belongs to neither; it is drawn only in the assembled view.
+    const same = measureFrom.part === hit.part ? hit.part : undefined;
+    selection.push({ kind: 'measure', text, point: mid, ...(same ? { part: same } : {}), note: '' });
     measureFrom = null;
     showReadout(`Measured: ${text}`);
     selectionChanged();
@@ -264,19 +268,23 @@ function renderChecks(build) {
     const actions = make('div', 'cad-check-actions');
     if (check.at || check.faceId !== undefined) {
       const show = make('button', '', 'Show'); show.type = 'button';
-      show.addEventListener('click', () => { flash = { at: check.at, faceId: check.faceId, faceIds: check.faceIds, severity: check.severity }; refreshMarks(); placeMarks(); });
+      // A fit problem sits between two parts: shown where they meet, in the assembled view.
+      show.addEventListener('click', () => { if (check.kind === 'fit' && viewer?.layout) setLayout(false); flash = { at: check.at, faceId: check.faceId, faceIds: check.faceIds, part: check.part, severity: check.severity }; refreshMarks(); placeMarks(); });
       actions.append(show);
     }
     const fix = make('button', '', 'Fix'); fix.type = 'button'; fix.title = 'Point Little Bot at this problem';
     fix.addEventListener('click', () => pointAtProblem(check));
     actions.append(fix);
-    row.append(make('span', 'cad-check-dot'), make('p', '', check.message), actions);
+    const text = make('p', '');
+    if (check.part) text.append(make('span', 'cad-check-part', check.part));
+    text.append(document.createTextNode(check.message));
+    row.append(make('span', 'cad-check-dot'), text, actions);
     return row;
   }));
 }
 
 function pointAtProblem(problem) {
-  selection.push({ kind: 'problem', message: problem.message, point: problem.at || null, faceId: problem.faceId, note: '' });
+  selection.push({ kind: 'problem', message: problem.part ? `[${problem.part}] ${problem.message}` : problem.message, point: problem.at || null, faceId: problem.faceId, ...(problem.part ? { part: problem.part } : {}), note: '' });
   selectionChanged();
   const input = $('message-input');
   if (!input.value.trim()) { input.value = 'Fix this.'; input.dispatchEvent(new Event('input', { bubbles: true })); }
@@ -289,12 +297,13 @@ function renderLimits() {
   set('cad-min-wall', limits.minWall ?? 0.8);
   set('cad-min-hole', limits.minHole ?? 1);
   set('cad-overhang-angle', limits.overhangAngle ?? 45);
+  set('cad-min-clearance', limits.minClearance ?? 0.2);
   $('cad-overhang').checked = limits.overhang !== false;
 }
 
 async function saveLimits() {
   try {
-    const result = await window.bot.cadLimits({ limits: { minWall: Number($('cad-min-wall').value), minHole: Number($('cad-min-hole').value), overhangAngle: Number($('cad-overhang-angle').value), overhang: $('cad-overhang').checked } });
+    const result = await window.bot.cadLimits({ limits: { minWall: Number($('cad-min-wall').value), minHole: Number($('cad-min-hole').value), overhangAngle: Number($('cad-overhang-angle').value), overhang: $('cad-overhang').checked, minClearance: Number($('cad-min-clearance').value) } });
     globalThis.applyState?.(result);
   } catch (error) { say(error.message || String(error), true); }
 }
@@ -367,8 +376,58 @@ function renderStage(project, build) {
     box.replaceChildren(text, fix);
   }
   const info = build?.info;
-  $('cad-size').textContent = info ? `${round(info.size[0], 1)} × ${round(info.size[1], 1)} × ${round(info.size[2], 1)} mm · ${round(info.volume / 1000, 2)} cm³${info.solids > 1 ? ` · ${info.solids} pieces` : ''}` : '';
+  const several = info?.parts?.length > 1;
+  $('cad-size').textContent = info ? `${several ? `${info.parts.length} parts · ` : ''}${round(info.size[0], 1)} × ${round(info.size[1], 1)} × ${round(info.size[2], 1)} mm · ${round(info.volume / 1000, 2)} cm³${!several && info.solids > 1 ? ` · ${info.solids} pieces` : ''}` : '';
+  renderParts(info);
 }
+
+// ------------------------------------------------------------------------------------------------ parts
+
+// The parts strip over the view: each part's color and name; a click shows only that part (again: all), the eye
+// hides or shows it. Assembled or laid out for printing.
+function renderParts(info) {
+  const strip = $('cad-parts');
+  const several = info?.parts?.length > 1 && viewer;
+  strip.classList.toggle('hidden', !several);
+  $('cad-layout').classList.toggle('hidden', !several);
+  $('cad-layout').setAttribute('aria-pressed', String(Boolean(viewer?.layout)));
+  $('cad-layout').textContent = viewer?.layout ? 'Print layout' : 'Assembled';
+  // The export menu offers all parts or one.
+  const select = $('cad-export-part');
+  $('cad-export-part-row').classList.toggle('hidden', !several);
+  const options = several ? ['', ...info.parts.map(part => part.name)] : [''];
+  if ([...select.options].map(option => option.value).join('\n') !== options.join('\n')) {
+    const before = select.value;
+    select.replaceChildren(...options.map(value => { const option = make('option', '', value || 'All parts'); option.value = value; return option; }));
+    select.value = options.includes(before) ? before : '';
+  }
+  if (!several) { strip.replaceChildren(); return; }
+  const shown = viewer.parts;
+  if (shown.length !== info.parts.length) return; // the view catches up with the next mesh
+  const isolated = shown.filter(part => !part.hidden).length === 1;
+  strip.replaceChildren(...shown.map((part, index) => {
+    const chip = make('div', `cad-part-chip${part.hidden ? ' hidden-part' : ''}`);
+    const swatch = make('span', 'cad-part-swatch'); swatch.style.background = part.color;
+    const name = make('button', 'cad-part-name', part.name); name.type = 'button';
+    name.title = isolated && !part.hidden ? 'Show all parts' : `Show only ${part.name}`;
+    name.addEventListener('click', () => {
+      const hidden = isolated && !part.hidden ? [] : shown.map((_, other) => other).filter(other => other !== index);
+      viewer.setParts({ hidden }); afterParts();
+    });
+    const eye = make('button', 'cad-part-eye'); eye.type = 'button';
+    eye.title = part.hidden ? `Show ${part.name}` : `Hide ${part.name}`; eye.setAttribute('aria-label', eye.title);
+    eye.append(glyph(part.hidden ? 'plus' : 'minus'));
+    eye.addEventListener('click', () => {
+      const hidden = shown.map((item, other) => (other === index ? !item.hidden : item.hidden) ? other : -1).filter(other => other >= 0);
+      viewer.setParts({ hidden }); afterParts();
+    });
+    chip.append(swatch, name, eye);
+    return chip;
+  }));
+}
+
+function setLayout(layout) { viewer?.setParts({ layout }); afterParts(); }
+function afterParts() { refreshMarks(); placeMarks(); renderParts(cad?.build?.info); }
 
 function render(state) {
   if (window.LittleBotWidget?.widget) return;
@@ -439,7 +498,8 @@ for (const item of document.querySelectorAll('[data-cad-export]')) {
   item.addEventListener('click', async () => {
     closeMenus();
     try {
-      const result = await window.bot.cadExport({ format: item.dataset.cadExport });
+      const part = $('cad-export-part').value || undefined;
+      const result = await window.bot.cadExport({ format: item.dataset.cadExport, part });
       if (result?.path) say(`Exported ${result.path.split(/[\\/]/).pop()}.`);
     } catch (error) { say(error.message || String(error), true); }
   });
@@ -448,6 +508,7 @@ document.addEventListener('click', event => { if (!event.target.closest?.('.cad-
 for (const button of document.querySelectorAll('[data-cad-mode]')) button.addEventListener('click', () => setMode(button.dataset.cadMode));
 for (const button of document.querySelectorAll('[data-cad-tab]')) button.addEventListener('click', () => setTab(button.dataset.cadTab));
 for (const button of document.querySelectorAll('[data-cad-view]')) button.addEventListener('click', () => viewer?.setView(button.dataset.cadView));
+$('cad-layout').addEventListener('click', () => setLayout(!viewer?.layout));
 $('cad-ghost').addEventListener('click', () => setGhost(ghostVersion !== null ? null : (cad?.project?.version > 1 ? cad.project.version - 1 : null)).catch(error => say(error.message, true)));
 $('cad-code').addEventListener('input', () => { codeDirty = true; $('cad-script-status').textContent = 'Edited — Build to try it.'; renderGutter(); });
 $('cad-code').addEventListener('scroll', () => { $('cad-gutter').scrollTop = $('cad-code').scrollTop; });
@@ -456,7 +517,7 @@ $('cad-code').addEventListener('keydown', event => {
   if (event.key === 'Tab') { event.preventDefault(); const area = event.target; const at = area.selectionStart; area.setRangeText('  ', at, area.selectionEnd, 'end'); area.dispatchEvent(new Event('input')); }
 });
 $('cad-build').addEventListener('click', buildScript);
-for (const id of ['cad-min-wall', 'cad-min-hole', 'cad-overhang-angle', 'cad-overhang']) $(id).addEventListener('change', saveLimits);
+for (const id of ['cad-min-wall', 'cad-min-hole', 'cad-overhang-angle', 'cad-overhang', 'cad-min-clearance']) $(id).addEventListener('change', saveLimits);
 $('cad-canvas').addEventListener('keydown', event => { if (event.key === 'Escape') { measureFrom = null; showReadout(''); placeMarks(); } });
 $('cad-canvas').tabIndex = 0;
 
@@ -467,7 +528,7 @@ window.LittleBotCad = {
   // Plain data for the message: what was pointed at, with the user's notes.
   selection() {
     if (!cad?.enabled) return [];
-    const keep = ['kind', 'faceId', 'edgeId', 'point', 'note', 'type', 'diameter', 'plane', 'area', 'line', 'madeBy', 'movedAt', 'finder', 'length', 'direction', 'text', 'message'];
+    const keep = ['kind', 'part', 'faceId', 'edgeId', 'point', 'note', 'type', 'diameter', 'plane', 'area', 'line', 'madeBy', 'movedAt', 'finder', 'length', 'direction', 'text', 'message'];
     return selection.map(item => Object.fromEntries(keep.filter(key => item[key] !== undefined && item[key] !== null && item[key] !== '').map(key => [key, item[key]])));
   },
   clearSelection() { selection = []; flash = null; selectionChanged(); },

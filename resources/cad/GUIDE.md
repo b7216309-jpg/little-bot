@@ -46,6 +46,16 @@ A fillet or chamfer fails when it is larger than the faces beside the edge allow
 
 When the user points at a face or edge, its details include a ready finder, for example `(e) => e.containsPoint([12, -5, 4])`. Use it to round or bevel exactly that edge.
 
+## Several parts
+
+Things printed as separate pieces (a box and its lid, a hinge and its pin) are separate parts. Return them named, placed where they go when assembled:
+
+- `return { box, lid };` names each part by its key, or `return [{ name: "box", shape: box }, { name: "lid", shape: lid, color: "#a9c4dd" }];` with an optional color.
+- Each part is checked on its own: one loose piece inside a part is still an error, but two parts are not.
+- The fit between parts is checked: an overlap is an error; a gap under the minimum clearance (0.2 mm by default) is too tight to print; parts that touch are noted. Parts that slide or snap together need 0.2–0.3 mm of clearance on each side.
+- Exports of all parts lay them side by side for printing (STEP keeps them assembled, with names); `export` with `part` gives one.
+- Model each part the way up it should print when you can; otherwise mention which part to flip in the slicer.
+
 ## Examples
 
 A plate with four holes and rounded corners:
@@ -108,6 +118,25 @@ const params = { outer: 12, inner: 5.2, height: 8 };
 function main(p) {
   const ring = drawCircle(p.outer / 2).cut(drawCircle(p.inner / 2)).sketchOnPlane("XY").extrude(p.height);
   return ring.chamfer(0.8, (e) => e.inPlane("XY", p.height));
+}
+```
+
+A box with a lid that sits on it, as two parts; the lid's lip fits inside with a gap all round:
+
+```js
+const params = { width: 60, depth: 40, height: 30, wall: 2, lid: 4, gap: 0.25 };
+
+function main(p) {
+  const box = makeBaseBox(p.width, p.depth, p.height)
+    .fillet(3, (e) => e.inDirection("Z"))
+    .shell(p.wall, (f) => f.inPlane("XY", p.height));
+  const plate = makeBaseBox(p.width, p.depth, p.lid / 2).fillet(3, (e) => e.inDirection("Z"));
+  // The lip follows the box's inner wall, one gap inside it (the inner corners have a radius of 3 - wall).
+  const lip = makeBaseBox(p.width - 2 * (p.wall + p.gap), p.depth - 2 * (p.wall + p.gap), p.lid / 2)
+    .fillet(3 - p.wall - p.gap, (e) => e.inDirection("Z"))
+    .translate([0, 0, -p.lid / 2]);
+  const lid = plate.fuse(lip).translate([0, 0, p.height]);
+  return { box, lid };
 }
 ```
 

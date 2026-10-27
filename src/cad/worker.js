@@ -6,6 +6,7 @@ import * as R from '../../node_modules/replicad/dist/replicad.js';
 import opencascade from '../../node_modules/replicad-opencascadejs/dist/replicad_single.js';
 import { parse } from '../../node_modules/acorn/dist/acorn.mjs';
 import { storedZip } from './zip.js';
+import { partColor } from './colors.js';
 
 const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
 let oc = null, ready = null, lineOffset = 2;
@@ -119,23 +120,62 @@ function paramSpecs(raw = {}) {
   return specs.slice(0, 40);
 }
 
-function settle(result) {
-  if (Array.isArray(result)) {
-    const shapes = result.map(item => item?.shape ?? item).filter(item => R.isShape3D(item));
-    if (!shapes.length) throw new Error('main() returned a list without 3D shapes.');
-    return shapes.length === 1 ? shapes[0] : R.makeCompound(shapes);
+// What main() returns, as named parts: one shape is one part called "part"; { box, lid } names each part by its
+// key; a list names them "part 1", "part 2"… unless an entry gives { name, shape }. An entry may add a color.
+const PART_NAME = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,39}$/u;
+const MAX_PARTS = 20;
+function partsOf(result) {
+  const entries = [];
+  const add = (name, value, many) => {
+    const shape = value?.shape ?? value;
+    const where = many ? ` (part "${name}")` : '';
+    if (!R.isShape3D(shape)) {
+      if (shape instanceof R.Drawing || shape?.sketchOnPlane) throw new Error(`main() returned a 2D drawing${where}. Turn it into a solid first, for example drawing.sketchOnPlane().extrude(3).`);
+      if (shape?.extrude) throw new Error(`main() returned a sketch${where}. Extrude or revolve it into a solid first.`);
+      throw new Error(many ? `Part "${name}" is not a 3D shape.` : 'main() must return a 3D shape, or several as { name: shape, … }.');
+    }
+    const color = typeof value?.color === 'string' && /^#[\da-f]{6}$/i.test(value.color) ? value.color.toLowerCase() : null;
+    entries.push({ name: String(name).trim(), shape, color });
+  };
+  const plainObject = result && typeof result === 'object' && Object.getPrototypeOf(result) === Object.prototype && !('shape' in result);
+  if (Array.isArray(result)) result.forEach((item, index) => add(typeof item?.name === 'string' ? item.name : `part ${index + 1}`, item, true));
+  else if (plainObject) for (const [name, value] of Object.entries(result)) add(name, value, true);
+  else add('part', result, false);
+  if (!entries.length) throw new Error('main() returned no parts.');
+  if (entries.length > MAX_PARTS) throw new Error(`main() returned ${entries.length} parts; up to ${MAX_PARTS} are shown.`);
+  const names = new Set();
+  for (const entry of entries) {
+    if (!PART_NAME.test(entry.name)) throw new Error(`"${entry.name.slice(0, 50)}" is not a usable part name: use letters, digits, spaces, dots, dashes or underscores (up to 40).`);
+    if (names.has(entry.name.toLowerCase())) throw new Error(`Two parts are called "${entry.name}". Give each part its own name.`);
+    names.add(entry.name.toLowerCase());
   }
-  const shape = result?.shape ?? result;
-  if (R.isShape3D(shape)) return shape;
-  if (shape instanceof R.Drawing || shape?.sketchOnPlane) throw new Error('main() returned a 2D drawing. Turn it into a solid first, for example drawing.sketchOnPlane().extrude(3).');
-  if (shape?.extrude) throw new Error('main() returned a sketch. Extrude or revolve it into a solid first.');
-  throw new Error('main() must return a 3D shape (or a list of them).');
+  // The same shape under two names would be one object in two places at once.
+  const seen = new Map();
+  for (const entry of entries) {
+    if (seen.has(entry.shape)) throw new Error(`"${seen.get(entry.shape)}" and "${entry.name}" are the same shape. Give each part its own, for example shape.clone().translate([40, 0, 0]).`);
+    seen.set(entry.shape, entry.name);
+  }
+  return entries;
+}
+
+// Where each part goes in the print layout: on the bed (lowest point at z = 0), side by side along X with a gap,
+// the row centred on the origin. One part stays where it is.
+function printLayout(parts) {
+  if (parts.length < 2) return parts.map(() => [0, 0, 0]);
+  const boxes = parts.map(part => part.shape.boundingBox.bounds);
+  const largest = Math.max(...boxes.map(([lo, hi]) => Math.max(hi[0] - lo[0], hi[1] - lo[1])));
+  const gap = Math.max(5, Math.min(20, largest * 0.15));
+  let cursor = 0;
+  const offsets = boxes.map(([lo, hi]) => { const offset = [cursor - lo[0], -(lo[1] + hi[1]) / 2, -lo[2]]; cursor += hi[0] - lo[0] + gap; return offset; });
+  const shift = (cursor - gap) / 2;
+  return offsets.map(([dx, dy, dz]) => [round(dx - shift, 4), round(dy, 4), round(dz, 4)]);
 }
 
 function release() {
   if (!current) return;
   for (const step of current.records || []) try { step.shape.delete?.(); step.faces?.delete?.(); } catch { /* Already freed. */ }
   try { current.shape?.delete?.(); } catch { /* Already freed. */ }
+  if ((current.parts || []).length > 1) for (const part of current.parts) try { part.shape.delete?.(); } catch { /* Already freed. */ }
   current = null;
 }
 
@@ -147,7 +187,7 @@ async function run({ code, params: overrides = {}, limits = {} }) {
   release();
   recording = [];
   lastCall = null;
-  let values = {}, specs = [], shape;
+  let values = {}, specs = [], shape, parts;
   try {
     const factory = new Function(...scope[0], `"use strict";\n${source}\n;return { params: typeof params === 'undefined' ? {} : params, main: typeof main === 'function' ? main : null };`);
     const defined = factory(...scope[1]);
@@ -158,7 +198,9 @@ async function run({ code, params: overrides = {}, limits = {} }) {
       spec.value = typeof override === typeof spec.value && (typeof override !== 'number' || Number.isFinite(override)) ? override : spec.value;
       values[spec.name] = spec.value;
     }
-    shape = settle(await defined.main(values));
+    parts = partsOf(await defined.main(values));
+    // makeCompound frees what it is given; clones share the parts' faces, so face ids still map to parts.
+    shape = parts.length === 1 ? parts[0].shape : R.makeCompound(parts.map(part => part.shape.clone()));
   } catch (error) {
     const records = recording; recording = null;
     for (const step of records) try { step.shape.delete?.(); } catch { /* Freed. */ }
@@ -176,21 +218,36 @@ async function run({ code, params: overrides = {}, limits = {} }) {
   // The mesher names faces and edges by hash code; the rest of the app uses their index.
   const faceIndex = new Map(faces.map((face, index) => [face.hashCode, index]));
   const edgeIndex = new Map(edges.map((edge, index) => [edge.hashCode, index]));
-  const byIndex = (groups, key, index) => groups.map(group => ({ ...group, [key]: index.get(group[key]) ?? -1 }));
+  // Which part each face and edge belongs to: a part's own faces are the same shapes inside the compound.
+  const facePart = new Int16Array(faces.length), edgePart = new Int16Array(edges.length);
+  if (parts.length > 1) {
+    const owner = (list, of) => { const map = new Map(); parts.forEach((part, index) => { for (const item of part.shape[of]) map.set(item.hashCode, index); }); return list.map(item => map.get(item.hashCode) ?? 0); };
+    facePart.set(owner(faces, 'faces')); edgePart.set(owner(edges, 'edges'));
+  }
+  const byIndex = (groups, key, index, partOf) => groups.map(group => { const id = index.get(group[key]) ?? -1; return { ...group, [key]: id, part: id >= 0 ? partOf[id] : 0 }; });
+  const layout = printLayout(parts);
   const mesh = {
     vertices: Float32Array.from(raw.vertices), normals: Float32Array.from(raw.normals), triangles: Uint32Array.from(raw.triangles),
-    faceGroups: byIndex(raw.faceGroups, 'faceId', faceIndex), lines: Float32Array.from(edgesRaw.lines), edgeGroups: byIndex(edgesRaw.edgeGroups, 'edgeId', edgeIndex),
+    faceGroups: byIndex(raw.faceGroups, 'faceId', faceIndex, facePart), lines: Float32Array.from(edgesRaw.lines), edgeGroups: byIndex(edgesRaw.edgeGroups, 'edgeId', edgeIndex, edgePart),
+    parts: parts.map((part, index) => ({ name: part.name, color: part.color, offset: layout[index] })),
   };
-  current = { shape, faces, edges, mesh, records, values };
+  current = { shape, faces, edges, mesh, records, values, parts, facePart, edgePart, layout };
   let volume = 0, area = 0;
   try { volume = R.measureVolume(shape); } catch { /* Not a closed solid. */ }
   try { area = R.measureArea(shape); } catch { /* No faces. */ }
   const solids = shape.solids?.length ?? 0;
-  const info = { min, max, size, volume, area, solids, faces: faces.length, edges: edges.length };
+  const partInfo = parts.map(part => {
+    const [lo, hi] = part.shape.boundingBox.bounds;
+    let partVolume = 0;
+    try { partVolume = R.measureVolume(part.shape); } catch { /* Not a closed solid. */ }
+    return { name: part.name, min: lo, max: hi, size: [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]], volume: partVolume, solids: part.shape.solids?.length ?? 0, color: part.color };
+  });
+  const info = { min, max, size, volume, area, solids, faces: faces.length, edges: edges.length, parts: partInfo };
   let checks;
   try {
     const coarse = shape.mesh({ tolerance: Math.max(diagonal / 400, 0.01), angularTolerance: 0.4 });
-    checks = checkPart(info, limits, { vertices: coarse.vertices, triangles: coarse.triangles, faceGroups: byIndex(coarse.faceGroups, 'faceId', faceIndex) });
+    checks = checkPart(info, limits, { vertices: coarse.vertices, triangles: coarse.triangles, faceGroups: byIndex(coarse.faceGroups, 'faceId', faceIndex, facePart) });
+    if (parts.length > 1) checks.push(...checkFit(limits));
   } catch (error) { checks = [{ kind: 'checkFailed', severity: 'info', message: `The checks could not run: ${describe(error).message}` }]; }
   const steps = records.map(step => ({ line: step.line, kind: step.kind, movedAt: step.movedAt })).filter((step, index, list) => step.line && list.findIndex(other => other.line === step.line && other.kind === step.kind) === index);
   return { params: specs, mesh, info, checks, steps };
@@ -246,14 +303,21 @@ function checkPart(info, limits = {}, mesh) {
   const minWall = Number(limits.minWall) > 0 ? Number(limits.minWall) : 0.8;
   const minHole = Number(limits.minHole) > 0 ? Number(limits.minHole) : 1;
   const overhang = limits.overhang === false ? null : Number(limits.overhangAngle) > 0 ? Number(limits.overhangAngle) : 45;
-  if (!info.volume || info.volume <= 0) problems.push({ kind: 'notSolid', severity: 'error', message: 'The part has no volume: it is not a closed solid.' });
-  if (info.solids > 1) {
-    const pieces = current.shape.solids.map(solid => ({ solid, volume: (() => { try { return R.measureVolume(solid); } catch { return 0; } })() })).sort((a, b) => b.volume - a.volume);
-    for (const piece of pieces.slice(1, 6)) {
-      const [lo, hi] = piece.solid.boundingBox.bounds;
-      problems.push({ kind: 'pieces', severity: 'error', message: `The part is ${info.solids} separate pieces. This piece (${round(piece.volume, 1)} mm³) does not touch the main one.`, at: point([(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2]) });
+  // Volume and separate pieces are checked part by part: a box and its lid are two parts, not two loose pieces.
+  const many = current.parts.length > 1;
+  current.parts.forEach((part, index) => {
+    const own = info.parts[index];
+    const label = many ? `Part "${part.name}"` : 'The part';
+    if (!own.volume || own.volume <= 0) problems.push({ kind: 'notSolid', severity: 'error', part: many ? part.name : undefined, message: `${label} has no volume: it is not a closed solid.` });
+    if (own.solids > 1) {
+      const pieces = part.shape.solids.map(solid => ({ solid, volume: (() => { try { return R.measureVolume(solid); } catch { return 0; } })() })).sort((a, b) => b.volume - a.volume);
+      for (const piece of pieces.slice(1, 6)) {
+        const [lo, hi] = piece.solid.boundingBox.bounds;
+        problems.push({ kind: 'pieces', severity: 'error', part: many ? part.name : undefined, message: `${label} is ${own.solids} separate pieces. This piece (${round(piece.volume, 1)} mm³) does not touch the main one.${many ? '' : ' If they are meant to be separate, return them as named parts: { name: shape, … }.'}`, at: point([(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2]) });
+      }
     }
-  }
+  });
+  const partName = faceId => many && faceId >= 0 ? current.parts[current.facePart[faceId]]?.name : undefined;
   // Holes: cylindrical faces whose material is outside the cylinder.
   current.faces.forEach((face, faceId) => {
     if (face.geomType !== 'CYLINDRE') return;
@@ -268,12 +332,15 @@ function checkPart(info, limits = {}, mesh) {
       const radial = sub(on, [origin[0] + dir[0] * along, origin[1] + dir[1] * along, origin[2] + dir[2] * along]);
       const normal = face.normalAt(on);
       const isHole = dot([normal.x, normal.y, normal.z], radial) < 0;
-      if (isHole && radius * 2 < minHole) problems.push({ kind: 'smallHole', severity: 'warning', faceId, message: `Hole of ${round(radius * 2)} mm diameter, under the ${minHole} mm minimum.`, at: point(on), value: round(radius * 2) });
+      if (isHole && radius * 2 < minHole) problems.push({ kind: 'smallHole', severity: 'warning', faceId, part: partName(faceId), message: `Hole of ${round(radius * 2)} mm diameter, under the ${minHole} mm minimum.`, at: point(on), value: round(radius * 2) });
     } catch { /* Not a plain cylinder. */ }
   });
-  // Thin walls: from points on the surface, look straight into the material for the opposite surface.
+  // Thin walls: from points on the surface, look straight into the material for the opposite surface of the same
+  // part (the gap to another part is a fit, checked apart).
   const thin = new Map();
   const triangleCount = mesh.triangles.length / 3;
+  const partOfTriangle = new Int16Array(triangleCount);
+  if (many) for (let t = 0; t < triangleCount; t++) { const faceId = faceOfTriangle(mesh, t); partOfTriangle[t] = faceId >= 0 ? current.facePart[faceId] : 0; }
   const stride = Math.max(1, Math.floor(triangleCount / 1500));
   // Per triangle: corner a, edges e1 and e2, unit normal, centroid (15 numbers).
   const T = new Float64Array(triangleCount * 15);
@@ -288,7 +355,7 @@ function checkPart(info, limits = {}, mesh) {
     const ox = T[o + 12] + dx * 1e-4, oy = T[o + 13] + dy * 1e-4, oz = T[o + 14] + dz * 1e-4;
     let nearest = Infinity;
     for (let other = 0; other < triangleCount && nearest >= 1e-3; other++) {
-      if (other === t) continue;
+      if (other === t || partOfTriangle[other] !== partOfTriangle[t]) continue;
       const distance = rayTriangle(T, other * 15, ox, oy, oz, dx, dy, dz);
       if (distance < nearest) nearest = distance;
     }
@@ -298,19 +365,20 @@ function checkPart(info, limits = {}, mesh) {
     if (!known || nearest < known.value) thin.set(faceId, { value: nearest, at: [T[o + 12], T[o + 13], T[o + 14]] });
   }
   for (const [faceId, wall] of [...thin].sort((x, y) => x[1].value - y[1].value).slice(0, 4)) {
-    problems.push({ kind: 'thinWall', severity: 'warning', faceId, message: `Wall ${round(wall.value)} mm thick, under the ${minWall} mm minimum.`, at: point(wall.at), value: round(wall.value) });
+    problems.push({ kind: 'thinWall', severity: 'warning', faceId, part: partName(faceId), message: `Wall ${round(wall.value)} mm thick, under the ${minWall} mm minimum.`, at: point(wall.at), value: round(wall.value) });
   }
   // Overhangs for 3D printing: faces pointing down more steeply than the angle, reported together. The first
-  // 0.6 mm above the bed is left out: a small roundover or chamfer there prints fine.
+  // 0.6 mm above the bed is left out: a small roundover or chamfer there prints fine. Each part is printed on its
+  // own, so its own lowest point is its bed.
   if (overhang) {
     const limit = -Math.sin((90 - overhang) * Math.PI / 180);
-    const floor = info.min[2] + 0.6;
+    const floors = info.parts.map(part => part.min[2] + 0.6);
     const overhangs = new Map();
     for (let t = 0; t < triangleCount; t++) {
       const o = t * 15;
       if (T[o + 11] >= limit) continue;
       const top = Math.max(T[o + 2], T[o + 2] + T[o + 5], T[o + 2] + T[o + 8]);
-      if (top <= floor) continue;
+      if (top <= floors[partOfTriangle[t]]) continue;
       const faceId = faceOfTriangle(mesh, t);
       const area = Math.hypot(...cross([T[o + 3], T[o + 4], T[o + 5]], [T[o + 6], T[o + 7], T[o + 8]])) / 2;
       const entry = overhangs.get(faceId) || { area: 0, at: [T[o + 12], T[o + 13], T[o + 14]] };
@@ -320,11 +388,78 @@ function checkPart(info, limits = {}, mesh) {
     const faces = [...overhangs].filter(([, entry]) => entry.area > 1).sort((x, y) => y[1].area - x[1].area);
     if (faces.length) {
       const area = faces.reduce((sum, [, entry]) => sum + entry.area, 0);
-      problems.push({ kind: 'overhang', severity: 'info', faceId: faces[0][0], faceIds: faces.slice(0, 20).map(([faceId]) => faceId),
+      problems.push({ kind: 'overhang', severity: 'info', faceId: faces[0][0], part: partName(faces[0][0]), faceIds: faces.slice(0, 20).map(([faceId]) => faceId),
         message: `Overhangs steeper than ${overhang}° on ${faces.length} face${faces.length > 1 ? 's' : ''} (${round(area, 1)} mm²): they need supports when printed this way up.`, at: point(faces[0][1].at) });
     }
   }
   return problems;
+}
+
+// How the parts fit together, pair by pair for parts within 2 mm of each other: an overlap is an error (they could
+// not both exist), a gap under the minimum clearance is too tight to print as separate parts, a small gap is
+// reported for information, and parts that just touch are noted.
+function checkFit(limits = {}) {
+  const minClearance = Number(limits.minClearance) > 0 ? Number(limits.minClearance) : 0.2;
+  const near = 2;
+  const results = [];
+  const parts = current.parts;
+  const boxes = parts.map(part => part.shape.boundingBox.bounds);
+  for (let i = 0; i < parts.length; i++) for (let j = i + 1; j < parts.length; j++) {
+    const [a, b] = [boxes[i], boxes[j]];
+    if ([0, 1, 2].some(axis => a[0][axis] > b[1][axis] + near || b[0][axis] > a[1][axis] + near)) continue;
+    const pair = `"${parts[i].name}" and "${parts[j].name}"`;
+    const names = [parts[i].name, parts[j].name];
+    let overlap = 0;
+    try {
+      const common = parts[i].shape.intersect(parts[j].shape);
+      try { overlap = R.measureVolume(common); } catch { overlap = 0; }
+      const [lo, hi] = overlap > 1e-3 ? common.boundingBox.bounds : [[0, 0, 0], [0, 0, 0]];
+      common.delete?.();
+      if (overlap > 1e-3) { results.push({ kind: 'fit', severity: 'error', parts: names, value: round(overlap, 3), message: `${pair} overlap by ${round(overlap, 2)} mm³: they cannot both be there. Leave a gap of at least ${minClearance} mm.`, at: point([(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2]) }); continue; }
+    } catch { /* The overlap could not be computed; the gap still tells. */ }
+    const gap = closestPoints(parts[i].shape, parts[j].shape);
+    if (!gap) continue;
+    const at = point(gap.on.map((value, axis) => (value + gap.other[axis]) / 2));
+    const middle = found => point(found.on.map((value, axis) => (value + found.other[axis]) / 2));
+    if (gap.distance < 1e-4) {
+      // Touching where one rests on the other says nothing about the fit elsewhere, such as a lid's lip inside a
+      // box: measure the smallest gap between the faces that do not touch.
+      const elsewhere = smallestGap(parts[i].shape, parts[j].shape, near);
+      if (!elsewhere) results.push({ kind: 'fit', severity: 'info', parts: names, value: 0, message: `${pair} touch, with no gap. Fine if one rests on the other; parts that slide or snap together need ${minClearance}–0.3 mm.`, at });
+      else if (elsewhere.distance < minClearance) results.push({ kind: 'fit', severity: 'warning', parts: names, value: round(elsewhere.distance, 3), message: `${pair} touch where one rests on the other, and elsewhere the smallest gap is ${round(elsewhere.distance, 3)} mm: tight for printed parts (at least ${minClearance} mm, 0.2–0.3 mm is usual).`, at: middle(elsewhere) });
+      else results.push({ kind: 'fit', severity: 'info', parts: names, value: round(elsewhere.distance, 3), message: `${pair} touch where one rests on the other; elsewhere the smallest gap is ${round(elsewhere.distance, 3)} mm.`, at: middle(elsewhere) });
+    }
+    else if (gap.distance < minClearance) results.push({ kind: 'fit', severity: 'warning', parts: names, value: round(gap.distance, 3), message: `${pair}: gap of ${round(gap.distance, 3)} mm, tight for printed parts (at least ${minClearance} mm, 0.2–0.3 mm is usual).`, at });
+    else if (gap.distance < near) results.push({ kind: 'fit', severity: 'info', parts: names, value: round(gap.distance, 3), message: `${pair}: gap of ${round(gap.distance, 3)} mm.`, at });
+  }
+  return results;
+}
+
+// The smallest gap between two parts' faces that are near each other but do not touch: face by face, boxes first.
+function smallestGap(a, b, near) {
+  const close = (p, q) => [0, 1, 2].every(axis => p[0][axis] <= q[1][axis] + near && q[0][axis] <= p[1][axis] + near);
+  const boxA = a.boundingBox.bounds, boxB = b.boundingBox.bounds;
+  const facesA = a.faces.map(face => ({ face, box: face.boundingBox.bounds })).filter(item => close(item.box, boxB)).slice(0, 80);
+  const facesB = b.faces.map(face => ({ face, box: face.boundingBox.bounds })).filter(item => close(item.box, boxA)).slice(0, 80);
+  let best = null;
+  for (const fa of facesA) for (const fb of facesB) {
+    if (!close(fa.box, fb.box)) continue;
+    const found = closestPoints(fa.face, fb.face);
+    if (found && found.distance > 1e-4 && found.distance < near && (!best || found.distance < best.distance)) best = found;
+  }
+  return best;
+}
+
+// The closest points between two shapes, and their distance.
+function closestPoints(a, b) {
+  const tool = new oc.BRepExtrema_DistShapeShape();
+  try {
+    tool.LoadS1(a.wrapped); tool.LoadS2(b.wrapped); tool.Perform();
+    if (!tool.IsDone() || tool.NbSolution() < 1) return null;
+    // The points belong to the tool; they are freed with it.
+    const p = tool.PointOnShape1(1), q = tool.PointOnShape2(1);
+    return { distance: tool.Value(), on: [p.X(), p.Y(), p.Z()], other: [q.X(), q.Y(), q.Z()] };
+  } finally { tool.delete(); }
 }
 
 // Möller–Trumbore on the packed triangle at T[o]: distance along the ray, or Infinity.
@@ -347,6 +482,9 @@ function rayTriangle(T, o, ox, oy, oz, dx, dy, dz) {
 // ------------------------------------------------------------------------------------------------ faces and edges
 
 function requireCurrent() { if (!current) throw new Error('There is no part yet. Run a script first.'); }
+
+// The part a face or edge belongs to, named only when there are several.
+function partField(index) { return current.parts.length > 1 ? { part: current.parts[index]?.name } : {}; }
 
 // The earliest recorded step whose own faces contain this point made the face.
 function originOf(onFace) {
@@ -377,7 +515,7 @@ function faceInfo({ faceId, near }) {
   if (!face) throw new Error(`There is no face ${faceId}.`);
   const on = pointOnFace(faceId, Array.isArray(near) ? near : null) || [0, 0, 0];
   const normal = unit(face.normalAt(on));
-  const info = { kind: 'face', faceId, type: face.geomType, point: point(on), normal, area: round(R.measureArea(face)) };
+  const info = { kind: 'face', faceId, type: face.geomType, point: point(on), normal, area: round(R.measureArea(face)), ...partField(current.facePart[faceId]) };
   try {
     const surface = face._geomAdaptor();
     if (face.geomType === 'CYLINDRE') {
@@ -403,7 +541,7 @@ function edgeInfo({ edgeId }) {
   const edge = current.edges[edgeId];
   if (!edge) throw new Error(`There is no edge ${edgeId}.`);
   const mid = edge.pointAt(0.5);
-  const info = { kind: 'edge', edgeId, type: edge.geomType, length: round(edge.length, 3), start: vec(edge.startPoint), end: vec(edge.endPoint), point: vec(mid) };
+  const info = { kind: 'edge', edgeId, type: edge.geomType, length: round(edge.length, 3), start: vec(edge.startPoint), end: vec(edge.endPoint), point: vec(mid), ...partField(current.edgePart[edgeId]) };
   try {
     if (edge.geomType === 'CIRCLE') {
       const circle = edge._geomAdaptor().Circle();
@@ -451,19 +589,34 @@ function measure({ a, b }) {
 
 const encoder = new TextEncoder();
 
-async function exportPart({ format, view = 'top' }) {
+const colorOf = partColor;
+
+// One part by name, or all of them. STEP keeps the parts where they are, as a named assembly; STL, 3MF, SVG and
+// DXF of several parts use the print layout, so they arrive side by side on the bed rather than inside each other.
+async function exportPart({ format, view = 'top', part = null }) {
   requireCurrent();
-  const shape = current.shape;
-  if (format === 'step') return new Uint8Array(await shape.blobSTEP().arrayBuffer());
-  if (format === 'stl') return new Uint8Array(await shape.blobSTL({ binary: true, tolerance: 0.01, angularTolerance: 0.1 }).arrayBuffer());
-  if (format === '3mf') return threeMf(shape);
-  if (format === 'svg' || format === 'dxf') {
-    const projection = R.drawProjection(shape, view);
+  const indexes = part === null || part === undefined || part === '' ? current.parts.map((_, index) => index) : current.parts.map((item, index) => item.name === part ? index : -1).filter(index => index >= 0);
+  if (!indexes.length) throw new Error(`There is no part "${part}". Parts: ${current.parts.map(item => item.name).join(', ')}.`);
+  const chosen = indexes.map(index => ({ ...current.parts[index], index }));
+  if (!['step', 'stl', '3mf', 'svg', 'dxf'].includes(format)) throw new Error('Export as step, stl, 3mf, svg or dxf.');
+  if (format === 'step') {
+    if (chosen.length === 1 && current.parts.length === 1) return new Uint8Array(await chosen[0].shape.blobSTEP().arrayBuffer());
+    return new Uint8Array(await R.exportSTEP(chosen.map(item => ({ shape: item.shape, name: item.name, color: colorOf(item, item.index) }))).arrayBuffer());
+  }
+  // Laid out for printing when there are several; copies, since moving a shape frees the original.
+  const placed = chosen.map(item => ({ ...item, shape: chosen.length > 1 ? item.shape.clone().translate(current.layout[item.index]) : item.shape, owned: chosen.length > 1 }));
+  const together = placed.length > 1 ? R.makeCompound(placed.map(item => item.shape.clone())) : placed[0].shape;
+  try {
+    if (format === 'stl') return new Uint8Array(await together.blobSTL({ binary: true, tolerance: 0.01, angularTolerance: 0.1 }).arrayBuffer());
+    if (format === '3mf') return threeMf(placed.map(item => ({ shape: item.shape, name: item.name, color: colorOf(item, item.index) })));
+    const projection = R.drawProjection(together, view);
     const drawing = projection.visible;
     if (format === 'svg') return encoder.encode(svgInMillimetres(drawing.toSVG(1)));
     return encoder.encode(dxf(drawing));
+  } finally {
+    if (placed.length > 1) together.delete?.();
+    for (const item of placed) if (item.owned) item.shape.delete?.();
   }
-  throw new Error('Export as step, stl, 3mf, svg or dxf.');
 }
 
 function weld(mesh) {
@@ -483,13 +636,21 @@ function weld(mesh) {
   return { vertices, triangles: kept };
 }
 
-function threeMf(shape) {
-  const { vertices, triangles } = weld(shape.mesh({ tolerance: 0.01, angularTolerance: 0.1 }));
-  const parts = ['<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">\n<resources><object id="1" type="model"><mesh><vertices>'];
-  for (let i = 0; i < vertices.length; i += 3) parts.push(`<vertex x="${+vertices[i].toFixed(5)}" y="${+vertices[i + 1].toFixed(5)}" z="${+vertices[i + 2].toFixed(5)}"/>`);
-  parts.push('</vertices><triangles>');
-  for (let i = 0; i < triangles.length; i += 3) parts.push(`<triangle v1="${triangles[i]}" v2="${triangles[i + 1]}" v3="${triangles[i + 2]}"/>`);
-  parts.push('</triangles></mesh></object></resources>\n<build><item objectid="1"/></build>\n</model>\n');
+// A 3MF with each part as its own named, colored object, so a slicer can arrange or color them one by one.
+const xmlText = text => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+function threeMf(items) {
+  const parts = ['<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">\n<resources><basematerials id="1">'];
+  for (const item of items) parts.push(`<base name="${xmlText(item.name)}" displaycolor="${item.color.toUpperCase()}FF"/>`);
+  parts.push('</basematerials>');
+  items.forEach((item, index) => {
+    const { vertices, triangles } = weld(item.shape.mesh({ tolerance: 0.01, angularTolerance: 0.1 }));
+    parts.push(`<object id="${index + 2}" type="model" name="${xmlText(item.name)}" pid="1" pindex="${index}"><mesh><vertices>`);
+    for (let i = 0; i < vertices.length; i += 3) parts.push(`<vertex x="${+vertices[i].toFixed(5)}" y="${+vertices[i + 1].toFixed(5)}" z="${+vertices[i + 2].toFixed(5)}"/>`);
+    parts.push('</vertices><triangles>');
+    for (let i = 0; i < triangles.length; i += 3) parts.push(`<triangle v1="${triangles[i]}" v2="${triangles[i + 1]}" v3="${triangles[i + 2]}"/>`);
+    parts.push('</triangles></mesh></object>');
+  });
+  parts.push(`</resources>\n<build>${items.map((_, index) => `<item objectid="${index + 2}"/>`).join('')}</build>\n</model>\n`);
   return storedZip([
     ['[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>\n'],
     ['_rels/.rels', '<?xml version="1.0" encoding="UTF-8"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>\n'],

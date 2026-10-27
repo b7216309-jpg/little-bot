@@ -41,6 +41,31 @@ flowchart LR
 
 `cad` ([CadWorkshop.call](../../src/cad-workshop.cjs)) works only in the user's own running conversation, never in goals, heartbeat or routines, and is not offered in Plan mode. Actions: `guide` (returns [GUIDE.md](../../resources/cad/GUIDE.md): the script shape, the API, finders and six examples), `read`, `write` (a new version of the whole script), `set` (slider values), `view` (a picture: four standard views in a grid by default), `inspect`, `measure`, `export`, `open`, `revert`. `write`, `set`, `open` and `revert` return the size, the checks and a picture, so the model sees what it built. A new script clears slider values and says which ones were dropped.
 
+## Several parts
+
+A script can return several named parts, placed as they go together: `return { box, lid }`, or a list of `{ name, shape, color }`. A single shape is one part called "part", so older scripts work unchanged. Names are letters, digits, spaces, dots, dashes and underscores, up to 40, each used once. There can be up to 20 parts, and the same shape can't be two parts.
+
+- **One model, tagged:** [worker.js](../../src/cad/worker.js) builds a compound of the parts, so face and edge numbers stay global. Every face and edge group in the mesh carries the index of its part, matched by OpenCascade's hash codes, since the compound holds the parts' own faces. Faces and edges also name their part when inspected.
+- **Checks per part:** volume and separate pieces are checked within each part, so a box and its lid are not "two loose pieces". Thin-wall rays only meet their own part, so the gap to another part is not a thin wall. Overhangs are measured from each part's own lowest point, as each part is printed on its own.
+- **Fit between parts:** this runs for pairs of parts within 2 mm of each other.
+  - An overlap is an error, with its volume.
+  - A gap under the minimum clearance is a warning. The default is 0.2 mm, set as "Smallest gap between parts" in the check limits.
+  - A small gap or parts that touch are noted.
+  - When two parts touch (a lid resting on a rim), the gap between their faces that do not touch is measured too (a lid's lip inside the box), and checked against the clearance.
+  - The closest points come from `BRepExtrema_DistShapeShape`.
+- **Print layout:** each part gets an offset that puts its lowest point on the bed, side by side along X with a gap, the row centred on the origin.
+- **Exports of all parts:**
+  - STL, 3MF, SVG and DXF use the print layout. In the 3MF each part is its own named object with a display colour.
+  - STEP keeps the parts in place, as a named, coloured assembly (replicad's `exportSTEP`).
+  - The `part` option exports one part, as `<name>-<part>.<format>` by default.
+- **The panel:**
+  - a strip of the parts' colours and names: a click shows only that part (again shows all), and the − and + buttons hide and show one;
+  - an **Assembled / Print layout** switch;
+  - an "Export: All parts / one part" choice in the export menu;
+  - chips and the size line that name the part.
+
+  Points clicked in the print layout are kept in assembled coordinates, so pins and the engine agree. Colours come from [colors.js](../../src/cad/colors.js), shaded for the dark theme. Pictures for the model have a legend of the parts.
+
 ## Pointing at the part
 
 The panel ([cad-panel.js](../../src/renderer/cad-panel.js)) has three click modes:
@@ -61,8 +86,18 @@ The **Settings** tab tries values without touching the script. The model sees th
   - every export, and a picture with a pin;
   - syntax and OpenCascade errors located;
   - `fetch` and `require` refused, and an endless script stopped with the engine coming back;
-  - every example in GUIDE.md building one solid, with the guide's claims about `shell` and `revolve` checked.
+  - every example in GUIDE.md building one solid per part with no error, with the guide's claims about `shell` and `revolve` checked;
+  - several parts:
+    - faces tagged with their part;
+    - no "pieces" error and no thin wall between parts;
+    - the box and lid noted as touching;
+    - the print layout;
+    - a STEP assembly with names, a 3MF with an object per part, and one part's STL;
+    - a 2 mm overlap reported as 200 mm³, and a 0.1 mm gap as too tight;
+    - a custom colour;
+    - bad and repeated names refused.
 - [cad-workshop.test.cjs](../../test/cad-workshop.test.cjs) covers, with a stand-in engine:
   - versions and reverting, sliders, and errors;
   - the tool's gating;
-  - the message context.
+  - the message context;
+  - several parts in the summary, one part's export and its file name, and the part named in what the user points at.

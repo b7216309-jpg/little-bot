@@ -46,7 +46,7 @@ function normalizeCad(value) {
   if (typeof value.current === 'string' && value.current.length < 1000) result.current = value.current;
   if (isObject(value.limits)) {
     const limits = {};
-    for (const [key, low, high] of [['minWall', 0.1, 20], ['minHole', 0.1, 50], ['overhangAngle', 10, 80]]) {
+    for (const [key, low, high] of [['minWall', 0.1, 20], ['minHole', 0.1, 50], ['overhangAngle', 10, 80], ['minClearance', 0.05, 5]]) {
       if (Number.isFinite(value.limits[key]) && value.limits[key] >= low && value.limits[key] <= high) limits[key] = value.limits[key];
     }
     if (typeof value.limits.overhang === 'boolean') limits.overhang = value.limits.overhang;

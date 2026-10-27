@@ -120,3 +120,27 @@ test('what the user pointed at becomes numbered text for the model and a picture
   assert.deepEqual(context.labels, ['1. Face 4', '2. Point', '3. Measure']);
   assert.equal(await cad.messageContext({ items: [] }), null);
 });
+
+test('several parts: the summary lists them, exports take one by name, and pointing names the part', async t => {
+  const { cad, kernel, workspace, chat } = setup(t);
+  const run = kernel.call.bind(kernel);
+  kernel.call = async (op, args) => {
+    const result = await run(op, args);
+    if (op !== 'run' || result.error) return result;
+    return { ...result, info: { ...result.info, solids: 2, parts: [{ name: 'box', size: [60, 40, 30], volume: 15344.2, solids: 1 }, { name: 'lid', size: [60, 40, 4], volume: 8724, solids: 1 }] },
+      checks: [{ kind: 'fit', severity: 'warning', parts: ['box', 'lid'], value: 0.1, message: '"box" and "lid": gap of 0.1 mm, tight for printed parts.' }, { kind: 'thinWall', severity: 'warning', part: 'lid', faceId: 7, message: 'Wall 0.6 mm thick.' }] };
+  };
+  const built = await cad.call({ action: 'write', code: 'function main() { return { box, lid }; }', note: 'two parts' }, { chat });
+  assert.deepEqual(built.parts, ['box: 60 × 40 × 30 mm, 15344.2 mm³', 'lid: 60 × 40 × 4 mm, 8724 mm³']);
+  assert.equal(built.pieces, undefined);
+  assert.deepEqual(built.checks, ['warning: "box" and "lid": gap of 0.1 mm, tight for printed parts.', 'warning: [lid] Wall 0.6 mm thick. (face 7)']);
+  const one = await cad.call({ action: 'export', format: 'stl', part: 'lid' }, { chat });
+  assert.equal(one.path, path.join(workspace, 'cad', 'part-lid.stl'));
+  assert.deepEqual(kernel.calls.at(-1), ['export', { format: 'stl', view: 'top', part: 'lid' }]);
+  const all = await cad.call({ action: 'export', format: 'step' }, { chat });
+  assert.match(all.note, /named assembly/);
+  await assert.rejects(cad.call({ action: 'export', format: 'stl', part: 'hinge' }, { chat }), /There is no part "hinge". Parts: box, lid/);
+  const context = await cad.messageContext({ items: [{ kind: 'face', faceId: 7, part: 'lid', type: 'PLANE', plane: '+Z', point: [1, 2, 3], note: 'thicker' }] });
+  assert.match(context.text, /1\. Face 7: of part "lid", plane/);
+  assert.deepEqual(context.labels, ['1. lid · Face 7']);
+});

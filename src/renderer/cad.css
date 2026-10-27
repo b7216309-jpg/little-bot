@@ -109,3 +109,15 @@
 .cad-chip button .icon{width:11px;height:11px}
 .message-cad{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
 .message-cad span{font-size:10px;color:#58705c;background:#f2f5ec;border:1px solid #dfe7d4;border-radius:5px;padding:1px 6px}
+/* Several parts: a strip of their colors and names under the view buttons. */
+.cad-parts{position:absolute;top:44px;right:10px;display:flex;flex-direction:column;align-items:flex-end;gap:3px;max-width:45%}
+.cad-part-chip{display:flex;align-items:center;gap:6px;max-width:100%;background:#fcfbf8e6;border:1px solid var(--line);border-radius:7px;padding:2px 3px 2px 7px;font-size:11px}
+.cad-part-chip.hidden-part{opacity:.5}
+.cad-part-swatch{width:10px;height:10px;border-radius:3px;box-shadow:inset 0 0 0 1px #0000002e;flex-shrink:0}
+.cad-part-name{min-width:0;border:0;background:transparent;padding:1px 2px;font-size:11px;font-weight:600;color:var(--ink);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cad-part-eye{flex-shrink:0;border:0;background:transparent;border-radius:5px;width:20px;height:20px;display:flex;align-items:center;justify-content:center;color:var(--muted);cursor:pointer}
+.cad-part-eye:hover{background:var(--soft);color:var(--ink)}
+.cad-part-eye .icon{width:11px;height:11px}
+.cad-check-part{display:inline-block;font-size:10px;font-weight:600;background:var(--soft);border-radius:4px;padding:0 5px;margin-right:6px;color:var(--ink)}
+.cad-export-part{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 9px 7px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--line);margin-bottom:3px}
+.cad-export-part select{border:1px solid var(--line);border-radius:6px;padding:3px 6px;font-size:11px;background:var(--white);color:var(--ink);max-width:130px}

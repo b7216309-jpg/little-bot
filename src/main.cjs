@@ -590,14 +590,16 @@ app.whenReady().then(async () => {
   register('cadInspect', payload => controller.cad.inspect(payload || {}));
   register('cadMeasure', ({ from, to } = {}) => controller.cad.measure(from, to));
   register('cadLimits', async ({ limits } = {}) => { controller.setCadLimits(limits); if (controller.cad.project?.code) await controller.cad.build(); return controller.state(); });
-  register('cadExport', async ({ format } = {}) => {
+  register('cadExport', async ({ format, part } = {}) => {
     const project = controller.cad.project;
     if (!project) throw new Error('There is no part to export yet.');
+    const one = typeof part === 'string' && part ? part : null;
     const names = { step: 'STEP', stl: 'STL', '3mf': '3MF', svg: 'SVG', dxf: 'DXF' };
-    const selected = await dialog.showSaveDialog(desktopWindows.activeWindow(), { title: `Export ${project.name} as ${names[format] || format}`,
-      defaultPath: path.join(path.dirname(project.file), `${project.name}.${format}`), filters: [{ name: names[format] || format, extensions: [format] }] });
+    const stem = one ? `${project.name}-${one.replace(/\s+/g, '-')}` : project.name;
+    const selected = await dialog.showSaveDialog(desktopWindows.activeWindow(), { title: `Export ${one ? `${one} of ` : ''}${project.name} as ${names[format] || format}`,
+      defaultPath: path.join(path.dirname(project.file), `${stem}.${format}`), filters: [{ name: names[format] || format, extensions: [format] }] });
     if (selected.canceled || !selected.filePath) return null;
-    return controller.cad.exportFile({ format, path: selected.filePath });
+    return controller.cad.exportFile({ format, path: selected.filePath, part: one });
   });
   register('cadShowFile', ({ file } = {}) => {
     const project = controller.cad.project;

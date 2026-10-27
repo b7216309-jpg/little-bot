@@ -487,3 +487,4 @@ html[data-theme=dark] .cad-chip.problem .cad-chip-n{background:#c9574b}
 html[data-theme=dark] .cad-chip input{border-left:1px solid #49513f}
 html[data-theme=dark] .cad-chip button:hover{background:#35392d}
 html[data-theme=dark] .message-cad span{color:#93aa97;background:#272b21;border:1px solid #373d30}
+html[data-theme=dark] .cad-part-chip{background:rgba(33,32,26,0.902)}
