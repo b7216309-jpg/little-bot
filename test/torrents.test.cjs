@@ -155,7 +155,7 @@ test('the model searches and asks; only the user starts a download', async t => 
   assert.equal(manager.drafts.has('d1'), false, 'a declined request is forgotten');
   // Gating.
   await assert.rejects(manager.call({ action: 'list' }, { chat: { id: 'h', internal: true, status: 'running' } }), /not in background work/);
-  await assert.rejects(manager.call({ action: 'list' }, { chat: { id: 'a', automationId: 'x', status: 'running' } }), /not in background work/);
+  await assert.doesNotReject(manager.call({ action: 'list' }, { chat: { id: 'a', automationId: 'x', status: 'running' } }), 'a scheduled task has full access');
   store.data.settings.torrentsEnabled = false;
   assert.ok(!new AgentTools({ store, torrents: manager }).specs().some(tool => tool.name === 'torrents'));
   await assert.rejects(manager.call({ action: 'list' }, { chat }), /Torrents is off/);

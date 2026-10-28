@@ -173,6 +173,32 @@ test('a tool call can hand the thread a new tool list, offered from the next ste
   assert.equal(strata.requests[2].messages.filter(message => message.role === 'tool').at(-1).content, 'a box');
 });
 
+test('a tool call the server left as text is run as a call, and never shown as the answer', async t => {
+  const spec = name => ({ type: 'function', name, description: name, inputSchema: { type: 'object', properties: {} } });
+  const leaked = 'Let me look.\n<tool_call>\n<function=web_search_service>\n<parameter=queries>\n["WoW: Forever news", "WoW Forever realm status"]\n</parameter>\n<parameter=limit>\n6\n</parameter>\n</function>\n</tool_call>';
+  let asked = null;
+  const { strata, events, thread, run } = await setup(t, [
+    { content: leaked },
+    { content: '<tool_call>\n{"name": "calendar_list", "arguments": {"limit": 3}}\n</tool_call>' },
+    { content: '<tool_call>\n<function=nope>\n</function>\n</tool_call>' },
+    { content: 'Here is the digest.' },
+  ], { tools: {
+    web_search_service: args => { asked = args; return { success: true, contentItems: [{ type: 'inputText', text: 'two results' }] }; },
+    calendar_list: args => ({ success: true, contentItems: [{ type: 'inputText', text: `limit ${args.limit}` }] }),
+  } });
+  const threadId = await thread({ dynamicTools: [spec('web_search_service'), spec('calendar_list')] });
+  assert.equal((await run(threadId, 'News?')).status, 'completed');
+  assert.deepEqual(asked, { queries: ['WoW: Forever news', 'WoW Forever realm status'], limit: 6 });
+  const results = strata.requests[3].messages.filter(message => message.role === 'tool').map(message => message.content);
+  assert.equal(results[0], 'two results');
+  assert.equal(results[1], 'limit 3');
+  assert.match(results[2], /nope/, 'a tool that was not offered gets an error the model can read');
+  const answers = events.filter(event => event.method === 'item/completed' && event.item.type === 'agentMessage').map(event => [event.item.text, event.item.phase]);
+  assert.deepEqual(answers.at(0), ['Let me look.', 'commentary']);
+  assert.deepEqual(answers.at(-1), ['Here is the digest.', 'final_answer']);
+  assert.ok(!answers.some(([text]) => text.includes('<tool_call>')));
+});
+
 test('Plan mode reads but refuses anything that could change files', async t => {
   const { home, asks, strata, thread, run } = await setup(t, [
     { calls: [{ name: 'exec_command', arguments: { cmd: 'Get-ChildItem -Name', yield_time_ms: 120000 } }, { name: 'exec_command', arguments: { cmd: 'Remove-Item -Recurse .' } }] },

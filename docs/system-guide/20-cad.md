@@ -39,7 +39,7 @@ flowchart LR
 
 ## The model's tool
 
-`cad` ([CadWorkshop.call](../../src/cad-workshop.cjs)) works only in the user's own running conversation, never in goals, heartbeat or routines, and is not offered in Plan mode. Actions: `guide` (returns [GUIDE.md](../../resources/cad/GUIDE.md): the script shape, the API, finders and six examples), `read`, `write` (a new version of the whole script), `set` (slider values), `view` (a picture: four standard views in a grid by default), `inspect`, `measure`, `export`, `open`, `revert`. `write`, `set`, `open` and `revert` return the size, the checks and a picture, so the model sees what it built. A new script clears slider values and says which ones were dropped.
+`cad` ([CadWorkshop.call](../../src/cad-workshop.cjs)) works only in the user's own running conversation or a scheduled task, never in goals or heartbeat, and is not offered in Plan mode. Actions: `guide` (returns [GUIDE.md](../../resources/cad/GUIDE.md): the script shape, the API, finders and six examples), `read`, `write` (a new version of the whole script), `set` (slider values), `view` (a picture: four standard views in a grid by default), `inspect`, `measure`, `export`, `open`, `revert`. `write`, `set`, `open` and `revert` return the size, the checks and a picture, so the model sees what it built. A new script clears slider values and says which ones were dropped.
 
 ## Several parts
 

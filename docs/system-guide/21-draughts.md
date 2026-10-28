@@ -62,7 +62,7 @@ flowchart LR
 
 ## The model's tool
 
-`draughts` ([DraughtsTable.call](../../src/draughts-table.cjs)) works only in the user's own running conversation, never in goals, heartbeat or routines, and is not offered in Plan mode. Actions:
+`draughts` ([DraughtsTable.call](../../src/draughts-table.cjs)) works only in the user's own running conversation or a scheduled task, never in goals or heartbeat, and is not offered in Plan mode. Actions:
 
 - `board`: the position and, on its turn, its legal moves with verdicts;
 - `move`: play one of its legal moves, only on its turn, once;

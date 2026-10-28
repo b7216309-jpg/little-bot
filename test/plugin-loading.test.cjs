@@ -54,7 +54,10 @@ test('plugin_load loads a plugin into the running conversation, and only there',
   assert.deepEqual(await tools.call('cad', {}, { chat }), { ok: 'cad' });
   assert.equal(plugins.cad.calls, 1);
   await assert.rejects(tools.call('plugin_load', { name: 'chess' }, { chat }), /draughts|torrents/);
-  for (const other of [{ id: 'h', internal: true, status: 'running' }, { id: 'a', automationId: 'x', status: 'running' }, { id: 's', status: 'idle' }]) {
+  // A scheduled task has full access; background work and finished conversations do not.
+  const scheduled = { id: 'a', automationId: 'x', status: 'running' };
+  assert.equal((await tools.call('plugin_load', { name: 'draughts' }, { chat: scheduled })).loaded, 'draughts');
+  for (const other of [{ id: 'h', internal: true, status: 'running' }, { id: 's', status: 'idle' }]) {
     await assert.rejects(tools.call('plugin_load', { name: 'draughts' }, { chat: other }), /own running conversation/);
     assert.equal(other.plugins, undefined);
   }

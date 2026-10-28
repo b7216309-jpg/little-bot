@@ -342,7 +342,7 @@ app.whenReady().then(async () => {
       return heartbeat.scheduleFollowup(payload);
     },
     sendAttachment: async (input, chat) => {
-      if (!chat || chat.internal || chat.automationId || chat.status !== 'running') throw new Error('Files can be delivered only in an active user conversation.');
+      if (!chat || chat.internal || chat.status !== 'running') throw new Error('Files can be delivered only in an active user conversation.');
       const descriptor = await controller.attachments.output(input.path, chat.workspace, { extraRoots: [path.join(stateDir, 'browser', 'screenshots'), path.join(stateDir, 'screenshots')] });
       if (chat.status !== 'running') { await controller.attachments.release(descriptor.id); throw new Error('The conversation stopped before the file could be delivered.'); }
       chat.messages.push({ id: randomUUID(), role: 'assistant', text: input.caption || '', attachments: attachmentDescriptors([descriptor]), status: 'completed' });

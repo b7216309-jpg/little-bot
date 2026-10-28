@@ -429,3 +429,22 @@ test('calls that would identify the user to the outside are refused unless the u
   await call(chat, 'web_search_service', { query: 'sam.doe@example.com' });
   assert.equal(dispatched.length, before + 1, 'with the guard off the call goes through');
 });
+
+test('a scheduled task runs with the same tools as the user, in the same engine thread', async t => {
+  const { client, controller, store } = await setup(t);
+  controller.agentTools = { specs: ({ readOnly } = {}) => [{ type: 'function', name: readOnly ? 'read_only_tools' : 'full_tools', inputSchema: { type: 'object', properties: {} } }], call: async () => ({ ok: true }) };
+  const tools = () => client.calls.filter(call => ['thread/start', 'thread/resume'].includes(call.method)).at(-1).params.dynamicTools.map(tool => tool.name);
+  const first = await controller.send({ text: 'Hello' });
+  const chat = controller.chat(first.chatId);
+  client.answer(chat, 'Hi.');
+  await new Promise(resolve => setImmediate(resolve));
+  const threadId = chat.threadId;
+  await controller.send({ text: 'Search the web for news.' }, { id: 'routine-1', automationId: 'routine-1', name: 'Daily news', localBaseUrl: store.data.settings.localBaseUrl, model: 'test-model', workspace: store.data.settings.workspace });
+  assert.deepEqual(tools(), ['full_tools']);
+  assert.equal(chat.toolMode, 'full');
+  assert.equal(chat.threadId, threadId, 'switching between the user and a routine keeps the thread');
+  client.answer(chat, 'Here is the news.');
+  await new Promise(resolve => setImmediate(resolve));
+  await controller.send({ text: 'Plan something', mode: 'plan' });
+  assert.equal(chat.toolMode, 'readOnly', 'Plan mode stays read-only');
+});

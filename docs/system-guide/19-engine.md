@@ -19,6 +19,8 @@ A turn sends the conversation to the model, runs the tool calls it makes one at 
 - **App tools:** the dynamic tools each thread is given, answered by the app.
 - **MCP tools** ([mcp.cjs](../../src/engine/mcp.cjs)): `mcp__<server>__<tool>`, from local servers over stdio and remote ones over Streamable HTTP. OAuth sign-in uses discovery, dynamic client registration, PKCE and a loopback redirect; tokens are refreshed and saved encrypted in `data/engine/mcp-auth.json`. A thread's servers start together, with 30 seconds each unless `startup_timeout_sec` says otherwise, since `npx` and `uvx` can download a server on its first start. A form a server asks for during a call goes to the app: the user fills it in a conversation, and background work and Plan mode decline it. Time spent on the form does not count toward the call's timeout.
 
+**Calls left as text.** Strata sometimes leaves a tool call inside the answer as text instead of a structured call, for example a tool the thread was not offered, or a parse it gave up on. When an answer has no structured call but contains `<tool_call>`, the engine reads the calls itself (`textToolCalls`). It understands Qwen's XML form (`<function=name><parameter=key>value</parameter></function>`) and the JSON form (`{"name": ..., "arguments": {...}}`). It runs them like any other call, and removes them from the text shown to the user. A tool that was not offered gets the usual "unknown tool" error, which the model can read and answer.
+
 Every tool result goes back to the model capped at 12,000 characters, beginning and end kept. Images from tools follow the results as one user message, since local servers accept images only from the user.
 
 ## Safety
