@@ -35,6 +35,32 @@ function normalizeFeedbackLog(value) {
 }
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const text = (value, limit) => typeof value === 'string' ? value.slice(0, limit) : '';
+// What a memory notice learned, for the chat to draw as a line per memory (the message text stays for the model).
+function normalizeMemories(value) {
+  return (Array.isArray(value) ? value : []).filter(item => object(item) && typeof item.id === 'string' && item.id && typeof item.text === 'string' && item.text.trim())
+    .slice(0, 20).map(item => ({ id: item.id.slice(0, 200), text: item.text.trim().slice(0, 400), type: text(item.type, 40) || 'fact', ...(item.forgotten === true ? { forgotten: true } : {}) }));
+}
+// What a memory notice learned. Older notices only have their text ("📌 text (type · id X)" lines), so read that.
+function memoryItems(message) {
+  const memories = normalizeMemories(message?.memories);
+  if (memories.length) return memories;
+  return String(message?.text || '').split('\n').map(line => /^📌 (.+) \(([\w-]+) · id ([^)\s]+)\)$/.exec(line.trim()))
+    .filter(Boolean).map(([, text, type, id]) => ({ id, text, type }));
+}
+// A forgotten memory shows as such in every notice that announced it, however it was forgotten.
+function markForgotten(data, id) {
+  let changed = false;
+  for (const chat of Array.isArray(data?.chats) ? data.chats : []) {
+    for (const message of [...(chat.messages || []), ...(chat.pendingProactive || [])]) {
+      if (message.kind !== 'memory') continue;
+      const items = memoryItems(message);
+      const item = items.find(entry => entry.id === id && !entry.forgotten);
+      // An older notice gets its list here, read from its text.
+      if (item) { item.forgotten = true; message.memories = items; changed = true; }
+    }
+  }
+  return changed;
+}
 
 function normalizePending(value) {
   return (Array.isArray(value) ? value : []).filter(item => object(item) && PROACTIVE_KINDS.includes(item.kind)
@@ -43,6 +69,8 @@ function normalizePending(value) {
       text: text(item.text, 20000), createdAt: Number.isFinite(item.createdAt) ? item.createdAt : Date.now(), modelSeen: false };
     const actions = normalizeActions(item.actions);
     if (actions.length) entry.actions = actions;
+    const memories = normalizeMemories(item.memories);
+    if (memories.length) entry.memories = memories;
     for (const key of ['goalId', 'goalName', 'goalRunId', 'goalQuestionId', 'heartbeatId', 'heartbeatTopic', 'watchId']) {
       if (typeof item[key] === 'string') entry[key] = item[key].slice(0, 300);
     }
@@ -115,7 +143,7 @@ function deliverLearned(data, records, nowMs = Date.now()) {
   const learned = (Array.isArray(records) ? records : []).filter(record => record?.id && typeof record.text === 'string' && record.text.trim());
   if (!learned.length) return null;
   const text = learned.map(record => `📌 ${record.text.trim().slice(0, 400)} (${record.type || 'fact'} · id ${record.id})`).join('\n');
-  return post(data, { kind: 'memory', text: `I'll remember:\n${text}\nTell me if any of this is wrong and I'll correct or forget it.` }, { nowMs });
+  return post(data, { kind: 'memory', memories: normalizeMemories(learned), text: `I'll remember:\n${text}\nTell me if any of this is wrong and I'll correct or forget it.` }, { nowMs });
 }
 
 function deliverWatch(data, change, nowMs = Date.now()) {
@@ -148,4 +176,4 @@ function answer(data, { messageId, choice } = {}, nowMs = Date.now()) {
   return { message, action, entry };
 }
 
-module.exports = { post, flush, deliverLearned, deliverWatch, deliverOffer, answer, normalizeActions, normalizeAnswer, normalizeFeedbackLog, LAUNCH_TARGET, unseen, bridgeText, markSeen, deliverHeartbeat, normalizePending, PROACTIVE_KINDS };
+module.exports = { post, flush, deliverLearned, normalizeMemories, memoryItems, markForgotten, deliverWatch, deliverOffer, answer, normalizeActions, normalizeAnswer, normalizeFeedbackLog, LAUNCH_TARGET, unseen, bridgeText, markSeen, deliverHeartbeat, normalizePending, PROACTIVE_KINDS };

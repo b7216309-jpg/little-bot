@@ -1005,14 +1005,64 @@ function renderIndependentCheck(node, chat, message) {
 
 }
 
+// What a memory notice learned. Older notices only have their text ("📌 text (type · id X)" lines), so read that.
+function memoryItems(message) {
+  if (Array.isArray(message.memories) && message.memories.length) return message.memories;
+  return String(message.text || '').split('\n').map(line => /^📌 (.+) \(([\w-]+) · id ([^)\s]+)\)$/.exec(line.trim()))
+    .filter(Boolean).map(([, text, type, id]) => ({ id, text, type }));
+}
+
+// What automatic learning saved, as one quiet line between messages: the memory itself, or how many, opening into the
+// full text with a Forget for each. The model still gets the full notice with the ids.
+const expandedMemoryNotices = new Set();
+function renderMemoryNotice(message, key, node) {
+  const items = memoryItems(message);
+  if (!node) {
+    node = element('div', 'memory-notice');
+    const row = element('div', 'memory-notice-row');
+    const toggle = element('button', 'memory-notice-toggle');
+    toggle.type = 'button';
+    toggle.append(icon('pin'), element('span', 'memory-notice-label', 'Remembered'), element('span', 'memory-notice-summary'), icon('chevron-down', 'memory-notice-chevron'));
+    toggle.addEventListener('click', () => {
+      if (expandedMemoryNotices.has(key)) expandedMemoryNotices.delete(key); else expandedMemoryNotices.add(key);
+      setOpen();
+    });
+    row.append(toggle);
+    node.append(row, element('div', 'memory-notice-list'));
+    const setOpen = () => {
+      const open = expandedMemoryNotices.has(key);
+      node.classList.toggle('open', open);
+      toggle.setAttribute('aria-expanded', String(open));
+    };
+    setOpen();
+  }
+  const forget = item => {
+    if (item.forgotten) return element('span', 'memory-notice-forgotten', 'Forgotten');
+    return action('Forget', () => attempt(() => window.bot.deleteFact({ id: item.id }), 'Memory forgotten.'), 'text-button memory-notice-forget');
+  };
+  const single = items.length === 1;
+  node.classList.toggle('single', single);
+  node.classList.toggle('forgotten', items.every(item => item.forgotten));
+  node.querySelector('.memory-notice-summary').textContent = single ? items[0].text : `${items.length} things`;
+  node.querySelector('.memory-notice-row .memory-notice-forget, .memory-notice-row .memory-notice-forgotten')?.remove();
+  if (single) node.querySelector('.memory-notice-row').append(forget(items[0]));
+  node.querySelector('.memory-notice-list').replaceChildren(...(single ? [] : items.map(item => {
+    const line = element('div', `memory-notice-item${item.forgotten ? ' forgotten' : ''}`);
+    line.append(element('span', 'memory-notice-text', item.text), forget(item));
+    return line;
+  })));
+  return node;
+}
+
 function conversationMessage(chat, message, index) {
   const key = `${chat.id}:${message.id || index}`;
   const fingerprint = [message.role, message.kind, message.status, message.phase, message.text, JSON.stringify(message.attachments || []),
     JSON.stringify(message.independentCheck || null), chat.status, message.automationId, message.automationName, message.goalId, state.goalRuntime?.status, state.goalRuntime?.goalId, JSON.stringify(state.autonomy?.goals?.find(g => g.id === message.goalId)?.pendingQuestion || null),
-    JSON.stringify(message.actions || null), JSON.stringify(message.answer || null)];
+    JSON.stringify(message.actions || null), JSON.stringify(message.answer || null), JSON.stringify(message.memories || null)];
   const previous = renderedMessages.get(key);
   if (previous && fingerprint.every((value, position) => value === previous.fingerprint[position])) return previous.node;
   const variant = message.kind === 'compaction' ? 'compaction' : message.role === 'assistant' && message.kind === 'reasoning' ? 'reasoning'
+    : message.role === 'assistant' && message.kind === 'memory' && memoryItems(message).length ? 'memory'
     : message.role === 'assistant' && message.kind === 'plan' ? 'plan'
     : message.role === 'tool' ? `tool:${message.kind || ''}` : message.role === 'user' ? 'user' : 'assistant';
   const retained = previous?.variant === variant ? previous.node : null;
@@ -1026,6 +1076,8 @@ function conversationMessage(chat, message, index) {
     node.lastChild.textContent = message.text || (message.status === 'running' || message.status === 'inProgress' ? 'Summarizing older context…' : 'Older context summarized');
   } else if (variant === 'reasoning') {
     node = renderReasoning(message, key, retained);
+  } else if (variant === 'memory') {
+    node = renderMemoryNotice(message, key, retained);
   } else if (message.role === 'tool') {
     if (!node) {
       node = element('div', 'tool-message');
