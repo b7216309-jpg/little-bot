@@ -779,6 +779,7 @@ app.whenReady().then(async () => {
   });
   register('deleteFact', ({ id } = {}) => {
     deleteFact(store.data.memory, id);
+    proactiveChat.markForgotten(store.data, id);
     store.save(); controller.changed(); return controller.state();
   });
   register('clearEpisodes', () => {

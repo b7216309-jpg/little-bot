@@ -18,7 +18,9 @@ A valid response with no candidates is allowed. Tool-less local extraction uses 
 
 ## Learning quality and visibility
 
-Each turn saves at most three memories, and the prompt asks only for what will still matter weeks later. In real use before this change, users removed almost half of the automatically learned records. Newly learned memories appear in the conversation as a "Little Bot · learned" message showing each memory's ID. The next user turn carries that message to the model, so "that's wrong" can be corrected with memory_save or memory_forget. These notes are not recalled as history and are not goal evidence.
+Each turn saves at most three memories, and the prompt asks only for what will still matter weeks later. In real use before this change, users removed almost half of the automatically learned records. Newly learned memories appear in the conversation as one quiet line: a pin, "Remembered", and the memory (or "Remembered 3 things"). A click opens the full text, with a **Forget** button for each memory that deletes it at once, the same way the Memory page does, without a model turn. The notice keeps what it learned as a `memories` list (`{ id, text, type, forgotten? }`, normalized in [proactive-chat.cjs](../../src/proactive-chat.cjs)). Notices from before 0.53.0 are read from their text. However a memory is forgotten (this button, the Memory page or memory_forget), `markForgotten` strikes it through in every notice that announced it. The phone shows the same memories without ids, labelled "Little Bot · remembered".
+
+The model still gets the full notice, ids included. The next user turn carries it, so "that's wrong" can be corrected with memory_save or memory_forget. These notes are not recalled as history and are not goal evidence.
 
 Learning output wrapped in reasoning tags, prose or code fences is parsed through the shared [model-json](../../src/model-json.cjs) helper, which also repairs trailing commas and single-quoted strings. Dreaming uses the same schema-constrained and repair path. Heartbeat and goal runs yield the idle lane while a learning job is ready; a job waiting in backoff does not hold them back.
 

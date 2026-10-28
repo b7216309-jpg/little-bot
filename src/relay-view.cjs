@@ -2,7 +2,7 @@
 // What a paired phone may see: the conversation, the Quick session, the saved sessions, their pending questions,
 // goal status and questions, and the names of enabled skills (for the /skill picker). Settings, profile, keys,
 // memory and other extension details never leave the PC.
-const { PROACTIVE_KINDS } = require('./proactive-chat.cjs');
+const { PROACTIVE_KINDS, memoryItems } = require('./proactive-chat.cjs');
 const { isMain, isQuick, isSession } = require('./chats.cjs');
 
 const MAX_MESSAGES = 200;
@@ -24,7 +24,7 @@ function messageLabel(message) {
   if (message.role === 'tool') return 'Action';
   if (message.goalId) return `Goal · ${message.goalName || 'Little Bot'}`;
   if (message.kind === 'heartbeat') return `Little Bot · on its own${message.heartbeatTopic ? ` · ${message.heartbeatTopic}` : ''}`;
-  if (message.kind === 'memory') return 'Little Bot · learned';
+  if (message.kind === 'memory') return 'Little Bot · remembered';
   if (message.kind === 'watch') return 'Little Bot · web watch';
   if (message.kind === 'offer') return 'Little Bot · offer';
   if (message.kind === 'download') return 'Little Bot · torrents';
@@ -39,6 +39,9 @@ function slimMessage(message) {
   // A goal's final result is worth a notification, like a proactive message.
   if (PROACTIVE_KINDS.includes(message.kind) || message.kind === 'goal-check') entry.proactive = true;
   if (message.role === 'user' && message.automationId) entry.scheduled = true;
+  // A memory notice is the memories alone, as on the desktop: no ids, no footer.
+  const memories = message.kind === 'memory' ? memoryItems(message) : [];
+  if (memories.length) entry.text = memories.map(item => `📌 ${item.text}${item.forgotten ? ' (forgotten)' : ''}`).join('\n');
   // The model's reasoning and commentary are folded away like on the desktop, never shown as a reply.
   if (message.role === 'assistant' && (message.kind === 'reasoning' || ['commentary', 'analysis'].includes(message.phase))) { entry.thinking = true; entry.label = 'Thinking'; }
   if (Array.isArray(message.actions) && message.actions.length) entry.actions = message.actions.map(({ id, label }) => ({ id, label }));

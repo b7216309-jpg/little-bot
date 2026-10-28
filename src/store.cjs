@@ -14,7 +14,7 @@ const { attachmentDescriptors } = require('./attachment-message.cjs');
 const { normalizeConnectionSettings, connectionBinding } = require('./connections.cjs');
 const { normalizeIndependentCheckMode, normalizeIndependentCheckRecord } = require('./independent-check.cjs');
 const { normalizeStandingIntents } = require('./standing-intents.cjs');
-const { normalizePending, normalizeActions, normalizeAnswer, normalizeFeedbackLog } = require('./proactive-chat.cjs');
+const { normalizePending, normalizeActions, normalizeAnswer, normalizeFeedbackLog, normalizeMemories } = require('./proactive-chat.cjs');
 const { normalizeWatches } = require('./web-watch.cjs');
 const { normalizeSampling } = require('./local-generation.cjs');
 const { normalizeCompanion } = require('./companion.cjs');
@@ -278,6 +278,8 @@ function persistedData(data, defaultWorkspace, recovering = false) {
           if (actions.length) entry.actions = actions;
           const answer = normalizeAnswer(message.answer);
           if (answer) entry.answer = answer;
+          const memories = normalizeMemories(message.memories);
+          if (memories.length) entry.memories = memories;
           if (typeof message.watchId === 'string') entry.watchId = message.watchId.slice(0, 100);
           // Labels of what the user pointed at in the CAD panel with this message.
           if (Array.isArray(message.cad)) { const cad = message.cad.filter(label => typeof label === 'string').slice(0, 12).map(label => label.slice(0, 80)); if (cad.length) entry.cad = cad; }

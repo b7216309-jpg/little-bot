@@ -2,6 +2,7 @@
 
 const { recallSpecs, recallSearch, recallRead } = require('./recall.cjs');
 const { questionSpec } = require('./user-questions.cjs');
+const { markForgotten } = require('./proactive-chat.cjs');
 const PLUGINS = ['cad', 'draughts', 'torrents'];
 const PLUGIN_BRIEFS = {
   cad: 'design 3D-printable parts in the CAD workshop',
@@ -300,7 +301,9 @@ class AgentTools {
       if (!chat) throw new Error('Memory writing needs a conversation or active task.');
       if (name === 'memory_forget') {
         if (Object.keys(args).some(key => key !== 'id')) throw new Error('Forget accepts only a memory ID.');
-        const forgotten = service.forget(string(args.id, 'memory ID', 200, true));
+        const id = string(args.id, 'memory ID', 200, true);
+        const forgotten = service.forget(id);
+        if (forgotten) markForgotten(this.store.data, id);
         this.store.save(); return { forgotten };
       }
       // Small models add stray fields (an "action" copied from other tools, an empty id). Keep the save; drop the extras.
