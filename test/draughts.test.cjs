@@ -223,7 +223,7 @@ test('draughts is a plugin: off, there is no tool; it plays only in the user\'s 
   const tools = new AgentTools({ store: on.store, draughts: on.table });
   assert.ok(tools.specs({ loaded: ['draughts'] }).some(tool => tool.name === 'draughts'));
   await assert.rejects(on.table.call({ action: 'board' }, { chat: { id: 'h', internal: true, status: 'running' } }), /not in background work/);
-  await assert.rejects(on.table.call({ action: 'board' }, { chat: { id: 'a', automationId: 'x', status: 'running' } }), /not in background work/);
+  await assert.doesNotReject(on.table.call({ action: 'board' }, { chat: { id: 'a', automationId: 'x', status: 'running' } }), 'a scheduled task has full access');
   const started = await on.table.call({ action: 'new', userColor: 'black', level: 'hard' }, { chat: on.chat });
   assert.equal(started.you, 'White');
   assert.match(started.position, /It is your turn/);

@@ -425,7 +425,7 @@ class TorrentManager {
   async call(args, { chat } = {}) {
     if (!object(args)) throw new Error('Tool arguments must be an object.');
     this._requireEnabled();
-    if (!chat || chat.internal || chat.automationId || chat.status !== 'running') throw new Error('Torrents are handled in your own conversation with the user, not in background work.');
+    if (!chat || chat.internal || chat.status !== 'running') throw new Error('Torrents are handled in your own conversation with the user, not in background work.');
     const { action } = args;
     if (action === 'search') {
       const { results, errors } = await this.sources.search(String(args.query || ''), this._unsealed(), { limit: 15 });

@@ -303,7 +303,7 @@ class DraughtsTable {
   async call(args, { chat } = {}) {
     if (!object(args)) throw new Error('Tool arguments must be an object.');
     this._requireEnabled();
-    if (!chat || chat.internal || chat.automationId || chat.status !== 'running') throw new Error('Draughts is played in your own conversation with the user, not in background work.');
+    if (!chat || chat.internal || chat.status !== 'running') throw new Error('Draughts is played in your own conversation with the user, not in background work.');
     const key = this.keyOf(chat);
     if (!key) throw new Error('Draughts is played in the main conversation or a saved session.');
     const { action } = args;

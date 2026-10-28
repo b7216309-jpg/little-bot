@@ -72,6 +72,34 @@ function messageChars(messages) {
 }
 
 // What a command prints reaches the timeline while it runs; the model gets the whole output when it returns.
+// Tool calls written as text, in Qwen's XML form (<function=name><parameter=key>value</parameter></function>) or the
+// JSON form ({"name": ..., "arguments": {...}}), each inside <tool_call>...</tool_call>. Returns the calls and the
+// text with them removed. A parameter value is read as JSON when it parses, otherwise kept as text.
+function textToolCalls(content) {
+  const calls = [];
+  const rest = content.replace(/<tool_call>([\s\S]*?)(?:<\/tool_call>|$)/g, (block, body) => {
+    const xml = /<function=([\w.-]+)>([\s\S]*?)(?:<\/function>|$)/.exec(body);
+    if (xml) {
+      const args = {};
+      for (const [, key, raw] of xml[2].matchAll(/<parameter=([\w.-]+)>\r?\n?([\s\S]*?)\r?\n?<\/parameter>/g)) {
+        try { args[key] = JSON.parse(raw.trim()); } catch { args[key] = raw; }
+      }
+      calls.push({ name: xml[1], arguments: JSON.stringify(args) });
+      return '';
+    }
+    try {
+      const parsed = JSON.parse(body.trim());
+      if (object(parsed) && typeof parsed.name === 'string') {
+        const args = typeof parsed.arguments === 'string' ? parsed.arguments : JSON.stringify(object(parsed.arguments) ? parsed.arguments : {});
+        calls.push({ name: parsed.name, arguments: args });
+        return '';
+      }
+    } catch {}
+    return block;
+  });
+  return { calls, text: rest.trim() };
+}
+
 function liveOutput(thread, turn, call) {
   return delta => thread.notify('item/commandExecution/outputDelta', { turnId: turn.id, itemId: call.id, delta });
 }
@@ -514,6 +542,15 @@ class Engine extends EventEmitter {
     if (compaction) return answer;
     if (reasoningStarted) thread.notify('item/completed', { turnId: turn.id, item: { type: 'reasoning', id: reasoningId, content: [answer.reasoning], summary: [] } });
     const calls = answer.toolCalls.map(call => ({ id: call.id || id('call'), type: 'function', function: { name: call.name, arguments: call.arguments || '{}' } }));
+    // The server sometimes leaves a call as text in the answer (a tool it was not offered, a parse it gave up on):
+    // run it as a call, so the model gets a real result or error instead of the user getting raw markup.
+    if (!calls.length && typeof answer.content === 'string' && answer.content.includes('<tool_call>')) {
+      const recovered = textToolCalls(answer.content);
+      if (recovered.calls.length) {
+        calls.push(...recovered.calls.map(call => ({ id: id('call'), type: 'function', function: call })));
+        answer.content = recovered.text;
+      }
+    }
     if (messageStarted || (!calls.length && answer.content)) {
       if (!messageStarted) thread.notify('item/started', { turnId: turn.id, item: { type: 'agentMessage', id: messageId, text: '' } });
       thread.notify('item/completed', { turnId: turn.id, item: { type: 'agentMessage', id: messageId, text: answer.content, phase: calls.length ? 'commentary' : 'final_answer' } });

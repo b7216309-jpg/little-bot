@@ -862,7 +862,8 @@ class Controller extends EventEmitter {
     if (override) this.ensureReady(override);
     const folder = workspacePath(settings.workspace);
     const binding = connectionBinding(settings);
-    const toolMode = turnMode === 'plan' || Boolean(override?.automationId) ? 'readOnly' : 'full';
+    // Scheduled tasks have the same tools as the user's own conversation; only Plan mode is read-only.
+    const toolMode = turnMode === 'plan' ? 'readOnly' : 'full';
     // The engine fixes a thread's base prompt when it starts, so an edited one needs a new thread.
     const baseKey = injectedPrompts.engineBaseKey(this.store.data.settings.injectedPrompts);
     const rotate = chat && (chat.toolMode !== toolMode || chat.workspace !== folder || chat.model !== selectedModel || chat.connection !== binding.connection || chat.localBaseUrl !== binding.localBaseUrl

@@ -66,7 +66,7 @@ Results rank titles holding all the words first (the whole phrase best), then of
 
 ## The model's tool
 
-`torrents` ([TorrentManager.call](../../src/torrents.cjs)) works only in the user's own running conversation, never in goals, heartbeat or routines, and is not offered in Plan mode. Actions:
+`torrents` ([TorrentManager.call](../../src/torrents.cjs)) works only in the user's own running conversation or a scheduled task, never in goals or heartbeat, and is not offered in Plan mode. Actions:
 
 - `search`: numbered results from the user's sources;
 - `request`: a result by its number, or a magnet link or `.torrent` address. It never starts a download: it reads the torrent and puts a card at the top of the Torrents panel (opening it), where the user looks inside, downloads or declines. Requests expire after an hour.

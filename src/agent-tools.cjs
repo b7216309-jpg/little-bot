@@ -204,7 +204,7 @@ class AgentTools {
   }
   // Loads plugins into a conversation, or marks loaded ones as just used. Returns true when the tool list changed.
   usePlugins(chat, names) {
-    if (!chat || chat.internal || chat.automationId) return false;
+    if (!chat || chat.internal) return false;
     const now = Date.now();
     const plugins = Array.isArray(chat.plugins) ? chat.plugins : [];
     let added = false;
@@ -316,17 +316,17 @@ class AgentTools {
       this.store.save(); return ignored.length ? { record, ignoredFields: ignored } : { record };
     }
     if (name === 'attachment_send') {
-      if (!this.sendAttachment || !chat || chat.internal || chat.automationId || chat.status !== 'running') throw new Error('Attachments can be sent only in an active user conversation.');
+      if (!this.sendAttachment || !chat || chat.internal || chat.status !== 'running') throw new Error('Attachments can be sent only in an active user conversation.');
       if (Object.keys(args).some(key => !['path', 'caption'].includes(key)) || typeof args.path !== 'string' || !args.path.trim() || args.path.length > 2000 || args.path.includes('\0') || (args.caption !== undefined && (typeof args.caption !== 'string' || args.caption.length > 1000))) throw new Error('Choose a file path and an optional short caption.');
       return this.sendAttachment(args, chat);
     }
     if (name === 'windows_ui') {
       // Other apps' windows are driven only from the user's own running conversation, never from goals, heartbeat or automations.
-      if (!this.windowsUi || !chat || chat.internal || chat.automationId || chat.status !== 'running') throw new Error('Controlling Windows apps needs an active user conversation.');
+      if (!this.windowsUi || !chat || chat.internal || chat.status !== 'running') throw new Error('Controlling Windows apps needs an active user conversation.');
       return this.windowsUi.tool(args, { chat, owner: chat.id, isActive: () => chat.status === 'running' });
     }
     if (name === 'plugin_load') {
-      if (!chat || chat.internal || chat.automationId || chat.status !== 'running') throw new Error('Plugins load only in the user\'s own running conversation.');
+      if (!chat || chat.internal || chat.status !== 'running') throw new Error('Plugins load only in the user\'s own running conversation.');
       const plugin = string(args.name, 'plugin name', 40, true);
       if (!this.enabledPlugins().includes(plugin)) throw new Error(`No plugin named ${plugin} is on. Plugins that are on: ${this.enabledPlugins().join(', ') || 'none'}.`);
       this.usePlugins(chat, [plugin]);
@@ -341,11 +341,11 @@ class AgentTools {
     if (this.torrents?.owns(name)) return this.torrents.call(args, { chat });
     if (this.desktop?.owns(name)) {
       // The screen and clipboard are looked at only for the user's own running conversation, never by background work.
-      if (!chat || (this.desktop.observes(name) && (chat.internal || chat.automationId || chat.status !== 'running'))) throw new Error('The screen and clipboard need an active user conversation.');
+      if (!chat || (this.desktop.observes(name) && (chat.internal || chat.status !== 'running'))) throw new Error('The screen and clipboard need an active user conversation.');
       return this.desktop.call(name, args, { chat });
     }
     if (['browser', 'web_search_service', 'web_scrape'].includes(name)) {
-      if (!chat || chat.internal || chat.automationId) throw new Error('Browser and web tools require a user conversation; goals need their saved network permission.');
+      if (!chat || chat.internal) throw new Error('Browser and web tools require a user conversation or a scheduled task; goals need their saved network permission.');
       if (name === 'browser') {
         if (!this.browser) throw new Error('The browser is unavailable.');
         return this.browser.call(args, { isActive: () => chat.status === 'running', owner: chat.id });
@@ -391,7 +391,7 @@ class AgentTools {
       return this.manageCalendar('list', payload, { chatId: chat.id, workspace: chat.workspace });
     }
     // A wild heartbeat is the one hidden task allowed to plan ahead; other hidden work stays read-only.
-    if (!chat || (chat.internal && !chat.wild) || chat.automationId) throw new Error('Goal, schedule and calendar management is available only in a direct user conversation.');
+    if (!chat || (chat.internal && !chat.wild)) throw new Error('Goal, schedule and calendar management is available only in a direct user conversation.');
     if (name === 'web_watch') {
       if (typeof this.manageWatch !== 'function') throw new Error('Web watching is unavailable.');
       if (args.action === 'list') return { watches: await this.manageWatch('list') };

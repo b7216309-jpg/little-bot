@@ -46,7 +46,7 @@ Every protocol command has a 15-second limit. Actions are serialized by the busy
 Each call runs [a PowerShell bridge](../../src/windows-uia-bridge.ps1) in a hidden STA process using the managed UI Automation client, with a 30-second limit; a stopped conversation kills it. Standard Win32 and WinForms controls often reach that client as bare panes, so the bridge recognises them through MSAA (true role, accessible name, checked state), falling back to window class and style. It then operates them with the MSAA default action or their own messages: posted BM_CLICK, WM_SETTEXT, or CB_SELECTSTRING plus CBN_SELCHANGE.
 
 Rules:
-- The tool exists only on Windows, and only in the user's own running conversation, never in goals, heartbeat or automations.
+- The tool exists only on Windows, and only in the user's own running conversation or a scheduled task, never in goals or heartbeat.
 - After every action the window must be observed again within 5 minutes before the next action.
 - Screenshots go to data/windows-ui/screenshots, and the newest 20 are kept.
 

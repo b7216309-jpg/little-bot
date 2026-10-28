@@ -334,7 +334,7 @@ class CadWorkshop {
   async call(args, { chat } = {}) {
     if (!object(args)) throw new Error('Tool arguments must be an object.');
     this._requireEnabled();
-    if (!chat || chat.internal || chat.automationId || chat.status !== 'running') throw new Error('The CAD workshop works in your own conversation, not in background work.');
+    if (!chat || chat.internal || chat.status !== 'running') throw new Error('The CAD workshop works in your own conversation, not in background work.');
     const { action } = args;
     if (action === 'guide') return { guide: fs.readFileSync(this.guidePath, 'utf8') };
     if (action === 'open') { const summary = await this.open(args.name); this._showForModel(); return this._withPicture(summary); }
