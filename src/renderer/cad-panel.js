@@ -269,7 +269,11 @@ function renderChecks(build) {
     if (check.at || check.faceId !== undefined) {
       const show = make('button', '', 'Show'); show.type = 'button';
       // A fit problem sits between two parts: shown where they meet, in the assembled view.
-      show.addEventListener('click', () => { if (check.kind === 'fit' && viewer?.layout) setLayout(false); flash = { at: check.at, faceId: check.faceId, faceIds: check.faceIds, part: check.part, severity: check.severity }; refreshMarks(); placeMarks(); });
+      show.addEventListener('click', () => {
+        if ((check.kind === 'fit' || check.kind === 'motion') && viewer?.layout) setLayout(false);
+        if (check.kind === 'motion' && check.pose) { viewer?.setPose(check.pose); renderAssembly(cad?.build?.info); }
+        flash = { at: check.at, faceId: check.faceId, faceIds: check.faceIds, part: check.part, severity: check.severity }; refreshMarks(); placeMarks();
+      });
       actions.append(show);
     }
     const fix = make('button', '', 'Fix'); fix.type = 'button'; fix.title = 'Point Little Bot at this problem';
@@ -297,13 +301,12 @@ function renderLimits() {
   set('cad-min-wall', limits.minWall ?? 0.8);
   set('cad-min-hole', limits.minHole ?? 1);
   set('cad-overhang-angle', limits.overhangAngle ?? 45);
-  set('cad-min-clearance', limits.minClearance ?? 0.2);
   $('cad-overhang').checked = limits.overhang !== false;
 }
 
 async function saveLimits() {
   try {
-    const result = await window.bot.cadLimits({ limits: { minWall: Number($('cad-min-wall').value), minHole: Number($('cad-min-hole').value), overhangAngle: Number($('cad-overhang-angle').value), overhang: $('cad-overhang').checked, minClearance: Number($('cad-min-clearance').value) } });
+    const result = await window.bot.cadLimits({ limits: { minWall: Number($('cad-min-wall').value), minHole: Number($('cad-min-hole').value), overhangAngle: Number($('cad-overhang-angle').value), overhang: $('cad-overhang').checked } });
     globalThis.applyState?.(result);
   } catch (error) { say(error.message || String(error), true); }
 }
@@ -426,7 +429,70 @@ function renderParts(info) {
   }));
 }
 
-function setLayout(layout) { viewer?.setParts({ layout }); afterParts(); }
+function setLayout(layout) { viewer?.setParts({ layout }); afterParts(); renderAssembly(cad?.build?.info); }
+
+// ------------------------------------------------------------------------------------------------ assembly
+
+// The Assembly tab: a slider for each joint and one to pull the parts apart, all in the view only (the script
+// stays as it is), and the bill of materials.
+let explodeAmount = 0;
+function renderAssembly(info) {
+  const several = info?.parts?.length > 1;
+  $('cad-assembly-tab').classList.toggle('hidden', !several);
+  if (!several) { if (tab === 'assembly') setTab('settings'); return; }
+  const box = $('cad-joints');
+  if (!box.contains(document.activeElement)) {
+    const pose = viewer?.pose || {};
+    const rows = [];
+    for (const part of info.parts) {
+      const joint = part.joint;
+      if (!joint || joint.type === 'fixed') continue;
+      const unit = joint.type === 'hinge' ? '°' : ' mm';
+      const value = Number.isFinite(pose[part.name]) ? pose[part.name] : joint.value;
+      const span = joint.max - joint.min;
+      const step = joint.type === 'hinge' ? 1 : span <= 20 ? 0.1 : span <= 100 ? 0.5 : 1;
+      const id = `cad-joint-${rows.length}`;
+      const name = make('label', '', `${part.name} · ${joint.type}${unit === '°' ? ' (°)' : ' (mm)'}`); name.htmlFor = id;
+      const range = make('input'); range.type = 'range'; range.id = id; range.min = joint.min; range.max = joint.max; range.step = step; range.value = value;
+      const number = make('input'); number.type = 'number'; number.min = joint.min; number.max = joint.max; number.step = step; number.value = value;
+      number.setAttribute('aria-label', `${part.name} position`);
+      const move = raw => { const next = Math.min(joint.max, Math.max(joint.min, Number(raw))); if (!Number.isFinite(next)) return; range.value = next; number.value = next; viewer?.setPose({ [part.name]: next }); afterPose(); };
+      range.addEventListener('input', () => move(range.value));
+      number.addEventListener('change', () => move(number.value));
+      rows.push(name, range, number);
+    }
+    const label = make('label', '', 'Explode'); label.htmlFor = 'cad-explode';
+    const range = make('input'); range.type = 'range'; range.id = 'cad-explode'; range.min = 0; range.max = 1; range.step = 0.01; range.value = explodeAmount;
+    const reset = make('button', 'button text-button', 'Reset'); reset.type = 'button'; reset.title = 'Put every joint back and the parts together';
+    range.addEventListener('input', () => { explodeAmount = Number(range.value); viewer?.setExplode(explodeAmount); afterPose(); });
+    reset.addEventListener('click', () => { explodeAmount = 0; viewer?.setExplode(0); viewer?.setPose({}, { replace: true }); afterPose(); renderAssembly(cad?.build?.info); });
+    rows.push(label, range, reset);
+    const hint = make('p', 'cad-hint', rows.length > 3 ? 'Move a joint to try it; the checks already swept every joint through its range.' : 'No joints yet. Ask Little Bot for a hinge or a slider between parts.');
+    box.replaceChildren(...rows, hint);
+  }
+  renderBom(info);
+}
+function afterPose() { if (viewer?.layout) setLayout(false); refreshMarks(); placeMarks(); }
+
+function renderBom(info) {
+  const table = make('table', 'cad-bom-table');
+  const head = make('tr');
+  for (const title of ['Part', 'Qty', 'Material', 'Weight', 'Size (mm)']) head.append(make('th', '', title));
+  table.append(head);
+  let total = 0, weighed = 0;
+  for (const part of info.parts) {
+    const row = make('tr', part.bought ? 'bought' : '');
+    const name = make('td'); name.append(make('span', 'cad-part-swatch')); name.lastChild.style.background = viewer?.parts.find(item => item.name === part.name)?.color || '';
+    name.append(document.createTextNode(part.name), ...(part.bought ? [make('span', 'cad-bom-tag', 'bought')] : []));
+    const weight = Number.isFinite(part.weight) ? part.weight * (part.count || 1) : null;
+    if (weight !== null) { total += weight; weighed++; }
+    row.append(name, make('td', 'num', String(part.count || 1)), make('td', '', part.material || '—'), make('td', 'num', weight === null ? '—' : `${round(weight, 1)} g`),
+      make('td', 'num', part.size.map(value => round(value, 1)).join(' × ')));
+    table.append(row);
+  }
+  const foot = make('p', 'cad-hint', weighed ? `Total ${round(total, 1)} g for the parts with a material, solid (a printed part with infill weighs less).` : 'Give parts a material (material: "PLA") to see their weight.');
+  $('cad-bom').replaceChildren(table, foot);
+}
 function afterParts() { refreshMarks(); placeMarks(); renderParts(cad?.build?.info); }
 
 function render(state) {
@@ -455,6 +521,7 @@ function render(state) {
   renderStage(project, build);
   renderParams(build);
   renderChecks(build);
+  renderAssembly(build?.info);
   renderLimits();
   renderScript(project, build);
   renderVersions(project);
@@ -517,7 +584,7 @@ $('cad-code').addEventListener('keydown', event => {
   if (event.key === 'Tab') { event.preventDefault(); const area = event.target; const at = area.selectionStart; area.setRangeText('  ', at, area.selectionEnd, 'end'); area.dispatchEvent(new Event('input')); }
 });
 $('cad-build').addEventListener('click', buildScript);
-for (const id of ['cad-min-wall', 'cad-min-hole', 'cad-overhang-angle', 'cad-overhang', 'cad-min-clearance']) $(id).addEventListener('change', saveLimits);
+for (const id of ['cad-min-wall', 'cad-min-hole', 'cad-overhang-angle', 'cad-overhang']) $(id).addEventListener('change', saveLimits);
 $('cad-canvas').addEventListener('keydown', event => { if (event.key === 'Escape') { measureFrom = null; showReadout(''); placeMarks(); } });
 $('cad-canvas').tabIndex = 0;
 
