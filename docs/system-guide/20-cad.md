@@ -1,6 +1,6 @@
 # CAD workshop
 
-The CAD workshop is an optional built-in plugin for designing small parts with Little Bot. It is off until the user switches it on in **Extensions › Tools › Built-in plugins**. While it is off there is no panel, no engine page and no `cad` tool in any prompt. While it is on, a conversation gets the `cad` tool only once it is loaded there, by the model through `plugin_load` or by the user using the panel (see [Optional plugins load on demand](10-agent-tools-terminal.md#optional-plugins-load-on-demand)).
+The CAD workshop is an optional built-in plugin for designing small parts with Little Bot. It is off until the user switches it on in **Extensions › Tools › Built-in plugins**. While it is off there is no panel, no engine page and no `cad` tool in any prompt. While it is on, the `cad` tool is offered in every conversation (see [Optional plugins](10-agent-tools-terminal.md#optional-plugins)).
 
 ## How it fits together
 

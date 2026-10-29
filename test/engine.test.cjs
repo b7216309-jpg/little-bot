@@ -156,23 +156,6 @@ test('app tools go to the app, and their images reach the model as a user messag
   assert.deepEqual(strata.requests[0].tools.map(tool => tool.function.name), ['exec_command', 'write_stdin', 'screen_capture', 'memory_search']);
 });
 
-test('a tool call can hand the thread a new tool list, offered from the next step of the same turn', async t => {
-  const spec = name => ({ type: 'function', name, description: name, inputSchema: { type: 'object', properties: {} } });
-  const { strata, thread, run } = await setup(t, [
-    { calls: [{ name: 'plugin_load', arguments: { name: 'cad' } }] },
-    { calls: [{ name: 'cad', arguments: {} }] },
-    { content: 'Built.' },
-  ], { tools: {
-    plugin_load: () => ({ success: true, contentItems: [{ type: 'inputText', text: 'loaded' }], dynamicTools: [spec('cad')] }),
-    cad: () => ({ success: true, contentItems: [{ type: 'inputText', text: 'a box' }] }),
-  } });
-  const threadId = await thread({ dynamicTools: [spec('plugin_load')] });
-  assert.equal((await run(threadId, 'Design a box')).status, 'completed');
-  const names = request => request.tools.map(tool => tool.function.name).filter(name => !['exec_command', 'write_stdin'].includes(name));
-  assert.deepEqual(strata.requests.map(names), [['plugin_load'], ['cad'], ['cad']]);
-  assert.equal(strata.requests[2].messages.filter(message => message.role === 'tool').at(-1).content, 'a box');
-});
-
 test('a tool call the server left as text is run as a call, and never shown as the answer', async t => {
   const spec = name => ({ type: 'function', name, description: name, inputSchema: { type: 'object', properties: {} } });
   const leaked = 'Let me look.\n<tool_call>\n<function=web_search_service>\n<parameter=queries>\n["WoW: Forever news", "WoW Forever realm status"]\n</parameter>\n<parameter=limit>\n6\n</parameter>\n</function>\n</tool_call>';

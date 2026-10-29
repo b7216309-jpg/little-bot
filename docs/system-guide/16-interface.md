@@ -28,8 +28,6 @@ The browser, the CAD workshop, draughts and torrents open beside the conversatio
 - A dot on the button means a closed panel waits for the user: their move in draughts, or a download the model asked for.
 - Ctrl+1 to Ctrl+4 toggle the panels directly. Esc closes the menu but not a panel, because inside the panels Esc already cancels a measure or a selected piece.
 
-Opening a plugin's panel also loads that plugin's tool into the conversation the next message goes to (see [Optional plugins load on demand](10-agent-tools-terminal.md#optional-plugins-load-on-demand)).
-
 ## Glass widget
 
 [DesktopWindows](../../src/desktop-windows.cjs) owns the full window and the floating Glass widget. Both load the same renderer, share one controller, and pass the same strict IPC main-frame check. Switching carries the unsent draft, Plan choice and attachment references; the widget can be pinned on top or collapsed to a pill, and its size, position and mode are saved in `display.json`. See [WIDGET.md](../../WIDGET.md).

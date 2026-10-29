@@ -34,18 +34,9 @@ The read-only set contains skills, recall and calendar_list. Direct full chat re
 
 [AppManagement](../../src/app-management.cjs) exposes richer settings, goals, heartbeat, attachments and extension controls. app_state gives a compact overview; management get/list actions return details. Configuration needing an idle engine is queued until the reply ends.
 
-## Optional plugins load on demand
+## Optional plugins
 
-The optional built-in plugins (the CAD workshop, draughts and torrents) are not in a conversation's tool list just because they are switched on. [AgentTools.pluginSpecs](../../src/agent-tools.cjs) offers one small `plugin_load` tool instead, with one line per plugin that is on and not yet loaded. Its `name` is an enum of those plugins. Once every plugin that is on is loaded, `plugin_load` is left out.
-
-A plugin joins a conversation in two ways:
-
-- The model calls `plugin_load`. This works only in the user's own running conversation or a scheduled task, never in heartbeat, goals or Plan mode. [Controller](../../src/controller.cjs) answers the call with the conversation's new tool list in `dynamicTools`. The [engine](../../src/engine/index.cjs) takes that list for its next model step, so the plugin's tool can be called in the same reply. The thread's signature is updated too, so the next turn does not reload the thread for it.
-- The user sends a message while the plugin's panel is open, or with something pointed at in it (CAD selections, a draughts move or squares). `Controller.send` loads it before the turn starts.
-
-Loaded plugins are kept on the conversation as `plugins: [{ name, usedAt }]` (normalized in [store.cjs](../../src/store.cjs)). `usedAt` moves forward on each call of the plugin's tool and each time its panel is used. When a compaction completes, `dropIdlePlugins` removes a plugin whose panel is closed and that was not used during the last five user turns. The prompt is rebuilt by the compaction anyway, so dropping it costs nothing. The next turn reloads the thread with the shorter list. A plugin that is switched off leaves every conversation's tool list at once, even though it stays in `plugins`.
-
-With a local model, the tool list sits at the top of the prompt. Loading a plugin therefore makes the server read the conversation again once. This replaces the cost of every enabled plugin's full definition on every request (about 900 tokens for CAD and 500 each for draughts and torrents).
+The optional built-in plugins (the CAD workshop, draughts and torrents) are off until the user switches them on. While a plugin is on, [AgentTools](../../src/agent-tools.cjs) puts its tool (`cad`, `draughts` or `torrents`) in the tool list of every conversation and scheduled task, whether or not its panel is open; Plan mode, heartbeat and goals do not get it. Switching a plugin on or off changes the tool list, so idle threads reload once before their next turn.
 
 ## Deferred operations
 

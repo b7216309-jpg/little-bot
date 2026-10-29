@@ -1,6 +1,6 @@
 # Torrents
 
-Torrents is an optional built-in plugin: a light BitTorrent client for freely shared content. It is off until the user switches it on in **Extensions › Tools › Built-in plugins**. While it is off, no engine runs and no `torrents` tool is in any prompt. While it is on, a conversation gets the `torrents` tool only once it is loaded there, by the model through `plugin_load` or by the user using the panel (see [Optional plugins load on demand](10-agent-tools-terminal.md#optional-plugins-load-on-demand)).
+Torrents is an optional built-in plugin: a light BitTorrent client for freely shared content. It is off until the user switches it on in **Extensions › Tools › Built-in plugins**. While it is off, no engine runs and no `torrents` tool is in any prompt. While it is on, the `torrents` tool is offered in every conversation (see [Optional plugins](10-agent-tools-terminal.md#optional-plugins)).
 
 ## How it fits together
 

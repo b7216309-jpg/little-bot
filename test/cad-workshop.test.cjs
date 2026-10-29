@@ -96,10 +96,8 @@ test('the tool is offered only when switched on, and only in the user\'s own run
   await assert.rejects(off.cad.call({ action: 'guide' }, { chat: off.chat }), /CAD workshop is off/);
   const on = setup(t);
   const toolsOn = new AgentTools({ store, cad: on.cad });
-  assert.ok(!toolsOn.specs().some(tool => tool.name === 'cad'), 'on, it waits to be loaded');
-  assert.deepEqual(toolsOn.specs().find(tool => tool.name === 'plugin_load').inputSchema.properties.name.enum, ['cad']);
-  assert.ok(toolsOn.specs({ loaded: ['cad'] }).some(tool => tool.name === 'cad'));
-  assert.ok(!toolsOn.specs({ readOnly: true, loaded: ['cad'] }).some(tool => ['cad', 'plugin_load'].includes(tool.name)), 'Plan mode has no CAD tool');
+  assert.ok(toolsOn.specs().some(tool => tool.name === 'cad'));
+  assert.ok(!toolsOn.specs({ readOnly: true }).some(tool => tool.name === 'cad'), 'Plan mode has no CAD tool');
   await assert.rejects(on.cad.call({ action: 'guide' }, { chat: { id: 'h', internal: true, status: 'running' } }), /not in background work/);
   assert.ok((await on.cad.call({ action: 'guide' }, { chat: { id: 'a', automationId: 'x', status: 'running' } })).guide, 'a scheduled task has full access');
 });

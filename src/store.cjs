@@ -251,9 +251,6 @@ function persistedData(data, defaultWorkspace, recovering = false) {
         mode: (recovering && chat.automationPreviousMode ? chat.automationPreviousMode : chat.mode) === 'plan' ? 'plan' : 'execute',
         toolMode: chat.toolMode === 'readOnly' ? 'readOnly' : 'full',
         toolSchema: string(chat.toolSchema),
-        // The optional plugins whose tools this conversation has loaded, and when each was last used.
-        ...(Array.isArray(chat.plugins) && chat.plugins.length ? { plugins: chat.plugins.filter(item => isObject(item) && ['cad', 'draughts', 'torrents'].includes(item.name))
-          .filter((item, index, all) => all.findIndex(other => other.name === item.name) === index).map(item => ({ name: item.name, usedAt: timestamp(item.usedAt, 0) })) } : {}),
         baseKey: string(chat.baseKey),
         status: ['running', 'waiting'].includes(chat.status) ? chat.status : 'idle',
         messages: (Array.isArray(chat.messages) ? chat.messages : []).filter(isObject).map(message => {
