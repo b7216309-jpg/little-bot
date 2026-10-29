@@ -4151,7 +4151,7 @@ function renderExtensionTools() {
     const { card, heading, copy } = extensionCard('CAD workshop', 'Design small parts with Little Bot: a 3D view where you point at faces, pin notes and measure, settings to try sizes, checks for 3D printing, and STL, 3MF, STEP, SVG and DXF export. Uses OpenCascade on this PC.', 'cube');
     heading.append(extensionToggle('Enable the CAD workshop', enabled, 'cad', (next) => mutateExtension('cad', () => window.bot.cadEnable({ enabled: next }), next ? 'CAD workshop on. Open it with the CAD button.' : 'CAD workshop off.')));
     const meta = element('div', 'extension-card-meta');
-    meta.append(element('span', '', enabled ? 'On · the cad tool is offered in conversations' : 'Off · no tool, panel or engine'), element('span', 'extension-tag', 'Built in'));
+    meta.append(element('span', '', enabled ? 'On · Little Bot loads the cad tool when a conversation needs it' : 'Off · no tool, panel or engine'), element('span', 'extension-tag', 'Built in'));
     copy.append(meta);
     fragment.append(card);
   }
@@ -4160,7 +4160,7 @@ function renderExtensionTools() {
     const { card, heading, copy } = extensionCard('Draughts', 'Play international draughts (10×10, French rules) against Little Bot on a wooden board beside the conversation, and chat between moves. Three levels; the rules are checked on this PC, so no move can be illegal.', 'draughts');
     heading.append(extensionToggle('Enable draughts', enabled, 'draughts', (next) => mutateExtension('draughts', () => window.bot.draughtsEnable({ enabled: next }), next ? 'Draughts on. Open the board with the Draughts button.' : 'Draughts off.')));
     const meta = element('div', 'extension-card-meta');
-    meta.append(element('span', '', enabled ? 'On · the draughts tool is offered in conversations' : 'Off · no tool or board'), element('span', 'extension-tag', 'Built in'));
+    meta.append(element('span', '', enabled ? 'On · Little Bot loads the draughts tool when a conversation needs it' : 'Off · no tool or board'), element('span', 'extension-tag', 'Built in'));
     copy.append(meta);
     fragment.append(card);
   }
@@ -4169,7 +4169,7 @@ function renderExtensionTools() {
     const { card, heading, copy } = extensionCard('Torrents', 'A light BitTorrent client for freely shared content: search the Internet Archive, Academic Torrents, official Linux images and your own feeds, look inside before downloading, and let downloads share back up to a limit. Little Bot can search and ask; a download starts only from your click.', 'import');
     heading.append(extensionToggle('Enable torrents', enabled, 'torrents', (next) => mutateExtension('torrents', () => window.bot.torrentsEnable({ enabled: next }), next ? 'Torrents on. Open them with the Torrents button.' : 'Torrents off.')));
     const meta = element('div', 'extension-card-meta');
-    meta.append(element('span', '', enabled ? 'On · the torrents tool is offered in conversations' : 'Off · no engine, panel or tool'), element('span', 'extension-tag', 'Built in'));
+    meta.append(element('span', '', enabled ? 'On · Little Bot loads the torrents tool when a conversation needs it' : 'Off · no engine, panel or tool'), element('span', 'extension-tag', 'Built in'));
     copy.append(meta);
     fragment.append(card);
   }

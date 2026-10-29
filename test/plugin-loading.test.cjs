@@ -40,7 +40,17 @@ test('plugins that are on wait behind one plugin_load tool that names them', () 
   assert.deepEqual(names(tools.specs({ loaded: ['cad', 'draughts'] })), ['cad', 'draughts']);
   plugins.cad.enabled = plugins.draughts.enabled = false;
   assert.deepEqual(names(tools.specs({ loaded: ['cad'] })), [], 'nothing on, nothing offered');
-  assert.deepEqual(names(tools.specs({ readOnly: true })), [], 'nothing in Plan mode');
+  assert.deepEqual(names(tools.specs({ readOnly: true })), [], 'nothing for read-only background work');
+});
+
+test('Plan mode can load and use plugins, but gets no other write tools', () => {
+  const { tools } = setup({ torrents: { enabled: false } });
+  const plan = tools.specs({ readOnly: true, plugins: true });
+  assert.deepEqual(names(plan), ['plugin_load']);
+  assert.deepEqual(names(tools.specs({ readOnly: true, plugins: true, loaded: ['cad'] })), ['cad', 'plugin_load']);
+  assert.ok(!plan.some(tool => tool.name === 'memory_save'), 'Plan mode stays read-only otherwise');
+  assert.ok(tools.pluginTool('plugin_load') && tools.pluginTool('cad'));
+  assert.ok(!tools.pluginTool('memory_save') && !tools.pluginTool('torrents'), 'a plugin that is off is not one');
 });
 
 test('plugin_load loads a plugin into the running conversation, and only there', async () => {
