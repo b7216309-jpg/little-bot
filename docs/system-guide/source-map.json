@@ -96,11 +96,14 @@
   "src/backups.cjs": "04-memory.md",
   "src/browser-blocker.cjs": "11-browser-web.md",
   "src/bundled-skills.cjs": "12-skills-plugins-mcp.md",
+  "src/cad-fonts.cjs": "20-cad.md",
   "src/cad-kernel.cjs": "20-cad.md",
   "src/cad-workshop.cjs": "20-cad.md",
+  "src/cad/assembly.js": "20-cad.md",
   "src/cad/colors.js": "20-cad.md",
   "src/cad/kernel.html": "20-cad.md",
   "src/cad/kernel.js": "20-cad.md",
+  "src/cad/library.js": "20-cad.md",
   "src/cad/viewer.js": "20-cad.md",
   "src/cad/worker.js": "20-cad.md",
   "src/cad/zip.js": "20-cad.md",
@@ -195,6 +198,7 @@
   "src/renderer/goal-ledger.css": "06-goal-ledger-files.md",
   "src/renderer/independent-check.js": "15-questions-answer-checks.md",
   "src/renderer/index.html": "16-interface.md",
+  "src/renderer/panel-switcher.js": "16-interface.md",
   "src/renderer/panels.css": "16-interface.md",
   "src/renderer/provider-usage-panel.js": "16-interface.md",
   "src/renderer/provider-usage-ui.js": "16-interface.md",
@@ -233,6 +237,5 @@
   "src/windows-uia-bridge.ps1": "11-browser-web.md",
   "src/windows-uia.cjs": "11-browser-web.md",
   "test/draughts.test.cjs": "21-draughts.md",
-  "test/torrents.test.cjs": "22-torrents.md",
-  "src/renderer/panel-switcher.js": "16-interface.md"
+  "test/torrents.test.cjs": "22-torrents.md"
 }

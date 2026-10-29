@@ -6,18 +6,23 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { fontFile } = require('./cad-fonts.cjs');
 
 const SCHEME = 'little-bot-cad';
+// Besides its own files the page may read the PC's fonts by family name (text in parts), and STEP or STL files from
+// the working folder (importPart): read-only, those types only, and the page cannot send anything anywhere.
+const MAX_IMPORT = 64 * 1024 * 1024;
 const PARTITION = 'little-bot-cad';
 // Published path prefix -> folder under the app root.
 const SERVED = ['/src/cad/', '/node_modules/replicad/dist/', '/node_modules/replicad-opencascadejs/dist/', '/node_modules/three/build/', '/node_modules/acorn/dist/'];
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.wasm': 'application/wasm', '.json': 'application/json' };
 
 class CadKernel {
-  constructor({ BrowserWindow, session, appRoot, onCrash }) {
+  constructor({ BrowserWindow, session, appRoot, onCrash, getWorkspace }) {
     this.BrowserWindow = BrowserWindow;
     this.session = session;
     this.appRoot = appRoot;
+    this.getWorkspace = getWorkspace || (() => '');
     this.onCrash = onCrash || (() => {});
     this.window = null;
     this.starting = null;
@@ -32,6 +37,8 @@ class CadKernel {
       try {
         const url = new URL(request.url);
         const relative = decodeURIComponent(url.pathname);
+        if (url.host === 'app' && relative.startsWith('/fonts/')) return this._font(relative.slice(7), url.searchParams.get('style') || 'regular');
+        if (url.host === 'app' && relative.startsWith('/import/')) return this._import(relative.slice(8));
         if (url.host !== 'app' || !SERVED.some(prefix => relative.startsWith(prefix)) || relative.includes('..')) return new Response('Not found', { status: 404 });
         const file = path.join(this.appRoot, ...relative.split('/').filter(Boolean));
         const body = fs.readFileSync(file);
@@ -43,6 +50,30 @@ class CadKernel {
     cad.on('will-download', event => event.preventDefault());
     this.cadSession = cad;
     return cad;
+  }
+
+  _font(family, style) {
+    const file = fontFile(family, style);
+    if (!file) return new Response('Not found', { status: 404 });
+    return new Response(fs.readFileSync(file), { headers: { 'content-type': 'application/octet-stream' } });
+  }
+
+  // A file named by a script: in the working folder's cad folder first, then the working folder, never outside it.
+  _import(name) {
+    const workspace = this.getWorkspace();
+    if (!workspace || !/\.(step|stp|stl)$/i.test(name) || name.includes('\0')) return new Response('Not found', { status: 404 });
+    const root = path.resolve(workspace);
+    for (const base of [path.join(root, 'cad'), root]) {
+      const file = path.resolve(base, name);
+      const inside = path.relative(root, file);
+      if (!inside || inside.startsWith('..') || path.isAbsolute(inside)) continue;
+      let stat;
+      try { stat = fs.statSync(file); } catch { continue; }
+      if (!stat.isFile()) continue;
+      if (stat.size > MAX_IMPORT) return new Response('Too large', { status: 413 });
+      return new Response(fs.readFileSync(file), { headers: { 'content-type': 'application/octet-stream', 'x-file-tag': `${stat.size}-${Math.round(stat.mtimeMs)}` } });
+    }
+    return new Response('Not found', { status: 404 });
   }
 
   start() {

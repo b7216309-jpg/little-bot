@@ -7,6 +7,8 @@ import opencascade from '../../node_modules/replicad-opencascadejs/dist/replicad
 import { parse } from '../../node_modules/acorn/dist/acorn.mjs';
 import { storedZip } from './zip.js';
 import { partColor } from './colors.js';
+import { createLibrary, wanted, materialOf, MATERIALS } from './library.js';
+import { normalizeJoints, movesOf, matrixOf, applyMatrix, unapplyMatrix } from './assembly.js';
 
 const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
 let oc = null, ready = null, lineOffset = 2;
@@ -38,10 +40,12 @@ function callerLine() { return stackLine(new Error()); }
 // Every step that makes or changes a solid is recorded with its script line, so a face can be traced to its line.
 // OpenCascade failures arrive as C++ exceptions without a JavaScript stack, so the last traced call names the line.
 let lastCall = null;
-function note(kind) { lastCall = { line: callerLine(), kind }; return lastCall.line; }
+// Inside one of the workshop's helpers, its own steps are not traced: the helper is one step of the script.
+let helperDepth = 0;
+function note(kind) { if (helperDepth) return lastCall?.line ?? null; lastCall = { line: callerLine(), kind }; return lastCall.line; }
 
 function record(kind, output, source, line) {
-  if (!recording || !R.isShape3D?.(output)) return output;
+  if (!recording || helperDepth || !R.isShape3D?.(output)) return output;
   const origin = source ? origins.get(source) : null;
   const step = origin && ['translate', 'translateX', 'translateY', 'translateZ', 'rotate', 'mirror', 'scale'].includes(kind)
     ? { line: origin.line, kind: origin.kind, movedAt: line }
@@ -71,8 +75,71 @@ function buildScope() {
   for (const Class of [R.Sketch, R.Sketches, R.CompoundSketch]) wrapMethods(Class, ['extrude', 'revolve', 'loftWith', 'sweepSketch', 'twistExtrude']);
   wrapMethods(R._3DShape, ['fillet', 'chamfer', 'shell', 'cut', 'fuse', 'intersect', 'draft']);
   wrapMethods(R.Shape, ['translate', 'translateX', 'translateY', 'translateZ', 'rotate', 'mirror', 'scale']);
+  // The workshop's own helpers; what one makes is traced to the script line that called it.
+  const traced = (kind, helper) => (...args) => {
+    const line = note(kind);
+    helperDepth++;
+    let output;
+    try { output = helper(...args); } finally { helperDepth--; }
+    return record(kind, output, null, line);
+  };
+  Object.assign(values, createLibrary({ R, traced, fonts, imports }));
   const names = Object.keys(values);
   return [names, names.map(name => values[name])];
+}
+
+// ------------------------------------------------------------------------------------------------ fonts and files
+
+// The kernel page serves the PC's fonts by family name, and STEP and STL files from the working folder. A script's
+// functions are synchronous, so what it names is loaded before it runs and kept for the next builds.
+const STYLES = ['regular', 'bold', 'italic', 'bolditalic'];
+const loadedFonts = new Set();
+const missingFonts = new Set();
+const fonts = {
+  family(font, { bold = false, italic = false } = {}) {
+    const name = String(font || 'Arial').trim().toLowerCase();
+    const style = bold && italic ? 'bolditalic' : bold ? 'bold' : italic ? 'italic' : 'regular';
+    for (const key of [`${name}|${style}`, `${name}|regular`]) if (loadedFonts.has(key)) return key;
+    throw new Error(`The font "${String(font).slice(0, 60)}" is not installed on this PC, or its name is not written as plain text in the script (font: "Arial").`);
+  },
+};
+async function loadFonts(names) {
+  for (const name of names) for (const style of STYLES) {
+    const key = `${name.toLowerCase()}|${style}`;
+    if (loadedFonts.has(key) || missingFonts.has(key)) continue;
+    try {
+      const answer = await fetch(new URL(`../../fonts/${encodeURIComponent(name)}?style=${style}`, import.meta.url));
+      if (!answer.ok) { missingFonts.add(key); continue; }
+      await R.loadFont(await answer.arrayBuffer(), key);
+      loadedFonts.add(key);
+    } catch { missingFonts.add(key); }
+  }
+}
+
+const importCache = new Map(); // name -> { tag, shape }
+const imports = {
+  get(name) {
+    const entry = importCache.get(name);
+    if (!entry) throw new Error(`"${name.slice(0, 100)}" was not loaded: write its file name as plain text in importPart("…"), and keep the file in the working folder's cad folder.`);
+    if (entry.error) throw new Error(entry.error);
+    return entry.shape.clone();
+  },
+};
+async function loadImports(files) {
+  for (const name of files) {
+    let answer;
+    try { answer = await fetch(new URL(`../../import/${encodeURIComponent(name)}`, import.meta.url)); }
+    catch { answer = null; }
+    if (!answer?.ok) { importCache.set(name, { error: answer?.status === 413 ? `"${name}" is too large to import (64 MB at most).` : `There is no STEP or STL file "${name}" in the working folder's cad folder or the working folder.` }); continue; }
+    const tag = answer.headers.get('x-file-tag') || '';
+    if (importCache.get(name)?.tag === tag && tag) continue;
+    try { importCache.get(name)?.shape?.delete?.(); } catch { /* Freed. */ }
+    try {
+      const blob = await answer.blob();
+      const shape = /\.stl$/i.test(name) ? await R.importSTL(blob) : await R.importSTEP(blob);
+      importCache.set(name, { tag, shape });
+    } catch (error) { importCache.set(name, { error: `"${name}" could not be read: ${String(error?.message || error).slice(0, 200)}` }); }
+  }
 }
 
 // ------------------------------------------------------------------------------------------------ running
@@ -123,7 +190,7 @@ function paramSpecs(raw = {}) {
 // What main() returns, as named parts: one shape is one part called "part"; { box, lid } names each part by its
 // key; a list names them "part 1", "part 2"… unless an entry gives { name, shape }. An entry may add a color.
 const PART_NAME = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,39}$/u;
-const MAX_PARTS = 20;
+const MAX_PARTS = 200;
 function partsOf(result) {
   const entries = [];
   const add = (name, value, many) => {
@@ -134,8 +201,15 @@ function partsOf(result) {
       if (shape?.extrude) throw new Error(`main() returned a sketch${where}. Extrude or revolve it into a solid first.`);
       throw new Error(many ? `Part "${name}" is not a 3D shape.` : 'main() must return a 3D shape, or several as { name: shape, … }.');
     }
+    try { shape.boundingBox.bounds; }
+    catch { throw new Error(`${many ? `Part "${name}"` : 'The part'} is empty: a cut or intersect left nothing of it.`); }
     const color = typeof value?.color === 'string' && /^#[\da-f]{6}$/i.test(value.color) ? value.color.toLowerCase() : null;
-    entries.push({ name: String(name).trim(), shape, color });
+    // What an entry may say besides its shape: what it is made of, how many are needed, whether it is bought
+    // rather than made (a screw), and the joint it moves on.
+    const extra = value?.shape ? value : {};
+    const quantity = extra.count === undefined ? 1 : Math.round(Number(extra.count));
+    if (!(quantity >= 1 && quantity <= 10000)) throw new Error(`Part "${name}": count must be a whole number from 1.`);
+    entries.push({ name: String(name).trim(), shape, color, material: materialOf(extra.material), count: quantity, bought: extra.bought === true, joint: extra.joint || null });
   };
   const plainObject = result && typeof result === 'object' && Object.getPrototypeOf(result) === Object.prototype && !('shape' in result);
   if (Array.isArray(result)) result.forEach((item, index) => add(typeof item?.name === 'string' ? item.name : `part ${index + 1}`, item, true));
@@ -159,16 +233,21 @@ function partsOf(result) {
 }
 
 // Where each part goes in the print layout: on the bed (lowest point at z = 0), side by side along X with a gap,
-// the row centred on the origin. One part stays where it is.
+// the row centred on the origin. One part stays where it is. Bought parts are not printed: they get no place (null)
+// unless every part is bought.
 function printLayout(parts) {
   if (parts.length < 2) return parts.map(() => [0, 0, 0]);
+  const printed = parts.some(part => !part.bought) ? parts.map(part => !part.bought) : parts.map(() => true);
   const boxes = parts.map(part => part.shape.boundingBox.bounds);
-  const largest = Math.max(...boxes.map(([lo, hi]) => Math.max(hi[0] - lo[0], hi[1] - lo[1])));
+  const largest = Math.max(...boxes.filter((_, index) => printed[index]).map(([lo, hi]) => Math.max(hi[0] - lo[0], hi[1] - lo[1])));
   const gap = Math.max(5, Math.min(20, largest * 0.15));
   let cursor = 0;
-  const offsets = boxes.map(([lo, hi]) => { const offset = [cursor - lo[0], -(lo[1] + hi[1]) / 2, -lo[2]]; cursor += hi[0] - lo[0] + gap; return offset; });
+  const offsets = boxes.map(([lo, hi], index) => {
+    if (!printed[index]) return null;
+    const offset = [cursor - lo[0], -(lo[1] + hi[1]) / 2, -lo[2]]; cursor += hi[0] - lo[0] + gap; return offset;
+  });
   const shift = (cursor - gap) / 2;
-  return offsets.map(([dx, dy, dz]) => [round(dx - shift, 4), round(dy, 4), round(dz, 4)]);
+  return offsets.map(offset => offset && [round(offset[0] - shift, 4), round(offset[1], 4), round(offset[2], 4)]);
 }
 
 function release() {
@@ -185,9 +264,12 @@ async function run({ code, params: overrides = {}, limits = {} }) {
   const syntax = syntaxError(source);
   if (syntax) return { error: syntax };
   release();
+  const needs = wanted(source);
+  await loadFonts(needs.fonts);
+  await loadImports(needs.files);
   recording = [];
   lastCall = null;
-  let values = {}, specs = [], shape, parts;
+  let values = {}, specs = [], shape, parts, joints;
   try {
     const factory = new Function(...scope[0], `"use strict";\n${source}\n;return { params: typeof params === 'undefined' ? {} : params, main: typeof main === 'function' ? main : null };`);
     const defined = factory(...scope[1]);
@@ -199,6 +281,7 @@ async function run({ code, params: overrides = {}, limits = {} }) {
       values[spec.name] = spec.value;
     }
     parts = partsOf(await defined.main(values));
+    joints = normalizeJoints(parts);
     // makeCompound frees what it is given; clones share the parts' faces, so face ids still map to parts.
     shape = parts.length === 1 ? parts[0].shape : R.makeCompound(parts.map(part => part.shape.clone()));
   } catch (error) {
@@ -229,28 +312,36 @@ async function run({ code, params: overrides = {}, limits = {} }) {
   const mesh = {
     vertices: Float32Array.from(raw.vertices), normals: Float32Array.from(raw.normals), triangles: Uint32Array.from(raw.triangles),
     faceGroups: byIndex(raw.faceGroups, 'faceId', faceIndex, facePart), lines: Float32Array.from(edgesRaw.lines), edgeGroups: byIndex(edgesRaw.edgeGroups, 'edgeId', edgeIndex, edgePart),
-    parts: parts.map((part, index) => ({ name: part.name, color: part.color, offset: layout[index] })),
+    parts: parts.map((part, index) => ({ name: part.name, color: part.color, offset: layout[index], box: part.shape.boundingBox.bounds, ...(part.bought ? { bought: true } : {}), ...(joints[index] ? { joint: joints[index] } : {}) })),
   };
-  current = { shape, faces, edges, mesh, records, values, parts, facePart, edgePart, layout };
+  current = { shape, faces, edges, mesh, records, values, parts, joints, facePart, edgePart, layout, meshTolerance: tolerance };
   let volume = 0, area = 0;
   try { volume = R.measureVolume(shape); } catch { /* Not a closed solid. */ }
   try { area = R.measureArea(shape); } catch { /* No faces. */ }
   const solids = shape.solids?.length ?? 0;
-  const partInfo = parts.map(part => {
+  const partInfo = parts.map((part, index) => {
     const [lo, hi] = part.shape.boundingBox.bounds;
     let partVolume = 0;
     try { partVolume = R.measureVolume(part.shape); } catch { /* Not a closed solid. */ }
-    return { name: part.name, min: lo, max: hi, size: [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]], volume: partVolume, solids: part.shape.solids?.length ?? 0, color: part.color };
+    const joint = joints[index];
+    return { name: part.name, min: lo, max: hi, size: [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]], volume: partVolume, solids: part.shape.solids?.length ?? 0, color: part.color,
+      count: part.count, ...(part.bought ? { bought: true } : {}),
+      ...(part.material ? { material: part.material, weight: round(partVolume / 1000 * MATERIALS[part.material], 2) } : {}),
+      ...(joint ? { joint: { type: joint.type, min: joint.min, max: joint.max, value: joint.value, ...(joint.parent !== null ? { parent: parts[joint.parent].name } : {}) } } : {}) };
   });
   const info = { min, max, size, volume, area, solids, faces: faces.length, edges: edges.length, parts: partInfo };
   let checks;
   try {
     const coarse = shape.mesh({ tolerance: Math.max(diagonal / 400, 0.01), angularTolerance: 0.4 });
     checks = checkPart(info, limits, { vertices: coarse.vertices, triangles: coarse.triangles, faceGroups: byIndex(coarse.faceGroups, 'faceId', faceIndex, facePart) });
-    if (parts.length > 1) checks.push(...checkFit(limits));
+    const fit = parts.length > 1 ? checkFit() : [];
+    checks.push(...fit);
+    // Parts that already overlap at rest are reported once, by the fit check.
+    if (joints.some(joint => joint && joint.type !== 'fixed')) checks.push(...checkMotion(new Set(fit.flatMap(item => [item.parts.join('|'), [...item.parts].reverse().join('|')]))));
   } catch (error) { checks = [{ kind: 'checkFailed', severity: 'info', message: `The checks could not run: ${describe(error).message}` }]; }
   const steps = records.map(step => ({ line: step.line, kind: step.kind, movedAt: step.movedAt })).filter((step, index, list) => step.line && list.findIndex(other => other.line === step.line && other.kind === step.kind) === index);
-  return { params: specs, mesh, info, checks, steps };
+  // Shapes a script drops along the way are not freed by the engine; the page restarts the worker when this grows.
+  return { params: specs, mesh, info, checks, steps, memory: oc.HEAPU8?.length || 0 };
 }
 
 // ------------------------------------------------------------------------------------------------ checks
@@ -298,6 +389,7 @@ function pointOnFace(faceId, near = null) {
   try { return face ? closestPoint(face, start) : start; } catch { return start; }
 }
 
+const THREADED = new Set(['thread', 'threadedHole', 'bolt', 'nut']);
 function checkPart(info, limits = {}, mesh) {
   const problems = [];
   const minWall = Number(limits.minWall) > 0 ? Number(limits.minWall) : 0.8;
@@ -318,9 +410,11 @@ function checkPart(info, limits = {}, mesh) {
     }
   });
   const partName = faceId => many && faceId >= 0 ? current.parts[current.facePart[faceId]]?.name : undefined;
+  // Bought parts (screws, bearings) are not printed: walls, holes and overhangs are checked on the printed ones only.
+  const printed = index => !current.parts[index]?.bought;
   // Holes: cylindrical faces whose material is outside the cylinder.
   current.faces.forEach((face, faceId) => {
-    if (face.geomType !== 'CYLINDRE') return;
+    if (face.geomType !== 'CYLINDRE' || !printed(current.facePart[faceId])) return;
     try {
       const cylinder = face._geomAdaptor().Cylinder();
       const radius = cylinder.Radius();
@@ -336,7 +430,10 @@ function checkPart(info, limits = {}, mesh) {
     } catch { /* Not a plain cylinder. */ }
   });
   // Thin walls: from points on the surface, look straight into the material for the opposite surface of the same
-  // part (the gap to another part is a fit, checked apart).
+  // part (the gap to another part is a fit, checked apart). A thread's crests are thin by design: the swept faces
+  // of a part with threads are left out.
+  const threaded = current.records.some(step => THREADED.has(step.kind));
+  const threadFace = faceId => threaded && !['PLANE', 'CYLINDRE', 'CONE', 'SPHERE', 'TORUS'].includes(current.faces[faceId]?.geomType);
   const thin = new Map();
   const triangleCount = mesh.triangles.length / 3;
   const partOfTriangle = new Int16Array(triangleCount);
@@ -350,17 +447,19 @@ function checkPart(info, limits = {}, mesh) {
     T.set([...a, ...e1, ...e2, n[0] / length, n[1] / length, n[2] / length, (a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3, (a[2] + b[2] + c[2]) / 3], t * 15);
   }
   for (let t = 0; t < triangleCount; t += stride) {
+    if (!printed(partOfTriangle[t])) continue;
     const o = t * 15;
     const dx = -T[o + 9], dy = -T[o + 10], dz = -T[o + 11];
     const ox = T[o + 12] + dx * 1e-4, oy = T[o + 13] + dy * 1e-4, oz = T[o + 14] + dz * 1e-4;
-    let nearest = Infinity;
+    let nearest = Infinity, hit = -1;
     for (let other = 0; other < triangleCount && nearest >= 1e-3; other++) {
       if (other === t || partOfTriangle[other] !== partOfTriangle[t]) continue;
       const distance = rayTriangle(T, other * 15, ox, oy, oz, dx, dy, dz);
-      if (distance < nearest) nearest = distance;
+      if (distance < nearest) { nearest = distance; hit = other; }
     }
     if (nearest === Infinity || nearest >= minWall || nearest < 1e-3) continue;
     const faceId = faceOfTriangle(mesh, t);
+    if (threadFace(faceId) || threadFace(faceOfTriangle(mesh, hit))) continue;
     const known = thin.get(faceId);
     if (!known || nearest < known.value) thin.set(faceId, { value: nearest, at: [T[o + 12], T[o + 13], T[o + 14]] });
   }
@@ -376,7 +475,7 @@ function checkPart(info, limits = {}, mesh) {
     const overhangs = new Map();
     for (let t = 0; t < triangleCount; t++) {
       const o = t * 15;
-      if (T[o + 11] >= limit) continue;
+      if (T[o + 11] >= limit || !printed(partOfTriangle[t])) continue;
       const top = Math.max(T[o + 2], T[o + 2] + T[o + 5], T[o + 2] + T[o + 8]);
       if (top <= floors[partOfTriangle[t]]) continue;
       const faceId = faceOfTriangle(mesh, t);
@@ -395,71 +494,163 @@ function checkPart(info, limits = {}, mesh) {
   return problems;
 }
 
-// How the parts fit together, pair by pair for parts within 2 mm of each other: an overlap is an error (they could
-// not both exist), a gap under the minimum clearance is too tight to print as separate parts, a small gap is
-// reported for information, and parts that just touch are noted.
-function checkFit(limits = {}) {
-  const minClearance = Number(limits.minClearance) > 0 ? Number(limits.minClearance) : 0.2;
-  const near = 2;
+// How the parts fit together: two parts that overlap cannot both be there. Gaps are the script's business, so they
+// are not judged.
+function overlapOf(a, b) {
+  try {
+    const common = a.intersect(b);
+    let volume = 0;
+    try { volume = R.measureVolume(common); } catch { volume = 0; }
+    const [lo, hi] = volume > 1e-3 ? common.boundingBox.bounds : [[0, 0, 0], [0, 0, 0]];
+    common.delete?.();
+    return volume > 1e-3 ? { volume, at: point([(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2]) } : null;
+  } catch { return null; }
+}
+const boxesMeet = (a, b) => [0, 1, 2].every(axis => a[0][axis] <= b[1][axis] && b[0][axis] <= a[1][axis]);
+
+// The exact overlap is slow where two parts share a curved surface (a bolt in its threaded hole: half a minute), so
+// the view mesh decides first: points just inside one part's surface are tested for being inside the other, with
+// rays along X and Y counting crossings. Only parts that reach into each other are intersected exactly.
+const CELLS = 48;
+function meshSolids() {
+  if (current.solidsIndex) return current.solidsIndex;
+  const { mesh } = current;
+  const starts = current.parts.map(() => []);
+  for (const group of mesh.faceGroups || []) for (let k = group.start; k < group.start + group.count; k += 3) starts[group.part || 0].push(k);
+  current.solidsIndex = starts.map(list => {
+    const count = list.length, T = new Float64Array(count * 15);
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    list.forEach((k, t) => {
+      const [a, b, c] = [0, 1, 2].map(n => vertexOf(mesh, mesh.triangles[k + n]));
+      const e1 = sub(b, a), e2 = sub(c, a), n = cross(e1, e2), length = Math.hypot(...n) || 1;
+      T.set([...a, ...e1, ...e2, n[0] / length, n[1] / length, n[2] / length, (a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3, (a[2] + b[2] + c[2]) / 3], t * 15);
+      for (const p of [a, b, c]) for (let axis = 0; axis < 3; axis++) { lo[axis] = Math.min(lo[axis], p[axis]); hi[axis] = Math.max(hi[axis], p[axis]); }
+    });
+    // A ray along X crosses the triangles of its (y, z) cell; one along Y those of its (x, z) cell.
+    const grid = (u, v) => {
+      const cells = Array.from({ length: CELLS * CELLS }, () => []);
+      const su = (hi[u] - lo[u]) / CELLS || 1, sv = (hi[v] - lo[v]) / CELLS || 1;
+      const cell = (value, axis, size) => Math.min(CELLS - 1, Math.max(0, Math.floor((value - lo[axis]) / size)));
+      for (let t = 0; t < count; t++) {
+        const o = t * 15;
+        const us = [T[o + u], T[o + u] + T[o + 3 + u], T[o + u] + T[o + 6 + u]], vs = [T[o + v], T[o + v] + T[o + 3 + v], T[o + v] + T[o + 6 + v]];
+        for (let i = cell(Math.min(...us), u, su); i <= cell(Math.max(...us), u, su); i++) for (let j = cell(Math.min(...vs), v, sv); j <= cell(Math.max(...vs), v, sv); j++) cells[i * CELLS + j].push(t);
+      }
+      return { cells, u, v, su, sv, find: p => cells[cell(p[u], u, su) * CELLS + cell(p[v], v, sv)] };
+    };
+    return { T, count, box: [lo, hi], rays: [[grid(1, 2), [1, 0, 0]], [grid(0, 2), [0, 1, 0]]] };
+  });
+  return current.solidsIndex;
+}
+function insideMesh(solid, p) {
+  if ([0, 1, 2].some(axis => p[axis] < solid.box[0][axis] || p[axis] > solid.box[1][axis])) return false;
+  for (const [grid, [dx, dy, dz]] of solid.rays) {
+    let crossings = 0;
+    for (const t of grid.find(p)) if (rayTriangle(solid.T, t * 15, p[0], p[1], p[2], dx, dy, dz) < Infinity) crossings++;
+    if (crossings % 2 === 0) return false;
+  }
+  return true;
+}
+// Whether part a, moved by its matrix, reaches into part b moved by its own (null: at rest). Points are spread over
+// a's surface by area (about 12 000), pushed just inside it, and count when they stay inside b however they are
+// nudged by the mesh's precision. A few stray points where two parts share a surface are the mesh, not an overlap.
+const NUDGES = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+const MIN_HITS = 8;
+function reachesInto(a, ma, b, mb) {
+  const solids = meshSolids(), A = solids[a], B = solids[b];
+  const inset = current.meshTolerance * 3 + 0.005;
+  const area = o => Math.hypot(...cross([A.T[o + 3], A.T[o + 4], A.T[o + 5]], [A.T[o + 6], A.T[o + 7], A.T[o + 8]])) / 2;
+  let total = 0;
+  for (let t = 0; t < A.count; t++) total += area(t * 15);
+  const each = total / 12000 || 1, skip = Math.ceil(A.count / 12000);
+  let hits = 0;
+  for (let t = 0; t < A.count; t++) {
+    const o = t * 15, n = Math.min(256, Math.max(1, Math.round(area(o) / each)));
+    if (n === 1 && skip > 1 && t % skip) continue;
+    for (let k = 0; k < n; k++) {
+      let r1 = n === 1 ? 1 / 3 : (k * 0.618034 + 0.31) % 1, r2 = n === 1 ? 1 / 3 : (k * 0.754878 + 0.17) % 1;
+      if (r1 + r2 > 1) { r1 = 1 - r1; r2 = 1 - r2; }
+      const p = [0, 1, 2].map(axis => A.T[o + axis] + r1 * A.T[o + 3 + axis] + r2 * A.T[o + 6 + axis] - A.T[o + 9 + axis] * inset);
+      const q = unapplyMatrix(mb, applyMatrix(ma, p));
+      if (insideMesh(B, q) && NUDGES.every(([x, y, z]) => insideMesh(B, [q[0] + x * inset, q[1] + y * inset, q[2] + z * inset])) && ++hits >= MIN_HITS) return true;
+    }
+  }
+  return false;
+}
+const meet = (a, ma, b, mb) => reachesInto(a, ma, b, mb) || reachesInto(b, mb, a, ma);
+const poseMatrix = (index, pose) => { const moves = movesOf(current.parts, current.joints, index, pose); return moves.length ? matrixOf(moves) : null; };
+
+function checkFit() {
   const results = [];
   const parts = current.parts;
   const boxes = parts.map(part => part.shape.boundingBox.bounds);
   for (let i = 0; i < parts.length; i++) for (let j = i + 1; j < parts.length; j++) {
-    const [a, b] = [boxes[i], boxes[j]];
-    if ([0, 1, 2].some(axis => a[0][axis] > b[1][axis] + near || b[0][axis] > a[1][axis] + near)) continue;
-    const pair = `"${parts[i].name}" and "${parts[j].name}"`;
-    const names = [parts[i].name, parts[j].name];
-    let overlap = 0;
-    try {
-      const common = parts[i].shape.intersect(parts[j].shape);
-      try { overlap = R.measureVolume(common); } catch { overlap = 0; }
-      const [lo, hi] = overlap > 1e-3 ? common.boundingBox.bounds : [[0, 0, 0], [0, 0, 0]];
-      common.delete?.();
-      if (overlap > 1e-3) { results.push({ kind: 'fit', severity: 'error', parts: names, value: round(overlap, 3), message: `${pair} overlap by ${round(overlap, 2)} mm³: they cannot both be there. Leave a gap of at least ${minClearance} mm.`, at: point([(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2]) }); continue; }
-    } catch { /* The overlap could not be computed; the gap still tells. */ }
-    const gap = closestPoints(parts[i].shape, parts[j].shape);
-    if (!gap) continue;
-    const at = point(gap.on.map((value, axis) => (value + gap.other[axis]) / 2));
-    const middle = found => point(found.on.map((value, axis) => (value + found.other[axis]) / 2));
-    if (gap.distance < 1e-4) {
-      // Touching where one rests on the other says nothing about the fit elsewhere, such as a lid's lip inside a
-      // box: measure the smallest gap between the faces that do not touch.
-      const elsewhere = smallestGap(parts[i].shape, parts[j].shape, near);
-      if (!elsewhere) results.push({ kind: 'fit', severity: 'info', parts: names, value: 0, message: `${pair} touch, with no gap. Fine if one rests on the other; parts that slide or snap together need ${minClearance}–0.3 mm.`, at });
-      else if (elsewhere.distance < minClearance) results.push({ kind: 'fit', severity: 'warning', parts: names, value: round(elsewhere.distance, 3), message: `${pair} touch where one rests on the other, and elsewhere the smallest gap is ${round(elsewhere.distance, 3)} mm: tight for printed parts (at least ${minClearance} mm, 0.2–0.3 mm is usual).`, at: middle(elsewhere) });
-      else results.push({ kind: 'fit', severity: 'info', parts: names, value: round(elsewhere.distance, 3), message: `${pair} touch where one rests on the other; elsewhere the smallest gap is ${round(elsewhere.distance, 3)} mm.`, at: middle(elsewhere) });
-    }
-    else if (gap.distance < minClearance) results.push({ kind: 'fit', severity: 'warning', parts: names, value: round(gap.distance, 3), message: `${pair}: gap of ${round(gap.distance, 3)} mm, tight for printed parts (at least ${minClearance} mm, 0.2–0.3 mm is usual).`, at });
-    else if (gap.distance < near) results.push({ kind: 'fit', severity: 'info', parts: names, value: round(gap.distance, 3), message: `${pair}: gap of ${round(gap.distance, 3)} mm.`, at });
+    if (!boxesMeet(boxes[i], boxes[j]) || !meet(i, null, j, null)) continue;
+    const overlap = overlapOf(parts[i].shape, parts[j].shape);
+    if (overlap) results.push({ kind: 'fit', severity: 'error', parts: [parts[i].name, parts[j].name], value: round(overlap.volume, 3), message: `"${parts[i].name}" and "${parts[j].name}" overlap by ${round(overlap.volume, 2)} mm³: they cannot both be there.`, at: overlap.at });
   }
   return results;
 }
 
-// The smallest gap between two parts' faces that are near each other but do not touch: face by face, boxes first.
-function smallestGap(a, b, near) {
-  const close = (p, q) => [0, 1, 2].every(axis => p[0][axis] <= q[1][axis] + near && q[0][axis] <= p[1][axis] + near);
-  const boxA = a.boundingBox.bounds, boxB = b.boundingBox.bounds;
-  const facesA = a.faces.map(face => ({ face, box: face.boundingBox.bounds })).filter(item => close(item.box, boxB)).slice(0, 80);
-  const facesB = b.faces.map(face => ({ face, box: face.boundingBox.bounds })).filter(item => close(item.box, boxA)).slice(0, 80);
-  let best = null;
-  for (const fa of facesA) for (const fb of facesB) {
-    if (!close(fa.box, fb.box)) continue;
-    const found = closestPoints(fa.face, fb.face);
-    if (found && found.distance > 1e-4 && found.distance < near && (!best || found.distance < best.distance)) best = found;
+// A part placed for a pose: a copy moved by its own joint and its parents' (see assembly.js).
+function posed(index, pose) {
+  let shape = current.parts[index].shape.clone();
+  for (const move of movesOf(current.parts, current.joints, index, pose)) {
+    shape = move.type === 'slider' ? shape.translate(move.axis.map(value => value * move.value)) : shape.rotate(move.value, move.origin, move.axis);
   }
-  return best;
+  return shape;
 }
 
-// The closest points between two shapes, and their distance.
-function closestPoints(a, b) {
-  const tool = new oc.BRepExtrema_DistShapeShape();
-  try {
-    tool.LoadS1(a.wrapped); tool.LoadS2(b.wrapped); tool.Perform();
-    if (!tool.IsDone() || tool.NbSolution() < 1) return null;
-    // The points belong to the tool; they are freed with it.
-    const p = tool.PointOnShape1(1), q = tool.PointOnShape2(1);
-    return { distance: tool.Value(), on: [p.X(), p.Y(), p.Z()], other: [q.X(), q.Y(), q.Z()] };
-  } finally { tool.delete(); }
+// Each moving joint is swept through its range, the others where they rest: the parts it moves must not run into
+// the rest. Up to 9 positions per joint and a budget of intersections, so a large assembly still builds quickly.
+const MOTION_SAMPLES = 9, MOTION_BUDGET = 200;
+function checkMotion(atRest = new Set()) {
+  const { parts, joints } = current;
+  const results = [];
+  let budget = MOTION_BUDGET, skipped = false;
+  const movedBy = index => parts.map((_, other) => { for (let at = other; at !== null && at !== undefined; at = joints[at]?.parent) if (at === index) return true; return false; });
+  const unit = joint => joint.type === 'hinge' ? '°' : ' mm';
+  joints.forEach((joint, index) => {
+    if (!joint || joint.type === 'fixed' || joint.max <= joint.min) return;
+    const moving = movedBy(index);
+    const still = parts.map((_, other) => other).filter(other => !moving[other]);
+    if (!still.length) return;
+    const rest = new Map(still.map(other => [other, posed(other, {})]));
+    const hits = new Map(); // "moving|still" -> { from, to, deepest, at }
+    try {
+      for (let k = 0; k < MOTION_SAMPLES; k++) {
+        const value = joint.min + (joint.max - joint.min) * k / (MOTION_SAMPLES - 1);
+        const pose = { [parts[index].name]: value };
+        for (let m = 0; m < parts.length; m++) {
+          if (!moving[m]) continue;
+          const shape = posed(m, pose), matrix = poseMatrix(m, pose);
+          const box = shape.boundingBox.bounds;
+          try {
+            for (const [other, fixed] of rest) {
+              if (atRest.has(`${parts[m].name}|${parts[other].name}`) || !boxesMeet(box, fixed.boundingBox.bounds)) continue;
+              if (!meet(m, matrix, other, poseMatrix(other, {}))) continue;
+              if (budget-- <= 0) { skipped = true; break; }
+              const overlap = overlapOf(shape, fixed);
+              if (!overlap) continue;
+              const key = `${m}|${other}`;
+              const hit = hits.get(key) || { from: value, to: value, deepest: 0, at: overlap.at, value };
+              hit.to = value;
+              if (overlap.volume > hit.deepest) Object.assign(hit, { deepest: overlap.volume, at: overlap.at, value });
+              hits.set(key, hit);
+            }
+          } finally { shape.delete?.(); }
+        }
+      }
+    } finally { for (const shape of rest.values()) shape.delete?.(); }
+    for (const [key, hit] of hits) {
+      const [m, other] = key.split('|').map(Number);
+      const range = hit.from === hit.to ? `at ${round(hit.from, 1)}${unit(joint)}` : `from ${round(hit.from, 1)} to ${round(hit.to, 1)}${unit(joint)}`;
+      results.push({ kind: 'motion', severity: 'error', parts: [parts[m].name, parts[other].name], value: round(hit.deepest, 3), pose: { [parts[index].name]: hit.value },
+        message: `When "${parts[index].name}" moves on its ${joint.type} (${range}), "${parts[m].name}" runs into "${parts[other].name}" (up to ${round(hit.deepest, 2)} mm³ at ${round(hit.value, 1)}${unit(joint)}).`, at: hit.at });
+    }
+  });
+  if (skipped) results.push({ kind: 'motion', severity: 'info', message: `Only part of the movement was checked: the assembly is large. Check one joint at a time with the pose action.` });
+  return results;
 }
 
 // Möller–Trumbore on the packed triangle at T[o]: distance along the ray, or Infinity.
@@ -595,8 +786,11 @@ const colorOf = partColor;
 // DXF of several parts use the print layout, so they arrive side by side on the bed rather than inside each other.
 async function exportPart({ format, view = 'top', part = null }) {
   requireCurrent();
-  const indexes = part === null || part === undefined || part === '' ? current.parts.map((_, index) => index) : current.parts.map((item, index) => item.name === part ? index : -1).filter(index => index >= 0);
+  const all = part === null || part === undefined || part === '';
+  let indexes = all ? current.parts.map((_, index) => index) : current.parts.map((item, index) => item.name === part ? index : -1).filter(index => index >= 0);
   if (!indexes.length) throw new Error(`There is no part "${part}". Parts: ${current.parts.map(item => item.name).join(', ')}.`);
+  // Bought parts (screws, nuts, bearings) are in the STEP assembly but not on the print bed.
+  if (all && format !== 'step' && indexes.some(index => !current.parts[index].bought)) indexes = indexes.filter(index => !current.parts[index].bought);
   const chosen = indexes.map(index => ({ ...current.parts[index], index }));
   if (!['step', 'stl', '3mf', 'svg', 'dxf'].includes(format)) throw new Error('Export as step, stl, 3mf, svg or dxf.');
   if (format === 'step') {
@@ -734,7 +928,24 @@ function arcPoints(x1, y1, rx, ry, rotationDeg, large, sweep, x2, y2) {
 
 // ------------------------------------------------------------------------------------------------ messages
 
-const operations = { init: () => init(), run, face: faceInfo, edge: edgeInfo, measure, export: exportPart };
+// What runs into what with the joints at these values (the others where they rest).
+function collide({ pose = {} } = {}) {
+  requireCurrent();
+  const { parts } = current;
+  const placed = parts.map((_, index) => posed(index, pose));
+  try {
+    const boxes = placed.map(shape => shape.boundingBox.bounds);
+    const found = [];
+    for (let i = 0; i < parts.length; i++) for (let j = i + 1; j < parts.length; j++) {
+      if (!boxesMeet(boxes[i], boxes[j]) || !meet(i, poseMatrix(i, pose), j, poseMatrix(j, pose))) continue;
+      const overlap = overlapOf(placed[i], placed[j]);
+      if (overlap) found.push({ parts: [parts[i].name, parts[j].name], volume: round(overlap.volume, 3), at: overlap.at });
+    }
+    return found;
+  } finally { for (const shape of placed) shape.delete?.(); }
+}
+
+const operations = { init: () => init(), run, face: faceInfo, edge: edgeInfo, measure, export: exportPart, collide };
 
 self.onmessage = async ({ data }) => {
   const { id, op, args } = data || {};

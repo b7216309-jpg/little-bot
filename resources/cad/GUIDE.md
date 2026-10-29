@@ -14,7 +14,7 @@ function main(p) {
 }
 ```
 
-Every replicad function is already in scope; do not import anything. `main` returns one solid (or a list of solids). Keep the part in one piece unless the user asks for several.
+Every replicad function is already in scope, and so are the workshop's own helpers below; do not import anything. `main` returns one solid, or several named parts. Keep the part in one piece unless the user asks for several.
 
 ## Making solids
 
@@ -31,6 +31,12 @@ Every replicad function is already in scope; do not import anything. `main` retu
 - `a.fuse(b)`, `a.cut(b)`, `a.intersect(b)`. Holes are cylinders cut away; make the tool longer than the part so it cuts through cleanly.
 - `shape.translate([dx, dy, dz])`, `shape.rotate(degrees, [x, y, z], [dx, dy, dz])` (around an axis through the point), `shape.mirror("YZ")`.
 - Repeat with ordinary loops: `for (const x of [-15, 15]) part = part.cut(makeCylinder(2, 20, [x, 0, -5]));`
+- Or with patterns, which return the copies as one shape to fuse, cut or return (the first copy stays in place):
+  - `linearPattern(shape, count, [dx, dy, dz])`: copies a step apart.
+  - `gridPattern(shape, [columns, rows], [dx, dy])`: a grid in X and Y.
+  - `polarPattern(shape, count, { angle: 360, axis: [0, 0, 1], center: [0, 0, 0] })`: copies round an axis; a full turn spreads them evenly.
+  - `mirrorCopy(shape, "YZ")`: the shape and its mirror image.
+  - `fuseAll([a, b, c])`, `cutAll(base, [tool1, tool2])`.
 
 ## Rounding, bevelling, hollowing
 
@@ -46,14 +52,41 @@ A fillet or chamfer fails when it is larger than the faces beside the edge allow
 
 When the user points at a face or edge, its details include a ready finder, for example `(e) => e.containsPoint([12, -5, 4])`. Use it to round or bevel exactly that edge.
 
-## Several parts
+## Threads and fasteners
 
-Things printed as separate pieces (a box and its lid, a hinge and its pin) are separate parts. Return them named, placed where they go when assembled:
+ISO metric sizes M2 to M20 by name (`"M3"`), or any diameter with `{ pitch }`. Every helper works along Z at the origin; move the result with `translate` and `rotate`.
 
-- `return { box, lid };` names each part by its key, or `return [{ name: "box", shape: box }, { name: "lid", shape: lid, color: "#a9c4dd" }];` with an optional color.
-- Each part is checked on its own: one loose piece inside a part is still an error, but two parts are not.
-- The fit between parts is checked: an overlap is an error; a gap under the minimum clearance (0.2 mm by default) is too tight to print; parts that touch are noted. Parts that slide or snap together need 0.2–0.3 mm of clearance on each side.
-- Exports of all parts lay them side by side for printing (STEP keeps them assembled, with names); `export` with `part` gives one.
+- `thread("M8", 20)`: a threaded rod from z = 0 to 20, with a 45° lead-in at both ends (`{ chamfer: false }` for none, `{ leftHand: true }`).
+- `bolt("M5", 16, { head: "socket" | "hex" | "button" | "countersunk", threaded: true })`: head on top of z = 0, shank down to z = -16. A countersunk head sits below z = 0, flush with the surface.
+- `nut("M5", { threaded: false })` from z = 0 up; `washer("M5")`.
+
+Holes are cutting tools that go down from z = 0 and poke 0.5 mm above it, so place them at the surface they start from: `part.cut(boltHole("M4", 10).translate([x, y, top]))`.
+
+- `boltHole(size, depth, { head: "socket" | "button" | "hex" | "countersunk" | "none", fit: "close" | "normal" | "loose", headDepth })`: ISO clearance hole with a counterbore or countersink for the head.
+- `threadedHole(size, depth)`: a modelled internal thread. `tapHole(size, depth)`: the tap-drill size, to tap later or for a screw to cut its own thread in plastic.
+- `nutTrap(size, { depth, slot })`: a hexagonal pocket; `slot` opens it sideways along +X to slide the nut in.
+- `insertHole(size, { depth })`: a hole for a heat-set insert (typical sizes; the user's inserts may differ).
+
+These helpers make the shapes at their nominal sizes. Every one takes `{ clearance }` in mm on the diameter if the user wants room for printing; nothing is added unless you add it. Threads take a few seconds each: prefer `tapHole` or `boltHole` unless the thread itself matters (a printed screw, a threaded cap). Threads under M3 print poorly.
+
+## Text
+
+`text("Hello", { size: 10, height: 1, font: "Arial", bold: false, italic: false, align: "left" | "center" | "right", valign: "baseline" | "center" | "top" | "bottom" })` lies on XY from z = 0 up. Emboss with `fuse`, engrave with `cut` after moving it down into the surface. Any font installed on this PC works; write its name as plain text in the script (`font: "Segoe UI"`).
+
+## Imported parts
+
+`importPart("bracket.step")` (or `.stp`, `.stl`) reads a file from the working folder's cad folder, or the working folder itself, as a shape to build on, cut from or use as a reference part. Write the file name as plain text. STL files are meshes: fine to look at and combine, but their many small faces cannot be filleted.
+
+## Several parts and assemblies
+
+Things printed or bought as separate pieces (a box and its lid, a hinge and its pin, the screws) are separate parts, up to 200. Return them named, placed where they go when assembled:
+
+- `return { box, lid };` names each part by its key, or `return [{ name: "box", shape: box }, { name: "lid", shape: lid, color: "#a9c4dd" }];`.
+- An entry may also say `material` (PLA, PETG, ABS, ASA, TPU, Nylon, PC, Resin, Aluminium, Steel, Stainless, Brass, Copper, Wood, Plywood, MDF, Acrylic, Rubber) for its weight, `count` (how many are needed), and `bought: true` for hardware such as screws: bought parts are in the bill of materials and the STEP assembly, not in the print files.
+- Joints: `joint: hinge({ axis: [1, 0, 0], origin: [0, 20, 30], min: 0, max: 110 })` turns a part (degrees) around an axis through a point; `slider({ axis: [1, 0, 0], min: 0, max: 40 })` moves it (mm); `value` sets where it rests. `parent: "box"` makes it move with another part; `joint: attach("lid")` only fixes it to that part (a handle on a lid). Joints are written in the assembled positions.
+- Each part is checked on its own: one loose piece inside a part is still an error, but two parts are not. Parts that overlap are an error; gaps are not judged, so leave the room the user asked for. Each joint is swept through its range: a part that runs into another on the way is reported with where it happens.
+- `bom` lists parts, counts, materials and weights. `pose` with `{"lid": 90}` shows the assembly with joints moved and says what runs into what; `view` takes `pose` and `explode` (0 to 1) too.
+- Exports of all parts lay the printed ones side by side (STEP keeps everything assembled, with names); `export` with `part` gives one.
 - Model each part the way up it should print when you can; otherwise mention which part to flip in the slicer.
 
 ## Examples
@@ -140,6 +173,20 @@ function main(p) {
 }
 ```
 
-## Not available
+A box with a hinged lid on a pin, screwed to a base plate, with the hardware in the bill of materials:
 
-Text needs a font file and threads need a helix sweep; neither is set up. Model a thread as a plain hole of the tap-drill size, and engrave text after printing or with a separate tool.
+```js
+const params = { width: 50, depth: 30, height: 20, wall: 3 };
+
+function main(p) {
+  const box = makeBaseBox(p.width, p.depth, p.height).shell(p.wall, (f) => f.inPlane("XY", p.height))
+    .cut(boltHole("M3", p.wall, { head: "countersunk" }).translate([0, 0, p.wall]));
+  const lid = makeBox([-p.width / 2, -p.depth / 2, p.height], [p.width / 2, p.depth / 2, p.height + p.wall]);
+  const screw = bolt("M3", 8, { head: "countersunk" }).translate([0, 0, p.wall]);
+  return {
+    box: { shape: box, material: "PETG" },
+    lid: { shape: lid, material: "PETG", joint: hinge({ axis: [-1, 0, 0], origin: [0, p.depth / 2, p.height + p.wall], min: 0, max: 120 }) },
+    screw: { shape: screw, material: "Steel", bought: true },
+  };
+}
+```

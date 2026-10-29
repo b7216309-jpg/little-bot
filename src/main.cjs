@@ -290,7 +290,7 @@ app.whenReady().then(async () => {
   controller.windowsUi = new WindowsUia({ root: path.join(stateDir, 'windows-ui') });
   // The optional CAD workshop. Its engine page starts only when the panel opens or the model uses it.
   controller.cad = new CadWorkshop({
-    kernel: new CadKernel({ BrowserWindow, session, appRoot: path.join(__dirname, '..'), onCrash: () => logDiagnostic('cad-kernel', new Error('The CAD engine page stopped.')) }),
+    kernel: new CadKernel({ BrowserWindow, session, appRoot: path.join(__dirname, '..'), getWorkspace: () => store.data.settings.workspace, onCrash: () => logDiagnostic('cad-kernel', new Error('The CAD engine page stopped.')) }),
     store, root: path.join(stateDir, 'cad'), guidePath: path.join(__dirname, '..', 'resources', 'cad', 'GUIDE.md'),
     getWorkspace: () => store.data.settings.workspace, onChange: () => controller.changed(),
     // Meshes go straight to the windows: they are large and the phone relay has no use for them.

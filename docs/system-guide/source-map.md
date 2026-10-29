@@ -312,6 +312,9 @@ Guide: [20-cad.md](20-cad.md)
 | [src/cad/kernel.html](../../src/cad/kernel.html) | Engine page shell and its content security policy |
 | [src/cad/zip.js](../../src/cad/zip.js) | Uncompressed zip for 3MF |
 | [src/cad/colors.js](../../src/cad/colors.js) | Part colors shared by the engine and the view |
+| [src/cad/library.js](../../src/cad/library.js) | The workshop's helpers: threads, fasteners, patterns, text, imports, joints, materials |
+| [src/cad/assembly.js](../../src/cad/assembly.js) | Joints, poses and the exploded view, shared by the engine and the view |
+| [src/cad-fonts.cjs](../../src/cad-fonts.cjs) | The PC's fonts by family name, from the Windows registry |
 | [src/renderer/cad-panel.js](../../src/renderer/cad-panel.js) | CAD panel and the selection chips in the composer |
 | [src/renderer/cad.css](../../src/renderer/cad.css) | CAD panel styles |
 | [resources/cad/GUIDE.md](../../resources/cad/GUIDE.md) | Script API and examples the model reads |

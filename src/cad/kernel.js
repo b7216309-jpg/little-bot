@@ -3,7 +3,9 @@
 
 import { createViewer } from './viewer.js';
 
-let worker = null, nextId = 1, starting = null;
+let worker = null, nextId = 1, starting = null, memory = 0;
+// The engine does not free what a script drops; past this a fresh worker takes the next build.
+const MEMORY_LIMIT = 1.2e9;
 const pending = new Map();
 
 function startWorker() {
@@ -49,18 +51,23 @@ window.cadKernel = {
   async ready() { await (starting || startWorker()); return { ok: true, pictures: Boolean(viewer), viewerError }; },
   async call(op, args = {}, timeoutMs = 30000) {
     await (starting || startWorker());
+    if (op === 'run' && memory > MEMORY_LIMIT) { memory = 0; worker.terminate(); await startWorker(); }
     try {
       const result = await send(op, args, timeoutMs);
+      if (op === 'run' && Number.isFinite(result?.memory)) { memory = result.memory; delete result.memory; }
       if (op === 'run' && result?.mesh) { lastMesh = result.mesh; viewer?.setMesh(lastMesh); }
       return { ok: true, result };
     } catch (error) {
       return { ok: false, error: { message: error.message, line: error.line ?? null, timeout: Boolean(error.timeout) } };
     }
   },
-  snapshot({ views = ['iso', 'front', 'top', 'right'], faces = [], edges = [], dots = [], labels = [], theme = 'light', width = 512, height = 384 } = {}) {
+  // A pose ({ part name: joint value }) or an exploded view applies to this picture only.
+  snapshot({ views = ['iso', 'front', 'top', 'right'], faces = [], edges = [], dots = [], labels = [], theme = 'light', width = 512, height = 384, pose = null, explode = 0 } = {}) {
     if (!viewer) return { ok: false, error: { message: `Pictures are unavailable: ${viewerError || 'no WebGL'}.` } };
     if (!lastMesh) return { ok: false, error: { message: 'There is no part to look at yet.' } };
     viewer.setTheme(theme);
+    viewer.setPose(pose || {}, { replace: true });
+    viewer.setExplode(explode);
     viewer.setMarks({ faces, edges, dots });
     const image = viewer.snapshot({ views, width, height, labels });
     viewer.setMarks({});

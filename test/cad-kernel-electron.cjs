@@ -2,6 +2,8 @@
 
 // Runs the CAD kernel in Electron: a part with a fillet and holes, its faces traced to script lines, the checks,
 // every export, a picture, a script error with its line, a stuck script stopped, and the sandbox refusing the network.
+// Then the workshop's own helpers: threads and fasteners, patterns, text, an imported STEP file, and an assembly with
+// joints, materials and bought parts.
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -29,7 +31,7 @@ function main(p) {
 
 async function main() {
   const out = process.env.CAD_TEST_OUT || fs.mkdtempSync(path.join(os.tmpdir(), 'lb-cad-out-'));
-  const kernel = new CadKernel({ BrowserWindow, session, appRoot: path.join(__dirname, '..') });
+  const kernel = new CadKernel({ BrowserWindow, session, appRoot: path.join(__dirname, '..'), getWorkspace: () => out });
   const started = Date.now();
   const ready = await kernel.start();
   const loadMs = Date.now() - started;
@@ -132,24 +134,24 @@ function main() {
     assert.ok(!result.checks.some(check => check.severity === 'error'), `${code.split('\n')[0]}: ${JSON.stringify(result.checks)}`);
     built.push(result.info);
   }
-  assert.deepEqual(built.at(-1).parts.map(part => part.name), ['box', 'lid'], 'the guide shows several parts');
+  assert.deepEqual(built.at(-2).parts.map(part => part.name), ['box', 'lid'], 'the guide shows several parts');
+  assert.deepEqual(built.at(-1).parts.map(part => [part.name, part.material, part.bought || false]), [['box', 'PETG', false], ['lid', 'PETG', false], ['screw', 'Steel', true]], 'and an assembly');
   const [, , box, , knob] = built;
   assert.ok(Math.abs(box.size[0] - 50) < 1e-6 && Math.abs(box.size[2] - 25) < 1e-6, `shell keeps the outer size: ${box.size}`);
   assert.ok(Math.abs(knob.size[0] - 30) < 1e-3 && Math.abs(knob.size[1] - 30) < 1e-3 && Math.abs(knob.size[2] - 12) < 1e-3, `revolve spins around Z: ${knob.size}`);
   step('guide examples built');
 
-  // Several parts: named, each face and edge tagged with its part, checked one by one and for their fit.
-  const boxAndLid = await kernel.call('run', { code: examples.at(-1) });
+  // Several parts: named, each face and edge tagged with its part, checked one by one and for overlaps. Gaps are the
+  // script's business: a tight lid is not judged, a lid that cuts into the box is.
+  const boxAndLid = await kernel.call('run', { code: examples.at(-2) });
   assert.deepEqual(boxAndLid.mesh.parts.map(part => part.name), ['box', 'lid']);
   assert.ok(boxAndLid.mesh.faceGroups.every(group => group.part === 0 || group.part === 1) && boxAndLid.mesh.faceGroups.some(group => group.part === 1));
   assert.ok(!boxAndLid.checks.some(check => check.kind === 'pieces'), 'two parts are not two loose pieces');
-  const fit = boxAndLid.checks.find(check => check.kind === 'fit');
-  assert.ok(fit && /touch/.test(fit.message) && fit.parts.join() === 'box,lid', JSON.stringify(boxAndLid.checks));
-  assert.equal(fit.value, 0.25, `the lip's clearance is measured where the parts do not touch: ${fit.message}`);
-  assert.equal(fit.severity, 'info');
-  const tightLid = await kernel.call('run', { code: examples.at(-1), params: { gap: 0.1 } });
-  const tightFit = tightLid.checks.find(check => check.kind === 'fit');
-  assert.ok(tightFit.severity === 'warning' && tightFit.value === 0.1, `a 0.1 mm lip gap is too tight: ${JSON.stringify(tightFit)}`);
+  assert.ok(!boxAndLid.checks.some(check => check.kind === 'fit'), JSON.stringify(boxAndLid.checks));
+  const tightLid = await kernel.call('run', { code: examples.at(-2), params: { gap: 0.05 } });
+  assert.ok(!tightLid.checks.some(check => check.kind === 'fit'), `a tight gap is not judged: ${JSON.stringify(tightLid.checks)}`);
+  const clashingLid = await kernel.call('run', { code: examples.at(-2), params: { gap: -0.5 } });
+  assert.ok(clashingLid.checks.some(check => check.kind === 'fit' && check.severity === 'error'), `a lip inside the wall overlaps it: ${JSON.stringify(clashingLid.checks)}`);
   assert.ok(!boxAndLid.checks.some(check => check.kind === 'thinWall'), 'the gap between parts is not a thin wall');
   const [layoutBox, layoutLid] = boxAndLid.mesh.parts.map(part => part.offset);
   assert.equal(layoutLid[2], -28, 'the lid goes down onto the bed in the print layout (its lip reaches down to z = 28)');
@@ -168,11 +170,109 @@ function main() {
   const clash = overlap.checks.find(check => check.kind === 'fit');
   assert.ok(clash.severity === 'error' && clash.value === 200, JSON.stringify(overlap.checks));
   const tight = await kernel.call('run', { code: 'function main() { return [makeBox([0, 0, 0], [10, 10, 10]), { name: "peg", shape: makeBox([10.1, 0, 0], [20, 10, 10]), color: "#ff8800" }]; }' });
-  assert.deepEqual(tight.checks.map(check => [check.kind, check.severity, check.value]), [['fit', 'warning', 0.1]]);
+  assert.deepEqual(tight.checks, [], 'a 0.1 mm gap is not judged');
   assert.deepEqual(tight.mesh.parts.map(part => [part.name, part.color]), [['part 1', null], ['peg', '#ff8800']]);
   assert.match((await kernel.call('run', { code: 'function main() { return { "a/b": makeBaseBox(1, 1, 1) }; }' })).error.message, /not a usable part name/);
   assert.match((await kernel.call('run', { code: 'function main() { const s = makeBaseBox(5, 5, 5); return { a: s, b: s }; }' })).error.message, /are the same shape/);
   step('parts checked');
+
+  // Threads and fasteners: a block with a threaded hole, a counterbored bolt hole, a nut trap and an insert hole,
+  // the bolt in its hole and a nut, all at their ISO sizes.
+  const fasteners = await kernel.call('run', { code: `function main() {
+  let block = makeBaseBox(40, 30, 12);
+  block = block.cut(threadedHole("M5", 12).translate([-10, 0, 12]));
+  block = block.cut(boltHole("M4", 12, { head: "socket" }).translate([8, 6, 12]));
+  block = block.cut(nutTrap("M3", { slot: 20 }).translate([12, -8, 6]));
+  block = block.cut(insertHole("M3").translate([-10, 10, 12]));
+  return {
+    block: { shape: block, material: "PETG" },
+    screw: { shape: bolt("M5", 12, { head: "hex" }).translate([-10, 0, 12]), bought: true, material: "Steel", count: 4 },
+    nut: { shape: nut("M5", { threaded: true }).translate([40, 0, 0]), bought: true },
+  };
+}` }, 120000);
+  assert.equal(fasteners.error, undefined, JSON.stringify(fasteners.error));
+  const [block, screw] = fasteners.info.parts;
+  assert.ok(Math.abs(Math.min(screw.size[0], screw.size[1]) - 8) < 0.01 && Math.abs(Math.max(screw.size[0], screw.size[1]) - 8 / Math.cos(Math.PI / 6)) < 0.05 && Math.abs(screw.size[2] - (12 + 3.5)) < 1e-3, `an M5 hex bolt is 8 mm across flats and 12 + 3.5 mm tall: ${screw.size}`);
+  assert.equal(screw.count, 4);
+  assert.ok(block.weight > 0 && Math.abs(block.weight - block.volume / 1000 * 1.27) < 0.01, 'the weight follows the material');
+  assert.ok(!fasteners.checks.some(check => check.severity === 'error'), `the bolt fills its thread without overlapping: ${JSON.stringify(fasteners.checks)}`);
+  assert.ok(!fasteners.checks.some(check => check.kind === 'thinWall' && check.part !== 'block'), `thread crests are not thin walls: ${JSON.stringify(fasteners.checks)}`);
+  // The bought parts are left off the print bed.
+  assert.deepEqual(fasteners.mesh.parts.map(part => part.offset === null), [false, true, true]);
+  const printed = Buffer.from(await kernel.call('export', { format: '3mf' })).toString('latin1').match(/<object [^>]*name="[^"]+"/g) || [];
+  assert.deepEqual(printed.map(item => item.match(/name="([^"]+)"/)[1]), ['block'], 'bought parts are not printed');
+  step('fasteners built');
+
+  // Every thread size in the table builds, at lengths that end on a whole turn and those that do not.
+  const threads = await kernel.call('run', { code: `function main() {
+  const out = {};
+  let x = 0;
+  for (const [size, length] of [["M2", 5], ["M3", 6], ["M4", 10], ["M5", 10], ["M6", 10], ["M8", 13], ["M10", 15], ["M12", 18]]) {
+    out[size] = thread(size, length).translate([x, 0, 0]);
+    x += Number(size.slice(1)) + 4;
+  }
+  return out;
+}` }, 120000);
+  assert.equal(threads.error, undefined, JSON.stringify(threads.error));
+  for (const part of threads.info.parts) {
+    const d = Number(part.name.slice(1));
+    assert.ok(Math.abs(part.size[0] - d) < 0.02 && part.solids === 1, `${part.name} is one solid of its diameter: ${part.size}`);
+  }
+  step('threads built');
+
+  // Patterns and text.
+  const patterned = await kernel.call('run', { code: `function main() {
+  let plate = makeBaseBox(60, 40, 4);
+  plate = plate.cut(polarPattern(makeCylinder(2, 10, [12, 0, -2]), 6));
+  plate = plate.cut(gridPattern(makeCylinder(1, 10, [-25, -15, -2]), [3, 2], [5, 30]));
+  plate = plate.fuse(text("LB", { size: 8, height: 1, align: "center", valign: "center" }).translate([20, 0, 4]));
+  return plate;
+}` });
+  assert.equal(patterned.error, undefined, JSON.stringify(patterned.error));
+  assert.ok(Math.abs(patterned.info.size[2] - 5) < 1e-3, 'the text stands 1 mm on the plate');
+  assert.ok(Math.abs(patterned.info.volume - (60 * 40 * 4 - 6 * Math.PI * 4 * 4 - 6 * Math.PI * 4)) > 1, 'the text adds volume');
+  const holes = [];
+  for (let faceId = 0; faceId < patterned.info.faces; faceId++) { const face = await kernel.call('face', { faceId }); if (face.type === 'CYLINDRE') holes.push(face.diameter); }
+  assert.deepEqual([holes.filter(d => d === 4).length, holes.filter(d => d === 2).length], [6, 6], `six of each hole: ${holes}`);
+  const noFont = await kernel.call('run', { code: 'function main() { return text("x", { font: "No Such Font 123" }); }' });
+  assert.match(noFont.error.message, /not installed on this PC/);
+  step('patterns and text');
+
+  // A STEP file in the working folder's cad folder is imported and built on; a missing one is named.
+  fs.mkdirSync(path.join(out, 'cad'), { recursive: true });
+  fs.copyFileSync(path.join(out, 'bracket.step'), path.join(out, 'cad', 'bracket.step'));
+  const imported = await kernel.call('run', { code: 'function main() { return importPart("bracket.step").cut(makeCylinder(3, 10, [0, 0, -1])); }' });
+  assert.equal(imported.error, undefined, JSON.stringify(imported.error));
+  assert.ok(Math.abs(imported.info.size[0] - 40) < 1e-3 && imported.info.volume < run.info.volume, JSON.stringify(imported.info.size));
+  assert.match((await kernel.call('run', { code: 'function main() { return importPart("missing.step"); }' })).error.message, /There is no STEP or STL file "missing.step"/);
+  assert.match((await kernel.call('run', { code: 'function main() { return importPart("../outside.step"); }' })).error.message, /There is no STEP or STL file/);
+  step('import');
+
+  // An assembly: a hinged arm and a slider on a base, a post attached to it. Each joint is swept through its range;
+  // the carriage runs into the post near the end of its travel, and a pose shows where.
+  const machine = await kernel.call('run', { code: `function main() {
+  return {
+    base: { shape: makeBaseBox(60, 40, 10), material: "PLA" },
+    post: { shape: makeBox([20, -5, 10], [26, 5, 40]), joint: attach("base") },
+    arm: { shape: makeBox([-2, -3, 42], [40, 3, 46]), joint: hinge({ axis: [0, 0, 1], origin: [0, 0, 44], min: -90, max: 90 }) },
+    carriage: { shape: makeBox([-28, -6, 10], [-18, 6, 16]), joint: slider({ axis: [1, 0, 0], min: 0, max: 45 }), material: "Aluminium", count: 2 },
+  };
+}` });
+  assert.equal(machine.error, undefined, JSON.stringify(machine.error));
+  const motion = machine.checks.filter(check => check.kind === 'motion');
+  assert.equal(motion.length, 1, JSON.stringify(machine.checks));
+  assert.ok(motion[0].parts.join() === 'carriage,post' && /from [\d.]+ to 45 mm/.test(motion[0].message) && motion[0].pose.carriage === 45, motion[0].message);
+  assert.deepEqual(machine.info.parts.map(part => part.joint?.type || null), [null, 'fixed', 'hinge', 'slider']);
+  assert.equal(machine.mesh.parts[1].joint.parent, 0, 'the post is attached to the base by index');
+  assert.deepEqual(await kernel.call('collide', { pose: { carriage: 10 } }), []);
+  const crash = await kernel.call('collide', { pose: { carriage: 45 } });
+  assert.ok(crash.length === 1 && [...crash[0].parts].sort().join() === 'carriage,post' && crash[0].volume > 0, JSON.stringify(crash));
+  const posedPicture = await kernel.snapshot({ views: ['top'], pose: { arm: 90, carriage: 30 }, explode: 0.5 });
+  assert.match(posedPicture, /^data:image\/png;base64,/);
+  fs.writeFileSync(path.join(out, 'machine.png'), Buffer.from(posedPicture.split(',')[1], 'base64'));
+  assert.match((await kernel.call('run', { code: 'function main() { return { a: { shape: makeBaseBox(1, 1, 1), joint: attach("b") }, b: { shape: makeBaseBox(1, 1, 1).translate([3, 0, 0]), joint: attach("a") } }; }' })).error.message, /in a loop/);
+  assert.match((await kernel.call('run', { code: 'function main() { return { a: { shape: makeBaseBox(1, 1, 1), material: "Cheese" } }; }' })).error.message, /Unknown material "Cheese"/);
+  step('assembly');
 
   // A stuck script is stopped and the engine comes back.
   const stuckStarted = Date.now();
@@ -186,5 +286,5 @@ function main() {
   console.log(`CAD kernel: engine ready in ${(loadMs / 1000).toFixed(1)} s (pictures: ${ready.pictures}); bracket ${run.info.faces} faces traced to their lines; checks found ${kinds.join(', ')}; exports ${Object.entries(sizes).map(([k, v]) => `${k} ${Math.round(v / 1024)} KB`).join(', ')}; errors located; network and Node refused; a stuck script stopped. Output: ${out}`);
 }
 
-setTimeout(() => { console.error('The CAD kernel test did not finish in 3 minutes.'); app.exit(1); }, 180000).unref();
+setTimeout(() => { console.error('The CAD kernel test did not finish in 6 minutes.'); app.exit(1); }, 360000).unref();
 app.whenReady().then(main).then(() => app.exit(0), error => { console.error(error); app.exit(1); });

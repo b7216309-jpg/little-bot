@@ -33,19 +33,23 @@ const SPEC = {
     + 'write (save a new version of the whole script and build it; returns size, checks and a picture), set (change setting values without rewriting), '
     + 'view (a picture; views iso/front/top/right/..., optional faceIds/edgeIds to highlight), inspect (one face or edge: type, size, the script line that made it, a ready finder for fillet/chamfer/shell), '
     + 'measure (distance and angle between two faces, edges or points), export (step, stl, 3mf, svg or dxf into the working folder), open (open or start a part by name), revert (go back to a version). '
-    + 'Several parts (a box and its lid, a hinge and its pin): return them named, as `return { box, lid }` (or [{ name, shape, color }]); each part is checked on its own, '
-    + 'the fit between parts is checked (overlaps, gaps under the clearance), and export can take one part by name. '
+    + 'Beyond replicad: ISO metric threads, bolts, nuts, washers and the holes for them (boltHole, threadedHole, tapHole, nutTrap, insertHole), patterns (linear, grid, polar, mirror), '
+    + 'text from the PC\'s fonts, importPart("file.step|stl") from the working folder, and assemblies: up to 200 named parts, '
+    + 'each { shape, material, count, bought, joint: hinge({...}) | slider({...}) | attach("part") }. The guide has the details. '
+    + 'Parts that overlap, or run into each other when a joint moves through its range, are reported. bom lists parts, materials and weights; pose shows the assembly with joints moved. '
     + 'After each write, look at the picture and the checks and fix problems before answering.',
   inputSchema: {
     type: 'object',
     properties: {
-      action: { type: 'string', enum: ['guide', 'read', 'write', 'set', 'view', 'inspect', 'measure', 'export', 'open', 'revert'] },
+      action: { type: 'string', enum: ['guide', 'read', 'write', 'set', 'view', 'pose', 'bom', 'inspect', 'measure', 'export', 'open', 'revert'] },
       code: { type: 'string', maxLength: MAX_SCRIPT, description: 'write: the whole script.' },
       note: { type: 'string', maxLength: 200, description: 'write: what changed, in a few words.' },
       params: { type: 'object', description: 'set: setting values by name, e.g. {"width": 50}.' },
       views: { type: 'array', items: { type: 'string', enum: VIEWS }, maxItems: 4, description: 'view: which views (default the four standard ones).' },
-      faceIds: { type: 'array', items: { type: 'integer', minimum: 0 }, maxItems: 20 },
-      edgeIds: { type: 'array', items: { type: 'integer', minimum: 0 }, maxItems: 20 },
+      faceIds: { type: 'array', items: { type: 'integer', minimum: 0 }, maxItems: 200 },
+      edgeIds: { type: 'array', items: { type: 'integer', minimum: 0 }, maxItems: 200 },
+      pose: { type: 'object', description: 'view, pose: joint values by part name, e.g. {"lid": 90} (degrees for a hinge, mm for a slider).' },
+      explode: { type: 'number', minimum: 0, maximum: 1, description: 'view: pull the parts apart, 0 to 1.' },
       faceId: { type: 'integer', minimum: 0, description: 'inspect: one face.' },
       edgeId: { type: 'integer', minimum: 0, description: 'inspect: one edge.' },
       from: { type: 'object', description: 'measure: {"faceId": n}, {"edgeId": n} or {"point": [x, y, z]}.' },
@@ -81,7 +85,7 @@ class CadWorkshop {
   get enabled() { return this.store.data.settings.cadEnabled === true; }
   get limits() {
     const saved = this.store.data.cad?.limits || {};
-    return { minWall: saved.minWall ?? 0.8, minHole: saved.minHole ?? 1, overhang: saved.overhang !== false, overhangAngle: saved.overhangAngle ?? 45, minClearance: saved.minClearance ?? 0.2 };
+    return { minWall: saved.minWall ?? 0.8, minHole: saved.minHole ?? 1, overhang: saved.overhang !== false, overhangAngle: saved.overhangAngle ?? 45 };
   }
 
   specs() { return this.enabled ? [structuredClone(SPEC)] : []; }
@@ -211,7 +215,7 @@ class CadWorkshop {
 
   async build() {
     const project = this.project;
-    const run = this.busy = this.kernel.call('run', { code: project.code, params: project.overrides, limits: this.limits }, 60000)
+    const run = this.busy = this.kernel.call('run', { code: project.code, params: project.overrides, limits: this.limits }, 120000)
       .catch(error => ({ error: { message: error.message, line: error.line ?? null } }));
     this.changed();
     const result = await run;
@@ -233,7 +237,7 @@ class CadWorkshop {
     if (!last) return base;
     if (last.error) return { ...base, error: last.error, settings: settingsOf(last.params), hint: 'Fix the script and write it again. Read the guide action if an API call is unclear.' };
     const { info } = last;
-    const parts = info.parts?.length > 1 ? info.parts.map(part => `${part.name}: ${round(part.size[0])} × ${round(part.size[1])} × ${round(part.size[2])} mm, ${round(part.volume, 1)} mm³${part.solids > 1 ? `, ${part.solids} pieces` : ''}`) : null;
+    const parts = info.parts?.length > 1 ? info.parts.map(part => `${part.name}: ${round(part.size[0])} × ${round(part.size[1])} × ${round(part.size[2])} mm, ${round(part.volume, 1)} mm³${part.solids > 1 ? `, ${part.solids} pieces` : ''}${describeExtras(part)}`) : null;
     return {
       ...base,
       size: { x: round(info.size[0]), y: round(info.size[1]), z: round(info.size[2]) },
@@ -298,10 +302,10 @@ class CadWorkshop {
     return this.kernel.call('measure', { a: target(from), b: target(to) });
   }
 
-  async picture({ views, faces = [], edges = [], labels = [], dots = [], theme = 'light' } = {}) {
+  async picture({ views, faces = [], edges = [], labels = [], dots = [], theme = 'light', pose = null, explode = 0 } = {}) {
     this._requireBuild();
     const chosen = Array.isArray(views) && views.length ? views.filter(view => VIEWS.includes(view)).slice(0, 4) : ['iso', 'front', 'top', 'right'];
-    const image = await this.kernel.snapshot({ views: chosen, faces, edges, labels, dots, theme, width: chosen.length > 1 ? 480 : 768, height: chosen.length > 1 ? 360 : 576 });
+    const image = await this.kernel.snapshot({ views: chosen, faces, edges, labels, dots, theme, width: chosen.length > 1 ? 480 : 768, height: chosen.length > 1 ? 360 : 576, pose: this._pose(pose), explode: Math.min(1, Math.max(0, Number(explode) || 0)) });
     const dir = path.join(this.root, 'pictures');
     fs.mkdirSync(dir, { recursive: true });
     const file = path.join(dir, `${Date.now()}-${crypto.randomBytes(3).toString('hex')}.png`);
@@ -309,6 +313,43 @@ class CadWorkshop {
     const kept = fs.readdirSync(dir).filter(name => name.endsWith('.png')).sort();
     for (const old of kept.slice(0, Math.max(0, kept.length - 40))) fs.rmSync(path.join(dir, old), { force: true });
     return { file, image };
+  }
+
+  // Joint values by part name, checked against the parts that move; local models often send numbers as text.
+  _pose(pose) {
+    if (pose === null || pose === undefined) return null;
+    if (!object(pose)) throw new Error('Give pose as {"part name": value}.');
+    const moving = new Map((this.last?.info?.parts || []).filter(part => part.joint && part.joint.type !== 'fixed').map(part => [part.name, part.joint]));
+    const result = {};
+    for (const [name, raw] of Object.entries(pose)) {
+      const joint = moving.get(name);
+      if (!joint) throw new Error(`"${name}" has no joint that moves. Parts that move: ${[...moving.keys()].join(', ') || 'none'}.`);
+      const value = typeof raw === 'string' ? Number(raw.trim()) : raw;
+      if (!Number.isFinite(value)) throw new Error(`The value for "${name}" must be a number.`);
+      result[name] = Math.min(joint.max, Math.max(joint.min, value));
+    }
+    return result;
+  }
+
+  // The assembly with joints moved: a picture, and what runs into what in that pose.
+  async posed(pose, { views } = {}) {
+    this._requireBuild();
+    const values = this._pose(pose || {}) || {};
+    const collisions = await this.kernel.call('collide', { pose: values });
+    const { file, image } = await this.picture({ views, pose: values });
+    return { pose: values, collisions: collisions.length ? collisions.map(item => `"${item.parts[0]}" runs into "${item.parts[1]}" (${round(item.volume, 2)} mm³)`) : ['Nothing runs into anything in this pose.'], picture: file, [TOOL_IMAGES]: [image] };
+  }
+
+  // The bill of materials: every part with its size, material, weight and how many, bought parts apart.
+  bom() {
+    this._requireBuild();
+    const rows = (this.last.info.parts || []).map(part => ({
+      part: part.name, count: part.count || 1, size: `${round(part.size[0], 1)} × ${round(part.size[1], 1)} × ${round(part.size[2], 1)} mm`,
+      volume: `${round(part.volume / 1000, 2)} cm³`, ...(part.material ? { material: part.material, weight: `${part.weight} g` } : {}), ...(part.bought ? { bought: true } : {}),
+    }));
+    const weighed = (this.last.info.parts || []).filter(part => Number.isFinite(part.weight));
+    const total = weighed.reduce((sum, part) => sum + part.weight * (part.count || 1), 0);
+    return { part: this.project.name, rows, ...(weighed.length ? { totalWeight: `${round(total, 1)} g${weighed.length < rows.length ? ' (parts with a material)' : ''}` } : {}), note: 'Weights are for solid parts; a printed part with infill weighs less.' };
   }
 
   // One part by name, or all: side by side as laid out for printing, or as a named assembly for STEP.
@@ -325,7 +366,9 @@ class CadWorkshop {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, Buffer.from(bytes));
     const several = !part && names.length > 1;
-    const notes = [format === 'svg' || format === 'dxf' ? 'Seen from the top, as for a laser cutter.' : '', several ? (format === 'step' ? 'All parts, as a named assembly in place.' : 'All parts, side by side as laid out for printing.') : ''].filter(Boolean);
+    const bought = several && format !== 'step' ? (this.last.info.parts || []).filter(item => item.bought).map(item => item.name) : [];
+    const notes = [format === 'svg' || format === 'dxf' ? 'Seen from the top, as for a laser cutter.' : '', several ? (format === 'step' ? 'All parts, as a named assembly in place.' : 'All parts, side by side as laid out for printing.') : '',
+      bought.length && bought.length < names.length ? `Bought parts left out: ${bought.join(', ')}.` : ''].filter(Boolean);
     return { path: file, format, bytes: bytes.length, ...(part ? { part } : {}), ...(notes.length ? { note: notes.join(' ') } : {}) };
   }
 
@@ -348,9 +391,11 @@ class CadWorkshop {
     if (action === 'set') return this._withPicture(await this.setParams(args.params));
     if (action === 'revert') return this._withPicture(await this.revert(args.version));
     if (action === 'view') {
-      const { file, image } = await this.picture({ views: args.views, faces: args.faceIds || [], edges: args.edgeIds || [] });
+      const { file, image } = await this.picture({ views: args.views, faces: args.faceIds || [], edges: args.edgeIds || [], pose: args.pose, explode: args.explode });
       return { picture: file, [TOOL_IMAGES]: [image] };
     }
+    if (action === 'pose') return this.posed(args.pose, { views: args.views });
+    if (action === 'bom') return this.bom();
     if (action === 'inspect') return this.inspect({ faceId: args.faceId, edgeId: args.edgeId });
     if (action === 'measure') return this.measure(args.from, args.to);
     if (action === 'export') return this.exportFile({ format: args.format, path: args.path, part: typeof args.part === 'string' && args.part.trim() ? args.part.trim() : null });
@@ -408,6 +453,16 @@ function round(value, digits = 2) { return Math.round(Number(value) * 10 ** digi
 
 function settingsOf(params = []) {
   return Object.fromEntries((params || []).map(spec => [spec.name, spec.value]));
+}
+
+// What a part of an assembly says besides its size: how many, its material and weight, bought, its joint.
+function describeExtras(part) {
+  const bits = [];
+  if (part.count > 1) bits.push(`× ${part.count}`);
+  if (part.material) bits.push(`${part.material}, ${part.weight} g`);
+  if (part.bought) bits.push('bought');
+  if (part.joint) bits.push(part.joint.type === 'fixed' ? `attached to ${part.joint.parent}` : `${part.joint.type} ${part.joint.min}–${part.joint.max}${part.joint.type === 'hinge' ? '°' : ' mm'}${part.joint.parent ? ` on ${part.joint.parent}` : ''}`);
+  return bits.length ? ` (${bits.join(', ')})` : '';
 }
 
 function describeFace(item) {

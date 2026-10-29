@@ -3,6 +3,7 @@
 
 import * as THREE from '../../node_modules/three/build/three.module.js';
 import { partColor } from './colors.js';
+import { movesOf, matrixOf, translation, compose, explodeOffsets, applyMatrix as apply, unapplyMatrix as unapply } from './assembly.js';
 
 export const PALETTES = {
   light: { background: 0xf7f6f1, part: 0xd9dccf, edge: 0x3d4339, highlight: 0xbc623f, ghost: 0x7a8a6c, grid: 0xd8d8cc, gridMajor: 0xc4c6b8, problem: 0xc0392b, warning: 0xd08a2e, info: 0x4f7aa8, pin: 0x2f6f8f, text: '#232822' },
@@ -12,31 +13,32 @@ export const PALETTES = {
 const VIEWS = { iso: [1, -1.15, 0.85], front: [0, -1, 0], back: [0, 1, 0], top: [0, 0, 1], bottom: [0, 0, -1], right: [1, 0, 0], left: [-1, 0, 0] };
 
 // A model of several parts keeps one mesh: every face and edge group says which part it belongs to. Hidden parts
-// are left out of the index, and the print layout moves each part's vertices by its offset.
+// are left out of the index; each part's vertices are moved by its matrix: its place in the print layout, or its
+// pose on its joints plus the exploded view.
 const ZERO = [0, 0, 0];
 
-// Edge groups are polylines; LineSegments wants pairs. Hidden parts are skipped, laid-out ones moved.
+// Edge groups are polylines; LineSegments wants pairs. Hidden parts are skipped, moved ones moved.
 function edgeSegments(mesh, view) {
   const positions = [], ids = [], parts = [];
   for (const group of mesh.edgeGroups || []) {
     const part = group.part || 0;
-    if (view.hidden.has(part)) continue;
-    const [dx, dy, dz] = view.offset(part);
+    if (view.isHidden(part)) continue;
+    const m = view.matrix(part);
     for (let k = group.start; k < group.start + group.count - 1; k++) {
-      positions.push(mesh.lines[k * 3] + dx, mesh.lines[k * 3 + 1] + dy, mesh.lines[k * 3 + 2] + dz, mesh.lines[k * 3 + 3] + dx, mesh.lines[k * 3 + 4] + dy, mesh.lines[k * 3 + 5] + dz);
+      positions.push(...apply(m, [mesh.lines[k * 3], mesh.lines[k * 3 + 1], mesh.lines[k * 3 + 2]]), ...apply(m, [mesh.lines[k * 3 + 3], mesh.lines[k * 3 + 4], mesh.lines[k * 3 + 5]]));
       ids.push(group.edgeId); parts.push(part);
     }
   }
   return { positions: new Float32Array(positions), ids, parts };
 }
 
-function subsetGeometry(mesh, faceIds, position, hidden) {
+function subsetGeometry(mesh, faceIds, position, normal, view) {
   const wanted = new Set(faceIds);
   const indices = [];
-  for (const group of mesh.faceGroups || []) if (wanted.has(group.faceId) && !hidden.has(group.part || 0)) for (let k = group.start; k < group.start + group.count; k++) indices.push(mesh.triangles[k]);
+  for (const group of mesh.faceGroups || []) if (wanted.has(group.faceId) && !view.isHidden(group.part || 0)) for (let k = group.start; k < group.start + group.count; k++) indices.push(mesh.triangles[k]);
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', position);
-  geometry.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
+  geometry.setAttribute('normal', normal);
   geometry.setIndex(indices);
   return geometry;
 }
@@ -57,8 +59,31 @@ export function createViewer(canvas, { interactive = false, theme = 'light', pre
   let target = new THREE.Vector3(), radius = 50;
   const spherical = new THREE.Spherical(1, Math.PI / 3, Math.PI / 4);
   // The parts: their names, colors and print-layout offsets; which are hidden; assembled or laid out for printing.
-  let parts = [], vertexPart = null, positionAttribute = null;
-  const view = { hidden: new Set(), layout: false, offset: part => (view.layout && parts.length > 1 ? parts[part]?.offset || ZERO : ZERO) };
+  let parts = [], vertexPart = null, positionAttribute = null, normalAttribute = null;
+  // Joint values by part name and how far the parts are pulled apart; both only in the assembled view.
+  const view = { hidden: new Set(), layout: false, pose: {}, explode: 0, matrices: [],
+    isHidden: part => view.hidden.has(part) || (view.layout && parts.length > 1 && parts[part]?.offset === null),
+    matrix: part => view.matrices[part] || null };
+  // Each part's matrix for the current layout, pose and explosion; null where a part does not move.
+  function placeParts() {
+    if (parts.length < 2) { view.matrices = []; return; }
+    if (view.layout) { view.matrices = parts.map(part => (part.offset ? translation(part.offset) : null)); return; }
+    const joints = parts.map(part => part.joint || null);
+    if (!joints.some(Boolean) && !(view.explode > 0)) { view.matrices = []; return; }
+    const posed = parts.map((_, index) => { const moves = movesOf(parts, joints, index, view.pose); return moves.length ? matrixOf(moves) : null; });
+    const boxes = parts.map((part, index) => {
+      const box = part.box || [ZERO, ZERO];
+      if (!posed[index]) return box;
+      const corners = [0, 1, 2, 3, 4, 5, 6, 7].map(k => apply(posed[index], [box[k & 1][0], box[(k >> 1) & 1][1], box[(k >> 2) & 1][2]]));
+      return [[0, 1, 2].map(axis => Math.min(...corners.map(c => c[axis]))), [0, 1, 2].map(axis => Math.max(...corners.map(c => c[axis])))];
+    });
+    const pushes = explodeOffsets(boxes, view.explode);
+    view.matrices = parts.map((_, index) => {
+      const moved = pushes[index].some(value => Math.abs(value) > 1e-9);
+      if (!posed[index] && !moved) return null;
+      return moved ? compose(posed[index] || translation(ZERO), translation(pushes[index])) : posed[index];
+    });
+  }
 
   const materials = () => ({
     part: new THREE.MeshStandardMaterial({ color: parts.length > 1 ? 0xffffff : palette.part, vertexColors: parts.length > 1, roughness: 0.75, metalness: 0.05, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }),
@@ -75,6 +100,8 @@ export function createViewer(canvas, { interactive = false, theme = 'light', pre
     view.hidden = new Set(parts.map((part, index) => hiddenNames.has(part.name) ? index : -1).filter(index => index >= 0));
     view.names = parts.map(part => part.name);
     if (parts.length < 2) view.layout = false;
+    // Joint values carry over by part name; a part that no longer moves drops its value.
+    view.pose = Object.fromEntries(Object.entries(view.pose).filter(([name]) => parts.some(part => part.name === name && part.joint && part.joint.type !== 'fixed')));
     vertexPart = null;
     if (next && parts.length > 1) {
       vertexPart = new Int16Array(next.vertices.length / 3);
@@ -88,23 +115,31 @@ export function createViewer(canvas, { interactive = false, theme = 'light', pre
     clear(root);
     if (!mesh) { faceOf = null; render(); return; }
     const { part, edge } = materials();
-    let vertices = mesh.vertices;
-    if (view.layout && vertexPart) {
-      vertices = new Float32Array(mesh.vertices);
-      for (let v = 0; v < vertexPart.length; v++) { const [dx, dy, dz] = view.offset(vertexPart[v]); vertices[v * 3] += dx; vertices[v * 3 + 1] += dy; vertices[v * 3 + 2] += dz; }
+    placeParts();
+    let vertices = mesh.vertices, normals = mesh.normals;
+    if (vertexPart && view.matrices.some(Boolean)) {
+      vertices = new Float32Array(mesh.vertices); normals = new Float32Array(mesh.normals);
+      for (let v = 0; v < vertexPart.length; v++) {
+        const m = view.matrices[vertexPart[v]];
+        if (!m) continue;
+        const i = v * 3;
+        vertices.set(apply(m, [mesh.vertices[i], mesh.vertices[i + 1], mesh.vertices[i + 2]]), i);
+        normals.set(apply(m, [mesh.normals[i], mesh.normals[i + 1], mesh.normals[i + 2]], 0), i);
+      }
     }
     positionAttribute = new THREE.BufferAttribute(vertices, 3);
+    normalAttribute = new THREE.BufferAttribute(normals, 3);
     const indices = [], faces = [], owners = [];
     for (const group of mesh.faceGroups || []) {
       const owner = group.part || 0;
-      if (view.hidden.has(owner)) continue;
+      if (view.isHidden(owner)) continue;
       for (let k = group.start; k < group.start + group.count; k++) indices.push(mesh.triangles[k]);
       for (let t = 0; t < group.count / 3; t++) { faces.push(group.faceId); owners.push(owner); }
     }
     faceOf = Int32Array.from(faces); trianglePart = Int16Array.from(owners);
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', positionAttribute);
-    geometry.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
+    geometry.setAttribute('normal', normalAttribute);
     if (vertexPart) {
       const colors = new Float32Array(mesh.vertices.length);
       const shade = palette === PALETTES.dark ? 0.62 : 1;
@@ -133,6 +168,16 @@ export function createViewer(canvas, { interactive = false, theme = 'light', pre
     const relayout = layout !== undefined && Boolean(layout) !== view.layout;
     if (layout !== undefined) view.layout = Boolean(layout) && parts.length > 1;
     build({ keepView: !relayout });
+  }
+
+  // Moves parts on their joints ({ part name: value }, merged unless replace) and pulls them apart (0 together .. 1 apart).
+  function setPose(pose = {}, { replace = false } = {}) {
+    view.pose = { ...(replace ? {} : view.pose), ...Object.fromEntries(Object.entries(pose || {}).filter(([, value]) => Number.isFinite(Number(value))).map(([name, value]) => [name, Number(value)])) };
+    if (mesh) build({ keepView: true });
+  }
+  function setExplode(amount) {
+    view.explode = Math.min(1, Math.max(0, Number(amount) || 0));
+    if (mesh) build({ keepView: true });
   }
 
   function setGhost(previous) {
@@ -208,7 +253,7 @@ export function createViewer(canvas, { interactive = false, theme = 'light', pre
     clear(overlay);
     if (!mesh) { render(); return; }
     if (faces.length) {
-      const highlight = new THREE.Mesh(subsetGeometry(mesh, faces, positionAttribute, view.hidden), new THREE.MeshBasicMaterial({ color: palette.highlight, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthTest: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
+      const highlight = new THREE.Mesh(subsetGeometry(mesh, faces, positionAttribute, normalAttribute, view), new THREE.MeshBasicMaterial({ color: palette.highlight, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthTest: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
       overlay.add(highlight);
     }
     if (edges.length) {
@@ -229,18 +274,17 @@ export function createViewer(canvas, { interactive = false, theme = 'light', pre
 
   function render() { renderer.setClearColor(palette.background, 1); renderer.render(scene, camera); onRender?.(); }
 
-  // A point of the assembled model where it is drawn now: moved with its part in the print layout.
+  // A point of the assembled model where it is drawn now: moved with its part (print layout, pose, explosion).
   function moved(at, part) {
     const index = typeof part === 'string' ? parts.findIndex(item => item.name === part) : Number.isInteger(part) ? part : -1;
-    const [dx, dy, dz] = index >= 0 ? view.offset(index) : ZERO;
-    return [at[0] + dx, at[1] + dy, at[2] + dz];
+    return index >= 0 ? apply(view.matrix(index), at) : at;
   }
 
   // Where a 3D point (of the assembled model; part names its part) lands on the canvas, in CSS pixels; null behind
   // the camera or on a hidden part.
   function project(at, part) {
     const index = typeof part === 'string' ? parts.findIndex(item => item.name === part) : -1;
-    if (index >= 0 && view.hidden.has(index)) return null;
+    if (index >= 0 && view.isHidden(index)) return null;
     camera.updateMatrixWorld();
     const vector = new THREE.Vector3(...moved(at, part)).project(camera);
     if (vector.z > 1) return null;
@@ -249,7 +293,7 @@ export function createViewer(canvas, { interactive = false, theme = 'light', pre
   }
 
   // A clicked point back in the assembled model's coordinates, so pins and the engine agree whatever the layout.
-  function assembled(at, part) { const [dx, dy, dz] = view.offset(part); return [at[0] - dx, at[1] - dy, at[2] - dz]; }
+  function assembled(at, part) { return unapply(view.matrix(part), at); }
   const partOf = index => (parts.length > 1 ? { part: parts[index]?.name } : {});
 
   const raycaster = new THREE.Raycaster();
@@ -340,7 +384,7 @@ export function createViewer(canvas, { interactive = false, theme = 'light', pre
     // Several parts: a legend of their colors and names, bottom left.
     if (parts.length > 1) {
       context.font = '600 13px Segoe UI, sans-serif';
-      const shown = parts.map((part, index) => ({ part, index })).filter(({ index }) => !view.hidden.has(index));
+      const shown = parts.map((part, index) => ({ part, index })).filter(({ index }) => !view.isHidden(index));
       shown.forEach(({ part, index }, row) => {
         const y = output.height - 14 - (shown.length - 1 - row) * 20;
         context.fillStyle = partColor(part, index); context.fillRect(10, y - 11, 13, 13);
@@ -356,8 +400,10 @@ export function createViewer(canvas, { interactive = false, theme = 'light', pre
   function dispose() { clear(root); clear(overlay); renderer.dispose(); }
 
   setTheme(theme);
-  return { setMesh, setGhost, setMarks, setParts, setView, setTheme, resize, render, pick, project, snapshot, dispose,
+  return { setMesh, setGhost, setMarks, setParts, setPose, setExplode, setView, setTheme, resize, render, pick, project, snapshot, dispose,
     get hasMesh() { return Boolean(mesh); },
-    get parts() { return parts.map((part, index) => ({ name: part.name, color: partColor(part, index), hidden: view.hidden.has(index) })); },
+    get parts() { return parts.map((part, index) => ({ name: part.name, color: partColor(part, index), hidden: view.hidden.has(index), bought: Boolean(part.bought) })); },
+    get pose() { return { ...view.pose }; },
+    get explode() { return view.explode; },
     get layout() { return view.layout; } };
 }
