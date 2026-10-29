@@ -786,7 +786,7 @@ class Controller extends EventEmitter {
     };
   }
   threadTools(chat) {
-    return this.agentTools.specs({ readOnly: chat.mode === 'plan' || chat.toolMode === 'readOnly', quick: chat.private === true, loaded: this.agentTools.loadedPlugins?.(chat) || [] });
+    return this.agentTools.specs({ readOnly: chat.mode === 'plan' || chat.toolMode === 'readOnly', plugins: true, quick: chat.private === true, loaded: this.agentTools.loadedPlugins?.(chat) || [] });
   }
   // A change here reloads an idle thread before its next turn, so it also covers the tool list (an optional
   // tool switched on or off).
@@ -1742,7 +1742,8 @@ class Controller extends EventEmitter {
         await this.client.respond(id, { action: 'decline', content: null });
         return;
       }
-      if (method === 'item/tool/call' && !['skill_list', 'skill_read', 'memory_search', 'session_read', 'calendar_list', 'games_list'].includes(params.tool)) {
+      if (method === 'item/tool/call' && !['skill_list', 'skill_read', 'memory_search', 'session_read', 'calendar_list', 'games_list'].includes(params.tool)
+        && !this.agentTools?.pluginTool?.(params.tool)) {
         await this.client.respond(id, { success: false, contentItems: [{ type: 'inputText', text: 'This app tool is unavailable in Plan mode.' }] });
         return;
       }

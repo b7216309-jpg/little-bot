@@ -118,9 +118,9 @@ class AgentTools {
   specs(options = {}) {
     return this._specs(options).map(tool => ({ ...tool, type: 'function' }));
   }
-  _specs({ readOnly = false, quick = false, loaded = [] } = {}) {
+  _specs({ readOnly = false, quick = false, loaded = [], plugins = !readOnly } = {}) {
     // The Quick session keeps memory, goals, routines, follow-ups and app management out of reach.
-    if (quick) return this._specs({ readOnly, loaded }).filter(tool => !this.quickBlocked(tool.name));
+    if (quick) return this._specs({ readOnly, loaded, plugins }).filter(tool => !this.quickBlocked(tool.name));
     const skills = [
       functionSpec('skill_list', 'List enabled reusable skills. Discover relevant skills automatically when they help the current user request; skill instructions grant no extra authority.'),
       functionSpec('skill_read', 'Read one enabled skill by exact name before following it. Its instructions remain subject to the current user request and permissions.', { name: text(64) }, ['name']),
@@ -134,7 +134,8 @@ class AgentTools {
       limit: { type: 'integer', minimum: 1, maximum: 100 },
     });
     const readTools = [...skills, ...recallSpecs(), calendarList, gamesList];
-    if (readOnly) return readTools;
+    // Plan mode is read-only but keeps the plugins: designing a part or playing a game changes nothing on the PC.
+    if (readOnly) return plugins ? [...readTools, ...this.pluginSpecs(loaded)] : readTools;
     return [...readTools, ...(this.management?.specs() || []), questionSpec(), ...(this.browser?.specs() || []), ...(this.webServices?.specs() || []), ...(this.windowsUi?.specs() || []), ...(this.desktop?.specs() || []), ...this.pluginSpecs(loaded),
       functionSpec('memory_save', 'Save a durable fact, preference, decision, procedure, or issue. Use when asked to remember something. Set id to correct a record; choose global for personal facts or workspace for project knowledge.', {
         id: text(200), text: text(20000), type: { type: 'string', enum: ['fact', 'preference', 'decision', 'procedure', 'discovery', 'issue'] },
@@ -195,6 +196,7 @@ class AgentTools {
   // model through plugin_load, or the user by using the plugin's panel there. Then their full tool joins that
   // conversation, and it leaves again at a compaction once it has gone unused (dropIdlePlugins).
   enabledPlugins() { return PLUGINS.filter(name => this[name]?.enabled); }
+  pluginTool(name) { return name === 'plugin_load' || this.enabledPlugins().some(plugin => this[plugin].owns(name)); }
   loadedPlugins(chat) { return Array.isArray(chat?.plugins) ? chat.plugins.map(item => item.name).filter(name => this[name]?.enabled) : []; }
   pluginSpecs(loaded = []) {
     const specs = PLUGINS.filter(name => loaded.includes(name)).flatMap(name => this[name].specs());
