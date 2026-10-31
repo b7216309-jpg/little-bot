@@ -14,7 +14,7 @@ test('a fresh install gets every bundled skill, the newer ones disabled', async 
   await installBundledSkills(fresh);
   const skills = fresh.data.extensions.skills;
   assert.equal(skills.length, 34);
-  assert.ok(skills.every(skill => skill.bundled && skill.content.length <= 20000));
+  assert.ok(skills.every(skill => skill.bundled && skill.content.length <= 100000));
   assert.deepEqual(skills.filter(skill => skill.enabled).map(skill => skill.name).sort(), [...ORIGINAL].sort());
   for (const name of ['phishing-check', 'home-network-check', 'generative-art', 'story-studio', 'debug-detective', 'flashcards']) {
     assert.equal(skills.find(skill => skill.name === name)?.enabled, false, name);
@@ -30,7 +30,7 @@ test('an upgrade adds the new skills once, disabled, and leaves existing ones an
   assert.equal(skills.find(skill => skill.name === 'journal'), mine, 'an edited, disabled skill is untouched');
   assert.equal(skills.filter(skill => skill.name === 'trip-planner').length, 1);
   assert.ok(skills.filter(skill => skill.name !== 'journal').every(skill => skill.enabled === false));
-  assert.equal(upgrading.data.extensions.starterSkillsVersion, 26);
+  assert.equal(upgrading.data.extensions.starterSkillsVersion, 27);
 
   // Deleting one afterwards is respected on the next launch.
   upgrading.data.extensions.skills = skills.filter(skill => skill.name !== 'trip-planner');
@@ -43,7 +43,7 @@ test('one unreadable starter skill or a full skill list skips only what cannot b
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'little-bot-skills-'));
   try {
     fs.cpSync(path.join(__dirname, '..', 'resources', 'skills'), root, { recursive: true });
-    fs.writeFileSync(path.join(root, 'flashcards', 'SKILL.md'), `---\nname: flashcards\ndescription: Too long\n---\n${'x'.repeat(20001)}`);
+    fs.writeFileSync(path.join(root, 'flashcards', 'SKILL.md'), `---\nname: flashcards\ndescription: Too long\n---\n${'x'.repeat(100001)}`);
     const fresh = store();
     const { skipped } = await installBundledSkills(fresh, root);
     assert.deepEqual(skipped.map(item => item.name), ['flashcards']);

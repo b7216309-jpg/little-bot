@@ -10,11 +10,27 @@ The visible timeline is separately indexed in chunks. Routine tool outputs and r
 
 ## Automatic learning
 
-A completed direct turn can create an extraction job. [MemoryConsolidator](../../src/memory-consolidator.cjs) waits for the shared execution lane, runs an ephemeral model session in cache slot 1, validates a small candidate schema and requires references to the job's source messages before saving facts.
+A completed direct turn can create an extraction job; a message of only common words ("ok thanks", "oui vas-y") creates neither a job nor a work episode, and an episode keeps at most 1,500 characters of the request and 3,000 of the outcome. [MemoryConsolidator](../../src/memory-consolidator.cjs) waits for the shared execution lane, runs an ephemeral model session in cache slot 1, validates a small candidate schema and requires references to the job's source messages before saving facts. It is shown the existing records closest to the message as well as the newest, since a model can only avoid or correct what it can see.
 
 Failures retry at most three times with backoff, then remain visible as failed learning jobs. UI controls and memory_manage expose Retry and Discard. The extraction model is the selected language model, not the embedding encoder. Foreground work pauses/cancels extraction.
 
 A valid response with no candidates is allowed. Tool-less local extraction uses Strata schema-constrained decoding; a malformed or invalid result gets one corrective turn before the normal three-attempt job backoff. Candidates without valid provenance or with unusable supersession targets are skipped. Consequently, a completed job is not a guarantee that every important fact was extracted. Raw conversation recall remains available. Automated selection is a quality limit, not proof of perfect memory curation.
+
+## What a request gets
+
+[buildContext](../../src/memory-service.cjs) writes plain lines, `- type (short id, date): text`, under one line saying this is reference data. Everything in it is sent once per context: the controller passes the ids the context already holds (`contextSent.memory`) and gets the new ones back. The default budget is 4,000 characters.
+
+1. Pins and preferences, up to 60% of the budget.
+2. If the message has meaningful words (`significantTerms`: common English and French words left out), at most six facts that `clearlyRelated` accepts: similarity of 0.6; or 0.45 with a shared word; or half of the message's meaningful words, at least two unless it has only one or two; or 0.5 and 0.08 clear of the next best. A fixed cut-off does not work with the bundled encoder: on made-up sentences, related English scored 0.46–0.63 and unrelated French up to 0.55.
+3. At most two work episodes, clipped to 400 characters, with similarity of 0.6, or 0.5 and two shared words. Ones from this chat still in its context are left out.
+
+Raw history is never added on its own. `memory_search` and `session_read` reach it, and tool results now carry only what the model needs (`recallSearch`), so later results are not pushed out of the output. The memory tools accept the short id (`resolveId`). The Memory page has **Show more**. The working checkpoint that used to go with every message is gone: it repeated the last exchange, and its table is dropped at startup.
+
+## Keeping it small
+
+- **Near duplicates** (`nearDuplicate`, automatic saves only): a memory with no meaningful word that a kept record lacks is dropped; one with every word of a kept record and more replaces it. It is strict because one different word can be the whole correction: "on Mondays" is a different fact from "on Fridays", and a memory and its negation are never compared. Pinned records are never replaced.
+- **Nightly tidy** (`mergeLearned`, `retireLearned`): see Dreaming below.
+- **Stored vectors** are rounded to five decimals, about half the size. Existing rows keep their form until they are next embedded.
 
 ## Learning quality and visibility
 
@@ -58,6 +74,6 @@ Memory is off; scope points at another project; aliases are absent; no relevant 
 
 ## Dreaming and intentions
 
-[Dreaming](../../src/dreaming.cjs) runs in the memory learning lane ([MemoryConsolidator](../../src/memory-consolidator.cjs)), so it never overlaps a conversation and stops when the user sends a message. It is due once at least four new user messages exist and either it is night (before 06:00, 16 hours since the last dream, PC idle 15 minutes) or 30 hours passed and the PC has been idle 10 minutes; **Dream now** on the Memory page skips the wait. It reads the recent conversation, remembered facts, the last diary entries, open intentions, the next four days of calendar, recent heartbeat notes and the heartbeat agenda, and returns a diary entry, at most three memories and at most three intentions. A memory is saved only when it cites the user's own messages, so the bot's claims cannot become facts.
+[Dreaming](../../src/dreaming.cjs) runs in the memory learning lane ([MemoryConsolidator](../../src/memory-consolidator.cjs)), so it never overlaps a conversation and stops when the user sends a message. It is due once at least four new user messages exist and either it is night (before 06:00, 16 hours since the last dream, PC idle 15 minutes) or 30 hours passed and the PC has been idle 10 minutes; **Dream now** on the Memory page skips the wait. It reads the recent conversation, remembered facts, the last diary entries, open intentions, the next four days of calendar, recent heartbeat notes and the heartbeat agenda, and returns a diary entry, at most three memories, at most three intentions, at most three merges of overlapping facts and at most five facts that are out of date. A memory is saved only when it cites the user's own messages, so the bot's claims cannot become facts. A merge names two or more facts it was shown and one text to replace them; an out-of-date fact must cite the user's own messages. Both apply only to active facts that Little Bot learned by itself and that are not pinned, in one scope, and the old records stay findable as superseded. The diary entry shows how many were tidied.
 
 [Intentions](../../src/companion.cjs) are prospective memory: something to bring up later, triggered by the next chat, a topic keyword, a date or a moment (back at the PC, got home, left home). Chat turns get matching ones as a context block; the heartbeat gets the ones due now or matching the presence event that woke it, and speaking up spends an offer. Each is offered at most once per 20 hours and three times, and expires (14 days from a dream, 30 from chat). The `intention_manage` tool lets the chat and the wild heartbeat create, list, finish or cancel them; the Quick session and goals cannot. Diary and intentions live in `state.json`'s encrypted part next to chats and memory.

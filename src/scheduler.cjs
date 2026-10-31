@@ -2,13 +2,17 @@
 
 const { randomUUID } = require('node:crypto');
 const { connectionBinding, isConnectionSelected, requireSelectedConnection } = require('./connections.cjs');
+const { parseLocalDateTime } = require('./calendar.cjs');
 
 const MINUTE_MS = 60 * 1000;
 const ALL_DAYS = Object.freeze([0, 1, 2, 3, 4, 5, 6]);
+const MAX_DELAY_MINUTES = 525600;
+// A one-time run this far past its time tells the model it is late.
+const LATE_MS = 5 * MINUTE_MS;
 
 function validInterval(value) {
-  if (!Number.isInteger(value) || value < 1 || value > 10080) {
-    throw new RangeError('The interval must be a whole number from 1 to 10080 minutes.');
+  if (!Number.isInteger(value) || value < 1 || value > 525600) {
+    throw new RangeError('The interval must be a whole number from 1 to 525600 minutes (one year).');
   }
   return value;
 }
@@ -30,6 +34,19 @@ function validDaysOfWeek(value) {
   return [...input].sort((left, right) => left - right);
 }
 
+// A date and time on this PC's clock, as text or as a timestamp already saved.
+function validRunAt(value) {
+  return parseLocalDateTime(typeof value === 'string' ? value.trim().replace(' ', 'T') : value, { label: 'date and time' });
+}
+
+// Whole minutes, so the saved time is the one the editor shows.
+function delayedRunAt(nowMs, delayMinutes) {
+  if (!Number.isInteger(delayMinutes) || delayMinutes < 1 || delayMinutes > MAX_DELAY_MINUTES) {
+    throw new RangeError(`The delay must be a whole number from 1 to ${MAX_DELAY_MINUTES} minutes.`);
+  }
+  return Math.ceil((nowMs + delayMinutes * MINUTE_MS) / MINUTE_MS) * MINUTE_MS;
+}
+
 function nextRunAt(nowMs, intervalMinutes) {
   if (!Number.isFinite(nowMs)) throw new TypeError('A valid current timestamp is required.');
   return nowMs + validInterval(intervalMinutes) * MINUTE_MS;
@@ -49,12 +66,16 @@ function nextClockRunAt(nowMs, clockTime, daysOfWeek = ALL_DAYS) {
 }
 
 function scheduleTypeOf(value) {
-  return value?.scheduleType === 'clock' ? 'clock' : 'interval';
+  return ['clock', 'once'].includes(value?.scheduleType) ? value.scheduleType : 'interval';
 }
 
-function scheduleFields(input, existing = null) {
+function scheduleFields(input, existing = null, nowMs = Date.now()) {
   const scheduleType = input.scheduleType === undefined ? scheduleTypeOf(existing) : input.scheduleType;
-  if (!['interval', 'clock'].includes(scheduleType)) throw new Error('Choose an interval or exact-time schedule.');
+  if (!['interval', 'clock', 'once'].includes(scheduleType)) throw new Error('Choose an interval, exact-time or one-time schedule.');
+  if (scheduleType === 'once') {
+    if (input.delayMinutes !== undefined) return { scheduleType, runAt: delayedRunAt(nowMs, input.delayMinutes) };
+    return { scheduleType, runAt: validRunAt(input.runAt === undefined ? existing?.runAt : input.runAt) };
+  }
   if (scheduleType === 'clock') {
     const clockTime = validClockTime(input.clockTime === undefined ? existing?.clockTime : input.clockTime);
     const daysOfWeek = validDaysOfWeek(input.daysOfWeek === undefined ? existing?.daysOfWeek : input.daysOfWeek);
@@ -65,13 +86,20 @@ function scheduleFields(input, existing = null) {
 }
 
 function scheduleSignature(value) {
-  return scheduleTypeOf(value) === 'clock'
+  const type = scheduleTypeOf(value);
+  if (type === 'once') return JSON.stringify(['once', value.runAt]);
+  return type === 'clock'
     ? JSON.stringify(['clock', value.clockTime, validDaysOfWeek(value.daysOfWeek)])
     : JSON.stringify(['interval', validInterval(value.intervalMinutes)]);
 }
 
 function nextAutomationRunAt(automation, nowMs) {
-  return scheduleTypeOf(automation) === 'clock'
+  const type = scheduleTypeOf(automation);
+  if (type === 'once') {
+    if (!(automation.runAt > nowMs)) throw new RangeError('Choose a date and time in the future for this one-time task.');
+    return automation.runAt;
+  }
+  return type === 'clock'
     ? nextClockRunAt(nowMs, automation.clockTime, automation.daysOfWeek)
     : nextRunAt(nowMs, automation.intervalMinutes);
 }
@@ -85,7 +113,7 @@ function validateAutomation(input, existing = null, settings = {}, nowMs = Date.
   const prompt = typeof input.prompt === 'string' ? input.prompt.trim() : '';
   if (!name || name.length > 80) throw new Error('Give the automation a name of 1 to 80 characters.');
   if (!prompt || prompt.length > 32000) throw new Error('The task must contain 1 to 32000 characters.');
-  const schedule = scheduleFields(input, existing);
+  const schedule = scheduleFields(input, existing, nowMs);
   if (input.enabled !== undefined && typeof input.enabled !== 'boolean') {
     throw new TypeError('Enabled must be true or false.');
   }
@@ -99,7 +127,10 @@ function validateAutomation(input, existing = null, settings = {}, nowMs = Date.
     prompt,
     ...schedule,
     enabled,
-    nextRunAt: resetSchedule ? nextAutomationRunAt(candidate, nowMs) : existing.nextRunAt,
+    // A finished one-time task can still be renamed; only a new time or switching it back on needs a future time.
+    nextRunAt: !resetSchedule ? existing.nextRunAt
+      : !enabled && scheduleTypeOf(candidate) === 'once' && existing && scheduleSignature(existing) === scheduleSignature(candidate) ? null
+        : nextAutomationRunAt(candidate, nowMs),
     lastRunAt: existing && Number.isFinite(existing.lastRunAt) ? existing.lastRunAt : null,
     lastStatus: existing && ['running', 'completed', 'error'].includes(existing.lastStatus) ? existing.lastStatus : 'never',
     ...(existing && typeof existing.lastError === 'string' ? { lastError: existing.lastError } : {}),
@@ -111,12 +142,13 @@ function validateAutomation(input, existing = null, settings = {}, nowMs = Date.
 }
 
 class Scheduler {
-  constructor({ store, run, canRun = () => true, onChange = () => {}, now = Date.now, publish = null }) {
+  constructor({ store, run, canRun = () => true, checkReady = () => {}, onChange = () => {}, now = Date.now, publish = null }) {
     if (!store || typeof store.save !== 'function') throw new TypeError('A store is required.');
     if (typeof run !== 'function') throw new TypeError('A task runner is required.');
     if (publish !== null && typeof publish !== 'function') throw new TypeError('Scheduler publish must be a function.');
     this.store = store;
     this.canRun = canRun;
+    this.checkReady = checkReady;
     this.run = run;
     this.onChange = onChange;
     this.now = now;
@@ -142,12 +174,13 @@ class Scheduler {
     const due = this.store.data.automations
       .filter(automation => automation.enabled && Number.isFinite(automation.nextRunAt) && automation.nextRunAt <= nowMs)
       .filter(automation => isConnectionSelected(automation, this.store.data.settings))
+      .filter(automation => scheduleTypeOf(automation) !== 'once' || this._ready(automation))
       .sort((left, right) => left.nextRunAt - right.nextRunAt)[0];
     if (!due) return null;
     if (this.publish) return this.publish({
       type: 'automation.due', source: 'scheduler', priority: 4,
       dedupeKey: `automation:due:${due.id}:${due.nextRunAt}`,
-      expiresAt: nowMs + Math.max(MINUTE_MS, scheduleTypeOf(due) === 'clock' ? 60 * MINUTE_MS : due.intervalMinutes * MINUTE_MS),
+      expiresAt: nowMs + Math.max(MINUTE_MS, scheduleTypeOf(due) === 'interval' ? due.intervalMinutes * MINUTE_MS : 60 * MINUTE_MS),
       payload: { automationId: due.id, name: due.name, workspace: due.workspace, dueAt: due.nextRunAt },
     });
     try {
@@ -164,19 +197,24 @@ class Scheduler {
     const automation = this.store.data.automations.find(item => item.id === id);
     if (!automation) throw new Error('This automation no longer exists.');
     requireSelectedConnection(automation, this.store.data.settings);
+    const once = scheduleTypeOf(automation) === 'once';
+    // Starting uses a one-time task up, so a stopped engine or model must leave it waiting.
+    if (once) this.checkReady(automation);
     this.runningId = id;
     try {
       const startedAt = this.now();
+      const lateFrom = once && automation.enabled && startedAt - automation.nextRunAt > LATE_MS ? automation.nextRunAt : null;
       automation.lastRunAt = startedAt;
       automation.lastStatus = 'running';
-      automation.nextRunAt = nextAutomationRunAt(automation, startedAt);
+      if (once) { automation.enabled = false; automation.nextRunAt = null; }
+      else automation.nextRunAt = nextAutomationRunAt(automation, startedAt);
       delete automation.lastError;
       this.store.save();
       this.onChange();
       this.publish?.({ type: 'automation.started', source: 'scheduler',
         payload: { automationId: automation.id, name: automation.name, workspace: automation.workspace, startedAt } });
       // The runner resolves only after its task finishes, including any user-input wait.
-      const result = await this.run({ ...automation });
+      const result = await this.run({ ...automation, ...(lateFrom ? { lateFrom } : {}) });
       if (result === false) throw new Error('The automation could not start.');
       this._finish(id, 'completed');
       return result;
@@ -188,6 +226,10 @@ class Scheduler {
     }
   }
 
+  _ready(automation) {
+    try { this.checkReady(automation); return true; } catch { return false; }
+  }
+
   _finish(id, status, error) {
     const automation = this.store.data.automations.find(item => item.id === id);
     if (!automation) return;
@@ -195,7 +237,7 @@ class Scheduler {
     if (error) automation.lastError = error;
     else delete automation.lastError;
     const nowMs = this.now();
-    if (!Number.isFinite(automation.nextRunAt) || automation.nextRunAt <= nowMs) {
+    if (scheduleTypeOf(automation) !== 'once' && (!Number.isFinite(automation.nextRunAt) || automation.nextRunAt <= nowMs)) {
       automation.nextRunAt = nextAutomationRunAt(automation, nowMs);
     }
     this.store.save();

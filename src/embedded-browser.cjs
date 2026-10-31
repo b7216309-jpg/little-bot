@@ -22,16 +22,20 @@ const KEYS = {
 const INTERACTIVE = new Set(['button', 'link', 'textbox', 'searchbox', 'checkbox', 'radio', 'combobox', 'listbox', 'option', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'tab', 'switch', 'slider', 'spinbutton', 'treeitem', 'textField', 'TextField', 'PopUpButton']);
 const STRUCTURE = new Set(['heading', 'img', 'image', 'list', 'listitem', 'table', 'row', 'cell', 'columnheader', 'rowheader', 'navigation', 'main', 'banner', 'contentinfo', 'form', 'dialog', 'alert', 'region', 'article', 'search', 'complementary', 'figure', 'paragraph']);
 const MAX_SNAPSHOT = 16000;
-const MAX_READ = 16000;
+const MAX_READ = 60000;
 const LOAD_TIMEOUT_MS = 20000;
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
 const scrub = value => String(value || '').replace(/(Bearer\s+)[^\s"']+/gi, '$1[redacted]').replace(/(?:sk-|fc-)[A-Za-z0-9_-]{12,}/g, '[redacted]').slice(0, 1200);
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const webUrl = value => { try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url : null; } catch { return null; } };
 const quote = value => JSON.stringify(String(value).replace(/\s+/g, ' ').trim().slice(0, 200));
+// A page in a view with no window still needs a size to lay itself out.
+const UNSEEN_BOUNDS = { x: 0, y: 0, width: 1280, height: 900 };
 
 class EmbeddedBrowser {
   // blocker: ad and tracker blocking for this browser's session (browser-blocker.cjs), or none.
+  // getWindow: the window that shows the panel. Without one the browser is unseen: work nobody is watching gets a view
+  // of its own with the panel's sign-ins, and the page the user has open stays where it is.
   constructor({ root, getWindow, onChange = () => {}, partition = 'persist:little-bot-browser', electron = require('electron'), blocker = null }) {
     this.root = path.resolve(root); this.getWindow = getWindow; this.onChange = onChange; this.partition = partition; this.electron = electron; this.blocker = blocker;
     this.view = null; this.attached = false; this.panel = false; this.hiddenByApp = false; this.bounds = null;
@@ -73,13 +77,14 @@ class EmbeddedBrowser {
     const view = new WebContentsView({ webPreferences: { session: this._session(), sandbox: true, contextIsolation: true, nodeIntegration: false,
       webviewTag: false, spellcheck: false, backgroundThrottling: false, safeDialogs: true, disableDialogs: false } });
     view.setBackgroundColor('#ffffff');
+    if (!this.getWindow) view.setBounds(UNSEEN_BOUNDS);
     const contents = view.webContents;
     contents.setWindowOpenHandler(({ url }) => { if (webUrl(url)) setImmediate(() => contents.loadURL(url).catch(() => {})); return { action: 'deny' }; });
     const guard = (event, url) => { if (!webUrl(url)) event.preventDefault(); };
     contents.on('will-navigate', guard); contents.on('will-redirect', guard); contents.on('will-frame-navigate', event => { if (event.isMainFrame && !webUrl(event.url)) event.preventDefault(); });
     contents.on('did-start-loading', () => { this.loading = true; this.onChange(); });
     contents.on('did-stop-loading', () => { this.loading = false; this._sync(); });
-    contents.on('did-navigate', () => { this.refs.clear(); this.blocker?.newPage(contents.id); this._sync(); });
+    contents.on('did-navigate', () => { this.refs.clear(); if (this.getWindow) this.blocker?.newPage(contents.id); this._sync(); });
     contents.on('did-navigate-in-page', () => this._sync());
     contents.on('page-title-updated', () => this._sync());
     contents.on('render-process-gone', () => { this.error = 'The page crashed. Reload or navigate again.'; this.refs.clear(); this.onChange(); });

@@ -16,11 +16,11 @@ The [engine](19-engine.md) sends standard Chat Completions requests straight to 
 
 A tool-less request with an output schema sends it as `response_format`. Strata prompts for the format and validates afterwards (`constrained_decoding: false` in `/v1/status`); it does not constrain the model while it writes. Tool-enabled turns (heartbeat, goals) put the schema in the prompt, and every caller still repairs and validates the result with [model-json](../../src/model-json.cjs).
 
-A prompt longer than the context is refused with HTTP 400; the engine names it as an overflow, compacts once and retries. An answer that loops is cut at its second repeat. An empty answer, or an output limit reached before any text, fails the turn with a message.
+A prompt longer than the context is refused with HTTP 400; the engine names it as an overflow, compacts once and retries; a summary request that does not fit either is sent again smaller. An answer that loops is cut at its second repeat. An empty answer, or an output limit reached before any text, fails the turn with a message.
 
 ## Cache ownership
 
-Strata reuses any earlier request's token prefix, and with conversation parking keeps whole conversations (in RAM, or on the SSD with the local patch) for later. Reuse needs the new prompt to start exactly like the old one, so the engine keeps each thread's system message and tool list byte-stable, writes request JSON with sorted keys, and stores every assistant turn exactly as it streamed: Qwen's template puts earlier reasoning back into the prompt. A compaction request carries the same tool block, because the template renders tools at the top of the prompt. Changing instructions, tools, profile or model needs a fresh prefill. Cached token counts are server-reported; a short delay alone does not prove a cache hit.
+Strata reuses any earlier request's token prefix, and with conversation parking keeps whole conversations (in RAM, or on the SSD with the local patch) for later. Reuse needs the new prompt to start exactly like the old one, so the engine keeps each thread's system message and tool list byte-stable, writes request JSON with sorted keys, and stores every assistant turn exactly as it streamed: Qwen's template puts earlier reasoning back into the prompt. A compaction request carries the same tool block, because the template renders tools at the top of the prompt, and turns thinking off, which changes only the end of the prompt. Changing instructions, tools, profile or model needs a fresh prefill. Cached token counts are server-reported; a short delay alone does not prove a cache hit.
 
 The [integration guide](../../integrations/strata/README.md) covers the SSD conversation-cache patch, its build and the cache check.
 

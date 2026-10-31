@@ -2,7 +2,7 @@
 // Little Bot has three kinds of chat: the one continuous conversation (where proactive messages and scheduled runs
 // land), the unsaved Quick session (marked private), and any number of saved sessions (marked session).
 
-const MAX_SESSIONS = 200;
+const MAX_SESSIONS = 1000;
 const TITLE_LIMIT = 80;
 const isQuick = chat => chat?.private === true;
 const isSession = chat => chat?.session === true && chat.private !== true;

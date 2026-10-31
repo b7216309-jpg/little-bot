@@ -4,7 +4,7 @@
 
 The renderer import path goes through [preload](../../src/preload.cjs), main IPC and [Attachments](../../src/attachments.cjs). Choosing/dropping/pasting a file creates a managed copy with an ID and metadata. Draft copies have leases; saved messages carry durable references.
 
-Imports allow eight files per turn, 20 MiB per file, 50 MiB total per turn and 512 MiB stored copies. The model receives at most 30,000 characters of combined inline document excerpts, plus original paths. Images are validated/resized for model input; preview delivery uses the little-bot-attachment protocol. Sending images requires model vision capability.
+Imports allow twenty files per turn, 100 MiB per file, 200 MiB total per turn and 4 GiB stored copies. The model receives at most 120,000 characters of combined inline document excerpts, or 30% of its context if that is less, plus original paths. PDF extraction reads up to 500 pages. Images are validated/resized for model input; preview delivery uses the little-bot-attachment protocol. Sending images requires model vision capability.
 
 Text extensions have an inline reader. PDF and DOCX extraction runs in a worker using unpdf/mammoth; cached extracted text avoids repeated parsing. Password-protected/unreadable documents produce explanatory notes. Unsupported formats remain attached as originals rather than being presented as successfully read. A scanned PDF does not gain OCR merely because PDF text extraction exists.
 

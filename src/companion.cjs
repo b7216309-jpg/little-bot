@@ -55,7 +55,7 @@ function normalizeCompanion(value, now = Date.now()) {
   const closed = intentions.filter(item => item.status !== 'active').slice(-MAX_CLOSED);
   const dreams = (Array.isArray(input.dreams) ? input.dreams : []).filter(item => item && typeof item === 'object' && clean(item.diary, 4000)).map(item => ({
     id: clean(item.id, 100) || randomUUID(), at: number(item.at, now), day: clean(item.day, 10) || localDay(number(item.at, now)),
-    diary: clean(item.diary, 4000), learned: Number.isInteger(item.learned) ? item.learned : 0, intentions: Number.isInteger(item.intentions) ? item.intentions : 0,
+    diary: clean(item.diary, 4000), learned: Number.isInteger(item.learned) ? item.learned : 0, intentions: Number.isInteger(item.intentions) ? item.intentions : 0, tidied: Number.isInteger(item.tidied) ? item.tidied : 0,
   })).slice(-MAX_DREAMS);
   return { lastDreamAt: number(input.lastDreamAt, null), lastDreamError: clean(input.lastDreamError, 300) || null, dreams, intentions: [...closed, ...active] };
 }

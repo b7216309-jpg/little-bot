@@ -9,9 +9,8 @@ Little Bot keeps one continuous conversation, plus the unsaved Quick session and
 The database keeps:
 
 - Facts, preferences, decisions, discoveries, procedures, and unresolved issues.
-- One work episode for each completed turn, with source links.
+- One short work episode for each completed turn that asked for something, with source links.
 - Searchable conversation and tool text, including earlier text after engine compaction.
-- A working checkpoint describing the latest objective, status, outcome, and answer.
 - Searchable goal ledger evidence, whose authoritative record remains the goal itself.
 - Stable project IDs and folder aliases, so moving a project does not orphan its knowledge.
 - Durable extraction jobs that resume after interruption or restart.
@@ -20,19 +19,21 @@ There is no 100-fact cap, 30-episode cap, or automatic 30-day expiry. The memory
 
 ## Learning
 
-After a completed turn, Little Bot queues a memory extraction job. While the foreground execution lane is idle, an ephemeral engine turn extracts useful durable knowledge using the selected model. This consumes model tokens. The extraction job receives the source messages and existing records; it does not run tools. User messages take priority: a new message interrupts extraction and waits for its terminal acknowledgment before starting. Interrupted jobs remain pending. Failed jobs retain their error and retry later.
+After a completed turn, Little Bot queues a memory extraction job, unless the message was only common words such as "ok thanks" or "oui vas-y": those cost no model request. While the foreground execution lane is idle, an ephemeral engine turn extracts useful durable knowledge using the selected model. This consumes model tokens. The extraction job receives the source messages and the existing records closest to them; it does not run tools. User messages take priority: a new message interrupts extraction and waits for its terminal acknowledgment before starting. Interrupted jobs remain pending. Failed jobs retain their error and retry later.
 
 Every automatically extracted memory cites original message IDs. Suggestions should not be stored as accepted decisions. Automatic extraction can still make mistakes; the panel exposes the original sources and lets you correct them. No private reasoning or chain-of-thought transcript is requested by the extraction prompt.
 
-Use `memory_save` for immediate explicit remembering, correction, or pinning; `memory_forget` forgets a record by ID. The familiar "Remember that ..." prefix also saves immediately. Other languages and phrasings can use the model's memory tool or automatic extraction.
+Use `memory_save` for immediate explicit remembering, correction, or pinning; `memory_forget` forgets a record by ID. "Remember that ..." and its French forms ("Souviens-toi que ...", "Retiens que ...", "N'oublie pas que ...") also save immediately, for every folder. Other phrasings can use the model's memory tool or automatic extraction.
 
 Editing a memory creates a new version and marks the previous version superseded. Pin changes preserve the record ID. Search normally selects active records; historical versions can be requested explicitly. Stable semantic keys let later extraction update an existing subject rather than accumulate contradictory copies. A category such as `user.preference` names no subject, so records filed under one never replace or forget each other. Preferences and procedures are learned only from the user's own messages: text in a page, a file or a command's output asking to be remembered is dropped.
+
+A learned memory that only rewords one already kept is dropped, and one that says the same and more replaces it, unless the older one is pinned. Once a night the dream can merge learned memories that overlap and retire ones the user's own messages show are no longer true (they stay findable as superseded). Only what Little Bot learned by itself is tidied: pins and anything you asked it to remember stay as written.
 
 Forget removes the selected durable record and its correction family from retrieval. It stores suppression fingerprints, keys, and source references to prevent the same source being automatically learned again. It does not erase the original conversation transcript. Explicitly saving a new memory is still possible.
 
 ## Retrieval
 
-Each request receives a bounded selection of relevant project/global memories, pinned records, preferences, and the working checkpoint. Full-text search supports precise terms, commands, and filenames. `memory_search` returns source-linked results; `session_read` can jump directly to a message and page surrounding history. `scope: "all"` searches across projects, regardless of which model originally produced the record.
+A request receives memory in a short form, each record once per context, up to 4,000 characters: pins and preferences first, then at most six records that clearly relate to the message, then at most two past work episodes with a strong match. A message of only common words recalls nothing beyond pins and preferences, and raw history is never added on its own. "Clearly relates" means a similarity of 0.6, or 0.45 with a shared word, or 0.5 well clear of the next best record, or half of the message's meaningful words; the bundled encoder scores French text about 0.15 higher whatever it says, so similarity alone would not do. Everything else is one `memory_search` away. Full-text search supports precise terms, commands, and filenames, and leaves out common words. `memory_search` returns source-linked results; `session_read` can jump directly to a message and page surrounding history. `scope: "all"` searches across projects, regardless of which model originally produced the record.
 
 Semantic search defaults to bundled BGE-base-en-v1.5 (quantized ONNX, 768 dimensions). The model runs in a worker using the ONNX CPU provider, at most two inference threads, with no network requests or separate server at runtime. Long text is processed in 510-token windows, CLS-pooled, combined and normalized. This compact model is primarily English. Queries receive BGE's retrieval instruction; passages do not. Background indexing stores vectors locally; queries combine keyword matches and cosine similarity, excluding unrelated semantic-only hits below 0.4. Tool output and reasoning traces remain readable through session_read, but are excluded from recall and embeddings. The Memory panel defaults to saved knowledge rather than raw history.
 

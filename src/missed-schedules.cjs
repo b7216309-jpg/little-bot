@@ -15,6 +15,8 @@ function advanceMissedSchedules(data, nowMs = Date.now()) {
 
   for (const automation of Array.isArray(data.automations) ? data.automations : []) {
     if (!automation?.enabled || !Number.isFinite(automation.nextRunAt) || automation.nextRunAt > nowMs) continue;
+    // A one-time task has no next occurrence to move to, so it stays due and runs once when it can.
+    if (automation.scheduleType === 'once') continue;
     const dueAt = automation.nextRunAt;
     // Missed occurrences are skipped, not replayed: a week away must not become a burst.
     automation.nextRunAt = nextAutomationRunAt(automation, nowMs);

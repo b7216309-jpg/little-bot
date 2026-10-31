@@ -10,6 +10,8 @@ The agent tool supports navigate, snapshot, read, ref-based click/fill/select/ch
 - Fill selects the field, then inserts text.
 - Off screen (minimized or covered), Enter and Space fall back to their common default actions. Screenshots then return an error that suggests snapshot or read.
 
+A heartbeat check drives a second instance with no window, on the same partition. It has the panel's sign-ins, lays pages out at a fixed size, never opens the panel, leaves the user's page and the shield's count alone, and closes when the check ends. It is always off screen, so the rules above apply.
+
 ### Ad and tracker blocking
 
 [BrowserBlocker](../../src/browser-blocker.cjs) runs Ghostery's blocker (`@ghostery/adblocker-electron` 2.20.1, the engine of the Ghostery extension) in the browser's own partition only. The app's window, the CAD engine page and other sessions are untouched.
@@ -52,7 +54,7 @@ Rules:
 
 ## Search and scrape
 
-[WebServices](../../src/web-services.cjs) supplies the keyless `web_search_service` and `web_scrape` tools; see [WEB-SERVICES.md](../../WEB-SERVICES.md). Search fans out to DuckDuckGo, Bing and Yahoo result pages through Electron's network stack (own partition, not the browser profile), fuses and ranks the results, and adds the best passage of the top pages. `queries` (up to 10) and `urls` (up to 10) run in parallel. Reading tries a direct fetch, then a hidden browser render for JavaScript sites, then the public reader service r.jina.ai; PDFs are supported. Direct chat can use the tools; goals require their saved network permission. Heartbeat has network disabled.
+[WebServices](../../src/web-services.cjs) supplies the keyless `web_search_service` and `web_scrape` tools; see [WEB-SERVICES.md](../../WEB-SERVICES.md). Search fans out to DuckDuckGo, Bing and Yahoo result pages through Electron's network stack (own partition, not the browser profile), fuses and ranks the results, and adds the best passage of the top pages. `queries` (up to 10) and `urls` (up to 10) run in parallel. Reading tries a direct fetch, then a hidden browser render for JavaScript sites, then the public reader service r.jina.ai; PDFs are supported. Direct chat can use the tools; goals require their saved network permission. A heartbeat can use them; a night-shift step cannot.
 
 Results are cached for 30 minutes and pages for 6 hours. An engine that rate limits is paused for 2, 10, then 30 minutes. Local and private addresses are refused before and after every redirect, and each redirect target's name is looked up first, so a public name that points at this PC (`localtest.me`) is refused too. The web partition also refuses every request a rendered page makes (scripts, frames, sockets) to a local or private address. Failures are returned as tool errors, not fabricated results.
 

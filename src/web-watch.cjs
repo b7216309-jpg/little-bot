@@ -7,7 +7,7 @@ const { publicUrl, publicAddress } = require('./web-services.cjs');
 
 // Pages the user or the agent asked to watch. Checked only while the app is open, one at a time,
 // public http(s) addresses only. The first check records a baseline; later changes are reported.
-const MAX_WATCHES = 20;
+const MAX_WATCHES = 100;
 const MAX_BYTES = 2 * 1024 * 1024;
 const SNAPSHOT_CHARS = 8000;
 const TICK_MS = 10 * 60000;
@@ -67,7 +67,7 @@ function normalizeWatches(value) {
     try {
       return [{
         id: clip(item.id, 100) || randomUUID(), url: safeUrl(item.url), label: clip(item.label, 80) || new URL(item.url).hostname,
-        intervalHours: Number.isInteger(item.intervalHours) && item.intervalHours >= 6 && item.intervalHours <= 168 ? item.intervalHours : 24,
+        intervalHours: Number.isInteger(item.intervalHours) && item.intervalHours >= 1 && item.intervalHours <= 168 ? item.intervalHours : 24,
         createdAt: Number.isFinite(item.createdAt) ? item.createdAt : Date.now(),
         lastCheckedAt: Number.isFinite(item.lastCheckedAt) ? item.lastCheckedAt : null,
         lastChangeAt: Number.isFinite(item.lastChangeAt) ? item.lastChangeAt : null,
@@ -90,7 +90,7 @@ class WebWatcher {
     if (this.watches.length >= MAX_WATCHES) throw new Error(`At most ${MAX_WATCHES} pages can be watched. Remove one first.`);
     const address = safeUrl(url);
     if (this.watches.some(item => item.url === address)) throw new Error('That page is already watched.');
-    if (intervalHours !== undefined && !(Number.isInteger(intervalHours) && intervalHours >= 6 && intervalHours <= 168)) throw new Error('intervalHours must be from 6 to 168.');
+    if (intervalHours !== undefined && !(Number.isInteger(intervalHours) && intervalHours >= 1 && intervalHours <= 168)) throw new Error('intervalHours must be from 1 to 168.');
     const item = normalizeWatches([{ url: address, label: clip(label, 80) || new URL(address).hostname, intervalHours: intervalHours ?? 24, createdAt: this.now() }])[0];
     this.watches.push(item); this.save();
     void this.check(item).catch(() => {});

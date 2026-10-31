@@ -92,7 +92,7 @@ function validateSkill(input, existing = null) {
   const skill = {
     id: idOf(input, existing), name: nameOf(input.name, 'Skill name'),
     description: boundedText(input.description, 'Skill description', 1000, true),
-    content: boundedText(input.content, 'Skill instructions', 20000, true),
+    content: boundedText(input.content, 'Skill instructions', 100000, true),
     enabled: input.enabled !== false,
     createdAt: timestamp(existing?.createdAt ?? input.createdAt, now), updatedAt: now,
   };

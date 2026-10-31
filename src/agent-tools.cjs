@@ -112,7 +112,7 @@ function correctedArgs(schema, input) {
 function distance(a, b) { const row = Array.from({ length: b.length + 1 }, (_, i) => i); for (let i = 1; i <= a.length; i++) { let prev = row[0]; row[0] = i; for (let j = 1; j <= b.length; j++) { const old = row[j]; row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = old; } } return row[b.length]; }
 
 class AgentTools {
-  constructor({ management, store, manageGoal, manageSchedule, manageCalendar, manageFollowup, manageWatch, manageIntention, proposeLaunch, phoneAction, browser, webServices, windowsUi, desktop, cad, draughts, torrents, sendAttachment, controller, onLesson }) { this.desktop = desktop; this.cad = cad; this.draughts = draughts; this.torrents = torrents; this.manageIntention = manageIntention; this.phoneAction = phoneAction; this.management = management; this.store = store; this.manageGoal = manageGoal; this.manageSchedule = manageSchedule; this.manageCalendar = manageCalendar; this.manageFollowup = manageFollowup; this.manageWatch = manageWatch; this.proposeLaunch = proposeLaunch; this.browser = browser; this.webServices = webServices; this.windowsUi = windowsUi; this.sendAttachment = sendAttachment; this.onLesson = onLesson || ((modelId, key, text) => controller?.recordLesson(modelId, key, text)); }
+  constructor({ management, store, manageGoal, manageSchedule, manageCalendar, manageFollowup, manageWatch, manageIntention, proposeLaunch, phoneAction, browser, heartbeatBrowser, webServices, windowsUi, desktop, cad, draughts, torrents, sendAttachment, controller, onLesson }) { this.desktop = desktop; this.cad = cad; this.draughts = draughts; this.torrents = torrents; this.manageIntention = manageIntention; this.phoneAction = phoneAction; this.management = management; this.store = store; this.manageGoal = manageGoal; this.manageSchedule = manageSchedule; this.manageCalendar = manageCalendar; this.manageFollowup = manageFollowup; this.manageWatch = manageWatch; this.proposeLaunch = proposeLaunch; this.browser = browser; this.heartbeatBrowser = heartbeatBrowser; this.webServices = webServices; this.windowsUi = windowsUi; this.sendAttachment = sendAttachment; this.onLesson = onLesson || ((modelId, key, text) => controller?.recordLesson(modelId, key, text)); }
   // The engine rejects a thread whose dynamic tools mix the canonical {type:'function'} form with the
   // legacy form, so every source (app management, browser, services) is normalized here.
   specs(options = {}) {
@@ -146,17 +146,19 @@ class AgentTools {
       functionSpec('goal_manage', 'List or edit goals, create a draft, pause, or resume an authorized goal. Drafts never start work; resume only when requested. Tools cannot raise permissions/budgets or change folders. Use concrete completion checks.', {
         action: { type: 'string', enum: [...actions, 'answer'] }, id: text(100), questionId: text(100), answer: text(2000), kind: { type: 'string', enum: ['task', 'ongoing'] }, name: text(80), objective: text(12000), steps: { type: 'array', maxItems: 20, items: text(1000) }, checks: { type: 'array', maxItems: 20, items: checkSchema },
       }, ['action']),
-      functionSpec('schedule_manage', 'List or edit recurring routines. Set enabled:true only when asked; false saves a draft or pauses. Resume enables a draft. Updates preserve enabled state unless set. Schedules repeat by interval or PC-local weekday/time in this chat folder. Pause all suspends runs.', {
+      functionSpec('schedule_manage', 'List or edit routines: repeating by interval or PC-local weekday/time, or one-time (timers and reminders, which turn off after running). Set enabled:true only when asked; a request to run or remind later counts. false saves a draft or pauses. Resume enables a draft. Updates preserve enabled state unless set. A new routine runs in this chat folder. Pause all suspends runs.', {
         action: { type: 'string', enum: actions }, id: text(100), name: text(80), prompt: text(32000),
         enabled: { type: 'boolean', description: 'Enable scheduled runs, or save disabled. Creation defaults to disabled; updates preserve the current state.' },
-        scheduleType: { type: 'string', enum: ['interval', 'clock'] },
-        intervalMinutes: { type: 'integer', minimum: 1, maximum: 10080 },
+        scheduleType: { type: 'string', enum: ['interval', 'clock', 'once'] },
+        intervalMinutes: { type: 'integer', minimum: 1, maximum: 525600 },
         clockTime: { type: 'string', minLength: 5, maxLength: 5, description: 'PC-local 24-hour time in HH:MM format.' },
         daysOfWeek: { type: 'array', minItems: 1, maxItems: 7, uniqueItems: true, items: { type: 'integer', minimum: 0, maximum: 6 }, description: 'Allowed local weekdays: 0=Sunday through 6=Saturday.' },
+        runAt: { type: 'string', maxLength: 16, description: 'One-time run at this PC-local date and time, as YYYY-MM-DDTHH:MM.' },
+        delayMinutes: { type: 'integer', minimum: 1, maximum: 525600, description: 'One-time run this many minutes from now, instead of runAt.' },
       }, ['action']),
       ...(this.manageWatch ? [functionSpec('web_watch', 'List, add, or remove public HTTP(S) page watches. Checks run while Little Bot is open; changes appear in chat.', {
         action: { type: 'string', enum: ['list', 'add', 'remove'] }, id: text(100), url: text(2000), label: text(80),
-        intervalHours: { type: 'integer', minimum: 6, maximum: 168 },
+        intervalHours: { type: 'integer', minimum: 1, maximum: 168 },
       }, ['action'])] : []),
       ...(this.proposeLaunch ? [functionSpec('launch_propose', 'Offer to launch an installed Steam game; it starts only if the user clicks. Get appid with games_list.', {
         appid: text(12), note: { type: 'string', maxLength: 600 },
@@ -169,7 +171,7 @@ class AgentTools {
       }, ['action'])] : []),
       ...(this.manageFollowup ? [functionSpec('followup_manage', 'Create, list, or cancel a one-time Heartbeat check-in. It is for your own follow-up, not a reminder to others; requires Wild initiative.', {
         action: { type: 'string', enum: ['create', 'list', 'cancel'] }, id: text(100), note: text(300),
-        inMinutes: { type: 'integer', minimum: 5, maximum: 43200, description: 'Minutes from now. Use this or atLocal.' },
+        inMinutes: { type: 'integer', minimum: 5, maximum: 525600, description: 'Minutes from now. Use this or atLocal.' },
         atLocal: { type: 'string', minLength: 16, maxLength: 16, description: 'PC-local YYYY-MM-DDTHH:MM.' },
       }, ['action'])] : []),
       ...(this.manageIntention ? [functionSpec('intention_manage', 'Create a future follow-up (when asked or useful), list, mark done after raising it, or cancel. Triggers: next chat, 1�4 topic keywords, local date, or moment. Offered at most daily, three times, then expires.', {
@@ -270,7 +272,7 @@ class AgentTools {
       const value = await this._dispatch(name, normalized, options);
       if (value && Array.isArray(value.results) && !value.results.length && name === 'memory_search') value.message = 'No matching memory records found.';
       const encoded = JSON.stringify(value ?? { ok: true });
-      if (encoded.length > 24000) return { truncated: true, content: `${encoded.slice(0, 11500)}\n[... tool output trimmed ...]\n${encoded.slice(-11500)}` };
+      if (encoded.length > 64000) return { truncated: true, content: `${encoded.slice(0, 31500)}\n[... tool output trimmed ...]\n${encoded.slice(-31500)}` };
       return value;
     }
     catch (error) {
@@ -289,7 +291,7 @@ class AgentTools {
     }
   }
   async _dispatch(name, args, { chat, signal } = {}) {
-    if (!object(args) || JSON.stringify(args).length > 50000) throw new Error('Tool arguments must be a bounded object.');
+    if (!object(args) || JSON.stringify(args).length > 250000) throw new Error('Tool arguments must be a bounded object.');
     if (chat?.private && this.quickBlocked(name)) throw new Error('This tool is off in the Quick session.');
     if (this.management?.specs().some(tool => tool.name === name)) return this.management.call(name,args,{chat});
     if (name === 'memory_search') {
@@ -303,7 +305,7 @@ class AgentTools {
       if (!chat) throw new Error('Memory writing needs a conversation or active task.');
       if (name === 'memory_forget') {
         if (Object.keys(args).some(key => key !== 'id')) throw new Error('Forget accepts only a memory ID.');
-        const id = string(args.id, 'memory ID', 200, true);
+        const id = service.resolveId(string(args.id, 'memory ID', 200, true));
         const forgotten = service.forget(id);
         if (forgotten) markForgotten(this.store.data, id);
         this.store.save(); return { forgotten };
@@ -316,6 +318,7 @@ class AgentTools {
         else if (value !== null && value !== '' && !(key === 'pinned' && typeof value !== 'boolean')) fields[key] = value;
       }
       const message = [...(chat.messages || [])].reverse().find(item => item.role === 'user');
+      if (fields.id) fields.id = service.resolveId(fields.id);
       const record = service.save({ ...fields, text: string(args.text, 'memory text', 20000, true),
         workspace: chat.workspace, source: { sessionId: chat.id, messageId: message?.id, messageIds: message?.id ? [message.id] : [], origin: 'remember' } });
       this.store.save(); return ignored.length ? { record, ignoredFields: ignored } : { record };
@@ -350,10 +353,12 @@ class AgentTools {
       return this.desktop.call(name, args, { chat });
     }
     if (['browser', 'web_search_service', 'web_scrape'].includes(name)) {
-      if (!chat || chat.internal) throw new Error('Browser and web tools require a user conversation or a scheduled task; goals need their saved network permission.');
+      if (!chat || (chat.internal && !chat.webAccess)) throw new Error('Browser and web tools require a user conversation, a scheduled task or a heartbeat; goals need their saved network permission.');
       if (name === 'browser') {
-        if (!this.browser) throw new Error('The browser is unavailable.');
-        return this.browser.call(args, { isActive: () => chat.status === 'running', owner: chat.id });
+        // A heartbeat has a view of its own: it never opens the panel or takes the page the user has open.
+        const browser = chat.internal ? this.heartbeatBrowser : this.browser;
+        if (!browser) throw new Error('The browser is unavailable.');
+        return browser.call(args, { isActive: () => chat.status === 'running', owner: chat.id });
       }
       if (!this.webServices) throw new Error('Web tools are unavailable.');
       return this.webServices.call(name, args, { signal });
@@ -361,7 +366,7 @@ class AgentTools {
     const allowed = {
       skill_list: [], skill_read: ['name'],
       goal_manage: ['action', 'id', 'name', 'objective', 'steps', 'checks', 'kind', 'questionId', 'answer'],
-      schedule_manage: ['action', 'id', 'name', 'prompt', 'enabled', 'scheduleType', 'intervalMinutes', 'clockTime', 'daysOfWeek'],
+      schedule_manage: ['action', 'id', 'name', 'prompt', 'enabled', 'scheduleType', 'intervalMinutes', 'clockTime', 'daysOfWeek', 'runAt', 'delayMinutes'],
       calendar_list: ['fromLocal', 'toLocal', 'limit'],
       calendar_manage: ['action', 'id', 'title', 'startLocal', 'endLocal', 'allDay', 'location', 'notes', 'fromLocal', 'toLocal', 'limit'],
       followup_manage: ['action', 'id', 'note', 'inMinutes', 'atLocal'],
@@ -430,7 +435,7 @@ class AgentTools {
       if (args.action !== 'create') throw new Error('Unsupported follow-up action.');
       let at;
       if (args.inMinutes !== undefined) {
-        if (!Number.isInteger(args.inMinutes) || args.inMinutes < 5 || args.inMinutes > 43200) throw new Error('inMinutes must be from 5 to 43200.');
+        if (!Number.isInteger(args.inMinutes) || args.inMinutes < 5 || args.inMinutes > 525600) throw new Error('inMinutes must be from 5 to 525600.');
         at = Date.now() + args.inMinutes * 60000;
       } else {
         const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(string(args.atLocal, 'atLocal', 16, true));
@@ -491,11 +496,11 @@ class AgentTools {
       payload.enabled = args.enabled;
     }
     if (args.scheduleType !== undefined) {
-      if (!['interval', 'clock'].includes(args.scheduleType)) throw new Error('Invalid schedule type.');
+      if (!['interval', 'clock', 'once'].includes(args.scheduleType)) throw new Error('Invalid schedule type.');
       payload.scheduleType = args.scheduleType;
     }
     if (args.intervalMinutes !== undefined) {
-      if (!Number.isInteger(args.intervalMinutes) || args.intervalMinutes < 1 || args.intervalMinutes > 10080) throw new Error('Invalid schedule interval.');
+      if (!Number.isInteger(args.intervalMinutes) || args.intervalMinutes < 1 || args.intervalMinutes > 525600) throw new Error('Invalid schedule interval.');
       payload.intervalMinutes = args.intervalMinutes;
       if (payload.scheduleType === undefined) payload.scheduleType = 'interval';
     }
@@ -509,6 +514,16 @@ class AgentTools {
         || args.daysOfWeek.some(day => !Number.isInteger(day) || day < 0 || day > 6)
         || new Set(args.daysOfWeek).size !== args.daysOfWeek.length) throw new Error('Invalid schedule weekdays.');
       payload.daysOfWeek = [...args.daysOfWeek];
+    }
+    if (args.runAt !== undefined) {
+      if (typeof args.runAt !== 'string') throw new Error('Invalid one-time date and time.');
+      payload.runAt = args.runAt;
+      if (payload.scheduleType === undefined) payload.scheduleType = 'once';
+    }
+    if (args.delayMinutes !== undefined) {
+      if (!Number.isInteger(args.delayMinutes)) throw new Error('Invalid one-time delay.');
+      payload.delayMinutes = args.delayMinutes;
+      if (payload.scheduleType === undefined) payload.scheduleType = 'once';
     }
     if (['list', 'pause', 'resume'].includes(args.action) && Object.keys(payload).some(key => key !== 'id')) throw new Error('This action cannot also change record settings.');
     const callback = name === 'goal_manage' ? this.manageGoal : this.manageSchedule;

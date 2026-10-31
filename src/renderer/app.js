@@ -154,6 +154,7 @@ let editingServerId = null;
 let editingSkillId = null;
 const extensionPending = new Set();
 const compactionPending = new Set();
+const MAX_ATTACHMENTS = 20;
 let editingGoalId = null;
 let goalDraftContext = null;
 let goalCheckSequence = 0;
@@ -806,8 +807,8 @@ function renderAttachmentQueue() {
   host.replaceChildren();
   renderAttachments(host, queuedAttachments(), { draft: true });
   host.classList.toggle('hidden', !queuedAttachments().length);
-  $('attach-button').disabled = sending || attachmentImportPending || queuedAttachments().length >= 8;
-  $('attach-button').title = attachmentImportPending ? 'Adding files…' : 'Attach files or images · up to 8';
+  $('attach-button').disabled = sending || attachmentImportPending || queuedAttachments().length >= MAX_ATTACHMENTS;
+  $('attach-button').title = attachmentImportPending ? 'Adding files…' : `Attach files or images · up to ${MAX_ATTACHMENTS}`;
   $('attachment-import-status').textContent = attachmentImportPending ? 'Adding files…' : '';
   $('attachment-import-status').classList.toggle('hidden', !attachmentImportPending);
 }
@@ -815,9 +816,9 @@ function renderAttachmentQueue() {
 async function addAttachments(files = null) {
   if (sending || attachmentImportPending) return;
   const key = draftKey();
-  const remaining = 8 - (attachmentDrafts.get(key) || []).length;
+  const remaining = MAX_ATTACHMENTS - (attachmentDrafts.get(key) || []).length;
   if (remaining <= 0 || (files && files.length > remaining)) {
-    notify('Attach up to 8 files per message.', true);
+    notify(`Attach up to ${MAX_ATTACHMENTS} files per message.`, true);
     return;
   }
   attachmentImportPending = true;
@@ -829,8 +830,8 @@ async function addAttachments(files = null) {
     const additions = (Array.isArray(imported) ? imported : imported?.attachments || []).filter((item) => attachmentSource(item));
     const existing = attachmentDrafts.get(key) || [];
     const unique = [...existing, ...additions.filter((item) => !existing.some((saved) => saved.id === item.id))];
-    if (unique.length > 8) notify('Only the first 8 files were added.', true);
-    const retained = unique.slice(0, 8);
+    if (unique.length > MAX_ATTACHMENTS) notify(`Only the first ${MAX_ATTACHMENTS} files were added.`, true);
+    const retained = unique.slice(0, MAX_ATTACHMENTS);
     attachmentDrafts.set(key, retained);
     await releaseAttachments((Array.isArray(imported) ? imported : imported?.attachments || []).filter(item => !retained.some(saved => saved.id === item.id)));
   } catch (error) {
@@ -844,8 +845,8 @@ async function addAttachments(files = null) {
 async function pasteAttachments(files) {
   if (sending || attachmentImportPending) return;
   const key = draftKey();
-  if ((attachmentDrafts.get(key) || []).length + files.length > 8) return notify('Attach up to 8 files per message.', true);
-  if (files.some((file) => file.size > 20 * 1024 * 1024)) return notify('Each attachment must be under 20 MB.', true);
+  if ((attachmentDrafts.get(key) || []).length + files.length > MAX_ATTACHMENTS) return notify(`Attach up to ${MAX_ATTACHMENTS} files per message.`, true);
+  if (files.some((file) => file.size > 100 * 1024 * 1024)) return notify('Each attachment must be under 100 MB.', true);
   attachmentImportPending = true;
   updateComposer();
   try {
@@ -1547,7 +1548,7 @@ function inspectorFilePaths(chat) {
       if (!path || seen.has(path)) continue;
       seen.add(path);
       paths.push(path);
-      if (paths.length >= 8) return paths;
+      if (paths.length >= MAX_ATTACHMENTS) return paths;
     }
   }
   return paths;
@@ -1589,6 +1590,7 @@ function renderContextUsedSnapshot(snapshot, chat) {
     details.append(summary, pre);
     return details;
   });
+  if (snapshot.alreadyInContext?.length) nodes.push(element('p', 'inspector-context-note', `Already in the model's context from an earlier message: ${snapshot.alreadyInContext.join(', ')}.`));
   if (snapshot.nonTextInputs) {
     const note = element('p', 'inspector-context-note', `${snapshot.nonTextInputs} non-text attachment input${snapshot.nonTextInputs === 1 ? '' : 's'} accompanied this turn.`);
     nodes.push(note);
@@ -1714,9 +1716,7 @@ function renderChatContext() {
   const compactPercent = state.settings.autoCompactPercent ?? 50;
   $('context-compaction-status').textContent = pending ? 'Compacting…' : compactPercent ? `Auto-compact · ${compactPercent}%` : 'Auto-compact · default';
   $('context-compaction-status').classList.toggle('compacting', pending);
-  const count = Number.isInteger(compaction.count) && compaction.count > 0 ? compaction.count : 0;
-  $('context-compaction-summary').textContent = count ? `${count} compaction${count === 1 ? '' : 's'}` : '';
-  $('context-compaction-summary').title = compaction.lastAt ? `Last compacted ${formatDate(compaction.lastAt)}` : '';
+  $('context-compaction-status').title = compaction.lastAt ? `Last compacted ${formatDate(compaction.lastAt)}` : '';
   $('context-compaction-error').textContent = compaction.lastError || '';
   $('context-compaction-error').classList.toggle('hidden', !compaction.lastError);
   const reason = compactDisabledReason(chat);
@@ -2618,6 +2618,7 @@ function intervalLabel(minutes) {
 const weekdayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 function scheduleLabel(routine) {
+  if (routine?.scheduleType === 'once') return 'One time';
   if (routine?.scheduleType !== 'clock') return intervalLabel(routine?.intervalMinutes || 60);
   const days = Array.isArray(routine.daysOfWeek) ? routine.daysOfWeek : [0, 1, 2, 3, 4, 5, 6];
   const normalized = [...new Set(days)].sort((a, b) => a - b);
@@ -2629,15 +2630,32 @@ function scheduleLabel(routine) {
   return `${dayLabel || 'Selected days'} at ${routine.clockTime || '09:00'}`;
 }
 
+function routineNextLabel(routine) {
+  if (routine.enabled) return `Next: ${formatDate(routine.nextRunAt)}`;
+  if (routine.scheduleType !== 'once') return 'Paused';
+  if (routine.lastRunAt) return routine.lastStatus === 'running' ? 'Running' : 'Finished';
+  return `Paused · set for ${formatDate(routine.runAt)}`;
+}
+
+// The value a datetime-local input takes, on this PC's clock.
+function localInputValue(value) {
+  const date = new Date(value);
+  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+  return date.toISOString().slice(0, 16);
+}
+
 function renderAutomationScheduleEditor() {
-  const clock = $('automation-schedule-type').value === 'clock';
-  $('automation-interval-fields').classList.toggle('hidden', clock);
-  $('automation-clock-fields').classList.toggle('hidden', !clock);
-  $('automation-interval').required = !clock;
-  $('automation-clock-time').required = clock;
-  $('automation-schedule-hint').textContent = clock
-    ? 'Uses this PC’s local time. If Little Bot is closed or the PC is asleep, it runs once when available, then advances to the next selected time.'
-    : 'First automatic run is after this interval.';
+  const type = $('automation-schedule-type').value;
+  $('automation-interval-fields').classList.toggle('hidden', type !== 'interval');
+  $('automation-clock-fields').classList.toggle('hidden', type !== 'clock');
+  $('automation-once-fields').classList.toggle('hidden', type !== 'once');
+  $('automation-interval').required = type === 'interval';
+  $('automation-clock-time').required = type === 'clock';
+  $('automation-run-at').required = type === 'once';
+  $('automation-schedule-hint').textContent = {
+    clock: 'Uses this PC’s local time. If Little Bot is closed or the PC is asleep, it runs once when available, then advances to the next selected time.',
+    once: 'Uses this PC’s local time and runs a single time, then turns itself off. If Little Bot is closed or the PC is asleep, it runs as soon as it can.',
+  }[type] || 'First automatic run is after this interval.';
 }
 
 function renderAutomations() {
@@ -2646,7 +2664,7 @@ function renderAutomations() {
   const routines = state.automations || [];
   if (!routines.length) {
     const empty = element('div', 'automations-empty');
-    empty.append(icon('clock'), element('h2', '', 'No automations yet'), element('p', '', 'Schedule a recurring task.'), action('New automation', () => editAutomation(), 'button secondary', 'plus'));
+    empty.append(icon('clock'), element('h2', '', 'No automations yet'), element('p', '', 'Schedule a task to repeat or to run once.'), action('New automation', () => editAutomation(), 'button secondary', 'plus'));
     fragment.append(empty);
   }
   for (const routine of routines) {
@@ -2675,7 +2693,7 @@ function renderAutomations() {
     const folder = element('span');
     folder.title = routine.workspace || '';
     folder.append(icon('folder'), document.createTextNode(basename(routine.workspace)));
-    meta.append(interval, folder, element('span', '', routine.enabled ? `Next: ${formatDate(routine.nextRunAt)}` : 'Paused'));
+    meta.append(interval, folder, element('span', '', routineNextLabel(routine)));
     const footer = element('div', 'routine-footer');
     const lastText = routine.lastRunAt ? `${humanStatus(routine.lastStatus || 'Last run')} · ${formatDate(routine.lastRunAt)}` : 'Ready for its first run';
     footer.append(element('span', 'routine-status', lastText));
@@ -2706,8 +2724,9 @@ function editAutomation(routine) {
   $('automation-title').textContent = routine ? 'Edit automation' : 'New automation';
   $('automation-name').value = routine?.name || '';
   $('automation-prompt').value = routine?.prompt || '';
-  const scheduleType = routine?.scheduleType === 'clock' ? 'clock' : 'interval';
+  const scheduleType = ['clock', 'once'].includes(routine?.scheduleType) ? routine.scheduleType : 'interval';
   $('automation-schedule-type').value = scheduleType;
+  $('automation-run-at').value = localInputValue(routine?.runAt || Date.now() + 3600000);
   $('automation-interval').value = routine?.intervalMinutes || 60;
   $('automation-clock-time').value = routine?.clockTime || '09:00';
   const selectedDays = new Set(Array.isArray(routine?.daysOfWeek) ? routine.daysOfWeek : [0, 1, 2, 3, 4, 5, 6]);
@@ -2732,7 +2751,8 @@ async function saveAutomation(event) {
         clockTime: $('automation-clock-time').value,
         daysOfWeek: Array.from(document.querySelectorAll('[data-automation-day]:checked'), input => Number(input.value)),
       }
-    : { scheduleType: 'interval', intervalMinutes: Number($('automation-interval').value) };
+    : scheduleType === 'once' ? { scheduleType: 'once', runAt: $('automation-run-at').value }
+      : { scheduleType: 'interval', intervalMinutes: Number($('automation-interval').value) };
   if (scheduleType === 'clock' && (!schedule.clockTime || !schedule.daysOfWeek.length)) {
     notify('Choose a time and at least one day.', true);
     return;
@@ -2941,7 +2961,7 @@ const TRIGGER_LABELS = { next_chat: () => 'next time you talk', topic: trigger =
 function dreamEntry(dream) {
   const node = element('article', 'dream-entry');
   const meta = [new Date(dream.at).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }),
-    dream.learned ? `${dream.learned} remembered` : '', dream.intentions ? `${dream.intentions} to bring up` : ''].filter(Boolean).join(' · ');
+    dream.learned ? `${dream.learned} remembered` : '', dream.tidied ? `${dream.tidied} tidied` : '', dream.intentions ? `${dream.intentions} to bring up` : ''].filter(Boolean).join(' · ');
   node.append(element('p', 'dream-meta', meta), element('p', 'dream-text', dream.diary));
   return node;
 }
@@ -2969,6 +2989,8 @@ function renderDreams() {
   }) : [element('p', 'field-hint', 'Nothing yet. Little Bot notes things to follow up on, like a plan you mentioned, and brings each up at most three times.')]));
 }
 
+const MEMORY_PAGE = 100;
+let memoryShown = MEMORY_PAGE, memoryShownFor = '';
 function renderMemory() {
   $('memory-enabled').checked = state.memory?.enabled !== false;
   renderDreams();
@@ -3042,17 +3064,20 @@ async function refreshMemoryResults() {
   const version = ++memorySearchVersion;
   const query = $('memory-search').value.trim();
   const type = $('memory-type').value;
+  const search = `${query}\0${type}`;
+  if (search !== memoryShownFor) { memoryShownFor = search; memoryShown = MEMORY_PAGE; }
   try {
     let records = memoryRecords();
     if (window.bot.searchMemory) {
-      const result = await window.bot.searchMemory({ query, type: type || undefined, limit: 100 });
+      const result = await window.bot.searchMemory({ query, type: type || undefined, limit: memoryShown });
       records = Array.isArray(result) ? result : result.records || [];
     } else {
       records = records.filter(item => (!type || item.type === type) && (!query || String(item.text).toLowerCase().includes(query.toLowerCase())));
     }
     if (version !== memorySearchVersion) return;
     visibleMemoryRecords = records;
-    $('memory-result-status').textContent = `${records.length} ${records.length === 1 ? 'memory' : 'memories'}${records.length === 100 ? ' · Refine your search to find more' : ''}`;
+    $('memory-result-status').replaceChildren(document.createTextNode(`${records.length} ${records.length === 1 ? 'memory' : 'memories'}`));
+    if (records.length === memoryShown) $('memory-result-status').append(' · ', action('Show more', () => { memoryShown += MEMORY_PAGE; refreshMemoryResults(); }, 'button text-button'));
     const fragment = document.createDocumentFragment();
     for (const record of records) {
       const row = element('article', 'memory-item');
@@ -3189,11 +3214,42 @@ function loadHeartbeatForm() {
   $('heartbeat-interval').value = saved.intervalMinutes ?? 30;
   $('heartbeat-start-hour').value = saved.startHour ?? 8;
   $('heartbeat-end-hour').value = saved.endHour ?? 22;
-  $('heartbeat-max-runs').value = saved.maxRunsPerDay ?? 12;
+  $('heartbeat-max-runs').value = saved.maxRunsPerDay ?? 0;
   $('heartbeat-max-alerts').value = saved.maxAlertsPerDay ?? 3;
   $('heartbeat-snooze-minutes').value = saved.snoozeMinutes ?? 60;
   heartbeatUseCurrentWorkspace = false;
   heartbeatBaseline = JSON.stringify(heartbeatConfig());
+}
+
+// Starting points for the checklist, each within what a check can do: the saved folder, the calendar, the web, the browser and MCP.
+const HEARTBEAT_EXAMPLES = [
+  { label: 'Project notes', text: 'Read notes.md in this folder. If an unfinished task has a clear next step, do that one small step and tell me what changed. Otherwise stay quiet.' },
+  { label: 'Failing tests', text: 'Run the tests in this folder (npm test). Tell me only when they fail, with the first error and its likely cause. Change nothing.' },
+  { label: 'Calendar', text: 'Look at my calendar for the next 24 hours. Tell me once about anything that starts soon or needs preparing, with what to bring or do.' },
+  { label: 'Disk space', text: 'Check the free space on my drives. Tell me if one is under 10%, with its largest folders. Delete nothing.' },
+  { label: 'Downloads', text: 'Look in my Downloads folder. When it holds more than 20 files older than a month, tell me which ones could go. Delete nothing.' },
+  { label: 'Price or stock', text: 'Read [page address]. Tell me when the price drops below [price] or it comes back in stock. Otherwise stay quiet.' },
+  { label: 'News on a topic', text: 'Search the web for news about [topic] from the last day. Tell me only what is really new, in three lines with links. Do not repeat what you already told me.' },
+  { label: 'Signed-in site', text: 'Open [site] in the browser, where I am signed in, and look at [what to check]. Tell me only when something new needs me. Change nothing.' },
+  { label: 'Connected service', text: 'Use my [service] MCP tools to look for anything new that needs me, such as [issues or messages]. Tell me once, in a few lines. Change nothing.' },
+  { label: 'Get to know me', initiative: 'wild', text: 'Look for small ways to help me: follow up on things I mentioned, keep ideas in your agenda, and ask one good question now and then. Keep it short and never nag.' },
+];
+
+// An example adds to what is written: a checklist can hold several.
+function renderHeartbeatExamples() {
+  $('heartbeat-examples').replaceChildren(element('span', '', 'Examples'), ...HEARTBEAT_EXAMPLES.map(example => {
+    const button = element('button', 'heartbeat-example', example.label);
+    button.type = 'button';
+    button.title = example.text;
+    button.addEventListener('click', () => {
+      const input = $('heartbeat-checklist');
+      input.value = [input.value.trim(), example.text].filter(Boolean).join('\n\n').slice(0, input.maxLength);
+      if (example.initiative) $('heartbeat-initiative').value = example.initiative;
+      input.focus();
+      markHeartbeatDirty();
+    });
+    return button;
+  }));
 }
 
 function markHeartbeatDirty() {
@@ -3210,8 +3266,8 @@ function renderHeartbeatControls() {
   $('save-heartbeat').textContent = heartbeatSaving ? 'Saving…' : 'Save settings';
   $('heartbeat-checklist').required = $('heartbeat-enabled').checked;
   $('heartbeat-initiative-hint').textContent = $('heartbeat-initiative').value === 'wild'
-    ? 'Acts in the saved folder with network access, keeps agenda.md there, can save memories and manage the calendar, routines and draft goals. The Background switch still stops it.'
-    : 'Can act in the saved folder. No elevated or network access.';
+    ? 'Acts in the saved folder, reads the web, uses the browser and MCP tools out of sight, keeps agenda.md there, can save memories and manage the calendar, routines and draft goals. It waits until you are at the PC. The Background switch still stops it.'
+    : 'Can act in the saved folder, read the web, and use the browser and MCP tools out of sight. Keeps checking while you are away.';
   $('run-heartbeat').classList.toggle('hidden', running);
   $('stop-heartbeat').classList.toggle('hidden', !running);
   $('run-heartbeat').disabled = Boolean(state.autonomy?.paused) || !isConnected() || !isReady() || !saved.checklist?.trim() || heartbeatSaving;
@@ -3240,7 +3296,7 @@ function renderHeartbeat() {
   const latest = running ? 'Working through your checklist…' : heartbeat.lastStatus === 'quiet' ? `All quiet.${lastPulse?.status === 'quiet' && lastPulse.note ? ` ${lastPulse.note}` : ' Nothing needs your attention.'}` : heartbeat.lastStatus === 'alert' ? 'A meaningful update is waiting in Activity inbox.' : heartbeat.lastStatus === 'error' ? 'The last check needs attention.' : 'No checks yet.';
   $('heartbeat-last-check').textContent = `${latest}${heartbeat.lastRunAt && !running ? `\n${formatDate(heartbeat.lastRunAt)}` : ''}`;
   $('heartbeat-next-check').textContent = state.autonomy?.paused ? 'Background work is off. Turn the Background switch on to resume checks.' : heartbeat.enabled && heartbeat.nextRunAt ? `Next scheduled check: ${formatDate(heartbeat.nextRunAt)}` : heartbeat.enabled ? 'Next check follows your interval.' : 'Scheduled checks are paused.';
-  $('heartbeat-run-count').textContent = `${heartbeat.runsToday || 0} of ${heartbeat.maxRunsPerDay || 12} checks used today${heartbeat.attention ? ` · ${heartbeat.attention.alertsToday || 0} of ${heartbeat.maxAlertsPerDay || 3} desktop alerts` : ''}`;
+  $('heartbeat-run-count').textContent = `${heartbeat.runsToday || 0}${heartbeat.maxRunsPerDay ? ` of ${heartbeat.maxRunsPerDay}` : ''} check${heartbeat.runsToday === 1 && !heartbeat.maxRunsPerDay ? '' : 's'} today${heartbeat.attention ? ` · ${heartbeat.attention.alertsToday || 0} of ${heartbeat.maxAlertsPerDay || 3} desktop alerts` : ''}`;
   const followups = Array.isArray(heartbeat.followups) ? heartbeat.followups : [];
   if (followups.length && !state.autonomy?.paused) $('heartbeat-next-check').textContent += `\n${followups.length} planned follow-up${followups.length === 1 ? '' : 's'} · next ${formatDate(followups[0].at)}: ${followups[0].note}`;
   $('heartbeat-pulse').classList.toggle('hidden', pulse.length === 0);
@@ -4857,6 +4913,8 @@ $('create-automation').addEventListener('click', () => editAutomation());
 $('suggest-automation').addEventListener('click', () => { showAutomations(); editAutomation(); });
 $('automation-form').addEventListener('submit', saveAutomation);
 $('automation-schedule-type').addEventListener('change', renderAutomationScheduleEditor);
+// A new time on a finished one-time task means it should run again.
+$('automation-run-at').addEventListener('change', () => { $('automation-enabled').checked = true; });
 $('memory-enabled').addEventListener('change', async () => {
   const enabled = $('memory-enabled').checked;
   $('memory-enabled').disabled = true;
@@ -4926,6 +4984,7 @@ for (const id of ['heartbeat-start-hour', 'heartbeat-end-hour']) {
     $(id).append(option);
   }
 }
+renderHeartbeatExamples();
 $('heartbeat-form').addEventListener('input', markHeartbeatDirty);
 $('heartbeat-form').addEventListener('change', markHeartbeatDirty);
 $('heartbeat-form').addEventListener('submit', saveHeartbeat);

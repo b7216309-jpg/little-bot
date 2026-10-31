@@ -49,7 +49,7 @@ For credentials, enter environment-variable **names**, never token values. Local
 
 **Refresh** creates a temporary engine context, discovers tools, then releases it. “Connection verified” reports the last check, not a permanently running connection. A normal chat starts its own configured server connections as needed. Disabled tools stay visible so they can be re-enabled.
 
-The engine is configured to prompt for each model-initiated MCP tool call. Little Bot displays tool events, approval questions, and supported primitive MCP forms. There is no direct tool-execution endpoint exposed to the renderer. Local MCP programs have your Windows user permissions and may perform work outside the selected workspace; enable only connections you trust. Heartbeat explicitly disables every effective MCP server and verifies an empty tool inventory before requesting a model turn.
+The engine is configured to prompt for each model-initiated MCP tool call. Little Bot displays tool events, approval questions, and supported primitive MCP forms. There is no direct tool-execution endpoint exposed to the renderer. Local MCP programs have your Windows user permissions and may perform work outside the selected workspace; enable only connections you trust. A heartbeat check has the enabled servers too: nobody is asked, its calls are still refused when they would leak a personal detail, and a form a server asks for is declined. A night-shift step explicitly disables every effective MCP server and verifies an empty tool inventory before requesting a model turn.
 
 ## Plugin format
 

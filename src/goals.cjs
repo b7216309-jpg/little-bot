@@ -83,7 +83,7 @@ function validateGoal(input, existing = null, settings = {}) {
   });
   const limits = {};
   for (const [key, [min, max]] of Object.entries(LIMIT_RANGES)) limits[key] = integer(input.limits?.[key], DEFAULT_LIMITS[key], min, max, key);
-  const trigger = { type: ['manual', 'interval', 'files'].includes(t.type) ? t.type : 'manual', intervalMinutes: integer(t.intervalMinutes, 30, 1, 10080, 'Interval'), paths: [...new Set(list(t.paths, 'Watched paths', 20, files.relativePath))] };
+  const trigger = { type: ['manual', 'interval', 'files'].includes(t.type) ? t.type : 'manual', intervalMinutes: integer(t.intervalMinutes, 30, 1, 525600, 'Interval'), paths: [...new Set(list(t.paths, 'Watched paths', 20, files.relativePath))] };
   if (trigger.type === 'files' && !trigger.paths.length) throw new Error('Choose at least one relative path for a file trigger.');
   const id = existing?.id || input.id || randomUUID();
   if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(id)) throw new Error('Invalid goal ID.');
@@ -595,7 +595,11 @@ class GoalRunner {
       }
       const exhausted = this.budgetReason(goal); if (exhausted) { this.block(goal, exhausted, { runId, verification: checked.results }); return; }
       if (!goal.checks.length && !contract.ongoing(goal)) { this.block(goal, 'Add at least one verification check before running this goal.', { runId }); return; }
-      snapshot = await files.createSnapshot(goal, this.backupRoot, runId);
+      try { snapshot = await files.createSnapshot(goal, this.backupRoot, runId); }
+      catch (error) {
+        if (!error.noUndo) throw error;
+        this.record(goal, 'snapshot-skipped', `This step has no undo: ${clean(error)}`, { runId });
+      }
       if (snapshot?.retiredRunIds) for (const entry of goal.history) if (snapshot.retiredRunIds.includes(entry.snapshot?.runId)) entry.snapshot.undoAvailable = false;
       if (this.stopReason || goal.status === 'paused' || this.closing) return;
       goal.usage.runs++; this.record(goal, 'started', 'Started one bounded goal step.', { runId, snapshot }); this.changed();
@@ -618,9 +622,13 @@ class GoalRunner {
       applyGoalLedgerUpdate(goal, result?.ledger, { runId, now: Date.now(), status: result?.status,
         summary: result?.summary, nextStep: goal.nextStep });
       const actions = Array.isArray(result?.actions) ? result.actions.slice(0, 30).map(clean) : [];
-      if (snapshot) {
+      if (snapshot) try {
         snapshot = await files.finishSnapshot(goal, this.backupRoot, runId);
         recordSnapshotEvidence(goal, snapshot, { runId, now: Date.now(), ...ledgerRunContext });
+      } catch (error) {
+        if (!error.noUndo) throw error;
+        snapshot = null;
+        this.record(goal, 'snapshot-skipped', `This step has no undo: ${clean(error)}`, { runId });
       }
       this.record(goal, 'run', clean(result?.summary) || 'Goal step ended.', { runId, usage: { ...modelUsage, actions: modelUsage.actions + verificationActions }, actions, snapshot }); this.changed();
       if (this.stopReason || goal.status === 'paused' || this.closing) {

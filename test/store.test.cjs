@@ -317,11 +317,11 @@ test('context usage and compaction history persist without storing transient eng
   const store = new Store(f);
   store.data.chats.push({ id: 'compact', status: 'idle', messages: [{ id: 'u', role: 'user', text: 'Keep the original request.' }],
     context: { usedTokens: 84000, windowTokens: 200000, updatedAt: 100, stale: true, opaqueProviderData: 'excluded' },
-    compaction: { status: 'idle', count: 2, lastAt: 90, lastError: null, timer: 'excluded' } });
+    compaction: { status: 'idle', lastAt: 90, lastError: null, timer: 'excluded' } });
   store.save();
   const restored = new Store(f).data.chats[0];
   assert.deepEqual(restored.context, { usedTokens: 84000, windowTokens: 200000, updatedAt: 100, stale: true });
-  assert.deepEqual(restored.compaction, { status: 'idle', count: 2, lastAt: 90, lastError: null });
+  assert.deepEqual(restored.compaction, { status: 'idle', lastAt: 90, lastError: null });
   assert.equal(restored.messages[0].text, 'Keep the original request.');
   assert.doesNotMatch(fs.readFileSync(f.filePath, 'utf8'), /excluded/);
 });
@@ -337,7 +337,6 @@ test('interrupted compaction recovers without a false success or deleting visibl
   const chat = store.data.chats[0];
   assert.equal(chat.status, 'idle');
   assert.equal(chat.compaction.status, 'idle');
-  assert.equal(chat.compaction.count, 3);
   assert.equal(chat.compaction.lastAt, 80);
   assert.match(chat.compaction.lastError, /interrupted/i);
   assert.equal(chat.context.stale, true);
@@ -354,7 +353,7 @@ test('malformed context counts are unknown rather than misleading usage', t => {
   const chat = new Store(f).data.chats[0];
   assert.equal(chat.context.usedTokens, null);
   assert.equal(chat.context.windowTokens, null);
-  assert.deepEqual(chat.compaction, { status: 'idle', count: 0, lastAt: null, lastError: null });
+  assert.deepEqual(chat.compaction, { status: 'idle', lastAt: null, lastError: null });
 });
 
 test('standing intents persist and queued actions are skipped rather than replayed after restart', t => {

@@ -12,7 +12,7 @@ Settings shows a read-only line with each engine's state (for example "DuckDuckG
 
 ## Agent tools
 
-The tool names are unchanged (`web_search_service`, `web_scrape`) so existing chats keep working. They are available in direct conversations and in goals with network permission; the heartbeat and routines have no web access.
+The tool names are unchanged (`web_search_service`, `web_scrape`) so existing chats keep working. They are available in direct conversations, scheduled tasks, the heartbeat and goals with network permission.
 
 - `web_search_service({query?, queries?, limit?})`: `query` is one search (up to 600 characters and 75 words); `queries` is up to 10 searches run in parallel, instead of or in addition to `query` (duplicates are dropped). `limit` is results per query, 1 to 10 (default 6); values out of range are clamped, not refused. An old `provider` argument is accepted and ignored.
   - One query returns `{query, results, engines, authority}`, with `cached: true` when it came from the cache. Several queries return `{searches: [...], authority}`; a query that failed appears as `{query, results: [], error}` and the call fails only if every query failed.
