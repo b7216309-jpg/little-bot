@@ -23,6 +23,12 @@ const DREAM_SCHEMA = {
       text: { type: 'string' }, why: { type: 'string' }, trigger: { type: 'string', enum: ['next_chat', 'topic', 'date', 'moment'] },
       keywords: { type: 'array', items: { type: 'string' } }, date: { type: ['string', 'null'] }, moment: { type: ['string', 'null'] },
     }, required: ['text', 'why', 'trigger', 'keywords', 'date', 'moment'], additionalProperties: false } },
+    tidy: { type: 'array', items: { type: 'object', properties: {
+      ids: { type: 'array', items: { type: 'string' } }, text: { type: 'string' },
+    }, required: ['ids', 'text'], additionalProperties: false } },
+    outdated: { type: 'array', items: { type: 'object', properties: {
+      id: { type: 'string' }, sourceIds: { type: 'array', items: { type: 'string' } },
+    }, required: ['id', 'sourceIds'], additionalProperties: false } },
   }, required: ['diary', 'memories', 'intentions'], additionalProperties: false,
 };
 
@@ -33,6 +39,10 @@ diary: 3 to 6 sentences in your own voice, first person, in the user's language 
 memories: at most 3 things worth keeping for weeks: a pattern seen on several days, a stable preference, a decision. Each must cite sourceIds of the user's own messages that show it; your own messages are never evidence. If it corrects or refines a remembered fact, set supersedesId to that fact's id and reuse its key. Do not repeat what is already remembered. An empty list is normal.
 
 intentions: at most 3 things to bring up later, so the user feels remembered: follow up on something they mentioned (an exam, a trip, a plan, a worry, a game they are waiting for), or a light question to know them better. trigger is next_chat (next time you talk), topic (when one of 1-4 short keywords in the user's language comes up), date (on a local YYYY-MM-DD) or moment (returned: back at the PC, home: got home, out: left home). Skip anything already in open intentions. No chores, no nagging, nothing they did not care about. An empty list is fine.
+
+tidy: at most 3 merges of remembered facts that repeat or overlap each other. ids lists two or more fact ids and text is one fact that keeps everything true in them, adding nothing new. Do not merge facts that are only loosely related. An empty list is normal.
+
+outdated: remembered facts that the user's own messages here show are no longer true or are finished. id is the fact's id and sourceIds cites those messages. Never guess. An empty list is normal.
 
 This is a reflection task. Do not use tools.`;
 
@@ -70,7 +80,7 @@ function dreamMaterial(controller, now = Date.now()) {
   const service = controller.store.memoryService;
   let facts = [];
   try {
-    const found = service?.search({ query: '', source: 'facts', scope: 'all', limit: 40 }) || {};
+    const found = service?.search({ query: '', source: 'facts', scope: 'all', limit: 60 }) || {};
     facts = (found.records || found.results || []).map(({ id, key, type, text }) => ({ id, key, type, text: String(text).slice(0, 400) }));
   } catch { /* Dream without the fact list rather than not at all. */ }
   const calendar = (data.calendar?.events || []).filter(event => event.startAt >= now - HOUR && event.startAt <= now + 4 * 24 * HOUR)
@@ -94,7 +104,7 @@ function normalizeDream(output) {
   const diary = typeof output.diary === 'string' ? output.diary.trim() : '';
   if (!diary) throw new Error('The dream did not return a diary entry.');
   const list = value => Array.isArray(value) ? value.filter(item => item && typeof item === 'object' && !Array.isArray(item)) : [];
-  return { diary: diary.slice(0, 4000), memories: list(output.memories).slice(0, 3), intentions: list(output.intentions).slice(0, 3) };
+  return { diary: diary.slice(0, 4000), memories: list(output.memories).slice(0, 3), intentions: list(output.intentions).slice(0, 3), tidy: list(output.tidy).slice(0, 3), outdated: list(output.outdated).slice(0, 5) };
 }
 
 function applyDream(controller, output, material, now = Date.now()) {
@@ -116,7 +126,17 @@ function applyDream(controller, output, material, now = Date.now()) {
       if (record) learned.push(record);
     } catch { /* A rejected memory does not spoil the rest of the dream. */ }
   }
-  if (learned.length) sync(data.memory);
+  let tidied = 0;
+  for (const item of service ? dream.tidy : []) {
+    const text = typeof item.text === 'string' ? item.text.trim() : '';
+    const ids = (Array.isArray(item.ids) ? item.ids : []).filter(id => known.has(id));
+    try { if (text && service.mergeLearned(ids, { text, chatId: material.chatId })) tidied++; } catch { /* A rejected merge leaves its memories as they were. */ }
+  }
+  for (const item of service ? dream.outdated : []) {
+    const cited = (Array.isArray(item.sourceIds) ? item.sourceIds : []).some(id => userIds.has(id));
+    if (cited && known.has(item.id) && service.retireLearned(item.id)) tidied++;
+  }
+  if (learned.length || tidied) sync(data.memory);
   const created = [];
   for (const item of dream.intentions) {
     try {
@@ -124,10 +144,10 @@ function applyDream(controller, output, material, now = Date.now()) {
         trigger: { type: item.trigger, keywords: item.keywords, date: item.date, moment: item.moment } }, { source: 'dream', now, ttlDays: 14 }));
     } catch { /* Full, duplicate or empty: skip it. */ }
   }
-  companion.addDream(state, { at: now, day: companion.localDay(now), diary: dream.diary, learned: learned.length, intentions: created.length });
+  companion.addDream(state, { at: now, day: companion.localDay(now), diary: dream.diary, learned: learned.length, intentions: created.length, tidied });
   state.lastDreamAt = now;
   state.lastDreamError = null;
-  return { learned, intentions: created };
+  return { learned, intentions: created, tidied };
 }
 
 module.exports = { DREAM_SCHEMA, DREAM_INSTRUCTIONS, isDreamDue, newUserMessages, dreamMaterial, normalizeDream, applyDream, MIN_NEW_USER_MESSAGES };

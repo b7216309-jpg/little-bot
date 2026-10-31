@@ -1,15 +1,13 @@
 'use strict';
 
-const path = require('node:path');
 const { validateAutomation, nextAutomationRunAt } = require('./scheduler.cjs');
 
 function manageSchedule(store, action, payload, context, now = Date.now()) {
   const records = store.data.automations;
-  const sameFolder = item => path.resolve(item.workspace).toLowerCase() === path.resolve(context.workspace).toLowerCase();
-  if (action === 'list') return records.filter(sameFolder).map(item => ({ ...item }));
+  if (action === 'list') return records.map(item => ({ ...item }));
   const existing = payload.id ? records.find(item => item.id === payload.id) : null;
   if (action === 'create' && payload.id) throw new Error('A new routine cannot reuse an existing routine ID.');
-  if (action !== 'create' && (!existing || !sameFolder(existing))) throw new Error('Choose a routine in this chat’s working folder.');
+  if (action !== 'create' && !existing) throw new Error('Choose an existing routine. List them to find its id.');
   if (existing?.lastStatus === 'running') throw new Error('Stop this routine before changing it.');
   let record;
   if (action === 'create' || action === 'update') {
@@ -22,9 +20,9 @@ function manageSchedule(store, action, payload, context, now = Date.now()) {
     existing.enabled = false;
     record = existing;
   } else if (action === 'resume') {
+    existing.nextRunAt = nextAutomationRunAt(existing, now);
     existing.enabled = true;
     existing.authorized = true;
-    existing.nextRunAt = nextAutomationRunAt(existing, now);
     record = existing;
   } else throw new Error('Unsupported routine action.');
   store.save();

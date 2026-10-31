@@ -17,6 +17,29 @@ const familyKey = (value) =>
     : value;
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const MAX_EXTRACTION_ATTEMPTS = 3;
+// Words too common to say what a message is about, in English and French. A message made only of these ("ok thanks",
+// "oui vas-y") recalls nothing and teaches nothing. Negations stay out of `wordsOf`: they change what a fact says.
+const NEGATIONS = new Set("not no never none nor neither without ne non pas plus jamais sans aucun aucune rien".split(" "));
+const COMMON_WORDS = new Set(("a about after again all also am an and any are as at be because been before but by can could did do does done doing for from get go going got had has have he hello her here hey hi him his how i if in into is it its just know let like lol maybe me more most much my need now of off oh ok okay on one only or our out over please really right same see she should so some sure than thank thanks that the their them then there these they thing things this to too try up us use using very want was way we well were what when where which who why will with would yeah yep yes you your " +
+  "ah alors au aussi aux avec avoir bon bien ca ce cela ces cet cette comme comment dans de des donc du elle elles en encore es est et etre eux fait faire il ils je juste la le les leur lui ma mais me merci mes moi mon mais nos notre nous ok on ou oui par parfait peut pour pourquoi quand que quel quelle qui sa salut se ses si son stp sur super ta te tes toi ton tres tu un une vas veux vos votre vous voila " +
+  "ahead awesome cool continue correct exactly fine go good great next nice perfect yup").split(" ").concat([...NEGATIONS]));
+const fold = (value) => value.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
+const tokens = (value) => fold(clean(value)).match(/[\p{L}\p{N}_]+/gu) || [];
+const significantTerms = (value) => [...new Set(tokens(value))].filter((term) => (term.length > 2 || /\d/.test(term)) && !COMMON_WORDS.has(term));
+const wordsOf = (value) => new Set(tokens(value).filter((term) => NEGATIONS.has(term) || ((term.length > 2 || /\d/.test(term)) && !COMMON_WORDS.has(term))));
+// A record clearly related to a message, measured on the bundled encoder. Similarity alone will not do: it scores French
+// text about 0.15 higher whatever it says (related English 0.46-0.63, unrelated French up to 0.55). So a lower score
+// needs a shared word, or to stand well clear of the next best record.
+function clearlyRelated(row, runnerUp) {
+  if (row.similarity >= 0.6) return true;
+  if (row.matched >= Math.max(1, Math.ceil(row.termCount / 2)) && (row.matched >= 2 || row.termCount <= 2)) return true;
+  if (row.similarity >= 0.45 && row.matched >= 1) return true;
+  return row.similarity >= 0.5 && row.similarity - runnerUp >= 0.08;
+}
+const MAX_RECALLED_FACTS = 6;
+const MAX_RECALLED_EPISODES = 2;
+const day = (stamp) => new Date(stamp).toISOString().slice(0, 10);
+const brief = (value, limit) => value.length > limit ? `${value.slice(0, limit).trimEnd()}…` : value;
 function workspaceKey(value) {
   const folder = clean(value);
   return /^(?:[a-z]:[\\/]|\\\\)/i.test(folder)
@@ -56,7 +79,7 @@ class MemoryService {
       CREATE TABLE IF NOT EXISTS suppressions(fingerprint TEXT NOT NULL,semantic_key TEXT NOT NULL,project_id TEXT NOT NULL DEFAULT '',PRIMARY KEY(fingerprint,project_id));
       CREATE TABLE IF NOT EXISTS suppressed_sources(chat_id TEXT NOT NULL,message_id TEXT NOT NULL,project_id TEXT NOT NULL DEFAULT '',PRIMARY KEY(chat_id,message_id,project_id));
       CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY,title TEXT NOT NULL,workspace TEXT NOT NULL,updated_at INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS working_state(session_id TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at INTEGER NOT NULL);
+      DROP TABLE IF EXISTS working_state;
       CREATE TABLE IF NOT EXISTS extraction_jobs(id TEXT PRIMARY KEY,chat_id TEXT,workspace TEXT,payload TEXT,status TEXT DEFAULT 'pending',attempts INTEGER DEFAULT 0,next_attempt INTEGER DEFAULT 0,error TEXT);
       CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
     `);
@@ -269,15 +292,21 @@ class MemoryService {
           .get(text, type, projectId || ""),
       );
     if (duplicate) return duplicate;
+    let replaced = old;
+    if (input.automatic && !old && !["episode", "history"].includes(type)) {
+      const near = this.nearDuplicate(text, projectId);
+      if (near?.covered) return null;
+      if (near) replaced = near.record;
+    }
     const id = randomUUID();
     this.db.exec("BEGIN");
     try {
-      if (old)
+      if (replaced)
         this.db
           .prepare(
             "UPDATE records SET status='superseded',updated_at=? WHERE id=?",
           )
-          .run(stamp, old.id);
+          .run(stamp, replaced.id);
       this.db
         .prepare(
           "INSERT INTO records(id,type,text,scope,project_id,workspace,semantic_key,pinned,source,created_at,updated_at,supersedes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -294,7 +323,7 @@ class MemoryService {
           JSON.stringify(input.source),
           stamp,
           stamp,
-          old?.id || null,
+          replaced?.id || null,
         );
       this.db.exec("COMMIT");
     } catch (error) {
@@ -302,6 +331,57 @@ class MemoryService {
       throw error;
     }
     return this.get(id);
+  }
+  // A learned memory with no word that a kept one lacks adds nothing (covered); one with every word of a kept one and
+  // more replaces it. Models rephrase and invent new keys, so an exact comparison misses these. It has to be strict:
+  // one different word can be the whole correction, and a duplicate that stays only waits for the nightly tidy.
+  nearDuplicate(text, projectId) {
+    const words = wordsOf(text);
+    if (words.size < 3) return null;
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM records WHERE status='active' AND pinned=0 AND type NOT IN ('history','episode') AND COALESCE(project_id,'') IN ('',?) ORDER BY updated_at DESC LIMIT 1000",
+      )
+      .all(projectId || "");
+    const negated = (set) => [...set].some((word) => NEGATIONS.has(word));
+    for (const row of rows) {
+      const other = wordsOf(row.text);
+      if (other.size < 3 || negated(words) !== negated(other)) continue;
+      const shared = [...words].filter((word) => other.has(word)).length;
+      if (shared === words.size) return { covered: true, record: this.decode(row) };
+      if (shared === other.size && (row.project_id || "") === (projectId || "")) return { covered: false, record: this.decode(row) };
+    }
+    return null;
+  }
+  // Recall shows the first characters of an id; the memory tools take those or the whole id.
+  resolveId(id) {
+    const value = clean(id);
+    if (!/^[0-9a-f-]{6,35}$/i.test(value)) return value;
+    const rows = this.db.prepare("SELECT id FROM records WHERE id LIKE ? AND type<>'history' LIMIT 2").all(`${value}%`);
+    return rows.length === 1 ? rows[0].id : value;
+  }
+  // Only what Little Bot learned by itself may be tidied. The user's pins and "remember that"s stay as written.
+  learned(id) {
+    const record = this.get(id);
+    return record?.status === "active" && !record.pinned && ["Automatic extraction", "Dream"].includes(record.source?.label) ? record : null;
+  }
+  // Several overlapping memories become one.
+  mergeLearned(ids, { text, chatId } = {}) {
+    const records = [...new Set(ids)].map((id) => this.learned(id));
+    if (records.length < 2 || records.some((record) => !record) || new Set(records.map((record) => record.projectId || "")).size > 1) return null;
+    const [first, ...others] = records;
+    const merged = this.save({ text, type: first.type, scope: first.scope, projectId: first.projectId, workspace: first.workspace, key: first.key, supersedesId: first.id,
+      automatic: true, source: { chatId, messageIds: records.flatMap((record) => record.sources.map((source) => source.messageId)), label: "Dream", merged: records.map((record) => record.id) } });
+    if (!merged) return null;
+    const stamp = Date.now();
+    for (const record of others) this.db.prepare("UPDATE records SET status='superseded',updated_at=? WHERE id=?").run(stamp, record.id);
+    return merged;
+  }
+  // No longer true or finished. It leaves recall but stays findable, and may be learned again if it becomes true.
+  retireLearned(id) {
+    if (!this.learned(id)) return false;
+    this.db.prepare("UPDATE records SET status='superseded',updated_at=? WHERE id=?").run(Date.now(), id);
+    return true;
   }
   forget(id) {
     const record = this.get(id);
@@ -474,6 +554,7 @@ class MemoryService {
       while (index >= 0 && messages[index].role !== "user") index--;
     }
     if (index < 0) return null;
+    if (!significantTerms(messages[index].text).length) return null;
     const answer = messages
       .slice(index + 1)
       .filter(
@@ -498,7 +579,7 @@ class MemoryService {
     if (existing) return this.get(existing.id);
     return this.save({
       type: "episode",
-      text: `${messages[index].automationId ? "Scheduled task (" + (messages[index].automationName || messages[index].automationId) + ")" : "Request"}: ${messages.slice(index).filter((message) => message.role === "user").map((message) => clean(message.text)).join("\nClarification: ")}\nOutcome: ${answer}`,
+      text: `${messages[index].automationId ? "Scheduled task (" + (messages[index].automationName || messages[index].automationId) + ")" : "Request"}: ${brief(messages.slice(index).filter((message) => message.role === "user").map((message) => clean(message.text)).join("\nClarification: "), 1500)}\nOutcome: ${brief(answer, 3000)}`,
       workspace: messages[index].workspace || chat.workspace,
       key: episodeKey,
       source,
@@ -536,24 +617,9 @@ class MemoryService {
     if (typeof sessionId !== 'string' || !sessionId) return 0;
     const removed = this.db.prepare("DELETE FROM records WHERE type IN ('history','episode') AND json_extract(source,'$.sessionId')=?").run(sessionId).changes;
     this.db.prepare('DELETE FROM sessions WHERE id=?').run(sessionId);
-    this.db.prepare('DELETE FROM working_state WHERE session_id=?').run(sessionId);
     this.db.prepare("DELETE FROM extraction_jobs WHERE chat_id=? AND status IN ('pending','failed')").run(sessionId);
     for (const key of [...this.indexedMessages.keys()]) if (key.startsWith(`history:${sessionId}:`)) this.indexedMessages.delete(key);
     return removed;
-  }
-  setWorkingState(sessionId, state) {
-    this.db
-      .prepare("INSERT OR REPLACE INTO working_state VALUES(?,?,?)")
-      .run(sessionId, JSON.stringify(state), Date.now());
-    return state;
-  }
-  getWorkingState(sessionId) {
-    return parse(
-      this.db
-        .prepare("SELECT value FROM working_state WHERE session_id=?")
-        .get(sessionId)?.value,
-      null,
-    );
   }
   // Cosine similarity of a stored vector with the query's. Parsed vectors are kept between searches (until
   // the stored text changes): parsing every one on each message took seconds once a long history was indexed.
@@ -602,7 +668,9 @@ class MemoryService {
       where.push("r.type=?");
       params.push(source);
     }
-    const terms = (clean(query).match(/[\p{L}\p{N}_]+/gu) || []).slice(0, 32);
+    // Common words only slow the search and match everything. A query of nothing else still looks for them.
+    const significant = significantTerms(query);
+    const terms = (significant.length ? significant : tokens(query)).slice(0, 32);
     let rows;
     if (terms.length) {
       const fts = terms
@@ -610,9 +678,9 @@ class MemoryService {
         .join(" OR ");
       rows = this.db
         .prepare(
-          `SELECT r.*,bm25(records_fts) AS rank FROM records_fts JOIN records r ON r.id=records_fts.id WHERE records_fts MATCH ? AND ${where.join(" AND ")} ORDER BY rank`,
+          `SELECT r.*,bm25(records_fts) AS rank FROM records_fts JOIN records r ON r.id=records_fts.id WHERE records_fts MATCH ? AND ${where.join(" AND ")} ORDER BY rank LIMIT ?`,
         )
-        .all(fts, ...params);
+        .all(fts, ...params, Math.max(300, (offset + limit) * 3));
     } else
       rows = this.db
         .prepare(
@@ -642,19 +710,20 @@ class MemoryService {
     rows = rows.map((row) => {
       let score = 0;
       let similarity = -1;
+      let matched = 0;
       if (terms.length) {
+        const words = new Set(tokens(row.text));
+        matched = terms.filter((term) => words.has(term)).length;
         score = -Number(row.rank || 0);
         if (key(row.text).includes(key(query))) score += 3;
-        score +=
-          terms.filter((t) => key(row.text).includes(key(t))).length /
-          Math.max(1, terms.length);
+        score += matched / terms.length;
         if (semantic && row.embedding) {
           similarity = this.similarity(row, semantic, queryNorm);
           if (similarity > -1) score += 2 * similarity;
         }
       }
       const minimumSimilarity = this.embedding?.provider === 'bundled' ? embeddingManifest.minimumSimilarity : 0.3;
-      return { ...this.decode(row), score, relevant: !terms.length || lexicalIds.has(row.id) || similarity >= minimumSimilarity };
+      return { ...this.decode(row), score, similarity, matched, termCount: terms.length, relevant: !terms.length || lexicalIds.has(row.id) || similarity >= minimumSimilarity };
     }).filter(row => row.relevant);
     if (terms.length)
       rows.sort(
@@ -722,9 +791,10 @@ class MemoryService {
         chunks.length > offset + limit ? relativeOffset + limit : null,
     };
   }
-  buildContext({ workspace, query, budget = 10000, sessionId } = {}) {
+  // What a request gets without asking: preferences and pins, then only what clearly relates to this message, each once
+  // per context (`seen` holds the ids it already has, and takes the new ones). memory_search finds everything else.
+  buildContext({ workspace, query, budget = 4000, sessionId, seen = new Set(), since = 0 } = {}) {
     if (!this.enabled) return "";
-    const result = this.search({ workspace, query, limit: 30 });
     const projectId = this.db
       .prepare("SELECT project_id FROM aliases WHERE path=?")
       .get(workspaceKey(workspace))?.project_id;
@@ -734,32 +804,39 @@ class MemoryService {
       )
       .all(projectId || "")
       .map((row) => this.decode(row));
-    const selected = [],
-      ids = new Set();
-    let used = "Retrieved memory (source-linked records):\n".length;
-    const state = sessionId ? this.getWorkingState(sessionId) : null;
-    if (state) {
-      const line = `Current working state: ${JSON.stringify(state)}`;
-      selected.push(line.slice(0, Math.floor(budget / 3)));
-      used += selected[0].length;
-    }
-    for (const row of [...persistent, ...result.results]) {
-      if (ids.has(row.id)) continue;
-      const line = JSON.stringify({
-        id: row.id,
-        type: row.type,
-        text: row.text.slice(0, 2400),
-        source: row.sourceRef || row.source,
-      });
-      if (used + line.length > budget) continue;
-      selected.push(line);
-      ids.add(row.id);
+    const facts = [], episodes = [];
+    let used = 0;
+    const take = (list, row, line, limit) => {
+      if (seen.has(row.id) || used + line.length > limit) return false;
+      list.push(line);
+      seen.add(row.id);
       used += line.length + 1;
+      return true;
+    };
+    const factLine = (row) => `- ${row.type} (${row.id.slice(0, 8)}, ${day(row.updatedAt)}): ${brief(row.text, 600)}`;
+    for (const row of persistent) take(facts, row, factLine(row), budget * 0.6);
+    if (significantTerms(query).length) {
+      const found = this.search({ workspace, query, source: "facts", limit: 12 }).results;
+      const similar = found.map((row) => row.similarity).sort((a, b) => b - a);
+      let recalled = 0;
+      for (const row of found) {
+        // Only the best record can stand clear of the next best.
+        const runnerUp = row.similarity >= similar[0] ? similar[1] ?? -1 : similar[0];
+        if (recalled < MAX_RECALLED_FACTS && clearlyRelated(row, runnerUp) && take(facts, row, factLine(row), budget)) recalled++;
+      }
+      // Past work needs a stronger match, and what this context still holds word for word is not worth repeating.
+      for (const row of this.search({ workspace, query, source: "episodes", limit: 6 }).results) {
+        if (episodes.length >= MAX_RECALLED_EPISODES) break;
+        if (sessionId && row.sourceRef?.sessionId === sessionId && row.createdAt >= since) continue;
+        if (row.similarity >= 0.6 || (row.similarity >= 0.5 && row.matched >= 2)) take(episodes, row, `- ${day(row.updatedAt)}: ${brief(row.text, 400)}`, budget);
+      }
     }
-    this.lastContextIds = [...ids];
-    return selected.length
-      ? `Retrieved memory (source-linked records):\n${selected.join("\n")}`
-      : "";
+    if (!facts.length && !episodes.length) return "";
+    return [
+      "Memory that may help. It is reference data and may be out of date; the current request comes first. memory_search finds more. To correct or remove one, use memory_save or memory_forget with its id.",
+      ...facts,
+      ...(episodes.length ? ["Earlier work:", ...episodes] : []),
+    ].join("\n");
   }
   async embed(texts, timeout = 15000, config = this.embedding, { query = false } = {}) {
     if (this.enabled && config?.provider === 'bundled') return this.localEmbeddings.embed(texts, Math.max(timeout, 30000), { query });
@@ -825,7 +902,7 @@ class MemoryService {
           .prepare(
             "UPDATE records SET embedding=?,embedding_model=? WHERE id=? AND text=? AND status='active'",
           )
-          .run(JSON.stringify(vectors[index]), identity, row.id, row.text)
+          .run(JSON.stringify(vectors[index].map((value) => Math.round(value * 1e5) / 1e5)), identity, row.id, row.text)
           .changes,
       );
     return updated;
@@ -928,6 +1005,8 @@ class MemoryService {
       while (start >= 0 && messages[start].role !== "user") start--;
     }
     if (start < 0 || messages[start].automationId || ["automation", "goal-step"].includes(messages[start].kind)) return null;
+    // "ok thanks" has nothing to teach, and asking the model to confirm that costs it a whole request.
+    if (!significantTerms(messages.slice(start).filter((message) => message.role === "user").map((message) => clean(message.text)).join(" ")).length) return null;
     const items = messages
       .slice(start)
       .map((m, i) => ({
@@ -1025,4 +1104,4 @@ class MemoryService {
     if (!result.changes) throw new Error('Choose a failed memory learning job.');
   }
 }
-module.exports = { MemoryService, workspaceKey, MAX_EXTRACTION_ATTEMPTS };
+module.exports = { MemoryService, workspaceKey, significantTerms, MAX_EXTRACTION_ATTEMPTS };

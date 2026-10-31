@@ -10,7 +10,7 @@ Checks support fileExists, fileContains and a permitted command. A command requi
 
 ## Snapshots and restore
 
-Before writable local work, the app creates any missing writable folder inside the working folder (with the same path, link and protected-name checks), then captures the configured write scope under data/goal-backups. A snapshot is bounded to 2,000 files and 25 MiB; total backup storage is capped at 250 MiB. Metadata also has an 8 MiB limit. Broad folders can exceed these caps before a model step starts.
+Before writable local work, the app creates any missing writable folder inside the working folder (with the same path, link and protected-name checks), then captures the configured write scope under data/goal-backups. A snapshot leaves out `.git`, `node_modules` and secrets, which the goal's file tools cannot reach anyway. It is bounded to 5,000 files and 100 MiB; total backup storage is capped at 1 GiB, and metadata at 8 MiB. A folder over those limits, or with links in it, costs the undo of that step and not the step: the goal runs and its activity says the step has no undo.
 
 After execution, the app records file hashes and changes. Preview Restore compares current files with the recorded after-state. Restore is available only when verified changes exist and current files have not diverged. It validates backup bytes, rechecks each target, removes files created by that run, and restores previous copies of changed/deleted files. Unrelated later files are left alone.
 

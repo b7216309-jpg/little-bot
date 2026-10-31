@@ -331,3 +331,7 @@
 .security-file #security-quick-note{min-height:110px}
 .security-details textarea{min-height:96px}
 .security-details-found{font-size:13px;line-height:1.6;word-break:break-word}
+.heartbeat-examples{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:8px 0 4px}
+.heartbeat-examples>span{font-size:10px;color:#919889;margin-right:2px}
+.heartbeat-example{border:1px solid #dfe2d6;background:#fbfbf7;border-radius:999px;padding:3px 9px;font:inherit;font-size:10px;line-height:1.5;color:#5c6552;cursor:pointer}
+.heartbeat-example:hover,.heartbeat-example:focus-visible{background:#f1f2e9;color:#2b3226}

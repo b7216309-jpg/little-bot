@@ -186,6 +186,19 @@ async function runnerFixture(t, run) {
   return { runner, g, d, alerts };
 }
 
+test('a writable folder too big to copy costs the step its undo, not the step', async t => {
+  let calls = 0;
+  const { runner, g } = await runnerFixture(t, async () => { calls++; return result('no-change'); });
+  await fs.mkdir(path.join(g.workspace, 'project'));
+  await fs.writeFile(path.join(g.workspace, 'project', 'huge.bin'), Buffer.alloc(101 * 1024 * 1024));
+  g.permissions = { ...g.permissions, write: true, writePaths: ['project'] };
+  await runner.execute(g);
+  assert.equal(calls, 1, 'the step ran');
+  const skipped = g.history.find(entry => entry.kind === 'snapshot-skipped');
+  assert.match(skipped.summary, /no undo/);
+  assert.equal(g.history.some(entry => entry.snapshot?.undoAvailable), false);
+});
+
 test('ongoing runner reviews approaching calendar deadlines without new messages or edits', async t => {
   let calls = 0, now = Date.parse('2026-10-01T08:00:00Z');
   t.mock.method(Date, 'now', () => now);

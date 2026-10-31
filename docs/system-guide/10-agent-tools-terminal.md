@@ -14,7 +14,7 @@ For local models, AgentTools also records a generic lesson when it repairs an ar
 | memory_save / memory_forget | Durable memory |
 | skill_list / skill_read | Enabled skills and plugin ownership |
 | calendar_list / calendar_manage | Local calendar handlers |
-| goal_manage / schedule_manage | Goal drafts and recurring schedule management |
+| goal_manage / schedule_manage | Goal drafts and repeating or one-time schedule management |
 | ask_user | Persisted question/request routing |
 | attachment_send | Workspace/browser-output import and visible delivery |
 | browser / web_search_service / web_scrape | EmbeddedBrowser / WebServices |
@@ -22,7 +22,7 @@ For local models, AgentTools also records a generic lesson when it repairs an ar
 | screen_capture / clipboard / document_render | [DesktopTools](../../src/desktop-tools.cjs): screen and window captures, clipboard text and images, HTML to PDF/PNG |
 | app_state and *_manage / *_control | AppManagement and registered main handlers |
 
-The read-only set contains skills, recall and calendar_list. Direct full chat receives the broader tool set. Heartbeat, goals and Independent Check do not inherit every direct-chat management operation. Goals use their own permitted workspace/write/terminal/network/MCP tools.
+The read-only set contains skills, recall and calendar_list. Direct full chat receives the broader tool set. Heartbeat, goals and Independent Check do not inherit every direct-chat management operation; a heartbeat adds the browser and web tools to the read-only set, and the enabled MCP servers' tools. Goals use their own permitted workspace/write/terminal/network/MCP tools.
 
 **Desktop tools.**
 - `screen_capture` grabs one display (primary first) or one window, by the handle from `windows_ui list_windows`, through Electron's desktopCapturer. Small windows are scaled up to the same 1600-pixel cap.

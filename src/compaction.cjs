@@ -28,7 +28,7 @@ function compactionKey(config) {
 
 function ensureCompaction(chat) {
   chat.context ||= { usedTokens: null, windowTokens: null, updatedAt: null, stale: false };
-  chat.compaction ||= { status: 'idle', count: 0, lastAt: null, lastError: null };
+  chat.compaction ||= { status: 'idle', lastAt: null, lastError: null };
   return chat.compaction;
 }
 
@@ -58,7 +58,7 @@ class CompactionTracker {
     chat.compaction.lastError = null;
     chat.context.stale = true;
   }
-  item(chat, { id, turnId, completed = false, manual = false }, now = Date.now()) {
+  item(chat, { id, turnId, completed = false, manual = false, error = null }, now = Date.now()) {
     if (typeof id !== 'string' || !id || typeof turnId !== 'string' || !turnId) return false;
     const state = this._state(chat);
     const key = `${turnId}\0${id}`;
@@ -77,14 +77,13 @@ class CompactionTracker {
     if (!state.active.delete(key)) chat.context.stale = true;
     state.completed.add(key);
     if (state.completed.size > 256) state.completed.delete(state.completed.values().next().value);
-    if (!manual) this.commitManual(chat, now);
-    chat.compaction.lastError = null;
-    chat.compaction.status = manual || state.active.size ? 'running' : 'idle';
+    if (error) chat.compaction.lastError = error;
+    else if (!manual) this.commitManual(chat, now);
+    chat.compaction.status = (manual && !error) || state.active.size ? 'running' : 'idle';
     return true;
   }
   commitManual(chat, now = Date.now()) {
     ensureCompaction(chat);
-    chat.compaction.count = Math.min(Number.MAX_SAFE_INTEGER, (count(chat.compaction.count) ? chat.compaction.count : 0) + 1);
     chat.compaction.lastAt = now;
     chat.compaction.lastError = null;
   }

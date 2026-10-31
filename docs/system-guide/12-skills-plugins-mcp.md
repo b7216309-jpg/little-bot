@@ -6,7 +6,7 @@
 
 [bundled-skills.cjs](../../src/bundled-skills.cjs) installs/upgrades the [little-bot operating guide](../../resources/skills/little-bot/SKILL.md). Current bundle version is 21. Version 21 added eight skills written for Little Bot on Windows: pc-care, documents, data-analysis, file-organizer, voice, game-master, journal and morning-brief. Their commands were run on Windows PowerShell 5.1 with a fr-FR locale. Recognized unedited earlier content can be upgraded; user-edited content and recorded deletion are preserved. Disabling the guide or its owning plugin prevents normal skill selection.
 
-Limits include 100 skills, 30 servers and 20 plugins; plugin imports accept at most 20 skills. SKILL.md imports are bounded in bytes and their parsed instruction content to 20,000 characters. Bad metadata, names or missing files can prevent import.
+Limits include 100 skills of up to 100,000 characters, 30 servers and 20 plugins; plugin imports accept at most 20 skills. SKILL.md imports are bounded in bytes and their parsed instruction content to 20,000 characters. Bad metadata, names or missing files can prevent import.
 
 ## Plugins
 
@@ -18,7 +18,7 @@ Existing thread dynamic-tool schemas need the [migration mechanism](10-agent-too
 
 [ExtensionRuntime](../../src/extension-runtime.cjs) turns managed server records into the engine's MCP configuration, discovers tools/auth status and starts OAuth sign-in for HTTP servers ([engine MCP client](19-engine.md)). stdio servers need an available command and declared environment-variable names; HTTP servers need a working endpoint and optional configured bearer-token environment variable.
 
-Inventory is paginated, up to 100 pages/10,000 rows; invalid cursors fail explicitly. Disabling a tool changes saved configuration, not just its display. Goal MCP access uses saved server/tool grants and a goal-specific broker. Heartbeat verifies MCP is disabled rather than inheriting ambient enabled servers.
+Inventory is paginated, up to 100 pages/10,000 rows; invalid cursors fail explicitly. Disabling a tool changes saved configuration, not just its display. Goal MCP access uses saved server/tool grants and a goal-specific broker. A heartbeat check has the enabled servers, and declines any form a server asks for. A night-shift step, the goal check and Independent Check verify MCP is disabled rather than inheriting ambient enabled servers.
 
 A server can be configured but failed, authentication-required or tool-less. Refresh and runtime status determine availability. Missing credentials, executable paths, offline endpoints, schema differences and deleted tool names prevent calls.
 

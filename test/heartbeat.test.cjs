@@ -37,7 +37,7 @@ test('defaults are disabled and validation captures a bounded explicit checklist
   assert.equal(configured.checklist, 'Check files');
   assert.equal(configured.workspace, settings.workspace);
   assert.equal(configured.lastStatus, 'never');
-  for (const intervalMinutes of [0, 4, 1441, 5.5, '5', NaN, Infinity]) {
+  for (const intervalMinutes of [0, 10081, 5.5, '5', NaN, Infinity]) {
     assert.throws(() => validateHeartbeat(input({ intervalMinutes }), null, settings), /interval/);
   }
   for (const bad of [null, [], 'settings']) assert.throws(() => validateHeartbeat(bad), /settings/);
@@ -49,7 +49,9 @@ test('defaults are disabled and validation captures a bounded explicit checklist
   assert.throws(() => validateHeartbeat(input(), null, {}), /working folder/);
   assert.throws(() => validateHeartbeat(input({ startHour: 24 }), null, settings), /start hour/);
   assert.throws(() => validateHeartbeat(input({ endHour: -1 }), null, settings), /end hour/);
-  assert.throws(() => validateHeartbeat(input({ maxRunsPerDay: 101 }), null, settings), /daily run limit/);
+  assert.throws(() => validateHeartbeat(input({ maxRunsPerDay: 1441 }), null, settings), /daily run limit/);
+  assert.throws(() => validateHeartbeat(input({ maxAlertsPerDay: 101 }), null, settings), /notification limit/);
+  assert.equal(defaults.maxRunsPerDay, 0, 'no limit by default');
   assert.equal(validateHeartbeat({ enabled: false, checklist: '' }, defaults, settings).enabled, false);
 });
 
@@ -242,10 +244,17 @@ test('quiet checks retain recent actions without notifications, and failed actio
   assert.deepEqual(recovered.lastActions, f.config.lastActions);
 });
 
+test('what a quiet check did through the browser or MCP stays under Recent checks', async () => {
+  const f = fixture(async () => ({ status: 'quiet', summary: '', actions: ['Command (completed): Get-Date', 'Browser (completed): navigate https://example.test/', 'MCP (completed): github / list'] }));
+  await f.service.runNow();
+  assert.equal(f.config.pulse.at(-1).note, 'Browser (completed): navigate https://example.test/ · MCP (completed): github / list');
+  assert.equal(f.alerts.length, 0);
+});
+
 test('normalization whitelists state, caps audit data and recovers interrupted runs conservatively', () => {
   const config = normalizeHeartbeat({
     ...defaultHeartbeat(settings, localTime()), enabled: true, checklist: 'x'.repeat(9000),
-    intervalMinutes: 2, startHour: 24, endHour: -1, maxRunsPerDay: 999, runsToday: 11,
+    intervalMinutes: 0, startHour: 24, endHour: -1, maxRunsPerDay: 9999, runsToday: 11,
     lastStatus: 'running', nextRunAt: localTime() - MINUTE, failureCount: 2,
     lastError: 'password=bad-secret', unknown: 'omit me',
     history: Array.from({ length: 70 }, (_, index) => ({ id: `event-${index}`, at: localTime() + index,
@@ -254,7 +263,7 @@ test('normalization whitelists state, caps audit data and recovers interrupted r
   assert.equal(config.intervalMinutes, 30);
   assert.equal(config.startHour, 8);
   assert.equal(config.endHour, 22);
-  assert.equal(config.maxRunsPerDay, 12);
+  assert.equal(config.maxRunsPerDay, 0);
   assert.equal(config.runsToday, 11);
   assert.equal(config.lastStatus, 'error');
   assert.match(config.lastError, /interrupted/);
@@ -346,6 +355,31 @@ test('failed runs give their daily slot back, so a broken morning cannot silence
   await f.service.runNow();
   assert.equal(f.config.lastStatus, 'quiet');
   assert.equal(f.config.runsToday, 1);
+});
+
+test('no daily limit lets checks keep coming, and the old default of 12 is lifted once', async () => {
+  const f = fixture(async () => ({ status: 'quiet', summary: '' }), { maxRunsPerDay: 0 });
+  f.config.runsToday = 500;
+  f.config.dayKey = new Date(localTime()).toISOString().slice(0, 10);
+  f.store.data.heartbeat = f.config;
+  await f.service.runNow();
+  assert.equal(f.config.lastStatus, 'quiet');
+
+  const saved = { ...defaultHeartbeat(settings, localTime()), checklist: 'Check.', maxRunsPerDay: 12 };
+  delete saved.runLimitReviewed;
+  const lifted = normalizeHeartbeat(saved, settings, localTime());
+  assert.equal(lifted.maxRunsPerDay, 0);
+  assert.equal(normalizeHeartbeat({ ...lifted, maxRunsPerDay: 12 }, settings, localTime()).maxRunsPerDay, 12, 'choosing 12 afterwards sticks');
+  delete saved.maxRunsPerDay;
+  assert.equal(normalizeHeartbeat({ ...saved, maxRunsPerDay: 20 }, settings, localTime()).maxRunsPerDay, 20, 'another chosen limit stays');
+});
+
+test('a follow-up can be up to a year away', () => {
+  const f = fixture();
+  f.store.data.heartbeat = { ...f.config, initiative: 'wild', followups: [] };
+  const service = f.service;
+  assert.ok(service.scheduleFollowup({ at: localTime() + 300 * 24 * 60 * MINUTE, note: 'Renew the passport.' }).id);
+  assert.throws(() => service.scheduleFollowup({ at: localTime() + 400 * 24 * 60 * MINUTE, note: 'Too far.' }), /next year/);
 });
 
 test('missed automations and checks move to their next slot instead of replaying', () => {

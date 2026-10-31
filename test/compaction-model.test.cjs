@@ -98,7 +98,8 @@ for (const subscribed of [true, false]) test(`compaction switches IQ2_XS to IQ3_
   assert.equal(resume.config.model_reasoning_effort, 'high');
   assert.equal(resume.config.model_context_window, 262144);
   started(client, chat); item(client, chat, true); finished(client, chat);
-  assert.equal(chat.compaction.count, 1);
+  assert.ok(chat.compaction.lastAt);
+  assert.equal(chat.compaction.count, undefined);
   assert.equal(chat.threadId, threadId);
   assert.equal(chat.model, store.data.settings.localModel);
   assert.deepEqual(chat.messages, transcript);

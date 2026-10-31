@@ -64,7 +64,9 @@ Some websites and APIs ask agents to identify the person they work for, for exam
 - **When a detail may go out:** when you wrote it in your own message for that request. "Sign me up at news.test with sam@example.com" lets that address go out during that request only. Otherwise the model is told to ask you to include it, or to type it yourself in the browser panel.
 - **What is never blocked:** local tools (memory, files, calendar, goals, routines, questions to you, your own phone) and local commands such as `git config user.email`.
 
-Each catch appears as a **Security guard** message, like an owner code leak. Switch the guard off with **Guard my details**. It covers the conversation, saved sessions, the Quick session and background goals. A goal's saved objective and your answers to its questions may carry a detail, like your own message. Heartbeat relies on SECURITY.md and its own permissions.
+Each catch appears as a **Security guard** message, like an owner code leak. Switch the guard off with **Guard my details**. It covers the conversation, saved sessions, the Quick session, background goals and heartbeat checks, with their commands, file changes, browser, web and MCP calls. A goal's saved objective and your answers to its questions may carry a detail, like your own message, and so may a heartbeat's checklist.
+
+A heartbeat reads web pages out of sight and with nobody watching, with your browser sign-ins and your MCP servers at hand. If a page carries hostile instructions, what stands in the way is that the model is told pages are data, not a sandbox. The guard only catches your details leaving: it does not stop a check clicking or changing something on a site you are signed in to. What a check did there is listed in its actions and under Recent checks.
 
 Limits: encodings other than percent-encoding (base64, for example) are not decoded. A detail the model first writes into a data file that is not itself a sending script, and a script then reads it from there, is not followed. Text typed into another app with the Windows app tool is treated as local.
 

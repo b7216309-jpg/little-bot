@@ -17,8 +17,8 @@ const initiative = value => value === 'wild' ? 'wild' : 'calm';
 const MIN_WAKE = 5;
 const MAX_WAKE = 240;
 const MAX_PULSE = 30;
-const MAX_FOLLOWUPS = 20;
-const MAX_FOLLOWUP_AHEAD = 30 * 24 * 60 * MINUTE;
+const MAX_FOLLOWUPS = 100;
+const MAX_FOLLOWUP_AHEAD = 365 * 24 * 60 * MINUTE;
 
 function localDay(nowMs) {
   const date = new Date(nowMs);
@@ -70,7 +70,7 @@ function retryDelay(config) {
 function defaultHeartbeat(settings = {}, nowMs = Date.now()) {
   return {
     enabled: false, mode: 'act', initiative: 'calm', checklist: '', intervalMinutes: 30,
-    startHour: 8, endHour: 22, maxRunsPerDay: 12, maxAlertsPerDay: 3, snoozeMinutes: 60,
+    startHour: 8, endHour: 22, maxRunsPerDay: 0, runLimitReviewed: true, maxAlertsPerDay: 3, snoozeMinutes: 60,
     workspace: string(settings.workspace), model: string(settings.model), effort: effort(settings.effort),
     ...connectionBinding(settings),
     nextRunAt: nowMs + 30 * MINUTE, lastRunAt: null, lastStatus: 'never',
@@ -85,16 +85,18 @@ function normalizeHeartbeat(value, settings = {}, nowMs = Date.now(), recovering
   const checklist = string(value.checklist).trim().slice(0, MAX_CHECKLIST);
   const result = {
     enabled: value.enabled === true && Boolean(checklist), mode: 'act', initiative: initiative(value.initiative), checklist,
-    intervalMinutes: integer(value.intervalMinutes, 5, 1440, 30),
+    intervalMinutes: integer(value.intervalMinutes, 1, 10080, 30),
     startHour: integer(value.startHour, 0, 23, 8), endHour: integer(value.endHour, 0, 23, 22),
-    maxRunsPerDay: integer(value.maxRunsPerDay, 1, 100, 12),
-    maxAlertsPerDay: integer(value.maxAlertsPerDay, 1, 20, 3), snoozeMinutes: integer(value.snoozeMinutes, 5, 1440, 60),
+    // 0 is no limit. 12 was the default while the model could be a paid service: it stopped a 30-minute heartbeat
+    // at about two in the afternoon, so a saved 12 from before is lifted once.
+    maxRunsPerDay: value.runLimitReviewed !== true && value.maxRunsPerDay === 12 ? 0 : integer(value.maxRunsPerDay, 0, 1440, 0), runLimitReviewed: true,
+    maxAlertsPerDay: integer(value.maxAlertsPerDay, 0, 100, 3), snoozeMinutes: integer(value.snoozeMinutes, 5, 1440, 60),
     workspace: string(value.workspace, defaults.workspace), model: string(value.model, defaults.model), effort: effort(value.effort),
     ...connectionBinding(value),
     nextRunAt: timestamp(value.nextRunAt, defaults.nextRunAt), lastRunAt: timestamp(value.lastRunAt),
     lastStatus: ['never', 'running', 'quiet', 'alert', 'error'].includes(value.lastStatus) ? value.lastStatus : 'never',
     dayKey: typeof value.dayKey === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.dayKey) ? value.dayKey : defaults.dayKey,
-    runsToday: integer(value.runsToday, 0, 100, 0), failureCount: integer(value.failureCount, 0, 10, 0),
+    runsToday: integer(value.runsToday, 0, 100000, 0), failureCount: integer(value.failureCount, 0, 10, 0),
     quietStreak: integer(value.quietStreak, 0, 1000, 0), pulse: pulse(value.pulse), followups: followups(value.followups),
     ...(typeof value.wakeReason === 'string' && value.wakeReason.trim() ? { wakeReason: clean(value.wakeReason, 300) } : {}),
     ...(typeof value.wakeEvent === 'string' && value.wakeEvent.trim() ? { wakeEvent: clean(value.wakeEvent, 60) } : {}),
@@ -141,10 +143,10 @@ function validateHeartbeat(input, existing = null, settings = {}, nowMs = Date.n
   if (enabled && !checklist) throw new Error('Add a checklist before enabling heartbeat.');
   const values = {};
   for (const [key, min, max, label] of [
-    ['intervalMinutes', 5, 1440, 'The interval'],
+    ['intervalMinutes', 1, 10080, 'The interval'],
     ['startHour', 0, 23, 'The start hour'], ['endHour', 0, 23, 'The end hour'],
-    ['maxRunsPerDay', 1, 100, 'The daily run limit'],
-    ['maxAlertsPerDay', 1, 20, 'The daily notification limit'], ['snoozeMinutes', 5, 1440, 'The Later delay'],
+    ['maxRunsPerDay', 0, 1440, 'The daily run limit'],
+    ['maxAlertsPerDay', 0, 100, 'The daily notification limit'], ['snoozeMinutes', 5, 1440, 'The Later delay'],
   ]) {
     const value = input[key] === undefined ? previous[key] : input[key];
     if (!Number.isInteger(value) || value < min || value > max) throw new RangeError(`${label} must be a whole number from ${min} to ${max}.`);
@@ -251,7 +253,7 @@ class Heartbeat {
       if (!isConnectionSelected(config, this.store.data.settings)) return null;
       if (this.running || !config.enabled || !config.checklist.trim() || !Number.isFinite(config.nextRunAt)
         || config.nextRunAt > nowMs || !inActiveHours(config, nowMs) || !this.canRun()) return null;
-      if (config.dayKey === localDay(nowMs) && config.runsToday >= config.maxRunsPerDay) return null;
+      if (config.maxRunsPerDay && config.dayKey === localDay(nowMs) && config.runsToday >= config.maxRunsPerDay) return null;
       if (this.publish) return this.publish({
         type: 'heartbeat.due', source: 'heartbeat', priority: 3,
         dedupeKey: `heartbeat:due:${config.nextRunAt}`,
@@ -277,7 +279,7 @@ class Heartbeat {
     if (!config.workspace.trim()) throw new Error('Choose a working folder before running heartbeat.');
     const wakeReason = config.wakeReason || '', wakeEvent = config.wakeEvent || '';
     const dayKey = localDay(startedAt);
-    if (config.dayKey === dayKey && config.runsToday >= config.maxRunsPerDay) throw new Error('Heartbeat has reached its daily run limit.');
+    if (config.maxRunsPerDay && config.dayKey === dayKey && config.runsToday >= config.maxRunsPerDay) throw new Error('Heartbeat has reached its daily run limit.');
     this.running = true;
     try {
       try {
@@ -335,7 +337,7 @@ class Heartbeat {
     const config = this.store.data.heartbeat;
     if (config.initiative !== 'wild' || !config.enabled) throw new Error('Follow-ups need Heartbeat enabled with Wild initiative.');
     const nowMs = this.now();
-    if (!Number.isFinite(at) || at <= nowMs || at > nowMs + MAX_FOLLOWUP_AHEAD) throw new Error('Choose a follow-up time in the next 30 days.');
+    if (!Number.isFinite(at) || at <= nowMs || at > nowMs + MAX_FOLLOWUP_AHEAD) throw new Error('Choose a follow-up time in the next year.');
     if (typeof note !== 'string' || !note.trim()) throw new Error('A follow-up needs a short note saying what to check.');
     if (config.followups.length >= MAX_FOLLOWUPS) throw new Error(`At most ${MAX_FOLLOWUPS} follow-ups can be planned. Cancel one first.`);
     const item = { id: randomUUID(), at: Math.round(at), note: clean(note, 300), createdAt: nowMs };
@@ -387,7 +389,9 @@ class Heartbeat {
         if (wake) config.nextRunAt = nowMs + wake * MINUTE;
         else if (config.nextRunAt <= nowMs) config.nextRunAt = nowMs + config.intervalMinutes * MINUTE;
       }
-      config.pulse = pulse([...config.pulse, { at: nowMs, status, note: status === 'quiet' ? reason : summary || reason,
+      // What a check did through the browser or MCP, or tried to leak, stays on record even when it had nothing to say.
+      const outward = performedActions.filter(action => /^(Browser \(|MCP \(|Leak caught)/.test(action));
+      config.pulse = pulse([...config.pulse, { at: nowMs, status, note: [status === 'quiet' ? reason : summary || reason, ...outward].filter(Boolean).join(' · '),
         ...(wake ? { wakeInMinutes: wake } : {}) }]);
       if (status === 'quiet') return null;
       const hash = fingerprint(status, summary, performedActions, config.workspace);

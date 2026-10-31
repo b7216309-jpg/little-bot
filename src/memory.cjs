@@ -81,14 +81,14 @@ function buildMemoryContext(memory, options = {}) {
 function automaticRemember(memory, text, settings = {}, chatId, messageId) {
   if (memory?.enabled === false) return null;
   const match = clean(text).match(
-    /^(?:please\s+)?remember(?:\s+that\b|\s*:)\s*([\s\S]+)$/i,
+    /^(?:please\s+|stp,?\s+)?(?:remember(?:\s+that\b|\s*:)|souviens-toi(?:\s+que\b|\s*:)|rappelle-toi\s+que\b|retiens(?:\s+que\b|\s*:)|n['’]oublie\s+pas\s+que\b)\s*([\s\S]+)$/i,
   );
   if (!match) return null;
   return saveFact(
     memory,
     {
       text: match[1],
-      scope: settings.workspace ? "workspace" : "global",
+      scope: "global",
       source: {
         sessionId: chatId,
         ...(messageId ? { messageId } : {}),

@@ -21,7 +21,7 @@ A turn sends the conversation to the model, runs the tool calls it makes one at 
 
 **Calls left as text.** Strata sometimes leaves a tool call inside the answer as text instead of a structured call, for example a tool the thread was not offered, or a parse it gave up on. When an answer has no structured call but contains `<tool_call>`, the engine reads the calls itself (`textToolCalls`). It understands Qwen's XML form (`<function=name><parameter=key>value</parameter></function>`) and the JSON form (`{"name": ..., "arguments": {...}}`). It runs them like any other call, and removes them from the text shown to the user. A tool that was not offered gets the usual "unknown tool" error, which the model can read and answer.
 
-Every tool result goes back to the model capped at 12,000 characters, beginning and end kept. Images from tools follow the results as one user message, since local servers accept images only from the user.
+A command's output goes back capped at 8,000 tokens unless the model asks for more with `max_output_tokens`; an app tool's at 64,000 characters, beginning and end kept; an MCP tool's at 100,000. Images from tools follow the results as one user message, since local servers accept images only from the user.
 
 ## Safety
 
@@ -31,7 +31,11 @@ No sandbox, by design. In a conversation the engine asks the app to approve each
 
 The system message (base prompt, instructions, working folder) and the tool list stay byte-stable for a thread, and request JSON is written with sorted keys, so Strata's prompt cache keeps matching. Each assistant turn is stored exactly as it streamed, reasoning included, because Qwen's template puts earlier reasoning back into the prompt.
 
-Before each model call, when the last context reaches the thread's compaction limit, the engine asks the model for a summary (with the same tool block, so the cache still matches) and keeps only that summary plus the request being worked on. A context overflow from the server compacts once and retries. `thread/compact/start` does the same on request.
+**Compaction.** After each answer and before each model call, when the last context reaches the thread's limit, the engine asks the model for notes under fixed headings, sending the whole history with the same tool block so the cache still matches. The request has thinking off, temperature 0.3, no presence penalty and at most 4,096 tokens. The limit is `model_auto_compact_token_limit`, else 90% of the window; a server that reports no usage is measured from the text, and a compaction that would free under a tenth of the limit does not run.
+
+The new history is the thread's standing context (`standing` on `turn/start`, saved with the thread), the notes, and then what stays word for word: the newest messages up to 32,000 characters, a fifth of the limit or a quarter of what was there, on whole tool steps, with tool results clipped to 6,000 characters and stored reasoning dropped, plus the request while a turn is working on one.
+
+If the summary request overflows it is sent again with old tool results cut to 1,000 characters, then with the newest half only; if nothing fits, the notes say so. A compaction that fails with room left does not end the turn and tries again once the context has grown by 5%. A context overflow from the server compacts once and retries. `thread/compact/start` does the same on request.
 
 Conversations are saved after every step in `data/engine/threads/<id>.thread`, encrypted with Windows secure storage; Quick sessions and background runs are not saved. Deleting a session deletes its file. On first start the engine removes the old Codex files from `data/engine`; a conversation whose engine history is gone continues from the visible timeline.
 

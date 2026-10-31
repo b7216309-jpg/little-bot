@@ -5,7 +5,7 @@ const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { parseSkill, LIMITS } = require('./extensions.cjs');
 
-const VERSION = 26;
+const VERSION = 27;
 // Skills from 26 on arrive disabled: they wait in Extensions until the user turns one on, and
 // a disabled skill is not named in requests, so they cost nothing until then.
 const OPTIONAL_SKILLS = [
@@ -51,6 +51,7 @@ const ORIGINAL_HASHES = {
     '650d9146590bea6923d740505afd6d31fb6b7ea671a103dc9675b0383ffd4b96', // v0.8.2–0.8.8
   ],
   'web-tools': [
+    '78bb25a5228c702bc74d168024ffc4f2eefeebc921354cff39b0897bdd728b3d', // 0.35.1–0.54 guide
     '63cb092d0ae58de008f692dbf52cec92318fe0dc9dc02605df4660c99a3d53ff', // 0.35.0 guide (built-in web tools)
     '266e0d314cd8d31a58feabb3a2c1c5bfc57f819ddff15051ccbb44a6da2da9a4', // 0.8.9–0.34 guide (Brave/Firecrawl web tools)
     'ddc0f9422378b1ef3ac91d8332b6316fe63bcdbbc8bcf98c3c5e22be61ac789e',

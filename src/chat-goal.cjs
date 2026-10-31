@@ -7,7 +7,7 @@
 const { randomUUID } = require('node:crypto');
 const { parseModelJson, normalizeModelOutput } = require('./model-json.cjs');
 
-const DEFAULT_TURNS = 20, MAX_TURNS = 100, DEFAULT_MINUTES = 90, MAX_MINUTES = 720;
+const DEFAULT_TURNS = 20, MAX_TURNS = 1000, DEFAULT_MINUTES = 90, MAX_MINUTES = 10080;
 const { isQuick, isMain } = require('./chats.cjs');
 const { awakeBetween } = require('./awake-clock.cjs');
 const EVAL_TIMEOUT_MS = 10 * 60000, CHECK_TIMEOUT_MS = 5 * 60000, OUTPUT_LIMIT = 100000;
@@ -39,7 +39,7 @@ function parseGoalCommand(input) {
   const options = {};
   // An unquoted check runs to the next option or the end: "--check npm test" is "npm test", not "npm".
   text = text.replace(/(^|\s)--check\s+(?:"([^"]*)"(?=\s|$)|'([^']*)'(?=\s|$)|`([^`]*)`(?=\s|$)|((?:(?!\s--(?:turns?|time)\b)[\s\S])+))/i, (_, lead, a, b, c, d) => { options.check = (a ?? b ?? c ?? d ?? '').trim(); return lead; });
-  text = text.replace(/(^|\s)--turns?\s+(\d{1,3})(?=\s|$)/i, (_, lead, n) => { options.maxTurns = Number(n); return lead; });
+  text = text.replace(/(^|\s)--turns?\s+(\d{1,4})(?=\s|$)/i, (_, lead, n) => { options.maxTurns = Number(n); return lead; });
   text = text.replace(/(^|\s)--time\s+(\d{1,4})\s*(h|hours?|m|mins?|minutes?)?(?=\s|$)/i, (_, lead, n, unit) => { options.maxMinutes = Number(n) * (/^h/i.test(unit || '') ? 60 : 1); return lead; });
   const condition = text.replace(/\s+/g, ' ').trim();
   if (!condition) throw new Error('Describe the goal: /goal <what must be true when it is done>.');

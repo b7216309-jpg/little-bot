@@ -336,7 +336,6 @@ function persistedData(data, defaultWorkspace, recovering = false) {
       if (isObject(chat.compaction)) {
         result.compaction = {
           status: chat.compaction.status === 'running' ? 'running' : 'idle',
-          count: count(chat.compaction.count) || 0,
           lastAt: timestamp(chat.compaction.lastAt, null),
           lastError: typeof chat.compaction.lastError === 'string' ? chat.compaction.lastError.slice(0, 2000) : null,
         };
@@ -354,9 +353,9 @@ function persistedData(data, defaultWorkspace, recovering = false) {
       return result;
     }),
     automations: automations.filter(isObject).map(automation => {
-      const scheduleType = automation.scheduleType === 'clock' ? 'clock' : 'interval';
+      const scheduleType = ['clock', 'once'].includes(automation.scheduleType) ? automation.scheduleType : 'interval';
       const intervalMinutes = Number.isInteger(automation.intervalMinutes)
-        && automation.intervalMinutes >= 1 && automation.intervalMinutes <= 10080
+        && automation.intervalMinutes >= 1 && automation.intervalMinutes <= 525600
         ? automation.intervalMinutes : 60;
       const result = {
         id: string(automation.id) || randomUUID(),
@@ -365,9 +364,9 @@ function persistedData(data, defaultWorkspace, recovering = false) {
         scheduleType,
         ...(scheduleType === 'clock'
           ? { clockTime: clockTime(automation.clockTime), daysOfWeek: scheduleDays(automation.daysOfWeek) }
-          : { intervalMinutes }),
+          : scheduleType === 'once' ? { runAt: timestamp(automation.runAt, null) } : { intervalMinutes }),
         enabled: automation.enabled === true,
-        nextRunAt: timestamp(automation.nextRunAt, Date.now() + 60 * 60 * 1000),
+        nextRunAt: timestamp(automation.nextRunAt, scheduleType === 'once' ? null : Date.now() + 60 * 60 * 1000),
         lastRunAt: timestamp(automation.lastRunAt, null),
         lastStatus: ['running', 'completed', 'error'].includes(automation.lastStatus)
           ? automation.lastStatus : 'never',

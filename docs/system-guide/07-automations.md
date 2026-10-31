@@ -2,9 +2,9 @@
 
 ## How it works
 
-An automation is a saved recurring prompt with a folder, model/provider binding and schedule. [scheduler.cjs](../../src/scheduler.cjs) validates records, calculates due times and runs one routine at a time. [schedule-management.cjs](../../src/schedule-management.cjs) handles chat-created/edited schedules; main.cjs supplies the matching UI operations.
+An automation is a saved prompt with a folder, model/provider binding and schedule. [scheduler.cjs](../../src/scheduler.cjs) validates records, calculates due times and runs one routine at a time. [schedule-management.cjs](../../src/schedule-management.cjs) handles chat-created/edited schedules, across all folders (a new one takes the chat's folder); main.cjs supplies the matching UI operations.
 
-Two repeating schedules are supported: elapsed intervals from 1 to 10,080 minutes, or a PC-local HH:MM time on selected weekdays (0 Sunday through 6 Saturday). There is no cron parser or dedicated one-time reminder scheduler.
+Two repeating schedules are supported: elapsed intervals from 1 to 525,600 minutes (a year), or a PC-local HH:MM time on selected weekdays (0 Sunday through 6 Saturday). A third schedule runs once, at a PC-local date and time (`runAt`) or a delay from now (`delayMinutes`, stored as `runAt` rounded up to the minute). Starting turns a one-time task off and clears its next run, whether it was due or started with Run. It stays listed as finished and takes a new future time to run again. There is no cron parser.
 
 The foreground scheduler polls every 15 seconds. With the event runtime active it publishes automation.due; [EventRuntime](../../src/event-runtime.cjs) starts the saved routine. The controller sends its prompt into the continuous public conversation with automation origin metadata, waits for the turn to finish and preserves the user's conversation title/mode/working objective. It does not teach the saved prompt as a new personal fact.
 
@@ -12,7 +12,7 @@ Chat-tool creation defaults to disabled unless enabled:true is supplied. Enable/
 
 ## Due times, busy work and reopening
 
-If the app remains open but the shared lane is busy, due work waits without consuming its schedule. On reopening after the app was closed, [missed-schedules.cjs](../../src/missed-schedules.cjs) moves overdue enabled routines to their next occurrence without running the missed ones, and overdue goal reviews start an hour after launch, twenty minutes apart. File triggers and calendar thresholds also baseline closed-app history. If the PC sleeps while the process stays alive, due work retries after wake.
+If the app remains open but the shared lane is busy, due work waits without consuming its schedule. On reopening after the app was closed, [missed-schedules.cjs](../../src/missed-schedules.cjs) moves overdue enabled repeating routines to their next occurrence without running the missed ones, leaves an overdue one-time task due so it runs once with a note that it is late, and overdue goal reviews start an hour after launch, twenty minutes apart. File triggers and calendar thresholds also baseline closed-app history. If the PC sleeps while the process stays alive, due work retries after wake.
 
 There is no Windows service, tray worker or wake-from-sleep scheduler. Notification delivery is not scheduling, and seeing a saved routine does not imply its model is connected.
 
@@ -20,7 +20,7 @@ The controller's base agent instructions still say to run once after a missed ex
 
 ## Failure paths
 
-Offline/provider failure records an error and advances the next schedule; the scheduler does not guarantee retrying that same occurrence immediately. Unselected saved connection waits. schedule_manage refuses edits to a running routine, and deletion is refused while running. The UI edit path lacks the equivalent check (R6).
+A one-time task waits while the engine or its saved model is not ready, since starting uses it up; a failure after it started records an error and is not retried. For repeating routines, offline/provider failure records an error and advances the next schedule; the scheduler does not guarantee retrying that same occurrence immediately. Unselected saved connection waits. schedule_manage refuses edits to a running routine, and deletion is refused while running. The UI edit path lacks the equivalent check (R6).
 
 Failed schedule persistence can leave an enabled routine in memory (R2). An event-triggered long routine also holds event dispatch until its model turn resolves (R4). See the [review](review.md).
 

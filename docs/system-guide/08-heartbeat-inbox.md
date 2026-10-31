@@ -2,9 +2,13 @@
 
 ## How it works
 
-[Heartbeat](../../src/heartbeat.cjs) performs small proactive checks from a saved checklist; it does not own an ongoing goal's full review. It polls every 15 seconds and honors enable state, nonempty checklist, interval, PC-local active hours, maximum daily runs, the Background switch (global pause) and execution-lane availability. Active hours can cross midnight; equal start/end represents all-day availability. Scheduled checks wait while the user is away (ten minutes without input) and run when they are back; a check missed while the app was closed is not replayed at startup.
+[Heartbeat](../../src/heartbeat.cjs) performs small proactive checks from a saved checklist; it does not own an ongoing goal's full review. It polls every 15 seconds and honors enable state, nonempty checklist, interval, PC-local active hours, maximum daily runs, the Background switch (global pause) and execution-lane availability. Active hours can cross midnight; equal start/end represents all-day availability. A Calm check runs whether or not the user is at the PC. A Wild one waits while they are away (ten minutes without input) and runs when they are back, because it talks to them. A check missed while the app was closed is not replayed at startup. Limits: every 1 to 10,080 minutes; checks per day 0 (no limit, the default) to 1,440, and a saved 12, the old default from when the model could be a paid service, is lifted once; desktop alerts per day 0 to 100.
 
-[Controller.runHeartbeat](../../src/controller.cjs) creates an ephemeral engine thread in cache slot 2. It supplies current time, checklist, relevant profile/memory, recent local heartbeat summaries, goal state and attention preferences. Read-only Little Bot recall/skill/calendar tools are available. Native execution is workspace-write with network disabled, and MCP is disabled and verified for this thread. Therefore a checklist needing remote APIs or a GitHub action cannot simply use ordinary chat's integrations.
+The form offers ten example checklists (project notes, failing tests, calendar, disk space, downloads, a price or stock, news on a topic, a signed-in site, a connected service, and a Wild one). A click adds one to what is written. Each stays within what a check can do.
+
+[Controller.runHeartbeat](../../src/controller.cjs) creates an ephemeral engine thread in cache slot 2. It supplies current time, checklist, relevant profile/memory, recent local heartbeat summaries, goal state and attention preferences. Read-only Little Bot recall/skill/calendar tools, the web tools (`web_search_service`, `web_scrape`), the browser and the enabled MCP servers' tools are available. The browser is a second [EmbeddedBrowser](../../src/embedded-browser.cjs) with no window: it has the panel's sign-ins, never opens the panel, leaves the user's page alone, takes no screenshots and closes when the check ends.
+
+The engine offers each command, file change and MCP call to the app first, as in a conversation, so one carrying the owner code, or a personal detail the checklist does not name, is refused before it runs; three refusals stop the check. A form an MCP server asks for is declined, because nobody is there to fill it. A check runs with nobody watching and has the shell, the user's sign-ins and their MCP servers, so a page with hostile instructions is held back only by the model being told that pages are data. What it did through the browser and MCP is listed in its actions and under Recent checks, even when it stayed quiet. A check has thirty minutes.
 
 The final result is parsed as quiet or alert with summary/topic. A quiet result stays quiet. Actual recorded file changes force an alert so the app does not hide work performed before the final response. Parsing/provider failures preserve recorded actions and enter a bounded retry/backoff path.
 
@@ -12,7 +16,7 @@ The final result is parsed as quiet or alert with summary/topic. A quiet result 
 
 [NightShift](../../src/night-shift.cjs) is an optional, off-by-default away-time coordinator. It starts only after a live ten-minute idle transition or a screen-lock event, and yields on input, unlock, or a user message. Startup idleness and `app.opened` never start work. It runs only on the selected local connection, with autonomy unpaused and the normal goal, chat, Quick, memory, extension, scheduler and engine lanes free.
 
-It chooses from saved, authorized local goals, due or near intentions and follow-ups, calendar events in the next day, and recent requests addressed to Little Bot with an explicit waiting cue (such as “can you … later” or “please … tomorrow”; the owner's own plans like “I'll fix it tomorrow” are ignored). Goal steps still pass through GoalRunner, including their saved connection, active-hours, dependency, verification and budget checks; useful progress can pull the next step forward within the away session. A pulled-forward step keeps scheduled semantics, unlike the owner's Run: no fresh-run override, no “Queued by you” entry, and an unchanged review still costs no model call. Calendar and explicit chat follow-ups use one bounded `Controller.runHeartbeat` step in the working folder, told to work only locally; it gets no web tools. There is no open-ended agenda or new project generation.
+It chooses from saved, authorized local goals, due or near intentions and follow-ups, calendar events in the next day, and recent requests addressed to Little Bot with an explicit waiting cue (such as “can you … later” or “please … tomorrow”; the owner's own plans like “I'll fix it tomorrow” are ignored). Goal steps still pass through GoalRunner, including their saved connection, active-hours, dependency, verification and budget checks; useful progress can pull the next step forward within the away session. A pulled-forward step keeps scheduled semantics, unlike the owner's Run: no fresh-run override, no “Queued by you” entry, and an unchanged review still costs no model call. Calendar and explicit chat follow-ups use one bounded `Controller.runHeartbeat` step in the working folder, told to work only locally; it gets no browser or web tools, and MCP is disabled and verified for its thread. There is no open-ended agenda or new project generation.
 
 Intentions and Heartbeat follow-ups are held for the return report; they do not need a model request. Other work is recorded in the session and delivered as one “While you were away” proactive conversation message when the owner returns. From the moment the owner is away, goal posts are held for that report, including a step that began before night shift did. A goal contributes its own message to the owner, never its work log; its alerts reach the report only when it is blocked or sent no message. Questions are listed once, under “Needs you”, and goal next steps stay on their cards. An empty session sends nothing. Active requests are interrupted upstream on return, and unfinished goal work stays queued for recovery. Desktop notifications use the configured quiet hours; the conversation report does not. The Heartbeat panel shows the session status and the single Night shift setting.
 
@@ -23,15 +27,15 @@ Sessions can retain a pending return report across a restart, but startup does n
 Heartbeat has two initiative levels. **Calm** is the behavior above. **Wild** changes four things:
 
 - **Agenda.** The agent keeps `agenda.md` in the working folder as its own backlog. Edits to that file do not force an alert.
-- **Wider access.** It runs at medium effort or higher with network access. It can save memories and manage the calendar, routines and draft goals.
+- **Wider access.** It runs at medium effort or higher. It can save memories and manage the calendar, routines and draft goals.
 - **Its own schedule.** Each run returns a reason and `wakeInMinutes` (clamped to 5–240), which replaces the fixed interval for the next run.
 - **Pressure to act.** After two or more quiet runs in a row, the prompt asks for one concrete move.
 
 Turning wild on schedules a check within a minute. Presence events (`app.opened`, `user.returned` after 90 minutes away, and `chat.completed`, debounced to 10 minutes) pull the next check forward and tell the agent why it woke.
 
-The agent can also plan one-time check-ins with the `followup_manage` tool, from the wild heartbeat or a direct conversation. A follow-up can be due up to 30 days ahead, and at most 20 can be pending. When one is due, the heartbeat wakes with its note as the reason. Follow-ups require wild initiative to be enabled.
+The agent can also plan one-time check-ins with the `followup_manage` tool, from the wild heartbeat or a direct conversation. A follow-up can be due up to a year ahead, and at most 100 can be pending. When one is due, the heartbeat wakes with its note as the reason. Follow-ups require wild initiative to be enabled.
 
-Every finished run, including quiet ones, is kept in a bounded `pulse` log (30 entries) shown under Latest check. Small local models that wrap their JSON in `<think>` tags or Markdown fences are parsed instead of failing. Pause all, active hours and the daily run cap still apply.
+Every finished run, including quiet ones, is kept in a bounded `pulse` log (30 entries) shown under Latest check. Small local models that wrap their JSON in `<think>` tags or Markdown fences are parsed instead of failing. Pause all, active hours and a daily run limit, if set, still apply.
 
 ## Delivery into the conversation
 
@@ -53,7 +57,7 @@ The engine thread never contains these messages. The next user message therefore
 - `activity.long_session` fires after three hours, and `user.returned` after 90 minutes idle.
 - These events pull a Wild heartbeat forward, with the reason.
 
-**Web watches** ([web-watch.cjs](../../src/web-watch.cjs)) are pages that the user, the chat model or a Wild heartbeat register with `web_watch`. Each is checked every 6–168 hours while the app is open. Watches follow the web tools' address rule: no local, private, Tailscale or dotless names, and every address (redirects included) is looked up before it is fetched.
+**Web watches** ([web-watch.cjs](../../src/web-watch.cjs)) are pages that the user, the chat model or a Wild heartbeat register with `web_watch`. Each is checked every 1–168 hours while the app is open, up to 100 pages. Watches follow the web tools' address rule: no local, private, Tailscale or dotless names, and every address (redirects included) is looked up before it is fetched.
 - Only public http(s) addresses are allowed. Redirects are followed by hand, and every hop is rechecked.
 - The first check is a baseline. A later change posts a "web watch" message with the new text.
 
@@ -71,7 +75,7 @@ An inbox record and a Windows notification are different outcomes. Notifications
 
 App closed/asleep, disabled heartbeat, empty checklist, paused autonomy, missing workspace, offline or unselected model, other work, repeated invalid JSON, muted subject, snooze, daily notification cap or unavailable Windows notifications. A busy engine lane delays a check until it is free; it does not consume its due schedule. Missed schedules are skipped at startup.
 
-Manual Run bypasses enable checks and still honors lane readiness. Remote-model checks honor the configured daily run limit. A quiet check is a successful outcome, not a new advice message. Full coaching reviews belong to the goal system.
+Manual Run bypasses enable checks and still honors lane readiness. A daily run limit, if set, applies to every check. A quiet check is a successful outcome, not a new advice message. Full coaching reviews belong to the goal system.
 
 Heartbeat work runs outside the event dispatch lane, so unrelated standing intents and presence events continue while the model checks its list.
 

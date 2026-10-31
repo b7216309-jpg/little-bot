@@ -35,7 +35,8 @@ app.whenReady().then(async () => {
   if (process.env.SHOW_WINDOW === 'min') window.minimize();
   await window.loadURL('data:text/html,<title>Shell</title>');
   let changes = 0;
-  const browser = new EmbeddedBrowser({ root, getWindow: () => window, onChange: () => { changes += 1; }, partition: `test-${Date.now()}` });
+  const partition = `test-${Date.now()}`;
+  const browser = new EmbeddedBrowser({ root, getWindow: () => window, onChange: () => { changes += 1; }, partition });
   const call = args => browser.call(args, { isActive: () => true, owner: 'chat-1' });
   const ref = (refs, role, name) => Object.keys(refs).find(key => refs[key].role === role && (name === undefined || refs[key].name === name));
   try {
@@ -110,6 +111,25 @@ app.whenReady().then(async () => {
     await browser.userNavigate({ url: base + '/second?user=1' });
     for (let index = 0; index < 50 && !/user=1/.test(browser.getState().url || ''); index++) await new Promise(resolve => setTimeout(resolve, 50));
     assert.match(browser.getState().url, /user=1/);
+
+    // A heartbeat's browser: no window, the panel's sign-ins, and the page the user has open stays put.
+    const shown = browser.getState().url;
+    await browser.view.webContents.executeJavaScript(`document.cookie = 'signed=in; path=/'`);
+    const unseen = new EmbeddedBrowser({ root, partition });
+    const drive = args => unseen.call(args, { isActive: () => true, owner: 'heartbeat' });
+    await drive({ action: 'navigate', url: base + '/' });
+    assert.equal(await unseen.view.webContents.executeJavaScript('document.cookie'), 'signed=in', 'It has the sign-ins made in the panel.');
+    assert.ok(await unseen.view.webContents.executeJavaScript('innerWidth') > 0, 'Pages lay out without a window.');
+    assert.ok(!window.contentView.children.includes(unseen.view), 'It is never shown.');
+    const unseenSnapshot = JSON.parse((await drive({ action: 'snapshot' })).content);
+    await drive({ action: 'fill', ref: ref(unseenSnapshot.refs, 'textbox', 'Name'), text: 'Unseen' });
+    await drive({ action: 'click', ref: ref(unseenSnapshot.refs, 'button', 'Greet') });
+    assert.match(JSON.parse((await drive({ action: 'read' })).content).text, /Hello Unseen r false/);
+    await assert.rejects(drive({ action: 'screenshot' }), /snapshot or read/);
+    assert.equal(browser.getState().url, shown, 'The page in the panel has not moved.');
+    await unseen.close();
+    assert.equal(unseen.view, null);
+    assert.equal(browser.getState().url, shown);
 
     browser.showPanel(false);
     assert.equal(browser.attached, false);

@@ -5,11 +5,15 @@ const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { Worker, isMainThread, parentPort, workerData } = require('node:worker_threads');
 
-const MAX_FILES = 8;
-const MAX_FILE_BYTES = 20 * 1024 * 1024;
-const MAX_TURN_BYTES = 50 * 1024 * 1024;
-const MAX_STORE_BYTES = 512 * 1024 * 1024;
-const MAX_TEXT_CHARS = 30000;
+const MAX_FILES = 20;
+const MAX_FILE_BYTES = 100 * 1024 * 1024;
+const MAX_TURN_BYTES = 200 * 1024 * 1024;
+const MAX_STORE_BYTES = 4 * 1024 * 1024 * 1024;
+const MAX_TEXT_CHARS = 120000;
+const MAX_PDF_PAGES = 500;
+// The text sent with one message never takes more than this share of the model's context, counted at about four characters a token.
+const TEXT_CONTEXT_SHARE = 0.3;
+const CHARS_PER_TOKEN = 4;
 const MAX_IMAGE_PIXELS = 40 * 1024 * 1024;
 const MAX_IMAGE_EDGE = 2048;
 const ID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
@@ -113,7 +117,7 @@ async function extractDocument({ mime, buffer }) {
     const pdf = await getDocumentProxy(new Uint8Array(buffer), { isEvalSupported: false, disableFontFace: true, useSystemFonts: false, verbosity: 0 });
     try {
       let text = '', pagesRead = 0;
-      for (let number = 1; number <= Math.min(pdf.numPages, 100) && text.length < MAX_TEXT_CHARS; number++) {
+      for (let number = 1; number <= Math.min(pdf.numPages, MAX_PDF_PAGES) && text.length < MAX_TEXT_CHARS; number++) {
         const page = await pdf.getPage(number), content = await page.getTextContent();
         text += `\n[Page ${number}]\n`;
         for (const item of content.items) if (typeof item.str === 'string') text += item.str + (item.hasEOL ? '\n' : ' ');
@@ -254,13 +258,13 @@ class Attachments {
         if (typeof file !== 'string' || !path.isAbsolute(file)) throw new Error('Choose a local file.');
         const before = await regularFile(file);
         bytes += before.size;
-        if (bytes > MAX_TURN_BYTES) throw new Error('Attachments must total under 50 MB.');
+        if (bytes > MAX_TURN_BYTES) throw new Error('Attachments must total under 200 MB.');
         const buffer = await fs.readFile(file), after = await regularFile(file);
         if (before.size !== buffer.length || before.mtimeMs !== after.mtimeMs || before.ino !== after.ino) throw new Error('A file changed while being attached. Try again.');
         files.push({ name: path.basename(file), buffer });
       }
       await this._root();
-      if ((await this._usage()) + bytes > MAX_STORE_BYTES) throw new Error('The attachment store has reached its 512 MB limit.');
+      if ((await this._usage()) + bytes > MAX_STORE_BYTES) throw new Error('The attachment store has reached its 4 GB limit.');
       const imported = [];
       try {
         for (const file of files) imported.push(await this._import(file));
@@ -278,11 +282,11 @@ class Attachments {
   async importBytes({ name, bytes }) {
     if (!(bytes instanceof Uint8Array) && !Buffer.isBuffer(bytes) && !(bytes instanceof ArrayBuffer)) throw new Error('Choose a file or paste an image.');
     const length = bytes.byteLength;
-    if (length > MAX_FILE_BYTES) throw new Error('Each attachment must be under 20 MB.');
+    if (length > MAX_FILE_BYTES) throw new Error('Each attachment must be under 100 MB.');
     const buffer = Buffer.from(bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes);
     return this._serial(async () => {
       await this._root();
-      if ((await this._usage()) + length > MAX_STORE_BYTES) throw new Error('The attachment store has reached its 512 MB limit.');
+      if ((await this._usage()) + length > MAX_STORE_BYTES) throw new Error('The attachment store has reached its 4 GB limit.');
       return this._import({ name, buffer });
     });
   }
@@ -309,8 +313,8 @@ class Attachments {
       thumbnail = `data:image/jpeg;base64,${preview.toString('base64')}`;
       mime = 'image/png'; kind = 'image'; name = `${path.parse(originalName).name.slice(0, 156)}.png`;
     }
-    if (buffer.length > MAX_FILE_BYTES) throw new Error('Each attachment must be under 20 MB.');
-    if ((await this._usage()) + buffer.length + 100000 > MAX_STORE_BYTES) throw new Error('The attachment store has reached its 512 MB limit.');
+    if (buffer.length > MAX_FILE_BYTES) throw new Error('Each attachment must be under 100 MB.');
+    if ((await this._usage()) + buffer.length + 100000 > MAX_STORE_BYTES) throw new Error('The attachment store has reached its 4 GB limit.');
     const id = randomUUID(), directory = this._directory(id);
     const file = kind === 'image' ? 'image.png' : `source${/^[a-z0-9]{1,12}$/.test(extension) ? '.' + extension : ''}`;
     const metadata = { version: 1, id, name, originalName, mime, kind, size: buffer.length, file, createdAt: Date.now(), ...(kind === 'image' ? { width, height, thumbnail } : {}) };
@@ -387,14 +391,14 @@ class Attachments {
     return result;
   }
 
-  async prepare(ids) {
+  async prepare(ids, { contextWindow } = {}) {
     if (!Array.isArray(ids) || ids.length > MAX_FILES || new Set(ids).size !== ids.length) throw new Error(`Attach up to ${MAX_FILES} different files.`);
     const descriptors = [], input = [], documents = [];
-    let bytes = 0, remaining = MAX_TEXT_CHARS;
+    let bytes = 0, remaining = contextWindow > 0 ? Math.min(MAX_TEXT_CHARS, Math.floor(contextWindow * CHARS_PER_TOKEN * TEXT_CONTEXT_SHARE)) : MAX_TEXT_CHARS;
     for (const id of ids) {
       const item = await this.get(id);
       bytes += item.size;
-      if (bytes > MAX_TURN_BYTES) throw new Error('Attachments must total under 50 MB.');
+      if (bytes > MAX_TURN_BYTES) throw new Error('Attachments must total under 200 MB.');
       descriptors.push(this._describe(item));
       if (item.kind === 'image') {
         input.push({ type: 'localImage', path: item.imagePath });

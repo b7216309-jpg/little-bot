@@ -178,8 +178,13 @@ class MemoryConsolidator {
       if (op.cancelled || this.closed) return this.release(op);
       await c.extensionRuntime?.verifyHeartbeat(op.threadId);
       if (op.cancelled || this.closed) return this.release(op);
-      const existing = this.service.search({ query: '', source: 'facts', workspace: cwd, scope: 'workspace', limit: 20 });
-      const records = (existing.records || existing.results || []).map(({ id, key, text, type }) => ({ id, key, text: text.slice(0, 1500), type }));
+      // What already touches this subject comes first: the model can only avoid or correct what it can see.
+      const asked = (op.job.messages || []).filter(message => message.role === 'user').map(message => message.text).join('\n').slice(0, 2000);
+      await this.service.prepareQuery(asked);
+      if (op.cancelled || this.closed) return this.release(op);
+      const lookup = { source: 'facts', workspace: cwd, scope: 'workspace', limit: 12 };
+      const existing = new Map([...this.service.search({ ...lookup, query: asked }).results, ...this.service.search({ ...lookup, query: '' }).results].map(record => [record.id, record]));
+      const records = [...existing.values()].slice(0, 20).map(({ id, key, text, type }) => ({ id, key, text: text.slice(0, 1500), type }));
       const messages = [];
       let remaining = 48000;
       for (const message of op.job.messages || []) {

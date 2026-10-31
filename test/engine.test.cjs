@@ -259,9 +259,200 @@ test('a context overflow compacts the conversation and retries; a manual compact
   const done = new Promise(resolve => { const check = (method, params) => { if (method === 'turn/completed' && params.threadId === threadId) { engine.off('notification', check); resolve(params.turn); } }; engine.on('notification', check); });
   await engine.request('thread/compact/start', { threadId });
   assert.equal((await done).status, 'completed');
-  assert.deepEqual(engine.threads.get(threadId).history.map(message => message.role), ['user']);
+  // A manual compaction keeps the newest exchange word for word, and always ends up smaller.
+  assert.deepEqual(engine.threads.get(threadId).history.map(message => message.role), ['user', 'assistant', 'user', 'assistant']);
+  assert.equal(engine.threads.get(threadId).history[3].content, 'Second answer.');
   assert.equal(events.filter(event => event.item?.type === 'contextCompaction').length, 4);
   assert.deepEqual(usage.map(entry => entry.source), ['conversation', 'compaction', 'conversation', 'compaction']);
+});
+
+// A thread that compacts early, with room to spare in its window.
+const lowLimit = (config, tokens = 1000) => ({ config: { ...config, model_auto_compact_token_limit: tokens } });
+
+test('a compaction keeps the newest messages word for word and asks for the summary with no reasoning', async t => {
+  const { strata, thread, run, config, engine } = await setup(t, [
+    { content: 'Old answer.', reasoning: 'A long thought.', prompt: 5000 },
+    { content: '## Next\nAnswer the recent question.' },
+    { content: 'Recent answer.' },
+  ]);
+  const threadId = await thread(lowLimit(config));
+  await run(threadId, 'A'.repeat(40000));
+  assert.equal((await run(threadId, 'Recent question')).status, 'completed');
+  const summary = strata.requests[1];
+  assert.match(summary.messages.at(-1).content, /## Next: the exact next step/);
+  assert.equal(summary.chat_template_kwargs.enable_thinking, false);
+  assert.equal(summary.reasoning_effort, undefined);
+  assert.equal(summary.temperature, 0.3);
+  assert.equal(summary.presence_penalty, 0);
+  assert.equal(summary.max_completion_tokens, 4096);
+  assert.equal(summary.messages[1].content.length, 40000, 'the whole history goes, so the cache still matches');
+  const after = strata.requests[2].messages.slice(1);
+  assert.deepEqual(after.map(message => message.role), ['user', 'assistant', 'user']);
+  assert.match(after[0].content, /Summary of the conversation so far[^]*Answer the recent question/);
+  assert.equal(after[1].content, 'Old answer.');
+  assert.equal(after[1].reasoning_content, undefined, 'stored reasoning goes');
+  assert.equal(after[2].content, 'Recent question');
+  assert.equal(engine.threads.get(threadId).contextTokens, 110);
+});
+
+test('a compaction in the middle of a turn keeps the request and whole tool steps', async t => {
+  const big = 'r'.repeat(7000);
+  const { strata, thread, run, config } = await setup(t, [
+    { calls: [{ id: 'one', name: 'read', arguments: { n: 1 } }], prompt: 300 },
+    { calls: [{ id: 'two', name: 'read', arguments: { n: 2 } }], prompt: 300 },
+    { calls: [{ id: 'three', name: 'read', arguments: { n: 3 } }], prompt: 2000 },
+    { content: 'The notes.' },
+    { content: 'Finished.' },
+  ], { tools: { read: () => ({ success: true, contentItems: [{ type: 'inputText', text: big }] }) } });
+  const threadId = await thread({ ...lowLimit(config), approvalPolicy: 'never', dynamicTools: [{ name: 'read', description: 'Read.', inputSchema: { type: 'object', properties: {} } }] });
+  assert.equal((await run(threadId, 'Do the long job')).status, 'completed');
+  const after = strata.requests.at(-1).messages.slice(1);
+  assert.match(after[0].content, /The notes/);
+  assert.deepEqual(after.slice(1, 3).map(message => message.role), ['assistant', 'user']);
+  assert.equal(after[2].content, 'Do the long job', 'the request stays even when the newest messages do not reach it');
+  for (const [index, message] of after.entries()) {
+    if (message.role !== 'tool') continue;
+    assert.ok(after.slice(0, index).some(earlier => earlier.tool_calls?.some(call => call.id === message.tool_call_id)), 'every tool result follows its call');
+  }
+});
+
+test('a request too big for the context still gets its summary, from less', async t => {
+  const overflow = { status: 400, message: 'the request exceeds the available context size' };
+  const { strata, thread, run, config, engine } = await setup(t, [
+    { calls: [{ id: 'one', name: 'read', arguments: {} }] },
+    { content: 'Done reading.' },
+    overflow, overflow,
+    { content: 'Notes from what fitted.' },
+    { content: 'Second answer.' },
+  ], { tools: { read: () => ({ success: true, contentItems: [{ type: 'inputText', text: 'long'.repeat(2000) }] }) } });
+  const threadId = await thread({ config, approvalPolicy: 'never', dynamicTools: [{ name: 'read', description: 'Read.', inputSchema: { type: 'object', properties: {} } }] });
+  await run(threadId, 'Read it');
+  assert.equal((await run(threadId, 'Two')).status, 'completed');
+  const tool = message => message.role === 'tool';
+  assert.equal(strata.requests[3].messages.find(tool).content.length, 8000, 'the first summary request sends everything');
+  assert.ok(strata.requests[4].messages.find(tool).content.length < 1100, 'the second cuts the old tool result short');
+  assert.match(strata.requests[5].messages[1].content, /Notes from what fitted/);
+  assert.equal(strata.requests[5].messages.at(-1).content, 'Two');
+  assert.equal(engine.threads.get(threadId).history.at(-1).content, 'Second answer.');
+});
+
+test('when nothing fits, the conversation goes on from its newest messages', async t => {
+  const overflow = { status: 400, message: 'the request exceeds the available context size' };
+  const { strata, thread, run, config } = await setup(t, [{ content: 'First answer.' }, overflow, overflow, overflow, overflow, { content: 'Still here.' }]);
+  const threadId = await thread({ config, dynamicTools: [{ name: 'memory_search', description: 'Search.', inputSchema: { type: 'object', properties: {} } }] });
+  await run(threadId, 'One');
+  assert.equal((await run(threadId, 'Two')).status, 'completed');
+  const first = strata.requests.at(-1).messages[1].content;
+  assert.match(first, /removed without a summary/);
+  assert.match(first, /memory_search and session_read find anything missing/);
+  assert.equal(strata.requests.at(-1).messages.at(-1).content, 'Two');
+});
+
+test('compaction runs when an answer is finished, so the next message starts at once', async t => {
+  const { strata, events, thread, run, config } = await setup(t, [
+    { content: 'First answer.', prompt: 5000 },
+    { content: 'The notes.' },
+    { content: 'Second answer.' },
+  ]);
+  const threadId = await thread(lowLimit(config));
+  const finished = await run(threadId, 'v'.repeat(8000));
+  assert.equal(finished.status, 'completed');
+  assert.equal(strata.requests.length, 2, 'the summary came straight after the answer');
+  assert.equal(strata.requests[1].messages.at(-1).content.startsWith('Your context is nearly full'), true);
+  const order = events.map(event => event.item?.type === 'contextCompaction' ? 'compaction' : event.method).filter(name => ['compaction', 'turn/completed'].includes(name));
+  assert.deepEqual(order, ['compaction', 'compaction', 'turn/completed']);
+  await run(threadId, 'Two');
+  assert.equal(strata.requests.length, 3, 'no second summary for the next message');
+  assert.equal(strata.requests[2].messages.at(-1).content, 'Two');
+  assert.equal(strata.requests[2].messages.some(message => message.content === 'v'.repeat(8000)), false, 'nothing is held for a turn that is over');
+});
+
+test('a thread nobody keeps does not summarize itself after its answer', async t => {
+  const { strata, thread, run, config } = await setup(t, [{ content: 'Done.', prompt: 5000 }]);
+  const threadId = await thread({ ...lowLimit(config), ephemeral: true });
+  assert.equal((await run(threadId, 'v'.repeat(8000))).status, 'completed');
+  assert.equal(strata.requests.length, 1);
+});
+
+test('stopping a summary after the answer leaves the answer standing', async t => {
+  let stop;
+  const { engine, thread, run, config, events } = await setup(t, [
+    { content: 'First answer.', prompt: 5000 },
+    (_body, _request, response) => { response.writeHead(200, { 'content-type': 'text/event-stream' }); response.write(': waiting\n\n'); stop(); },
+    { content: 'Second answer.' },
+  ]);
+  const threadId = await thread(lowLimit(config));
+  const summaryStarted = new Promise(resolve => { stop = resolve; });
+  const finished = run(threadId, 'u'.repeat(8000));
+  await summaryStarted;
+  await engine.request('turn/interrupt', { threadId });
+  assert.equal((await finished).status, 'completed');
+  assert.equal(engine.threads.get(threadId).history.at(-1).content, 'First answer.');
+  const failed = events.find(event => event.method === 'item/completed' && event.item?.type === 'contextCompaction');
+  assert.equal(failed.item.error, 'Compaction was stopped.');
+});
+
+test('a compaction that fails does not end the turn, and tries again a little later', async t => {
+  const { strata, events, thread, run, config } = await setup(t, [
+    { content: 'First answer.', prompt: 2000 },
+    { status: 500, message: 'The summary request failed.' },
+    { content: 'Second answer.', prompt: 2000 },
+    { content: 'Third answer.', prompt: 2200 },
+    { content: 'The notes.' },
+    { content: 'Fourth answer.' },
+  ]);
+  const threadId = await thread(lowLimit(config));
+  await run(threadId, 'x'.repeat(8000));
+  assert.equal((await run(threadId, 'Two')).status, 'completed');
+  const failed = events.find(event => event.method === 'item/completed' && event.item?.type === 'contextCompaction');
+  assert.match(failed.item.error, /summary request failed/);
+  await run(threadId, 'Three');
+  assert.equal(strata.requests[3].messages.at(-1).content, 'Three', 'not again right away');
+  await run(threadId, 'Four');
+  assert.match(strata.requests.at(-1).messages[1].content, /The notes/);
+});
+
+test('a server that reports no usage is measured from the text, so compaction still runs', async t => {
+  const silent = content => (_body, _request, response) => {
+    response.writeHead(200, { 'content-type': 'text/event-stream' });
+    response.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content }, finish_reason: 'stop' }] })}\n\n`);
+    response.end('data: [DONE]\n\n');
+  };
+  const { engine, strata, events, thread, run, config } = await setup(t, [silent('First answer.'), silent('The notes.'), silent('Second answer.')]);
+  const threadId = await thread(lowLimit(config));
+  await run(threadId, 'w'.repeat(8000));
+  assert.equal(engine.threads.get(threadId).contextTokens, null);
+  assert.equal(events.filter(event => event.method === 'thread/tokenUsage/updated').length, 0, 'no misleading zero on the meter');
+  await run(threadId, 'Two');
+  assert.match(strata.requests.at(-1).messages[1].content, /The notes/);
+});
+
+test('with compaction turned off the limit is still just below the window', async t => {
+  const { strata, thread, run, config } = await setup(t, [
+    { content: 'First answer.', prompt: 950 },
+    { content: 'The notes.' },
+    { content: 'Second answer.' },
+  ]);
+  const threadId = await thread({ config: { ...config, model_context_window: 1000 } });
+  await run(threadId, 'y'.repeat(8000));
+  await run(threadId, 'Two');
+  assert.match(strata.requests.at(-1).messages[1].content, /The notes/);
+});
+
+test('standing context comes back after a compaction and survives a restart', async t => {
+  const { engine, strata, thread, run, config } = await setup(t, [
+    { content: 'First answer.', prompt: 5000 },
+    { content: 'The notes.' },
+    { content: 'Second answer.' },
+  ]);
+  const threadId = await thread(lowLimit(config));
+  await run(threadId, 'z'.repeat(8000), { standing: 'PROFILE: be brief.' });
+  await run(threadId, 'Two', { standing: 'PROFILE: be very brief.' });
+  assert.match(strata.requests.at(-1).messages[1].content, /^PROFILE: be brief\.\n\nSummary of the conversation/);
+  assert.equal(engine.store.load(threadId).standing, 'PROFILE: be very brief.');
+  await engine.request('thread/unsubscribe', { threadId });
+  await engine.request('thread/resume', { threadId, cwd: engine.cwd, config });
+  assert.equal(engine.threads.get(threadId).standing, 'PROFILE: be very brief.');
 });
 
 test('a steer message reaches the model before its next step', async t => {

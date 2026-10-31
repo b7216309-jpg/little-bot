@@ -139,6 +139,7 @@ app.whenReady().then(async () => {
   try { controller.memoryConsolidator.retryFormatFailures(); } catch (error) { logDiagnostic('memory-retry', error); }
   controller.browser = new EmbeddedBrowser({ root: path.join(stateDir, 'browser'), getWindow: () => window, onChange: () => controller.changed(),
     blocker: new BrowserBlocker({ root: path.join(stateDir, 'browser', 'blocker'), store, onChange: () => controller.changed() }) });
+  controller.heartbeatBrowser = new EmbeddedBrowser({ root: path.join(stateDir, 'browser'), blocker: controller.browser.blocker });
   controller.webServices = new WebServices(electronWeb(require('electron')));
   const attachmentReferences = () => store.data.chats.flatMap(chat => chat.messages.flatMap(message => (message.attachments || []).map(item => item.id)));
   controller.attachments = new Attachments({ root: path.join(stateDir, 'attachments'), nativeImage, references: attachmentReferences });
@@ -175,13 +176,13 @@ app.whenReady().then(async () => {
     if (event?.type === 'user.returned') void nightShift?.ownerReturned('presence').catch(error => logDiagnostic('night-shift:return', error));
     return eventRuntime?.publish(event) || { accepted: false, reason: 'stopped' };
   };
-  scheduler = new Scheduler({ store, run: runAutomation, publish: publishEvent, canRun: () => !store.data.autonomy.paused && !controller.userSendPending && !goals?.activeId && !controller.goalChat && !heartbeat?.running && !controller.extensionsBusy && !controller.memoryBusy && !store.data.chats.some(chat => chat.status !== 'idle') && !controller.chatGoal.holding(), onChange: () => controller.changed() });
+  scheduler = new Scheduler({ store, run: runAutomation, publish: publishEvent, checkReady: automation => controller.ensureReady(automation), canRun: () => !store.data.autonomy.paused && !controller.userSendPending && !goals?.activeId && !controller.goalChat && !heartbeat?.running && !controller.extensionsBusy && !controller.memoryBusy && !store.data.chats.some(chat => chat.status !== 'idle') && !controller.chatGoal.holding(), onChange: () => controller.changed() });
   heartbeat = new Heartbeat({ store, run: config => controller.runHeartbeat(config),
     canNotify: () => !store.data.autonomy.paused && !desktopWindows?.isFocused() && Notification.isSupported()
       && !store.data.chats.some(chat => chat.status !== 'idle'),
     canRun: () => controller.runtime.status === 'ready' && controller.account.status === 'connected'
       && !store.data.autonomy.paused && !controller.userSendPending && !goals?.activeId && !controller.goalChat && !controller.extensionsBusy && !scheduler.runningId && !controller.heartbeatChat && !store.data.chats.some(chat => chat.status !== 'idle')
-      && !controller.chatGoal.holding() && (controller.systemIdleSeconds?.() ?? 0) < 600,
+      && !controller.chatGoal.holding() && (store.data.heartbeat.initiative !== 'wild' || (controller.systemIdleSeconds?.() ?? 0) < 600),
     onChange: () => controller.changed(),
     publish: publishEvent,
     // Activity only tracks; every new heartbeat alert is delivered into the conversation.
@@ -317,7 +318,7 @@ app.whenReady().then(async () => {
     secrets: safeStorage.isEncryptionAvailable() ? { seal: text => safeStorage.encryptString(text).toString('base64'), open: sealed => safeStorage.decryptString(Buffer.from(sealed, 'base64')) } : null,
   });
   controller.torrents.resumeAll();
-  controller.agentTools = new AgentTools({ management:controller.appManagement, store, browser: controller.browser, webServices: controller.webServices, windowsUi: controller.windowsUi, cad: controller.cad, draughts: controller.draughts, torrents: controller.torrents,
+  controller.agentTools = new AgentTools({ management:controller.appManagement, store, browser: controller.browser, heartbeatBrowser: controller.heartbeatBrowser, webServices: controller.webServices, windowsUi: controller.windowsUi, cad: controller.cad, draughts: controller.draughts, torrents: controller.torrents,
     desktop: new DesktopTools({ desktopCapturer, screen, clipboard, nativeImage, BrowserWindow, session, root: path.join(stateDir, 'screenshots') }),
     onLesson: (modelId, key, text) => controller.recordLesson(modelId, key, text),
     phoneAction: async args => relay.phoneAction(args),
@@ -1070,7 +1071,7 @@ app.on('before-quit', event => {
   // invisible process holding the single-instance lock.
   const settle = step => Promise.resolve().then(step).catch(error => logDiagnostic('quit', error));
   const shutdown = settle(() => nightShift?.close())
-    .then(() => Promise.allSettled([settle(() => goals?.close()), settle(() => controller?.browser?.close({ shutdown: true }))]))
+    .then(() => Promise.allSettled([settle(() => goals?.close()), settle(() => controller?.browser?.close({ shutdown: true })), settle(() => controller?.heartbeatBrowser?.close({ shutdown: true }))]))
     .then(() => settle(() => controller?.close()));
   const limit = new Promise(resolve => setTimeout(resolve, 20000).unref?.());
   Promise.race([shutdown, limit]).finally(() => app.quit());

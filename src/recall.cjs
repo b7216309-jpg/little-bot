@@ -6,11 +6,27 @@ function service(store) {
   if (store?.data?.memory?.enabled === false) throw new Error("Memory is off.");
   return store.memoryService || serviceOf(store.data.memory);
 }
+// What the model needs from a result. The record itself repeats its text and carries bookkeeping, which pushed the
+// later results out of the tool's output.
 function recallSearch(store, args = {}, { chat } = {}) {
-  return service(store).search({
+  const found = service(store).search({
     ...args,
     workspace: chat?.workspace || store.data.settings?.workspace,
   });
+  return {
+    ...found,
+    results: found.results.map((record) => ({
+      id: record.id,
+      type: record.type,
+      source: record.source,
+      text: record.excerpt,
+      ...(record.text.length > record.excerpt.length ? { clipped: true } : {}),
+      date: record.date.slice(0, 10),
+      ...(record.pinned ? { pinned: true } : {}),
+      ...(record.status !== "active" ? { status: record.status } : {}),
+      ...(record.sessionId ? { sessionId: record.sessionId, messageId: record.messageId, offset: record.offset } : {}),
+    })),
+  };
 }
 function recallRead(store, args = {}) {
   return service(store).readSession(args);

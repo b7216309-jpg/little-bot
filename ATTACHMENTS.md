@@ -6,7 +6,7 @@ Images are decoded locally, converted to PNG, and scaled to at most 2,048 pixels
 
 PDF, DOCX, text, Markdown, CSV, JSON, and common source files supply readable text to the model. PDF and Word extraction stays on this computer. Scanned or password-protected PDFs produce an explicit message; OCR is not included. Other file types remain downloadable and accessible to file tools, without pretending that their contents were read.
 
-Limits: eight files per message, 20 MiB per file, 50 MiB per message, and 512 MiB in the attachment store. Document excerpts share a 30,000-character budget per message. PDF extraction reads at most 100 pages. Truncation is disclosed to the agent, which can use the original file when a suitable tool is available.
+Limits: twenty files per message, 100 MiB per file, 200 MiB per message, and 4 GiB in the attachment store. Document excerpts share a budget of 120,000 characters per message, or 30% of the model's context if that is less. PDF extraction reads at most 100 pages. Truncation is disclosed to the agent, which can use the original file when a suitable tool is available.
 
 Image capability is checked per selected model, using the local catalog plus the selected server’s `/props` (Strata: `/health`) vision state. A model explicitly advertised as text-only rejects image attachments before an engine thread starts. If an older provider does not advertise modalities, Little Bot preserves compatibility instead of guessing that images are unsupported. Attaching an accepted image sends its normalized pixels to the local model when the message is sent; they never leave the PC.
 

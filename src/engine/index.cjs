@@ -20,7 +20,26 @@ const MAX_STEPS = 400;
 const CHARS_PER_TOKEN = 4;
 const EFFORTS = new Set(['none', 'low', 'medium', 'high']);
 const IMAGE_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp' };
-const COMPACTION_PROMPT = 'Your context is nearly full, so older messages will be removed. Write a summary that lets you continue without them: the user\'s requests and preferences in this conversation, what has been done (files changed, commands run, results), decisions made, what is still open, and the exact next step. Keep names, paths, numbers and quoted text exact. Reply with the summary only.';
+const COMPACTION_PROMPT = `Your context is nearly full, so older messages will be removed. The newest messages stay. Write the notes you will need to carry on without the rest, under these headings, leaving out any with nothing to say:
+## The user: their requests, preferences and corrections in this conversation, in their own words where the wording matters.
+## Done: what has been finished, with the files changed, commands run and results.
+## Decisions: what was decided and why.
+## Open: what is unfinished or waiting on someone.
+## Next: the exact next step.
+Carry over whatever still matters from any earlier summary and drop what no longer does. Keep names, paths, numbers, ids, error messages and quoted text exact. Write in the language of the conversation, in under about 1,500 words. Reply with the notes only.`;
+// A summary is exact work: no reasoning pass over the whole context, a cool temperature, and a bound on its length.
+const COMPACTION_SAMPLING = { temperature: 0.3, presence_penalty: 0, max_completion_tokens: 4096 };
+// What stays word for word after a compaction: the newest messages, about 9,000 tokens at most and never more than a
+// fifth of the limit or a quarter of what was there. A long tool result in them is clipped; the summary has the rest.
+const MAX_TAIL_CHARS = 32000;
+const MAX_TAIL_TOOL_CHARS = 6000;
+// The limit when the app sets none (compaction turned off): just below the window, so a request is not refused.
+const HARD_LIMIT_SHARE = 0.9;
+// A compaction has to free at least this share of the limit, or it would run again at every step.
+const MIN_FREED_SHARE = 0.1;
+// When even the summary request does not fit, it is sent again smaller: old tool results cut short, then only the newest part.
+const OVERFLOW_TOOL_CHARS = 1000;
+const TOOL_IMAGES_NOTE = 'Images returned by the tool calls above:';
 // Codex's on-disk state from before Little Bot had its own engine.
 const LEGACY_FILES = /^(?:config\.toml|installation_id|version\.json|models_cache\.json|history\.jsonl|auth\.json|\.personality_migration|[\w-]+_\d+\.sqlite(?:-shm|-wal)?)$/;
 const LEGACY_DIRS = new Set(['sessions', 'archived_sessions', 'skills', 'thread-writer-locks', 'log', 'shell_snapshots', 'tmp', '.tmp']);
@@ -58,6 +77,39 @@ function userContent(input = []) {
   }
   if (parts.length === 1 && parts[0].type === 'text') return parts[0].text;
   return parts;
+}
+
+function clipMiddle(value, limit, note = '[... cut to fit the context ...]') {
+  if (value.length <= limit) return value;
+  const head = Math.ceil(limit * 0.6);
+  return `${value.slice(0, head)}\n${note}\n${value.slice(-(limit - head))}`;
+}
+
+// Tool images follow the tool results as a user message of their own; it is not something the user asked.
+const isToolImages = message => Array.isArray(message.content) && message.content[0]?.text === TOOL_IMAGES_NOTE;
+
+// The newest messages that fit. It never starts on a tool result, which needs the assistant message that called it.
+// Stored reasoning goes: the prompt is rebuilt from here anyway, and it would only fill the room left.
+function recentMessages(history, maxChars) {
+  const kept = [];
+  let used = 0;
+  for (let index = history.length - 1; index >= 0; index--) {
+    const { reasoning_content: _reasoning, ...message } = history[index];
+    if (message.role === 'tool') message.content = clipMiddle(text(message.content), MAX_TAIL_TOOL_CHARS);
+    used += messageChars([message]);
+    if (used > maxChars) break;
+    kept.unshift(message);
+  }
+  while (kept[0]?.role === 'tool') kept.shift();
+  return kept;
+}
+
+// The user message a running turn is working on, which stays whatever its size.
+function lastRequest(history) {
+  for (let index = history.length - 1; index >= 0; index--) {
+    if (history[index].role === 'user' && !isToolImages(history[index])) return history[index];
+  }
+  return null;
 }
 
 function messageChars(messages) {
@@ -120,6 +172,8 @@ class Thread {
     this.turn = null;
     this.usageTotal = { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0 };
     this.contextTokens = null;
+    // What the app wants kept in context for the life of the thread (the profile, for one). A compaction puts it back.
+    this.standing = '';
     this.configure(options);
   }
 
@@ -171,7 +225,7 @@ class Thread {
 
   async save() {
     if (this.ephemeral) return;
-    await this.engine.store.save(this.id, { id: this.id, savedAt: Date.now(), history: this.history });
+    await this.engine.store.save(this.id, { id: this.id, savedAt: Date.now(), history: this.history, standing: this.standing });
   }
 
   notify(method, params = {}) { this.engine.notify(method, { threadId: this.id, ...params }); }
@@ -350,6 +404,7 @@ class Engine extends EventEmitter {
     const saved = this.store.load(params.threadId);
     if (!saved) throw new Error(`no rollout found for thread id ${params.threadId}`);
     const thread = new Thread(this, params.threadId, params, saved.history);
+    thread.standing = text(saved.standing);
     this.threads.set(thread.id, thread);
     return { thread: { id: thread.id } };
   }
@@ -371,6 +426,7 @@ class Engine extends EventEmitter {
   turnStart(params) {
     const thread = this.thread(params.threadId);
     if (thread.turn) throw new Error('A turn is already running in this thread.');
+    if (typeof params.standing === 'string') thread.standing = params.standing;
     const turn = this.newTurn(thread, params);
     setImmediate(() => { turn.done = this.runTurn(thread, turn, params).catch(error => this.diagnose(error.stack || error.message)); });
     return { turn: { id: turn.id, status: 'inProgress' } };
@@ -451,13 +507,17 @@ class Engine extends EventEmitter {
         let answer;
         try { answer = await this.modelStep(thread, turn, params); }
         catch (failure) {
-          if (failure.code === 'context_length_exceeded' && !retriedOverflow) { retriedOverflow = true; await this.compact(thread, turn, { force: true }); continue; }
+          if (failure.code === 'context_length_exceeded' && !retriedOverflow) { retriedOverflow = true; await this.compact(thread, turn); continue; }
           throw failure;
         }
         if (!answer.toolCalls.length) break;
         await this.runTools(thread, turn, answer.toolCalls);
         await thread.save();
       }
+      // Now rather than at the next message: the answer is out, so the next message starts at once, and it can carry
+      // again what the removed messages held. Stopped here, the answer stands and the next turn tries again.
+      // A thread nobody keeps (a heartbeat check, a learning pass) has no next message to prepare for.
+      if (!thread.ephemeral) try { await this.maybeCompact(thread, turn, { idle: true }); } catch { /* See above. */ }
     } catch (failure) {
       if (signal.aborted || failure instanceof TurnStopped) {
         status = 'interrupted';
@@ -486,7 +546,7 @@ class Engine extends EventEmitter {
   }
 
   requestBody(thread, turn, params, tools, messages) {
-    const thinking = this.hooks.thinking() !== false;
+    const thinking = params.thinking !== false && this.hooks.thinking() !== false;
     const effort = text(params.effort || thread.config.model_reasoning_effort || '').toLowerCase();
     const body = { model: thread.options.model || params.model, messages,
       chat_template_kwargs: { enable_thinking: thinking } };
@@ -497,6 +557,7 @@ class Engine extends EventEmitter {
     applySampling(body, this.hooks.sampling());
     // Strata fits the answer to the room left in the context; a fixed default would only cut answers short.
     delete body.max_output_tokens;
+    if (params.compaction) Object.assign(body, COMPACTION_SAMPLING);
     return body;
   }
 
@@ -506,10 +567,10 @@ class Engine extends EventEmitter {
     return url;
   }
 
-  async modelStep(thread, turn, params, { compaction = false, extraMessages = [] } = {}) {
+  async modelStep(thread, turn, params, { compaction = false, history = thread.history, extraMessages = [] } = {}) {
     const signal = turn.abort.signal;
     const tools = await thread.tools();
-    const messages = [{ role: 'system', content: thread.system() }, ...thread.history, ...extraMessages];
+    const messages = [{ role: 'system', content: thread.system() }, ...history, ...extraMessages];
     const body = this.requestBody(thread, turn, params, tools, messages);
     const reasoningId = id('rs'), messageId = id('msg');
     let reasoningStarted = false, messageStarted = false;
@@ -532,12 +593,13 @@ class Engine extends EventEmitter {
     const reasoningTokens = Number(usage.completion_tokens_details?.reasoning_tokens) || 0;
     const last = { inputTokens: input, cachedInputTokens: cached, outputTokens: output, reasoningOutputTokens: reasoningTokens, totalTokens: input + output };
     for (const key of Object.keys(thread.usageTotal)) thread.usageTotal[key] += last[key];
-    if (!compaction) thread.contextTokens = last.totalTokens;
+    // No numbers (a server that does not report them, an answer cut off as a loop) means unknown, not an empty context.
+    if (!compaction) thread.contextTokens = last.totalTokens || null;
     try {
       this.hooks.onUsage({ source: this.hooks.classify({ threadId: thread.id, compaction }), model: body.model, input, cached, output,
         startedAt, firstByteAt: answer.firstByteAt, finishedAt: Date.now() });
     } catch (error) { this.diagnose(`Usage could not be recorded: ${error.message}`); }
-    thread.notify('thread/tokenUsage/updated', { turnId: turn.id, tokenUsage: { last, total: { ...thread.usageTotal },
+    if (last.totalTokens) thread.notify('thread/tokenUsage/updated', { turnId: turn.id, tokenUsage: { last, total: { ...thread.usageTotal },
       modelContextWindow: Number(thread.config.model_context_window) || null } });
     if (compaction) return answer;
     if (reasoningStarted) thread.notify('item/completed', { turnId: turn.id, item: { type: 'reasoning', id: reasoningId, content: [answer.reasoning], summary: [] } });
@@ -580,7 +642,7 @@ class Engine extends EventEmitter {
       images.push(...(result.images || []));
     }
     // Local servers accept images only from the user; tool images follow the tool results.
-    if (images.length) thread.history.push({ role: 'user', content: [{ type: 'text', text: 'Images returned by the tool calls above:' }, ...images.slice(0, 8).map(url => ({ type: 'image_url', image_url: { url } }))] });
+    if (images.length) thread.history.push({ role: 'user', content: [{ type: 'text', text: TOOL_IMAGES_NOTE }, ...images.slice(0, 8).map(url => ({ type: 'image_url', image_url: { url } }))] });
   }
 
   async runTool(thread, turn, call, args) {
@@ -711,35 +773,83 @@ class Engine extends EventEmitter {
   // ------------------------------------------------------------------------------------------- compaction
   autoLimit(thread) {
     const limit = Number(thread.config.model_auto_compact_token_limit);
-    return Number.isFinite(limit) && limit > 0 ? limit : null;
+    if (Number.isFinite(limit) && limit > 0) return limit;
+    const window = Number(thread.config.model_context_window);
+    return Number.isFinite(window) && window > 0 ? Math.floor(window * HARD_LIMIT_SHARE) : null;
   }
 
-  async maybeCompact(thread, turn) {
+  // What a compaction leaves word for word: the newest messages, and the request while one is being worked on.
+  keptMessages(thread, { idle = false } = {}) {
+    const total = messageChars(thread.history);
     const limit = this.autoLimit(thread);
-    const estimate = thread.contextTokens ?? Math.round(messageChars(thread.history) / CHARS_PER_TOKEN);
-    if (limit && estimate >= limit && thread.history.length > 2) await this.compact(thread, turn);
+    const budget = Math.min(MAX_TAIL_CHARS, Math.floor(total / 4), limit ? Math.floor(limit * CHARS_PER_TOKEN / 5) : MAX_TAIL_CHARS);
+    const recent = recentMessages(thread.history, budget);
+    const request = idle ? null : lastRequest(thread.history);
+    return request && !recent.some(message => message.content === request.content) ? [request, ...recent] : recent;
   }
 
-  async compact(thread, turn, { manual = false } = {}) {
+  async maybeCompact(thread, turn, { idle = false } = {}) {
+    const limit = this.autoLimit(thread);
+    if (!limit) return;
+    const estimate = thread.contextTokens ?? Math.round(messageChars(thread.history) / CHARS_PER_TOKEN);
+    if (estimate < limit || estimate < (thread.compactRetryAt || 0)) return;
+    const freed = (messageChars(thread.history) - messageChars(this.keptMessages(thread, { idle }))) / CHARS_PER_TOKEN;
+    if (freed < limit * MIN_FREED_SHARE) return;
+    try { await this.compact(thread, turn, { idle }); }
+    catch (failure) {
+      if (turn.abort.signal.aborted || failure instanceof TurnStopped) throw failure;
+      // Reaching the limit is not an emergency: the turn carries on, and compaction tries again a little later.
+      this.diagnose(`Compaction failed: ${failure.message}`);
+      thread.compactRetryAt = Math.ceil(estimate * 1.05);
+    }
+  }
+
+  // Normally the whole history goes, because it matches the last request and the server's cache answers for it. If
+  // it does not fit, the request is sent again smaller. No summary at all (null) means nothing small enough fit.
+  async summarize(thread, turn) {
+    const shrunk = thread.history.map(({ reasoning_content: _reasoning, ...message }) => (message.role === 'tool' ? { ...message, content: clipMiddle(text(message.content), OVERFLOW_TOOL_CHARS) } : message));
+    const newest = recentMessages(shrunk, Math.floor(messageChars(shrunk) / 2));
+    for (const history of [thread.history, shrunk, newest]) {
+      if (!history.length) continue;
+      try {
+        const answer = await this.modelStep(thread, turn, { compaction: true, thinking: false }, { compaction: true, history, extraMessages: [{ role: 'user', content: COMPACTION_PROMPT }] });
+        const summary = answer.content.trim();
+        if (!summary) throw new Error('Compaction returned no summary.');
+        return summary;
+      } catch (failure) {
+        if (failure.code !== 'context_length_exceeded') throw failure;
+      }
+    }
+    return null;
+  }
+
+  async compact(thread, turn, { idle = false } = {}) {
     const itemId = id('compact');
     thread.notify('item/started', { turnId: turn.id, item: { type: 'contextCompaction', id: itemId } });
-    const answer = await this.modelStep(thread, turn, {}, { compaction: true, extraMessages: [{ role: 'user', content: COMPACTION_PROMPT }] });
-    const summary = answer.content.trim();
-    if (!summary) throw new Error('Compaction returned no summary.');
-    // The summary replaces everything before the request being worked on, which stays so the turn can continue.
-    let current = null;
-    if (!manual) for (let index = thread.history.length - 1; index >= 0; index--) if (thread.history[index].role === 'user') { current = thread.history[index]; break; }
-    thread.history = [{ role: 'user', content: `Summary of the conversation so far, written by you before older messages were removed:\n${summary}` },
-      ...(current ? [{ role: 'assistant', content: 'Understood. Continuing from the summary.' }, current] : [])];
-    thread.contextTokens = null;
-    await thread.save();
-    thread.notify('item/completed', { turnId: turn.id, item: { type: 'contextCompaction', id: itemId } });
+    try {
+      const summary = await this.summarize(thread, turn);
+      const recall = (await thread.tools()).some(tool => tool.function.name === 'memory_search')
+        ? ' The whole conversation is still saved: memory_search and session_read find anything missing here.' : '';
+      const notes = summary === null
+        ? `Older messages were removed without a summary, because they no longer fit in the context.${recall}`
+        : `Summary of the conversation so far, written by you before older messages were removed.${recall}\n${summary}`;
+      const kept = this.keptMessages(thread, { idle });
+      thread.history = [{ role: 'user', content: [thread.standing, notes].filter(item => item.trim()).join('\n\n') },
+        ...(kept[0]?.role === 'user' ? [{ role: 'assistant', content: 'Understood. Continuing from the summary.' }] : []), ...kept];
+      thread.contextTokens = null;
+      delete thread.compactRetryAt;
+      await thread.save();
+      thread.notify('item/completed', { turnId: turn.id, item: { type: 'contextCompaction', id: itemId } });
+    } catch (failure) {
+      thread.notify('item/completed', { turnId: turn.id, item: { type: 'contextCompaction', id: itemId, error: turn.abort.signal.aborted ? 'Compaction was stopped.' : failure.message || 'Compaction failed.' } });
+      throw failure;
+    }
   }
 
   async runCompactionTurn(thread, turn) {
     thread.notify('turn/started', { turn: { id: turn.id, status: 'inProgress' } });
     let status = 'completed', error = null;
-    try { await this.compact(thread, turn, { manual: true }); }
+    try { await this.compact(thread, turn, { idle: true }); }
     catch (failure) {
       if (turn.abort.signal.aborted || failure instanceof TurnStopped) status = 'interrupted';
       else { status = 'failed'; error = { message: failure.message }; thread.notify('error', { turnId: turn.id, error, willRetry: false }); }

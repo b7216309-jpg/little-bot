@@ -1,3 +1,32 @@
+# Version 0.55.0 verification
+
+0.55.0 stops re-sending the same context with every message, rebuilds compaction and memory recall, gives the heartbeat the browser and MCP, adds one-time scheduled tasks and lifts limits that were getting in the way.
+
+## Changed
+- **Context:** the profile, shell rules, goals, app guide and recalled memory go once per context instead of with every message. "ok thanks" went from about 5,500 characters plus up to 10,000 of memory to 252.
+- **Compaction:** runs right after an answer, so the next message starts at once. The newest messages stay word for word, summaries follow fixed headings with thinking off, and an overflow retries with less instead of failing. The count is gone from the conversation.
+- **Memory:** recall brings only what clearly relates, in short lines. Near-duplicates are dropped strictly, "ok thanks" costs no learning request, and the nightly dream can merge and retire what Little Bot learned by itself, never pins or what you asked it to remember. "Remember that" also works in French and holds in every folder.
+- **Heartbeat:**
+  - ten example checklists;
+  - no daily limit by default, 1 minute to 1 week between checks, thirty minutes per check;
+  - web search, page reading, the browser and the enabled MCP servers. The browser is a view of its own: out of sight, with the panel's sign-ins, leaving the user's page alone;
+  - its commands, file changes and MCP calls now pass the leak checks before they run, and three refusals stop the check;
+  - what it did through the browser and MCP is listed in its actions and under Recent checks.
+- **One-time tasks:** a routine can run once, at a time or after a delay. A missed one runs late instead of being lost.
+- **Limits lifted:** routines, watched pages, follow-ups, `/goal`, attachments, tool output, browser reads, profile files, skills, saved sessions and goal folders. See the system guide for each.
+
+## Checked
+- **Unit tests:** 308 pass, including [context-once](test/context-once.test.cjs), [memory-recall](test/memory-recall.test.cjs), [lifted-limits](test/lifted-limits.test.cjs) and [one-time-schedule](test/one-time-schedule.test.cjs). The syntax check and the Electron suite pass; the browser test now also drives a view with no window.
+- **In the app** (throwaway profile, made-up facts, a fake model server, a local MCP server), 58 checks:
+  - what each message carries, and what comes back after a compaction;
+  - a calm check opened and read a page in its hidden view while the panel page stayed put, and that view closed with the check;
+  - its MCP call ran; a call carrying a personal detail never reached the server, and the model was told why;
+  - a one-time task fired, turned itself off and landed in the conversation.
+
+## Not checked
+- With a real model. The summaries' quality under the new prompt, and whether the prompt cache keeps matching with thinking off, were not measured.
+- A real signed-in site or a real MCP service through a check.
+
 # Version 0.50.0 verification
 
 0.50.0 blocks ads, trackers and cookie walls in the built-in browser ([system guide](docs/system-guide/11-browser-web.md#ad-and-tracker-blocking)).

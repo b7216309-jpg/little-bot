@@ -28,6 +28,7 @@ Guide: [02-chat-context.md](02-chat-context.md)
 | [src/compaction.cjs](../../src/compaction.cjs) | Production application module |
 | [src/controller.cjs](../../src/controller.cjs) | Production application module |
 | [src/chat-goal.cjs](../../src/chat-goal.cjs) | /goal in a conversation: keep working until an independent check confirms the condition |
+| [test/context-once.test.cjs](../../test/context-once.test.cjs) | What a message carries, and what goes once per context |
 | [src/chats.cjs](../../src/chats.cjs) | The three kinds of chat: the continuous conversation, the Quick session and saved sessions |
 | [src/local-time.cjs](../../src/local-time.cjs) | Local clock text given to the model |
 
@@ -66,6 +67,7 @@ Guide: [04-memory.md](04-memory.md)
 | [src/companion.cjs](../../src/companion.cjs) | Dream diary and intentions (prospective memory) |
 | [src/lessons.cjs](../../src/lessons.cjs) | Per-model local tool lessons and thread-start instructions |
 | [src/memory-service.cjs](../../src/memory-service.cjs) | Production application module |
+| [test/memory-recall.test.cjs](../../test/memory-recall.test.cjs) | Automatic recall, duplicates, short ids and the nightly tidy |
 | [src/memory.cjs](../../src/memory.cjs) | Production application module |
 | [src/recall.cjs](../../src/recall.cjs) | Production application module |
 
@@ -101,6 +103,7 @@ Guide: [07-automations.md](07-automations.md)
 | [src/missed-schedules.cjs](../../src/missed-schedules.cjs) | Production application module |
 | [src/schedule-management.cjs](../../src/schedule-management.cjs) | Production application module |
 | [src/scheduler.cjs](../../src/scheduler.cjs) | Production application module |
+| [test/one-time-schedule.test.cjs](../../test/one-time-schedule.test.cjs) | One-time tasks |
 
 ## heartbeat inbox
 
@@ -110,6 +113,7 @@ Guide: [08-heartbeat-inbox.md](08-heartbeat-inbox.md)
 | --- | --- |
 | [src/attention.cjs](../../src/attention.cjs) | Production application module |
 | [src/heartbeat.cjs](../../src/heartbeat.cjs) | Production application module |
+| [test/lifted-limits.test.cjs](../../test/lifted-limits.test.cjs) | Limits lifted in 0.55.0, and what a heartbeat is offered |
 | [src/proactive-chat.cjs](../../src/proactive-chat.cjs) | Production application module |
 | [src/activity.cjs](../../src/activity.cjs) | Production application module |
 | [src/night-shift.cjs](../../src/night-shift.cjs) | Away-time work and return summary coordinator |

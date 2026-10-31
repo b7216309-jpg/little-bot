@@ -4,13 +4,15 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 
-const MAX_FILES = 2000;
-const MAX_BYTES = 25 * 1024 * 1024;
-const MAX_BACKUP_BYTES = 250 * 1024 * 1024;
+const MAX_FILES = 5000;
+const MAX_BYTES = 100 * 1024 * 1024;
+const MAX_BACKUP_BYTES = 1024 * 1024 * 1024;
 const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
 const INCOMPLETE_SNAPSHOT_MS = 7 * 24 * 3600000;
 const forbidden = name => /^(?:\.git|node_modules|\.ssh|\.aws|\.gnupg|\.env(?:\..*)?|auth\.json|credentials(?:\.json)?|id_rsa|id_ed25519)$/i.test(name);
 const hash = value => createHash('sha256').update(value).digest('hex');
+// The folder cannot be copied for undo. The goal still runs; it just cannot undo this step.
+const noUndo = message => Object.assign(new Error(message), { noUndo: true });
 const inside = (root, target) => { const relative = path.relative(root, target); return relative === '' || (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`)); };
 
 function relativePath(value) {
@@ -64,7 +66,7 @@ async function resolveWriteRoots(goal) {
 }
 
 async function writeText(goal, relative, content) {
-  if (typeof content !== 'string' || content.length > 20000 || content.includes('\0')) throw new Error('Write up to 20,000 characters of text.');
+  if (typeof content !== 'string' || content.length > 200000 || content.includes('\0')) throw new Error('Write up to 200,000 characters of text.');
   const root = await workspaceRoot(goal);
   const roots = await resolveWriteRoots(goal);
   const target = await checkedPath(root, relative, { missing: true });
@@ -87,19 +89,20 @@ async function scan(goal, roots, { contents = false, metadataOnly = false } = {}
     const relative = path.relative(root, target).split(path.sep).join('/') || '.';
     await checkedPath(root, relative);
     const stat = await fs.lstat(target);
-    if (stat.isSymbolicLink()) throw new Error('Snapshots cannot include symbolic links or directory junctions. Choose a narrower writable folder.');
+    if (stat.isSymbolicLink()) throw noUndo('the folder contains symbolic links or directory junctions.');
     if (stat.isDirectory()) {
       directories.push(relative);
-      if (directories.length > MAX_FILES) throw new Error('Snapshot folder limit exceeded. Choose a narrower writable folder.');
+      if (directories.length > MAX_FILES) throw noUndo(`the folder has more than ${MAX_FILES} folders.`);
       const children = await fs.readdir(target, { withFileTypes: true });
-      if (children.length + entries.length > MAX_FILES) throw new Error('Snapshot file limit exceeded. Choose a narrower writable folder.');
+      if (children.length + entries.length > MAX_FILES) throw noUndo(`the folder has more than ${MAX_FILES} files.`);
       for (const child of children.sort((a, b) => a.name.localeCompare(b.name))) {
-        if (forbidden(child.name)) throw new Error(`Snapshot scope contains protected data (${child.name}). Choose a narrower writable folder.`);
+        // Repository data, packages and secrets stay out of the copy; the goal's file tools cannot reach them anyway.
+        if (forbidden(child.name)) continue;
         await visit(path.join(target, child.name));
       }
     } else if (stat.isFile()) {
       bytes += stat.size;
-      if (entries.length >= MAX_FILES || bytes > MAX_BYTES) throw new Error('Snapshot limit is 2,000 files and 25 MiB. Choose a narrower writable folder.');
+      if (entries.length >= MAX_FILES || bytes > MAX_BYTES) throw noUndo(`the folder is over ${MAX_FILES} files or ${MAX_BYTES / 1024 / 1024} MiB.`);
       if (metadataOnly) { entries.push({ path: relative, hash: hash(`${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`), size: stat.size }); return; }
       const buffer = await fs.readFile(target);
       const after = await fs.lstat(target);
@@ -193,7 +196,7 @@ async function createSnapshot(goal, backupRoot, runId) {
   const directory = snapshotDirectory(backupRoot, goal.id, runId);
   const manifestsRoot = path.resolve(backupRoot);
   if (roots.some(root => inside(root, manifestsRoot))) throw new Error('Backups must be outside the goal writable folders.');
-  if (await backupUsage(manifestsRoot) + captured.bytes + MAX_MANIFEST_BYTES > MAX_BACKUP_BYTES) throw new Error('The 250 MiB backup limit is reached. Remove an older snapshot before continuing.');
+  if (await backupUsage(manifestsRoot) + captured.bytes + MAX_MANIFEST_BYTES > MAX_BACKUP_BYTES) throw noUndo('the 1 GiB of goal backups is full. Removing an older snapshot makes room.');
   await fs.mkdir(path.join(directory, 'files'), { recursive: true });
   const files = [];
   for (const [index, entry] of captured.entries.entries()) {
