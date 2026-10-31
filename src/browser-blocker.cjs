@@ -49,8 +49,10 @@ class BrowserBlocker {
     return Array.isArray(saved) ? saved.filter(site => typeof site === 'string' && HOST.test(site)) : [];
   }
 
-  // The browser's session, given once it exists. Blocking starts there when it is on.
+  // The browser's session, given once it exists. Blocking starts there when it is on. The heartbeat's browser
+  // shares it, so it can arrive twice, even during the first download of the lists.
   attach(session) {
+    if (this.session === session) return Promise.resolve();
     this.session = session;
     return this.sync();
   }
