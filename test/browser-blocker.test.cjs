@@ -46,7 +46,7 @@ test('the first start builds the engine from the lists, saves it, and blocks in 
   assert.equal(blocker.state('https://www.lemonde.fr/').ready, true);
 });
 
-test('the browser and the heartbeat's browser share a session: blocking starts there once', async t => {
+test('the panel and the heartbeat browser share a session: blocking starts there once', async t => {
   const { blocker, ghostery, session } = setup(t);
   await Promise.all([blocker.attach(session), blocker.attach(session)]);
   assert.equal(ghostery.log.built, 1);
