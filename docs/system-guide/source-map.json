@@ -242,5 +242,7 @@
   "test/memory-recall.test.cjs": "04-memory.md",
   "test/one-time-schedule.test.cjs": "07-automations.md",
   "test/lifted-limits.test.cjs": "08-heartbeat-inbox.md",
-  "test/save-path.test.cjs": "01-runtime-storage.md"
+  "test/save-path.test.cjs": "01-runtime-storage.md",
+  "src/chat-journal.cjs": "01-runtime-storage.md",
+  "test/chat-journal.test.cjs": "01-runtime-storage.md"
 }

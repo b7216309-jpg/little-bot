@@ -46,11 +46,11 @@ Learning output wrapped in reasoning tags, prose or code fences is parsed throug
 
 The first local thread for a model starts with three Windows/PowerShell and patch-form seeds. Every new local thread, including Quick, `/goal`, heartbeat, Independent Check, extraction and night work, receives one `Lessons from this PC` developer-instruction block capped at 1,000 characters. A direct chat saves the block with its engine thread and reuses it byte-for-byte on resume; new lessons wait for the next thread, preserving Strata's prompt prefix.
 
-Lessons are part of the protected `state.json` payload beside conversations, memory and companion data. Each entry tracks recoveries and its last-seen time. Duplicate keys update the existing entry; each model keeps at most 12, and entries unseen for 100 days expire. The Memory page lists lessons by model and lets the user remove one. Removing a seed does not add it back to that model.
+Lessons are part of the protected `state.json` payload beside memory and companion data (conversations have their own journal since 0.57.0). Each entry tracks recoveries and its last-seen time. Duplicate keys update the existing entry; each model keeps at most 12, and entries unseen for 100 days expire. The Memory page lists lessons by model and lets the user remove one. Removing a seed does not add it back to that model.
 
 ## Backups and resets
 
-[backups.cjs](../../src/backups.cjs) saves one restore point per local day: a `VACUUM INTO` copy of `memory.sqlite` and the encrypted `state.json`. Points are kept for seven days under `data/backups`; Memory → Search settings → Backups can make one now. Restore writes a marker and restarts the app. Before the Store opens anything, the current files are copied to a `before-restore-*` safety point, then the backup is copied in. Backups never leave the PC.
+[backups.cjs](../../src/backups.cjs) saves one restore point per local day: a `VACUUM INTO` copy of `memory.sqlite`, the encrypted `state.json` and `chats.journal`. Restoring a point from before 0.57.0 brings back the conversations inside its `state.json`. Points are kept for seven days under `data/backups`; Memory → Search settings → Backups can make one now. Restore writes a marker and restarts the app. Before the Store opens anything, the current files are copied to a `before-restore-*` safety point, then the backup is copied in. Backups never leave the PC.
 
 If `memory.sqlite` is missing while the conversation has messages, startup warns once and logs a diagnostic. This happens, for example, when the file was deleted outside the app or a development copy reset the shared data folder. Every app copy, including development checkouts, uses `%APPDATA%\Little Bot` unless `LITTLE_BOT_DATA_DIR` points elsewhere.
 

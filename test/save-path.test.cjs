@@ -60,10 +60,16 @@ test('an unchanged state is neither reindexed nor written again', t => {
   store.save();
   assert.equal(changes(store.memoryService), before, 'no database row was rewritten');
   assert.deepEqual(written, [], 'the state file was not rewritten');
-  store.data.chats[0].messages.push({ id: 'main-2', role: 'user', text: 'and the roof' });
+  const journal = path.join(f.directory, 'chats.journal');
+  const journalBytes = fs.statSync(journal).size;
+  store.data.chats[0].messages.push({ id: 'main-2', role: 'user', text: 'and the roof', createdAt: stamp + 2 });
   store.save();
-  assert.deepEqual(written, [store.filePath]);
   assert.ok(changes(store.memoryService) > before);
+  // A new message is appended to the journal: nothing is rewritten.
+  assert.ok(!written.includes(journal), 'the journal was appended to, not replaced');
+  const added = fs.readFileSync(journal, 'utf8').slice(journalBytes);
+  assert.equal(added.split(/\n/).filter(Boolean).length, 1);
+  assert.match(added, /and the roof/);
 });
 
 test('a message that keeps growing is reindexed each save and only its newest text is found', t => {
@@ -200,5 +206,5 @@ test('a streaming reply is written every 15 seconds, and at once when it finishe
   client.emit('notification', 'item/completed', { threadId: chat.threadId, turnId, item: { type: 'agentMessage', id: 'reply', text: 'Tides follow the moon.', phase: 'final_answer' } });
   client.emit('notification', 'turn/completed', { threadId: chat.threadId, turn: { id: turnId, status: 'completed' } });
   assert.equal(writes, 3, 'the finished reply is written without waiting');
-  assert.match(JSON.stringify(JSON.parse(fs.readFileSync(store.filePath, 'utf8')).chats), /Tides follow the moon/);
+  assert.match(fs.readFileSync(path.join(directory, 'chats.journal'), 'utf8'), /Tides follow the moon/);
 });

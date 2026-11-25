@@ -10,7 +10,8 @@ const KEEP_SAFETY = 3;
 const DAY_ID = /^\d{4}-\d{2}-\d{2}$/;
 const SAFETY_ID = /^before-restore-\d+$/;
 const MARKER = 'restore-pending.json';
-const DATA_FILES = ['memory.sqlite', 'state.json'];
+// chats.journal holds the saved conversations since 0.57.0; older restore points have them inside state.json.
+const DATA_FILES = ['memory.sqlite', 'state.json', 'chats.journal'];
 
 function localDay(nowMs) {
   const date = new Date(nowMs);
@@ -52,9 +53,11 @@ function createBackup({ stateDir, memoryService, nowMs = Date.now(), force = fal
   try {
     // VACUUM INTO writes a consistent copy of the live WAL database without stopping the app.
     memoryService.db.exec(`VACUUM INTO '${path.join(staging, 'memory.sqlite').replace(/'/g, "''")}'`);
-    const state = path.join(stateDir, 'state.json');
-    if (fs.existsSync(state)) fs.copyFileSync(state, path.join(staging, 'state.json'));
-    fs.writeFileSync(path.join(staging, 'manifest.json'), JSON.stringify({ createdAt: nowMs, files: DATA_FILES }, null, 2));
+    for (const file of ['state.json', 'chats.journal']) {
+      const source = path.join(stateDir, file);
+      if (fs.existsSync(source)) fs.copyFileSync(source, path.join(staging, file));
+    }
+    fs.writeFileSync(path.join(staging, 'manifest.json'), JSON.stringify({ createdAt: nowMs, files: DATA_FILES.filter(file => fs.existsSync(path.join(staging, file))) }, null, 2));
     fs.rmSync(dir, { recursive: true, force: true });
     fs.renameSync(staging, dir);
   } catch (error) {
