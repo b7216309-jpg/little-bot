@@ -35,6 +35,8 @@ test('installer is per-user and registers a real uninstaller', () => {
   assert.match(install, /QuietUninstallString/);
   assert.match(install, /NoModify/);
   assert.match(install, /NoRepair/);
+  // The setup program shows no window, so a failure must leave its reason in a log.
+  assert.match(install, /trap \{[\s\S]*little-bot-install-error\.log|little-bot-install-error\.log[\s\S]*trap \{/);
   assert.match(uninstall, /\$resolvedInstall = \[IO\.Path\]::GetFullPath\(\$InstallDir\)/);
   assert.match(uninstall, /Remove-Item[^\n]*\$resolvedInstall/);
   assert.match(uninstall, /CurrentVersion\\Uninstall\\Little Bot/);

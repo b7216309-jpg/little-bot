@@ -5,6 +5,16 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# The setup program runs this script without a window and reports only its exit code, so a failure leaves its
+# reason here for the user (and for CI) to read.
+$errorLog = Join-Path ([IO.Path]::GetTempPath()) 'little-bot-install-error.log'
+Remove-Item -LiteralPath $errorLog -Force -ErrorAction SilentlyContinue
+trap {
+  "Little Bot $Version installer failed at $(Get-Date -Format o)`r`n$($_ | Out-String)`r`n$($_.ScriptStackTrace)" |
+    Set-Content -LiteralPath $errorLog -Encoding UTF8 -ErrorAction SilentlyContinue
+  break
+}
+
 $payload = Join-Path $PSScriptRoot 'payload.zip'
 $uninstallSource = Join-Path $PSScriptRoot 'uninstall.ps1'
 if (!(Test-Path -LiteralPath $payload -PathType Leaf)) { throw 'Installer payload is missing.' }
