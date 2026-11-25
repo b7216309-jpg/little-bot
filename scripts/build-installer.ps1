@@ -102,6 +102,9 @@ internal static class Program
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
+            // Started from PowerShell 7, the inherited module path points Windows PowerShell at PowerShell 7's
+            // modules, which do not run on .NET Framework. Without it, Windows PowerShell uses its own.
+            start.EnvironmentVariables.Remove("PSModulePath");
             using (var child = Process.Start(start))
             {
                 child.WaitForExit();

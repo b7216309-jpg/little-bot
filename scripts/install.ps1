@@ -37,7 +37,10 @@ $temporary = "$installDir.installing-$PID"
 Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
 
 try {
-  Expand-Archive -LiteralPath $payload -DestinationPath $temporary -Force
+  # .NET's own extractor rather than Expand-Archive: that comes from a module, and Windows PowerShell started from
+  # PowerShell 7 can load PowerShell 7's copy, which calls a method .NET Framework does not have.
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  [IO.Compression.ZipFile]::ExtractToDirectory($payload, $temporary)
   $stagedExe = Join-Path $temporary 'Little Bot.exe'
   if (!(Test-Path -LiteralPath $stagedExe -PathType Leaf)) { throw 'Little Bot.exe is missing from the installer payload.' }
 
