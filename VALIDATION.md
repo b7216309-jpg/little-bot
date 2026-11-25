@@ -6,6 +6,7 @@
 - **Saves:** only messages that changed since the last save are reindexed, in one database transaction, and a state identical to the file is not written again. The memory page's counts and list come from small indexes and are read again only after the database changed.
 - **Search index:** it shares each record's rowid, so an edited or deleted record no longer reads the whole index. Older databases, and any whose index drifted, are reindexed once when opened.
 - **Streaming:** a streaming reply is saved every 15 seconds instead of every 2. A finished reply, tool call or command still saves at once.
+- **Installer:** started from PowerShell 7, the setup failed with exit code 1: Windows PowerShell inherited PowerShell 7's module path and loaded its `Expand-Archive`, which needs a method .NET Framework lacks. The payload is now extracted with .NET directly, Windows PowerShell starts with its own module path, and a failed install leaves its reason in `%TEMP%\little-bot-install-error.log`. Found when GitHub's Windows runner image changed (20261021 → 20261116).
 
 ## Checked
 - **Unit tests:** 316 pass, including the new [save-path](test/save-path.test.cjs) tests: an unchanged state writes nothing, a growing message is found by its newest text only, an older database moves onto the new index and stays searchable, a drifted index is rebuilt, and a streaming reply is written at 15 and 30 seconds and again the moment it finishes. The syntax check and the guide's link check pass.
@@ -18,6 +19,7 @@
   | 15,000 | 185 → 55 ms | 171 → 23 ms | 1,290 → 961 ms |
 
   Opening after an upgrade that changes what is stored per message took 10.7 s at 4,000 messages and 138 s at 15,000; it now takes 0.46 s and 1.7 s.
+- **Installer:** the setup stub compiles, the new extraction unpacks a payload in Windows PowerShell 5.1 with a useless inherited module path, and Windows PowerShell started without one finds its own Archive module. A forced failure exits 1 and writes the log. The package check on GitHub installs and uninstalls end to end.
 - **Disk writes in the app** (throwaway profile, idle, every Little Bot process counted): 3.6 MB at startup, mostly Chromium's first graphics caches; 0.2 MB over the next two minutes, and the state file was not rewritten while idle.
 
 ## Not checked
