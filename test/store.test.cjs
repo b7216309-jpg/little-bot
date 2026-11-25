@@ -42,10 +42,14 @@ test('new state is minimal and save preserves live references without persisting
   store.save();
   assert.equal(store.data.chats[0], chat);
   const saved = JSON.parse(fs.readFileSync(f.filePath, 'utf8'));
-  assert.deepEqual(Object.keys(saved).sort(), ['automations', 'autonomy', 'browserBlocking', 'cad', 'calendar', 'chats', 'companion', 'draughts', 'extensions', 'feedbackLog', 'heartbeat', 'lessons', 'memory', 'nightShift', 'settings', 'standingIntents', 'torrents', 'usage', 'webWatches']);
-  assert.equal(saved.chats[0].status, 'running');
-  assert.equal(fs.readFileSync(f.filePath, 'utf8').includes('sensitive-test-value'), false);
-  assert.equal(fs.readdirSync(path.dirname(f.filePath)).filter(name => !name.startsWith('memory.sqlite')).length, 1);
+  assert.deepEqual(Object.keys(saved).sort(), ['automations', 'autonomy', 'browserBlocking', 'cad', 'calendar', 'chatJournal', 'chats', 'companion', 'draughts', 'extensions', 'feedbackLog', 'heartbeat', 'lessons', 'memory', 'nightShift', 'settings', 'standingIntents', 'torrents', 'usage', 'webWatches']);
+  // The conversations are in their journal; the state file only says so.
+  assert.deepEqual(saved.chats, []);
+  assert.equal(new Store(f).data.chats[0].status, 'idle', 'a reopened running chat is marked interrupted');
+  const journal = fs.readFileSync(path.join(path.dirname(f.filePath), 'chats.journal'), 'utf8');
+  assert.match(journal, /"status":"running"/);
+  for (const text of [fs.readFileSync(f.filePath, 'utf8'), journal]) assert.equal(text.includes('sensitive-test-value'), false);
+  assert.deepEqual(fs.readdirSync(path.dirname(f.filePath)).filter(name => !name.startsWith('memory.sqlite')).sort(), ['chats.journal', 'state.json']);
 });
 
 test('local lessons seed once, deduplicate, stay under the prompt cap, and expire', () => {
@@ -138,7 +142,7 @@ test('corrupt state remains untouched until saved and is then retained in a reco
   const recoveryPath = store.recoveryPath;
   store.save();
   assert.equal(store.recoveryPath, recoveryPath);
-  assert.equal(fs.readdirSync(path.dirname(f.filePath)).filter(name => !name.startsWith('memory.sqlite')).length, 2);
+  assert.equal(fs.readdirSync(path.dirname(f.filePath)).filter(name => !name.startsWith('memory.sqlite')).length, 3, 'state, its recovery copy and the journal');
 });
 
 test('failed atomic replacement leaves the prior saved state intact and cleans its temporary file', t => {
@@ -152,14 +156,14 @@ test('failed atomic replacement leaves the prior saved state intact and cleans i
     return renameSync(from, to);
   };
   try {
-    // A change that reaches the file: an unchanged state is not written again at all.
-    store.data.chats.push({ id: 'unsaved', title: 'Unsaved', messages: [{ id: 'm', role: 'user', text: 'Not yet on disk' }] });
+    // A change that reaches the state file: an unchanged state is not written again, and conversations go to their journal.
+    store.data.automations.push({ id: 'unsaved', name: 'Unsaved', prompt: 'Not yet on disk' });
     assert.throws(() => store.save(), /simulated file lock/);
   } finally {
     fs.renameSync = renameSync;
   }
   assert.equal(fs.readFileSync(f.filePath, 'utf8'), original);
-  assert.deepEqual(fs.readdirSync(path.dirname(f.filePath)).filter(name => !name.startsWith('memory.sqlite')), ['state.json']);
+  assert.deepEqual(fs.readdirSync(path.dirname(f.filePath)).filter(name => !name.startsWith('memory.sqlite')).sort(), ['chats.journal', 'state.json']);
 });
 
 test('invalid record shapes are reported and the original is retained while valid records are recovered', t => {

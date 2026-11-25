@@ -17,7 +17,9 @@ Guide: [01-runtime-storage.md](01-runtime-storage.md)
 | [src/main.cjs](../../src/main.cjs) | Production application module |
 | [src/preload.cjs](../../src/preload.cjs) | Production application module |
 | [src/profiles.cjs](../../src/profiles.cjs) | Production application module |
+| [src/chat-journal.cjs](../../src/chat-journal.cjs) | Saved conversations as an append-only, line-encrypted journal |
 | [src/store.cjs](../../src/store.cjs) | Production application module |
+| [test/chat-journal.test.cjs](../../test/chat-journal.test.cjs) | Journal migration, appends, removals, rewrites, damage, encryption, downgrades and restore points |
 | [test/save-path.test.cjs](../../test/save-path.test.cjs) | Saves that skip unchanged work, the rowid search index and the streaming save interval |
 
 ## chat context

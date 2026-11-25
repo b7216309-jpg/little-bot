@@ -5,6 +5,7 @@ const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { normalizeMemory, attachMemoryService, setPrimaryService, sync: syncMemory } = require('./memory.cjs');
 const { MemoryService } = require('./memory-service.cjs');
+const { ChatJournal, JOURNAL_VERSION, FILE_NAME: JOURNAL_FILE, renameWithRetry } = require('./chat-journal.cjs');
 const { normalizeHeartbeat } = require('./heartbeat.cjs');
 const { normalizeExtensions } = require('./extensions.cjs');
 const { normalizeAutonomy } = require('./goals.cjs');
@@ -132,18 +133,6 @@ function validProtector(value) {
     throw new TypeError('Store protector must provide encryptString and decryptString.');
   }
   return value;
-}
-
-// On Windows an antivirus scan or the search indexer can hold state.json for a moment. A save that lands
-// then is retried briefly instead of failing whatever was being saved.
-function renameWithRetry(from, to) {
-  for (let attempt = 0; ; attempt++) {
-    try { return fs.renameSync(from, to); }
-    catch (error) {
-      if (attempt >= 5 || !['EPERM', 'EBUSY', 'EACCES'].includes(error.code)) throw error;
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20 * (attempt + 1));
-    }
-  }
 }
 
 // The conversations, memory, companion and lessons: the part encrypted when secure storage is available.
@@ -406,12 +395,17 @@ class Store {
     this.locked = false;
     this._needsRecoveryCopy = false;
     this.data = persistedData({}, this.defaultWorkspace);
+    this.journal = new ChatJournal({ filePath: path.join(path.dirname(this.filePath), JOURNAL_FILE), protector: this.protector });
     let encryptedSource = false;
     try {
       const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf8').replace(/^\uFEFF/, ''));
       encryptedSource = parsed?.protected !== undefined;
       if (!isObject(parsed)) throw new Error('The state root must be a JSON object.');
       const source = unprotectState(parsed, this.protector);
+      // Saved conversations live in their journal once a save has moved them there. A state file without the
+      // marker comes from an older version (or a downgrade, or an older backup): its conversations are current,
+      // and the first save rebuilds the journal from them.
+      if (parsed.chatJournal !== undefined) source.chats = this.readJournal();
       this.data = persistedData(source, this.defaultWorkspace, true);
       const invalidShape = (source.settings !== undefined && !isObject(source.settings))
         || (source.autonomy !== undefined && (!isObject(source.autonomy)
@@ -427,9 +421,17 @@ class Store {
       }
     } catch (error) {
       if (error.code !== 'ENOENT') {
-        this.locked = encryptedSource;
-        this._needsRecoveryCopy = !encryptedSource;
+        // An unreadable journal is never overwritten either, like encrypted state from another account.
+        this.locked = encryptedSource || this.journalUnreadable === true;
+        this._needsRecoveryCopy = !this.locked;
         this.warning = `Could not read saved app state: ${error.message} The original file is preserved.`;
+      } else if (this.journal.exists()) {
+        // The state file is gone but the conversations are not: keep them.
+        try { this.data = persistedData({ chats: this.readJournal() }, this.defaultWorkspace, true); }
+        catch (journalError) {
+          this.locked = true;
+          this.warning = `Could not read saved conversations: ${journalError.message} The original file is preserved.`;
+        }
       }
     }
     const memoryFile = path.join(path.dirname(this.filePath), 'memory.sqlite');
@@ -442,6 +444,21 @@ class Store {
     syncMemory(this.data.memory);
   }
 
+  readJournal() {
+    if (!this.journal.exists()) {
+      this.warning = 'The saved conversations file (chats.journal) is missing, so conversations start empty. The rest of the app state was kept.';
+      return [];
+    }
+    try {
+      const chats = this.journal.read();
+      if (this.journal.warning) this.warning = this.journal.warning;
+      return chats;
+    } catch (error) {
+      this.journalUnreadable = true;
+      throw error;
+    }
+  }
+
   save() {
     if (this.locked) throw new Error('Encrypted app state is locked. Little Bot will not overwrite it.');
     if (this.memoryService) {
@@ -450,13 +467,16 @@ class Store {
       syncMemory(this.data.memory);
     }
     const normalized = persistedData(this.data, this.defaultWorkspace);
+    // Conversations first, into their journal as appended changes. The state file keeps everything else.
+    this.journal.write(normalized.chats);
+    const stored = { ...normalized, chats: [], chatJournal: JOURNAL_VERSION };
     // What the file would hold, before encryption. When it matches the last write, the file already holds it:
     // many saves follow changes that are never written (a status, a timer), and each write wears the disk.
-    const payload = this.protector ? sensitiveJson(normalized) : null;
-    const plain = JSON.stringify(this.protector ? withoutSensitive(normalized) : normalized, null, 2);
+    const payload = this.protector ? sensitiveJson(stored) : null;
+    const plain = JSON.stringify(this.protector ? withoutSensitive(stored) : stored, null, 2);
     if (!this._needsRecoveryCopy && this.lastWritten?.payload === payload && this.lastWritten?.plain === plain
       && fs.existsSync(this.filePath)) return this.data;
-    const serialized = this.protector ? `${JSON.stringify(protectedEnvelope(normalized, this.protector, payload), null, 2)}\n` : `${plain}\n`;
+    const serialized = this.protector ? `${JSON.stringify(protectedEnvelope(stored, this.protector, payload), null, 2)}\n` : `${plain}\n`;
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
     const temporaryPath = `${this.filePath}.${process.pid}.${randomUUID()}.tmp`;
     try {

@@ -1,3 +1,30 @@
+# Version 0.57.0 verification
+
+0.57.0 saves conversations as an append-only journal, so a save writes only what changed instead of the whole history ([system guide](docs/system-guide/01-runtime-storage.md#saving-and-recovery)).
+
+## Changed
+- **Conversations journal:** saved conversations move from `state.json` to `chats.journal`, one record per line, each line encrypted on its own. A save appends a new message, the latest text of one being streamed, a conversation's own fields, or a new order when messages were removed. The file is rewritten whole only once superseded lines outweigh the live ones (plus 1 MiB).
+- **State file:** keeps everything else and `"chatJournal": 1`. A file without the marker (0.56 or earlier, a downgrade, an older restore point) is current, and the first save rebuilds the journal from its conversations.
+- **Restore points:** carry `chats.journal` too. Restoring one from before 0.57.0 brings back the conversations inside its `state.json`.
+- **Going back to 0.56 or older** shows no conversations: they stay in the journal and return with 0.57.0.
+
+## Checked
+- **Unit tests:** 327 pass, including the new [chat-journal](test/chat-journal.test.cjs) tests: moving a 0.56 state, appending only changes, removed messages and deleted sessions, rewriting once junk outweighs the live lines, a torn last line, an unreadable middle line (kept as a `.corrupt-` copy), encrypted lines and a locked other account, a downgrade that rewrites `state.json`, a missing state file or journal, a failed append, and restore points old and new. The syntax check and the guide's link check pass.
+- **Disk writes** for one streamed minute (a question and a reply saved four times; synthetic history, encryption on):
+
+  | Messages | 0.56.0 | 0.57.0 |
+  | --- | --- | --- |
+  | 1,000 | 3.7 MB | 6 KB |
+  | 5,000 | 18.4 MB | 6 KB |
+  | 15,000 | 55.2 MB | 6 KB |
+
+  A streaming save took 12 ms instead of 22 at 5,000 messages and 23 instead of 53 at 15,000. Opening took about as long (342 and 908 ms against 357 and 872).
+- **In the app** (throwaway profile): a profile written by 0.56 opened in 0.57.0 and was moved into an encrypted journal with no readable text in it; read back through Electron's secure storage, both conversations and all three messages came back. Encrypting a line takes about 0.002 ms.
+
+## Not checked
+- A real, long history moved on first start. The daily restore points made by 0.56 hold the conversations inside `state.json` and can bring them back.
+- What the engine writes: it still rewrites a conversation's thread file (at most about the context window) after each tool step.
+
 # Version 0.56.0 verification
 
 0.56.0 makes saving fast on long histories and writes far less to the SSD ([system guide](docs/system-guide/01-runtime-storage.md#saving-and-recovery)).
