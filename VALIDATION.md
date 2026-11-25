@@ -1,3 +1,29 @@
+# Version 0.56.0 verification
+
+0.56.0 makes saving fast on long histories and writes far less to the SSD ([system guide](docs/system-guide/01-runtime-storage.md#saving-and-recovery)).
+
+## Changed
+- **Saves:** only messages that changed since the last save are reindexed, in one database transaction, and a state identical to the file is not written again. The memory page's counts and list come from small indexes and are read again only after the database changed.
+- **Search index:** it shares each record's rowid, so an edited or deleted record no longer reads the whole index. Older databases, and any whose index drifted, are reindexed once when opened.
+- **Streaming:** a streaming reply is saved every 15 seconds instead of every 2. A finished reply, tool call or command still saves at once.
+
+## Checked
+- **Unit tests:** 316 pass, including the new [save-path](test/save-path.test.cjs) tests: an unchanged state writes nothing, a growing message is found by its newest text only, an older database moves onto the new index and stays searchable, a drifted index is rebuilt, and a streaming reply is written at 15 and 30 seconds and again the moment it finishes. The syntax check and the guide's link check pass.
+- **Timing** (synthetic history of 600-character messages, encryption on, embeddings on recallable rows; before → after):
+
+  | Messages | Save while streaming | Save with nothing changed | Opening |
+  | --- | --- | --- | --- |
+  | 1,000 | 12.5 → 6.1 ms | 11.3 → 2.5 ms | 71 → 72 ms |
+  | 5,000 | 68.9 → 22.7 ms | 55.4 → 8.6 ms | 461 → 313 ms |
+  | 15,000 | 185 → 55 ms | 171 → 23 ms | 1,290 → 961 ms |
+
+  Opening after an upgrade that changes what is stored per message took 10.7 s at 4,000 messages and 138 s at 15,000; it now takes 0.46 s and 1.7 s.
+- **Disk writes in the app** (throwaway profile, idle, every Little Bot process counted): 3.6 MB at startup, mostly Chromium's first graphics caches; 0.2 MB over the next two minutes, and the state file was not rewritten while idle.
+
+## Not checked
+- With a real model or a real profile. Streaming writes are worked out from the measured file size (about 0.9 MB per 1,000 messages, encrypted): at 5,000 messages, about 18 MB per streamed minute instead of 138 MB.
+- What the Strata server writes for its SSD conversation cache, which is outside Little Bot.
+
 # Version 0.55.0 verification
 
 0.55.0 stops re-sending the same context with every message, rebuilds compaction and memory recall, gives the heartbeat the browser and MCP, adds one-time scheduled tasks and lifts limits that were getting in the way.

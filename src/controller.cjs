@@ -45,7 +45,10 @@ function workspacePath(value) {
 function bounded(value, max = 200000) { return String(value ?? '').slice(0, max); }
 const REASONING_LIMIT = 200000;
 const STREAM_UPDATE_MS = 40;
-const STREAM_SAVE_MS = 2000;
+// A streaming reply is saved this often. Each save rewrites the whole state file, so a short interval wears the
+// disk (about 140 MB per streamed minute at 5,000 messages every 2 s). A finished reply or tool call saves at once,
+// so only a crash mid-reply loses at most this much of the partial text.
+const STREAM_SAVE_MS = 15000;
 const LOCAL_TURN_START_TIMEOUT_MS = 10 * 60 * 1000;
 function reasoningText(parts) {
   return Array.isArray(parts) ? bounded(parts.filter(part => typeof part === 'string').join('\n\n'), REASONING_LIMIT) : '';
@@ -2045,4 +2048,4 @@ class Controller extends EventEmitter {
     }
   }
 }
-module.exports = { Controller, cleanError, workspacePath };
+module.exports = { Controller, cleanError, workspacePath, STREAM_SAVE_MS };

@@ -152,7 +152,8 @@ test('failed atomic replacement leaves the prior saved state intact and cleans i
     return renameSync(from, to);
   };
   try {
-    store.data.settings.model = 'unsaved';
+    // A change that reaches the file: an unchanged state is not written again at all.
+    store.data.chats.push({ id: 'unsaved', title: 'Unsaved', messages: [{ id: 'm', role: 'user', text: 'Not yet on disk' }] });
     assert.throws(() => store.save(), /simulated file lock/);
   } finally {
     fs.renameSync = renameSync;
