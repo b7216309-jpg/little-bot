@@ -146,17 +146,26 @@ function renameWithRetry(from, to) {
   }
 }
 
-function protectedEnvelope(data, protector) {
-  const normalized = data;
-  if (!protector) return normalized;
-  const payload = JSON.stringify({ chats: normalized.chats, memory: normalized.memory, companion: normalized.companion, lessons: normalized.lessons });
-  const encrypted = protector.encryptString(payload);
-  if (!Buffer.isBuffer(encrypted) || !encrypted.length) throw new Error('Could not encrypt saved conversations.');
+// The conversations, memory, companion and lessons: the part encrypted when secure storage is available.
+function sensitiveJson(normalized) {
+  return JSON.stringify({ chats: normalized.chats, memory: normalized.memory, companion: normalized.companion, lessons: normalized.lessons });
+}
+
+function withoutSensitive(normalized) {
   const disk = { ...normalized };
   delete disk.chats;
   delete disk.memory;
   delete disk.companion;
   delete disk.lessons;
+  return disk;
+}
+
+function protectedEnvelope(data, protector, payload = sensitiveJson(data)) {
+  const normalized = data;
+  if (!protector) return normalized;
+  const encrypted = protector.encryptString(payload);
+  if (!Buffer.isBuffer(encrypted) || !encrypted.length) throw new Error('Could not encrypt saved conversations.');
+  const disk = withoutSensitive(normalized);
   disk.protected = {
     version: PROTECTED_STATE_VERSION,
     format: 'safeStorage',
@@ -429,8 +438,7 @@ class Store {
     this.memoryService = new MemoryService({ filename: memoryFile });
     attachMemoryService(this.data.memory, this.memoryService);
     setPrimaryService(this.memoryService);
-    for (const chat of this.data.chats) this.memoryService.indexChat(chat);
-    for (const goal of this.data.autonomy.goals) this.memoryService.indexGoal(goal);
+    this.memoryService.indexAll(this.data.chats, this.data.autonomy.goals);
     syncMemory(this.data.memory);
   }
 
@@ -438,12 +446,17 @@ class Store {
     if (this.locked) throw new Error('Encrypted app state is locked. Little Bot will not overwrite it.');
     if (this.memoryService) {
       this.memoryService.enabled = this.data.memory.enabled !== false;
-      for (const chat of this.data.chats) this.memoryService.indexChat(chat);
-      for (const goal of this.data.autonomy.goals) this.memoryService.indexGoal(goal);
+      this.memoryService.indexAll(this.data.chats, this.data.autonomy.goals);
       syncMemory(this.data.memory);
     }
     const normalized = persistedData(this.data, this.defaultWorkspace);
-    const serialized = `${JSON.stringify(protectedEnvelope(normalized, this.protector), null, 2)}\n`;
+    // What the file would hold, before encryption. When it matches the last write, the file already holds it:
+    // many saves follow changes that are never written (a status, a timer), and each write wears the disk.
+    const payload = this.protector ? sensitiveJson(normalized) : null;
+    const plain = JSON.stringify(this.protector ? withoutSensitive(normalized) : normalized, null, 2);
+    if (!this._needsRecoveryCopy && this.lastWritten?.payload === payload && this.lastWritten?.plain === plain
+      && fs.existsSync(this.filePath)) return this.data;
+    const serialized = this.protector ? `${JSON.stringify(protectedEnvelope(normalized, this.protector, payload), null, 2)}\n` : `${plain}\n`;
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
     const temporaryPath = `${this.filePath}.${process.pid}.${randomUUID()}.tmp`;
     try {
@@ -462,6 +475,7 @@ class Store {
         this.warning = `Could not read the previous app state. The original is preserved at ${recoveryPath}.`;
       }
       renameWithRetry(temporaryPath, this.filePath);
+      this.lastWritten = { payload, plain };
     } catch (error) {
       try { fs.unlinkSync(temporaryPath); } catch { /* It may already have been renamed. */ }
       throw error;

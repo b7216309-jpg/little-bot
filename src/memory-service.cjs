@@ -65,7 +65,9 @@ class MemoryService {
     this.db = new DatabaseSync(filename);
     this.embedding = embedding;
     this.semantic = new Map();
+    // What the last indexing pass saw for each message and conversation, so an unchanged one costs no work.
     this.indexedMessages = new Map();
+    this.indexedSessions = new Map();
     this.embeddingGeneration = 0;
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS projects(id TEXT PRIMARY KEY,name TEXT NOT NULL);
@@ -73,9 +75,6 @@ class MemoryService {
       CREATE TABLE IF NOT EXISTS records(id TEXT PRIMARY KEY,type TEXT NOT NULL,text TEXT NOT NULL,scope TEXT NOT NULL,project_id TEXT,workspace TEXT NOT NULL DEFAULT '',status TEXT NOT NULL DEFAULT 'active',semantic_key TEXT NOT NULL DEFAULT '',pinned INTEGER NOT NULL DEFAULT 0,source TEXT NOT NULL DEFAULT '{}',created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,supersedes TEXT,embedding TEXT,embedding_model TEXT);
       CREATE INDEX IF NOT EXISTS records_scope ON records(project_id,status,type);
       CREATE VIRTUAL TABLE IF NOT EXISTS records_fts USING fts5(id UNINDEXED,text,tokenize='unicode61');
-      CREATE TRIGGER IF NOT EXISTS records_ai AFTER INSERT ON records BEGIN INSERT INTO records_fts(id,text) VALUES(new.id,new.text); END;
-      CREATE TRIGGER IF NOT EXISTS records_ad AFTER DELETE ON records BEGIN DELETE FROM records_fts WHERE id=old.id; END;
-      CREATE TRIGGER IF NOT EXISTS records_au AFTER UPDATE OF text ON records BEGIN DELETE FROM records_fts WHERE id=old.id; INSERT INTO records_fts(id,text) VALUES(new.id,new.text); END;
       CREATE TABLE IF NOT EXISTS suppressions(fingerprint TEXT NOT NULL,semantic_key TEXT NOT NULL,project_id TEXT NOT NULL DEFAULT '',PRIMARY KEY(fingerprint,project_id));
       CREATE TABLE IF NOT EXISTS suppressed_sources(chat_id TEXT NOT NULL,message_id TEXT NOT NULL,project_id TEXT NOT NULL DEFAULT '',PRIMARY KEY(chat_id,message_id,project_id));
       CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY,title TEXT NOT NULL,workspace TEXT NOT NULL,updated_at INTEGER NOT NULL);
@@ -86,6 +85,11 @@ class MemoryService {
     if (!this.db.prepare('PRAGMA table_info(records)').all().some(column => column.name === 'recallable')) {
       this.db.exec("BEGIN; ALTER TABLE records ADD COLUMN recallable INTEGER NOT NULL DEFAULT 1; UPDATE records SET recallable=0,embedding=NULL,embedding_model=NULL WHERE type='history' AND (COALESCE(json_extract(source,'$.role'),'tool') NOT IN ('user','assistant') OR COALESCE(json_extract(source,'$.kind'),'') IN ('reasoning','analysis','plan','commentary') OR COALESCE(json_extract(source,'$.phase'),'') IN ('analysis','commentary')); COMMIT;");
     }
+    // The memory page's counts and list, read on every save: small indexes so they never read the long history rows.
+    this.db.exec(`CREATE INDEX IF NOT EXISTS records_kinds ON records(recallable,type,status);
+      CREATE INDEX IF NOT EXISTS records_memory ON records(pinned,updated_at) WHERE status='active' AND type<>'history';
+      CREATE INDEX IF NOT EXISTS records_embedded ON records(embedding_model,recallable,status) WHERE embedding IS NOT NULL;`);
+    this.ensureSearchIndex();
     // Quarantine exhausted jobs from older releases without replaying them.
     this.db.prepare("UPDATE extraction_jobs SET status='failed' WHERE status='pending' AND attempts>=?").run(MAX_EXTRACTION_ATTEMPTS);
     const savedEmbedding = this.db.prepare("SELECT value FROM settings WHERE key='embedding'").get();
@@ -97,17 +101,50 @@ class MemoryService {
     this.localEmbeddings.close();
     this.db.close();
   }
+  // One commit for a whole pass instead of one per statement: each commit is a disk flush.
+  transaction(work) {
+    if (this.db.isTransaction) return work();
+    this.db.exec("BEGIN");
+    try {
+      const result = work();
+      this.db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      try { this.db.exec("ROLLBACK"); } catch { /* Already rolled back. */ }
+      throw error;
+    }
+  }
+  // The search index shares each record's rowid, so keeping it in step is a direct lookup. It used to find a
+  // record by its unindexed id, which read the whole index once per edited or deleted record. A database whose
+  // index is out of step (an older layout, or a copy whose rows were renumbered) is reindexed once on opening.
+  ensureSearchIndex() {
+    const layout = this.db.prepare("SELECT value FROM settings WHERE key='search_index'").get()?.value;
+    if (layout === "rowid") {
+      const { records } = this.db.prepare("SELECT COUNT(*) AS records FROM records").get();
+      const { indexed } = this.db.prepare("SELECT COUNT(*) AS indexed FROM records_fts").get();
+      const { matched } = this.db.prepare("SELECT COUNT(*) AS matched FROM records r JOIN records_fts f ON f.rowid=r.rowid WHERE f.id=r.id").get();
+      if (records === indexed && indexed === matched) return;
+    }
+    this.transaction(() => this.db.exec(`
+      DROP TRIGGER IF EXISTS records_ai; DROP TRIGGER IF EXISTS records_ad; DROP TRIGGER IF EXISTS records_au;
+      DELETE FROM records_fts;
+      INSERT INTO records_fts(rowid,id,text) SELECT rowid,id,text FROM records;
+      CREATE TRIGGER records_ai AFTER INSERT ON records BEGIN INSERT OR REPLACE INTO records_fts(rowid,id,text) VALUES(new.rowid,new.id,new.text); END;
+      CREATE TRIGGER records_ad AFTER DELETE ON records BEGIN DELETE FROM records_fts WHERE rowid=old.rowid; END;
+      CREATE TRIGGER records_au AFTER UPDATE OF text ON records BEGIN DELETE FROM records_fts WHERE rowid=old.rowid; INSERT OR REPLACE INTO records_fts(rowid,id,text) VALUES(new.rowid,new.id,new.text); END;
+      INSERT OR REPLACE INTO settings VALUES('search_index','rowid');`));
+  }
+  // Read once and kept: every save asks, and nothing else writes this setting.
   get enabled() {
-    return (
-      this.db.prepare("SELECT value FROM settings WHERE key='enabled'").get()
-        ?.value !== "false"
-    );
+    this.enabledSetting ??= this.db.prepare("SELECT value FROM settings WHERE key='enabled'").get()?.value !== "false";
+    return this.enabledSetting;
   }
   set enabled(value) {
-    if (this.enabled !== (value !== false)) this.embeddingGeneration++;
-    this.db
-      .prepare("INSERT OR REPLACE INTO settings VALUES('enabled',?)")
-      .run(String(value !== false));
+    const enabled = value !== false;
+    if (this.enabled === enabled) return;
+    this.embeddingGeneration++;
+    this.db.prepare("INSERT OR REPLACE INTO settings VALUES('enabled',?)").run(String(enabled));
+    this.enabledSetting = enabled;
   }
   registerProject(workspace, { id, name } = {}) {
     const folder = workspaceKey(workspace);
@@ -442,7 +479,15 @@ class MemoryService {
       this.db.prepare("DELETE FROM records WHERE type='episode'").run().changes,
     );
   }
+  // Every save and every screen refresh asks for this, and it reads the whole table. It is read again only once
+  // the database or the embedding setup changed; each caller gets its own copy.
   snapshot() {
+    const key = JSON.stringify([this.db.prepare("SELECT total_changes() AS count").get().count, this.enabled,
+      this.embedding, this.embeddingError || null]);
+    if (this.snapshotCache?.key !== key) this.snapshotCache = { key, value: this.readSnapshot() };
+    return structuredClone(this.snapshotCache.value);
+  }
+  readSnapshot() {
     const rows = this.db
       .prepare(
         "SELECT * FROM records WHERE status='active' AND type<>'history' ORDER BY pinned DESC,updated_at DESC LIMIT 100",
@@ -482,22 +527,34 @@ class MemoryService {
       },
     };
   }
+  // Indexes every conversation and goal in one transaction. Called on each save, so it only does work for
+  // what changed since the last pass.
+  indexAll(chats = [], goals = []) {
+    if (!this.enabled) return;
+    this.transaction(() => {
+      for (const chat of chats) this.indexChat(chat);
+      for (const goal of goals) this.indexGoal(goal);
+    });
+  }
   indexChat(chat) {
     if (!this.enabled || !chat?.id || chat.private) return;
-    this.db
-      .prepare("INSERT OR REPLACE INTO sessions VALUES(?,?,?,?)")
-      .run(
-        chat.id,
-        clean(chat.title) || "Conversation",
-        clean(chat.workspace),
-        Date.now(),
-      );
+    let changed = false;
     let chunkOffset = 0;
     for (const [index, message] of (chat.messages || []).entries()) {
-      const content = clean(message.text || message.output || message.content);
-      if (!content) continue;
+      const raw = message.text || message.output || message.content;
       const messageId = message.id || `message-${index}`;
       const id = `history:${chat.id}:${messageId}`;
+      const inputs = { raw, index, chunkOffset, role: message.role, kind: message.kind, phase: message.phase,
+        automationId: message.automationId, automationName: message.automationName, workspace: message.workspace || chat.workspace,
+        model: message.model || chat.model, connection: message.connection || chat.connection };
+      // The same inputs as last time make the same record: skip the cleaning, hashing and database.
+      const seen = this.indexedMessages.get(id);
+      if (seen && Object.keys(inputs).every(name => seen.inputs[name] === inputs[name])) {
+        chunkOffset = seen.nextOffset;
+        continue;
+      }
+      const content = clean(raw);
+      if (!content) continue;
       const source = JSON.stringify({
         sessionId: chat.id,
         messageId,
@@ -513,7 +570,11 @@ class MemoryService {
       });
       chunkOffset += Math.max(1, Math.ceil(content.length / 1800));
       const fingerprint = hash(content + source);
-      if (this.indexedMessages.get(id) === fingerprint) continue;
+      const indexed = { fingerprint, inputs, nextOffset: chunkOffset };
+      if (seen?.fingerprint === fingerprint) {
+        this.indexedMessages.set(id, indexed);
+        continue;
+      }
       const projectId = this.registerProject(
           message.workspace || chat.workspace,
         ),
@@ -535,8 +596,17 @@ class MemoryService {
       const recallable = ['user', 'assistant'].includes(message.role)
         && !['reasoning', 'analysis', 'plan', 'commentary', 'automation', 'memory'].includes(message.kind)
         && !['analysis', 'commentary'].includes(message.phase);
-      this.db.prepare('UPDATE records SET recallable=?,embedding=CASE WHEN ? THEN embedding ELSE NULL END WHERE id=?').run(Number(recallable), Number(recallable), id);
-      this.indexedMessages.set(id, fingerprint);
+      // Written only when it changes: after a restart every message passes here once, and an unchanged row needs no write.
+      this.db.prepare('UPDATE records SET recallable=?1,embedding=CASE WHEN ?1 THEN embedding ELSE NULL END WHERE id=?2 AND (recallable<>?1 OR (?1=0 AND embedding IS NOT NULL))')
+        .run(Number(recallable), id);
+      this.indexedMessages.set(id, indexed);
+      changed = true;
+    }
+    const title = clean(chat.title) || "Conversation", workspace = clean(chat.workspace);
+    const session = `${title}\u0000${workspace}`;
+    if (changed || this.indexedSessions.get(chat.id) !== session) {
+      this.db.prepare("INSERT OR REPLACE INTO sessions VALUES(?,?,?,?)").run(chat.id, title, workspace, Date.now());
+      this.indexedSessions.set(chat.id, session);
     }
   }
   captureTurn(chat) {
@@ -619,6 +689,7 @@ class MemoryService {
     this.db.prepare('DELETE FROM sessions WHERE id=?').run(sessionId);
     this.db.prepare("DELETE FROM extraction_jobs WHERE chat_id=? AND status IN ('pending','failed')").run(sessionId);
     for (const key of [...this.indexedMessages.keys()]) if (key.startsWith(`history:${sessionId}:`)) this.indexedMessages.delete(key);
+    this.indexedSessions.delete(sessionId);
     return removed;
   }
   // Cosine similarity of a stored vector with the query's. Parsed vectors are kept between searches (until

@@ -55,7 +55,11 @@ jobs:
           $env:LITTLE_BOT_INSTALLER_STATE_DIR = $installerState
 
           $process = Start-Process -FilePath $setup -ArgumentList '/Q' -PassThru -Wait
-          if ($process.ExitCode -ne 0) { throw "Installer exited with $($process.ExitCode)." }
+          if ($process.ExitCode -ne 0) {
+            $installLog = Join-Path ([IO.Path]::GetTempPath()) 'little-bot-install-error.log'
+            if (Test-Path -LiteralPath $installLog) { Get-Content -LiteralPath $installLog | Write-Host }
+            throw "Installer exited with $($process.ExitCode)."
+          }
           for ($i = 0; $i -lt 100 -and !(Test-Path -LiteralPath (Join-Path $installDir 'Little Bot.exe')); $i++) { Start-Sleep -Milliseconds 100 }
           if (!(Test-Path -LiteralPath (Join-Path $installDir 'Little Bot.exe'))) { throw 'Installed Little Bot.exe was not found.' }
 

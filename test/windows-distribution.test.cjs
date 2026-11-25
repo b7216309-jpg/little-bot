@@ -21,6 +21,8 @@ test('package scripts expose unpacked, portable, and installer outputs', () => {
   assert.match(builder, /target:winexe/);
   assert.match(builder, /LITTLEBOTSETUP1/);
   assert.match(builder, /CopyExactly/);
+  // Started from PowerShell 7, the setup must not hand Windows PowerShell PowerShell 7's modules.
+  assert.match(builder, /EnvironmentVariables\.Remove\("PSModulePath"\)/);
 });
 
 test('installer is per-user and registers a real uninstaller', () => {
@@ -35,6 +37,11 @@ test('installer is per-user and registers a real uninstaller', () => {
   assert.match(install, /QuietUninstallString/);
   assert.match(install, /NoModify/);
   assert.match(install, /NoRepair/);
+  // Extraction uses .NET directly: Expand-Archive could come from PowerShell 7's module and fail.
+  assert.match(install, /\[IO\.Compression\.ZipFile\]::ExtractToDirectory/);
+  assert.doesNotMatch(install, /^\s*Expand-Archive/m);
+  // The setup program shows no window, so a failure must leave its reason in a log.
+  assert.match(install, /trap \{[\s\S]*little-bot-install-error\.log|little-bot-install-error\.log[\s\S]*trap \{/);
   assert.match(uninstall, /\$resolvedInstall = \[IO\.Path\]::GetFullPath\(\$InstallDir\)/);
   assert.match(uninstall, /Remove-Item[^\n]*\$resolvedInstall/);
   assert.match(uninstall, /CurrentVersion\\Uninstall\\Little Bot/);

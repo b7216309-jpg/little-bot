@@ -5,6 +5,16 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# The setup program runs this script without a window and reports only its exit code, so a failure leaves its
+# reason here for the user (and for CI) to read.
+$errorLog = Join-Path ([IO.Path]::GetTempPath()) 'little-bot-install-error.log'
+Remove-Item -LiteralPath $errorLog -Force -ErrorAction SilentlyContinue
+trap {
+  "Little Bot $Version installer failed at $(Get-Date -Format o)`r`n$($_ | Out-String)`r`n$($_.ScriptStackTrace)" |
+    Set-Content -LiteralPath $errorLog -Encoding UTF8 -ErrorAction SilentlyContinue
+  break
+}
+
 $payload = Join-Path $PSScriptRoot 'payload.zip'
 $uninstallSource = Join-Path $PSScriptRoot 'uninstall.ps1'
 if (!(Test-Path -LiteralPath $payload -PathType Leaf)) { throw 'Installer payload is missing.' }
@@ -27,7 +37,10 @@ $temporary = "$installDir.installing-$PID"
 Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
 
 try {
-  Expand-Archive -LiteralPath $payload -DestinationPath $temporary -Force
+  # .NET's own extractor rather than Expand-Archive: that comes from a module, and Windows PowerShell started from
+  # PowerShell 7 can load PowerShell 7's copy, which calls a method .NET Framework does not have.
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  [IO.Compression.ZipFile]::ExtractToDirectory($payload, $temporary)
   $stagedExe = Join-Path $temporary 'Little Bot.exe'
   if (!(Test-Path -LiteralPath $stagedExe -PathType Leaf)) { throw 'Little Bot.exe is missing from the installer payload.' }
 

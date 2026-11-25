@@ -27,7 +27,14 @@ See [Store](../../src/store.cjs) for normalization and persistence. Production u
 
 ## Saving and recovery
 
-Store serializes a normalized copy and replaces the state file using a temporary file. It indexes saved conversations and goals into SQLite. The JSON file and database are **not one transaction**. Invalid shapes produce recovery warnings; unreadable encrypted state is locked and preserved rather than overwritten. A valid large encrypted conversation can now be read back without the previous 50 MiB reader limit.
+Store serializes a normalized copy and replaces the state file using a temporary file. It indexes saved conversations and goals into SQLite. The JSON file and database are **not one transaction**.
+
+Saving is sized for long histories and for the disk (0.56.0, [save-path test](../../test/save-path.test.cjs)):
+
+- Each save reindexes only the messages that changed since the last pass, in one database transaction, and does not write the file again when its content would be unchanged.
+- A streaming reply is saved every 15 seconds (`STREAM_SAVE_MS` in [controller.cjs](../../src/controller.cjs)). A finished reply, tool call or command is saved at once, so only a crash mid-reply can lose up to 15 seconds of partial text. Each save still rewrites the whole state file.
+- The search index shares each record's rowid, so editing or deleting a record no longer reads the whole index. A database from before 0.56.0, or one whose index drifted (a restored copy, say), is reindexed once when opened.
+- The memory page's counts and list come from small indexes and are read again only after the database changed. Invalid shapes produce recovery warnings; unreadable encrypted state is locked and preserved rather than overwritten. A valid large encrypted conversation can now be read back without the previous 50 MiB reader limit.
 
 On restart, transient chat execution is reset and interrupted goals are normalized for recovery. External-effect goals require effect review; local goals verify results before continuing. Deferred operations left running become interrupted. Imported draft attachments are not restored and unreferenced copies are pruned.
 

@@ -18,6 +18,7 @@ Guide: [01-runtime-storage.md](01-runtime-storage.md)
 | [src/preload.cjs](../../src/preload.cjs) | Production application module |
 | [src/profiles.cjs](../../src/profiles.cjs) | Production application module |
 | [src/store.cjs](../../src/store.cjs) | Production application module |
+| [test/save-path.test.cjs](../../test/save-path.test.cjs) | Saves that skip unchanged work, the rowid search index and the streaming save interval |
 
 ## chat context
 
