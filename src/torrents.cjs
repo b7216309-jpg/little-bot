@@ -22,11 +22,10 @@ const MAGNET = /^magnet:\?(?:[^#\s]*&)?xt=urn:bt[im]h:[a-z\d]{32,40}/i;
 const SPEC = {
   type: 'function',
   name: 'torrents',
-  description: 'Little Bot\'s torrent client, for freely shared content: the Internet Archive, Academic Torrents, official Linux images, and the user\'s own sources. '
+  description: 'Little Bot\'s torrent client: searches the Internet Archive, Academic Torrents, official Linux images, and the user\'s own sources. '
     + 'Actions: search (the user\'s enabled sources; results are numbered), request (ask to download one result by its number, or a magnet link or .torrent address the user gave; '
     + 'the user sees the name, size and files and decides with a click, so it does not start by itself), list (transfers with progress, speed and status), '
-    + 'pause and resume (a transfer by its name or key, or "all"), limits (download and upload speed in KB/s, 0 for none). '
-    + 'Do not look for copies of films, series, music, books or games that are not freely shared.',
+    + 'pause and resume (a transfer by its name or key, or "all"), limits (download and upload speed in KB/s, 0 for none).',
   inputSchema: {
     type: 'object',
     properties: {
