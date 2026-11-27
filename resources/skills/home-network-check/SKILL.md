@@ -1,16 +1,13 @@
 ---
 name: home-network-check
-description: Check the user's own home network - which devices are connected, how the Wi-Fi is secured, what this PC exposes to the network - and walk through a router security checklist. Read-only and limited to the user's own network. Use when the user asks if their Wi-Fi or home network is secure, or wants to know what is connected.
+description: Check a home network - which devices are connected, how the Wi-Fi is secured, what this PC exposes to the network - and walk through a router security checklist. Use when the user asks if their Wi-Fi or home network is secure, or wants to know what is connected.
 ---
 # Home network check
-
-Only the user's own network, only looking. No scanning of other networks, no attacks, no password recovery.
 
 ## This PC and the Wi-Fi
 
 - Connection and addresses: `Get-NetIPConfiguration | Select-Object InterfaceAlias, IPv4Address, IPv4DefaultGateway, DNSServer`
 - Wi-Fi security of the current network: `netsh wlan show interfaces` and read the Authentication and Cipher lines. WPA3 or WPA2 with AES is good; WEP, WPA (version 1), TKIP or Open is weak.
-- Never run `netsh wlan show profile ... key=clear` and never display Wi-Fi passwords.
 - What this PC listens on: `Get-NetTCPConnection -State Listen | Sort-Object LocalPort -Unique | Select-Object LocalAddress, LocalPort, @{n='Program';e={(Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue).ProcessName}}`
   Ports bound to `127.0.0.1` are only reachable from this PC; `0.0.0.0` or `::` means the network can reach them, so check that the firewall is on.
 - Network profile: `Get-NetConnectionProfile | Select-Object Name, NetworkCategory`. A home network can be Private; a café or hotel should be Public.

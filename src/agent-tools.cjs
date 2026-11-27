@@ -7,7 +7,7 @@ const PLUGINS = ['cad', 'draughts', 'torrents'];
 const PLUGIN_BRIEFS = {
   cad: 'design 3D-printable parts in the CAD workshop',
   draughts: 'play French draughts with the user on the board',
-  torrents: 'search the user\'s legal torrent sources and request downloads for them to start',
+  torrents: 'search the user\'s torrent sources and request downloads for them to start',
 };
 const QUICK_BLOCKED = new Set(['memory_save', 'memory_forget', 'goal_manage', 'schedule_manage', 'web_watch', 'followup_manage', 'intention_manage']);
 

@@ -4222,7 +4222,7 @@ function renderExtensionTools() {
   }
   {
     const enabled = Boolean(state.torrents?.enabled);
-    const { card, heading, copy } = extensionCard('Torrents', 'A light BitTorrent client for freely shared content: search the Internet Archive, Academic Torrents, official Linux images and your own feeds, look inside before downloading, and let downloads share back up to a limit. Little Bot can search and ask; a download starts only from your click.', 'import');
+    const { card, heading, copy } = extensionCard('Torrents', 'A light BitTorrent client: search the Internet Archive, Academic Torrents, official Linux images and your own feeds, look inside before downloading, and let downloads share back up to a limit. Little Bot can search and ask; a download starts only from your click.', 'import');
     heading.append(extensionToggle('Enable torrents', enabled, 'torrents', (next) => mutateExtension('torrents', () => window.bot.torrentsEnable({ enabled: next }), next ? 'Torrents on. Open them with the Torrents button.' : 'Torrents off.')));
     const meta = element('div', 'extension-card-meta');
     meta.append(element('span', '', enabled ? 'On · Little Bot loads the torrents tool when a conversation needs it' : 'Off · no engine, panel or tool'), element('span', 'extension-tag', 'Built in'));

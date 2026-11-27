@@ -5,7 +5,7 @@ const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { parseSkill, LIMITS } = require('./extensions.cjs');
 
-const VERSION = 27;
+const VERSION = 28;
 // Skills from 26 on arrive disabled: they wait in Extensions until the user turns one on, and
 // a disabled skill is not named in requests, so they cost nothing until then.
 const OPTIONAL_SKILLS = [
@@ -55,6 +55,15 @@ const ORIGINAL_HASHES = {
     '63cb092d0ae58de008f692dbf52cec92318fe0dc9dc02605df4660c99a3d53ff', // 0.35.0 guide (built-in web tools)
     '266e0d314cd8d31a58feabb3a2c1c5bfc57f819ddff15051ccbb44a6da2da9a4', // 0.8.9–0.34 guide (Brave/Firecrawl web tools)
     'ddc0f9422378b1ef3ac91d8332b6316fe63bcdbbc8bcf98c3c5e22be61ac789e',
+  ],
+  'home-network-check': [
+    '0396e04521d8d7b8da8bd5865e111ad92a45aa187762c205cd0976ecf209edbd', // v26–27
+  ],
+  'budget-tracker': [
+    '912cdbcf2668c7bee51dc3b7e2dcd688adf4e5b45bc7503a9634b95ad71ac251', // v26–27
+  ],
+  'home-safety-plan': [
+    '97d90607c25bd7400f676ffea134d668959715fe861636594281482c85b51c63', // v26–27
   ],
 };
 const instructionHash = skill => createHash('sha256').update(JSON.stringify({

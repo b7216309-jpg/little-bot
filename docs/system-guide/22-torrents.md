@@ -1,6 +1,6 @@
 # Torrents
 
-Torrents is an optional built-in plugin: a light BitTorrent client for freely shared content. It is off until the user switches it on in **Extensions › Tools › Built-in plugins**. While it is off, no engine runs and no `torrents` tool is in any prompt. While it is on, a conversation gets the `torrents` tool only once it is loaded there, by the model through `plugin_load` or by the user using the panel (see [Optional plugins load on demand](10-agent-tools-terminal.md#optional-plugins-load-on-demand)).
+Torrents is an optional built-in plugin: a light BitTorrent client. It is off until the user switches it on in **Extensions › Tools › Built-in plugins**. While it is off, no engine runs and no `torrents` tool is in any prompt. While it is on, a conversation gets the `torrents` tool only once it is loaded there, by the model through `plugin_load` or by the user using the panel (see [Optional plugins load on demand](10-agent-tools-terminal.md#optional-plugins-load-on-demand)).
 
 ## How it fits together
 
@@ -71,8 +71,6 @@ Results rank titles holding all the words first (the whole phrase best), then of
 - `search`: numbered results from the user's sources;
 - `request`: a result by its number, or a magnet link or `.torrent` address. It never starts a download: it reads the torrent and puts a card at the top of the Torrents panel (opening it), where the user looks inside, downloads or declines. Requests expire after an hour.
 - `list`, `pause`, `resume` (by name, key or "all"), and `limits` (KB/s).
-
-The tool's description asks the model not to look for copies of works that are not freely shared.
 
 ## Magnet links
 
