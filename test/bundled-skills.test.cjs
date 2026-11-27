@@ -30,7 +30,7 @@ test('an upgrade adds the new skills once, disabled, and leaves existing ones an
   assert.equal(skills.find(skill => skill.name === 'journal'), mine, 'an edited, disabled skill is untouched');
   assert.equal(skills.filter(skill => skill.name === 'trip-planner').length, 1);
   assert.ok(skills.filter(skill => skill.name !== 'journal').every(skill => skill.enabled === false));
-  assert.equal(upgrading.data.extensions.starterSkillsVersion, 27);
+  assert.equal(upgrading.data.extensions.starterSkillsVersion, 28);
 
   // Deleting one afterwards is respected on the next launch.
   upgrading.data.extensions.skills = skills.filter(skill => skill.name !== 'trip-planner');

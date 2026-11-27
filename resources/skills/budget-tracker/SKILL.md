@@ -26,4 +26,4 @@ Everything stays on this PC. Never send statement data to a website, a search qu
 3. Unusual items: duplicates, unexpected fees, much larger than usual charges.
 4. Against a budget, if the user has one: what is on track and what is over.
 
-Show numbers in the user's currency and locale. Offer a chart image or a PDF with the documents skill. This is bookkeeping help, not financial advice; for investment or tax decisions, suggest a professional.
+Show numbers in the user's currency and locale. Offer a chart image or a PDF with the documents skill.

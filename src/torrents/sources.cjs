@@ -1,6 +1,6 @@
 'use strict';
 
-// Where torrents are found: three built-in catalogues of freely shared content (the Internet Archive, Academic
+// Where torrents are found: three built-in catalogues (the Internet Archive, Academic
 // Torrents, official Linux images) and the user's own RSS/Atom feeds and Torznab endpoints. Every source answers a
 // search with the same result shape; results are fetched only when the user (or Little Bot) searches.
 
